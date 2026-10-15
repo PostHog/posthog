@@ -2,11 +2,10 @@ import AppIntents
 import Foundation
 
 struct PokeHedgehogIntent: AppIntent {
-    static let title: LocalizedStringResource = "Poke the hedgehog"
+    static let title: LocalizedStringResource = "Change hedgehog"
     // The intent only makes sense from the widget, so keep it out of Shortcuts and Spotlight.
     static let isDiscoverable = false
 
-    // Each widget family keeps its own poke, so tapping the small widget does not make the medium one react.
     @Parameter(title: "Widget family")
     var family: String
 
@@ -16,8 +15,10 @@ struct PokeHedgehogIntent: AppIntent {
         self.family = family
     }
 
+    @MainActor
     func perform() async throws -> some IntentResult {
-        SharedStore.defaults?.set(Date().timeIntervalSince1970, forKey: SharedStore.pokedAtKey(family: family))
+        let character = HogSelection.next(after: HogSelection.selected(family: family))
+        SharedStore.defaults?.set(character, forKey: SharedStore.selectedHogKey(family: family))
         return .result()
     }
 }

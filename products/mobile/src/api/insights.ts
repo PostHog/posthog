@@ -1,4 +1,4 @@
-import { apiJson, projectPath } from './client'
+import { ApiError, apiJson, projectPath } from './client'
 import type { PaginatedApi } from './reports'
 
 // Shapes follow `InsightSerializer` and `InsightBasicSerializer` in
@@ -116,6 +116,21 @@ export async function readInsight(
         return insight
     }
     return (await fetchInsightByShortId(target.shortId, options.signal)) ?? insight
+}
+
+export interface InsightSummary {
+    name: string | null
+    description: string | null
+}
+
+export async function getInsightSummary(shortId: string, signal?: AbortSignal): Promise<InsightSummary | null> {
+    try {
+        const insight = await fetchInsight(shortId, { refresh: 'force_cache', signal })
+        return { name: insight.name || insight.derived_name || null, description: insight.description || null }
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return null
+        throw error
+    }
 }
 
 export const INSIGHT_PAGE_SIZE = 30

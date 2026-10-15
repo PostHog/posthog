@@ -1,8 +1,8 @@
 # Hedgehog widget
 
 A home-screen widget for iOS and Android with a PostHog hedgehog that wanders, jumps, waves and dances.
-Eight illustrated hoggies visit for coffee breaks, parties, magic, adventures, naps, flights, reading and floating.
-Tapping the hog reveals a surprise visitor, then returns to the scheduled routine.
+Tapping the hog cycles through eight illustrated characters: coffee, party, wizard, explorer, asleep, superhero, reading and float.
+The selected character stays until the next tap, including across app launches and daily script syncs.
 The app has no hedgehog mode of its own yet; the widget is the only place the hedgehog appears.
 
 ## How it moves
@@ -17,15 +17,20 @@ So the app's JavaScript plans the choreography and the widget plays it back:
 3. Each platform plays the script with what the OS allows:
    - **iOS (WidgetKit)** cannot animate continuously, so it uses the script's *keyframes*, one per 2-second beat.
      From iOS 17 WidgetKit animates the change between entries, so the hedgehog glides, hops, flips and turns to its next spot.
-     Each move has its own animation: travel lasts until the next beat, a jump rises slowly and falls fast, and a flip turns with the jump.
-     WidgetKit reportedly shows entries no faster than about every 2 seconds and stops updating a timeline of more than about 400 entries, so a timeline holds about 10 minutes of beats (identical keyframes merge into one entry).
-     After them comes one entry a minute for 40 minutes, so the hedgehog keeps moving if the system delays the next reload to save its daily budget.
-     The hedgehog is an interactive `Button(intent:)` that moves with the sprite: a tap on it plays a reaction right away.
-     A tap anywhere else opens the app.
-   - **Android (RemoteViews)** supports `ViewFlipper` with `autoStart`, which is real frame animation inside a widget.
-     It uses the script's *loops*: a closed cycle of ticks (pose frame + position) that it flips through every `tickMs`.
-     The provider picks the loop for the current ten-minute slot, so the routine changes over the day.
-     Each frame's sprite sends the poke broadcast, and a tap anywhere else opens the app.
+     Walking interpolates continuously between destinations across the full two-second interval. A geometry group keeps
+     the button’s content updates from overriding its position animation; facing changes do not insert a stationary beat.
+     Hops and flips use built-in rotations that complete a full turn within the same interval. Every entry ends upright on the ground,
+     so a delayed or skipped update cannot leave the hog upside down. Image changes and facing changes do not crossfade or spring.
+     The widget saves its scheduled entries per family: tapping changes only the character, and a refresh resumes the
+     existing timeline. After it expires, the new routine starts at the last position instead of a distant wall-clock sample.
+     Dialogue is not rendered on either platform, including when reading an older script.
+     The hedgehog is an interactive `Button(intent:)`; a tap anywhere else opens the app.
+   - **Android (RemoteViews)** uses `ViewFlipper` to play a closed loop, interpolating four positions every 30 ms (about 33 fps) for the standard 120 ms script.
+     A placed widget keeps its loop across daily script syncs. Android 12+ reuses stable frame views so taps, refreshes
+     and resizing retain the launcher's displayed frame. On older Android versions, a tap carries the visible frame's
+     index and restores it when the views are rebuilt; an OS recreation or resize may restart the loop.
+     There are no periodic loop replacements or reaction-end alarms. Each frame's sprite sends its own poke broadcast,
+     scoped to that widget, and a tap anywhere else opens the app.
 4. With no script in shared storage (the app was never opened) each platform plays a small built-in fallback.
 
 ## Choreography JSON (version 1)
@@ -40,8 +45,8 @@ interface Tick {
     x: number // 0..1, centre of the hedgehog across the widget width (0 = left edge, 1 = right edge; renderers clamp so it stays inside)
     y: number // 0..1, height above the floor: 0 = feet on the floor, 1 = top of the widget
     facing: Facing
-    bubble?: string // at most 24 characters; iOS speech bubbles only on ticks with y 0, Android captions use the first loop tick
-    turn?: number // iOS only: turns added on the way into this tick, clockwise on screen. A flip is two ticks of 0.5 each (up, then down).
+    bubble?: string // legacy dialogue; ignored by the native renderers
+    turn?: number // legacy half-turn markers; iOS plays one complete flip when entering an airborne sequence
     hoggie?: 'coffee_cup' | 'party' | 'wizard' | 'explorer' | 'asleep' | 'superhero' | 'reading' | 'float'
     // A bundled illustration replaces the pixel sprite. Missing/unknown artwork falls back to the pixel sprite.
     // Consecutive ticks with a turn add up, and the run ends on whole turns with y 0, so the hedgehog lands upright
@@ -57,26 +62,42 @@ interface Choreography {
     tickMs: 120 // Android: one tick every tickMs milliseconds
     loopMinutes: 10 // Android: loop index = floor(minutesSince(startsAt) / loopMinutes) modulo loops.length
     loops: Tick[][] // each loop is a closed cycle (last tick ends near the first) of at most 120 ticks
-    reaction: { keyframes: Tick[]; ticks: Tick[] } // played after a tap: iOS inserts the keyframes right away (one every 2 seconds), Android plays the ticks once.
-    surprises?: { keyframes: Tick[]; ticks: Tick[] }[] // newer scripts offer illustrated tap reactions; old scripts still use reaction
+    reaction: { keyframes: Tick[]; ticks: Tick[] } // legacy tap reaction, retained for compatibility with older native builds.
+    surprises?: { keyframes: Tick[]; ticks: Tick[] }[] // legacy illustrated reactions, retained for older native builds
     // Reaction ticks are authored at x 0.5 facing right. A renderer shifts every x by (current x - 0.5), clamps, and keeps the current facing, so the hedgehog reacts where it stands.
-    // When the current facing is left, the renderer also negates `turn`, so a flip still goes forwards.
 }
 ```
 
-Illustrations and surprises are additive version 1 fields, so an older native widget can still play a newer script.
-Both platforms select a surprise using the tap's epoch milliseconds modulo the surprise count.
-The selection stays the same across reloads for that tap. No network request or extra refresh alarm is needed.
-iOS interleaves visitor scenes with roaming; Android alternates roaming and visitor loops every ten minutes.
-Each Android loop holds one character for the whole cycle and closes in the same position and facing.
-Android shows visitor dialogue in a caption above the animation; iOS places it above the hog.
+Illustrations and surprises remain in version 1 for older native builds. Current widgets ignore scripted character
+changes and apply their saved selection to every movement frame. Every tap advances to a different bundled character.
+New scripts contain no automatic visitor scenes. The first character is the pixel hedgehog until the first tap.
 
 Shared storage:
 
 | Platform | Store | Keys |
 | --- | --- | --- |
-| iOS | `UserDefaults(suiteName: "group.com.posthog.code.mobile")` | `choreography` (JSON string); per widget family (`systemSmall`, `systemMedium`): `pokedAt.<family>` (seconds since 1970, Double), `reactionPoke.<family>` and `reactionStart.<family>` (written by the widget once it has scheduled the reaction for that poke, so a later reload does not replay it) |
-| Android | `SharedPreferences` file `hedgehog_widget` | `choreography` (JSON string), `pokedAt` (Long, epoch ms) |
+| iOS | `UserDefaults(suiteName: "group.com.posthog.code.mobile")` | `choreography` (JSON string); per family: `selectedHog.<family>` and `timeline.v2.<family>` (encoded scheduled entries) |
+| Android | `SharedPreferences` file `hedgehog_widget` | `choreography` (JSON string); per widget ID: `selectedHog.<id>` and `loop.<id>` (saved movement loop) |
+
+## Garden background
+
+Both widgets bundle the grass layer from PostHog's **Keyboard Garden** website wallpaper, used by
+[`src/components/Desktop/Wallpapers.tsx`](https://github.com/PostHog/posthog.com/blob/master/src/components/Desktop/Wallpapers.tsx).
+The source is [`9000_bg_light_07316896be.jpg`](https://res.cloudinary.com/dmukukwp6/image/upload/9000_bg_light_07316896be.jpg),
+downloaded at 1000px wide (`/image/upload/w_1000/9000_bg_light_07316896be.jpg`).
+It is bundled as `hoglet_garden.jpg` in both native asset catalogs and fills the widget with a centered crop.
+There is no runtime image download.
+
+## Native timeline check
+
+From `products/mobile` on macOS:
+
+```sh
+swiftc targets/HedgehogWidget/{Choreography,HedgehogTimelineProvider}.swift scripts/check_hedgehog_timeline.swift -o /tmp/check-hoglet
+/tmp/check-hoglet
+```
+
+This checks tap and reload continuity, character cycling, timeline persistence and delayed refreshes.
 
 ## Native module API (`modules/hedgehog-widget`)
 
@@ -85,7 +106,7 @@ import { isAvailable, setChoreography, clearChoreography } from 'hedgehog-widget
 
 isAvailable(): boolean // false on web and when the native module is missing
 setChoreography(json: string): void // persist the script and refresh every placed widget
-clearChoreography(): void // remove the script; widgets fall back to the built-in routine
+clearChoreography(): void // remove the source script; new routines use the fallback, placed widgets retain their current motion
 ```
 
 ## Sprites

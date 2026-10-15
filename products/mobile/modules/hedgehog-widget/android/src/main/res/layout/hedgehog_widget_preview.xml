@@ -4,14 +4,12 @@
   android:background="@drawable/hedgehog_widget_background"
   android:clipToOutline="true">
 
-  <FrameLayout
+  <ImageView
     android:layout_width="match_parent"
-    android:layout_height="1dp"
-    android:layout_gravity="bottom"
-    android:layout_marginStart="16dp"
-    android:layout_marginEnd="16dp"
-    android:layout_marginBottom="@dimen/hedgehog_floor_inset"
-    android:background="#D6D6D1" />
+    android:layout_height="match_parent"
+    android:scaleType="centerCrop"
+    android:src="@drawable/hoglet_garden"
+    android:importantForAccessibility="no" />
 
   <ImageView
     android:layout_width="@dimen/hedgehog_sprite_size"

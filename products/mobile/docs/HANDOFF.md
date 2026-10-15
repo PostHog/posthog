@@ -5,6 +5,51 @@ questions, and shows the PR it opens. Code lives in `src/features/handoff/` and 
 
 ## Flow
 
+### Default agent
+
+The report's hand-off button uses the last agent selected in the hand-off sheet: PostHog,
+Claude Code or Codex. The selection is saved on this device across reports and app
+restarts, with PostHog as the initial default. Selecting PostHog again restores that default.
+Copy prompt does not change the preference. The preference is client-only; external handoffs
+still open a prepared prompt without starting a PostHog run.
+
+### External agents on mobile
+
+The hand-off sheet offers two external destinations, independently of the PostHog run options:
+
+PostHog, Claude Code and Codex each show their existing brand mark beside the option label.
+The marks are decorative; screen readers announce the button's label and hint.
+
+- **Claude Code** opens the [documented mobile composer](https://support.claude.com/en/articles/14898120-open-the-claude-mobile-app-with-a-link)
+  at `claude://code/new` with an encoded `q` and, when the report's latest `repo_selection` artefact names
+  a GitHub repository, `repo=owner/repo`. The user reviews and submits the prompt in Claude. Claude Code access
+  is required, and Claude ignores a repository that is not connected to the user's GitHub account. The
+  `/code?prompt=...&repositories=...` web route can open the mobile app without applying the prompt or repository.
+- **Codex** opens `https://chatgpt.com/?prompt=<encoded text>`. ChatGPT's current
+  [iOS universal-link configuration](https://chatgpt.com/.well-known/apple-app-site-association) explicitly
+  admits this route. Prompt prefill was confirmed in device testing, and the web fallback was checked with
+  harmless sample text: it fills the composer without sending.
+  This replaces `codex://new?prompt=...&originUrl=...`, which opened ChatGPT but ignored the prompt and repository
+  in device testing. Repository context stays in the prompt; this route does not select a Codex project or
+  environment. Use `prompt`, not `q`, to target a draft. OS link preferences or an absent app may open the browser.
+
+The prompt includes the report URL and ID, a repository hint when known, and instructions to retrieve evidence
+through authenticated PostHog MCP tools. It does not make the report public or pass PostHog credentials.
+The receiving agent needs its own PostHog connection. Copy prompt uses the same text as both direct links.
+The agent claims the report when work starts, retains its `claim_id`, and attaches its PR URLs.
+Opening or copying never claims the report, starts a PostHog run, or reports that an external agent
+is working. Failed launches show an inline fallback. The web preview supports copying only.
+
+Device acceptance checks (iOS and Android, with receiving apps installed and absent):
+
+1. Open each direct option; check the destination, complete prompt, repository and explicit send step.
+2. In ChatGPT, choose the project manually; the prompt includes repository context but does not select a project.
+3. Return from each app and test a failed launch and Copy prompt; report state must stay unchanged.
+4. Try a report with no repository; the prompt must ask the agent to confirm one.
+5. Try a small screen and larger accessibility text; all destinations, PostHog options and Copy prompt must remain reachable.
+
+### PostHog runs
+
 ```text
 Hand off ──► kickOffReportTask ──► store.started ──► useTaskRun ──► store.live ──► mergeLiveRun ──► ActionBar
  (button or sheet)  GET report          (status card     bootstrap +     reducer       (report + live)    (footer state

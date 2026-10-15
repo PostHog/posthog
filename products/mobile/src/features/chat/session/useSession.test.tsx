@@ -270,7 +270,7 @@ describe('useSession', () => {
         expect(result.current.unsentText).toBe('Why did signups drop?')
     })
 
-    test('a new chat dropped while its task is being created deletes the task and starts no run', async () => {
+    test.each([false, true])('a closed composer reports whether creation accepted a run: %s', async (accepted) => {
         let finishCreate: (created: TaskCreateResponseApi) => void = () => undefined
         mocked.createTask.mockReturnValue(
             new Promise<TaskCreateResponseApi>((resolve) => {
@@ -279,16 +279,41 @@ describe('useSession', () => {
         )
 
         const { result, unmount } = renderHook(() => useSession({}))
-        let sending: Promise<void> = Promise.resolve()
+        let sending: Promise<boolean> = Promise.resolve(false)
         act(() => {
             sending = result.current.start('Why did signups drop?', { kind: 'none' }, OPUS_PLAN)
         })
         unmount()
-        finishCreate({ ...task(run({})), latest_run: null })
-        await sending
+        finishCreate({ ...task(run({})), latest_run: accepted ? run({}) : null })
+        expect(await sending).toBe(accepted)
 
-        expect(mocked.deleteTask).toHaveBeenCalledWith(TASK_ID)
+        if (accepted) {
+            expect(mocked.deleteTask).not.toHaveBeenCalled()
+        } else {
+            expect(mocked.deleteTask).toHaveBeenCalledWith(TASK_ID)
+        }
         expect(mocked.startTaskRun).not.toHaveBeenCalled()
+    })
+
+    test('a run accepted after its composer closes reports a successful send', async () => {
+        mocked.createTask.mockResolvedValue({ ...task(run({})), latest_run: null })
+        let finishRun: (response: Awaited<ReturnType<typeof tasks.startTaskRun>>) => void = () => undefined
+        mocked.startTaskRun.mockReturnValue(
+            new Promise((resolve) => {
+                finishRun = resolve
+            })
+        )
+        const { result, unmount } = renderHook(() => useSession({}))
+        let sending = Promise.resolve(false)
+        act(() => {
+            sending = result.current.start('Summarize this report', { kind: 'none' }, OPUS_PLAN)
+        })
+        await waitFor(() => expect(mocked.startTaskRun).toHaveBeenCalled())
+        unmount()
+        finishRun({ ...task(run({ status: 'in_progress' })), run: run({ status: 'in_progress' }) })
+        expect(await sending).toBe(true)
+        expect(mocked.deleteTask).not.toHaveBeenCalled()
+        expect(mocked.openTaskRunStream).not.toHaveBeenCalled()
     })
 
     test('after a first run fails with a 5xx, the next message goes to the run the server did start', async () => {

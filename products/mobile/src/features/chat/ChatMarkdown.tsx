@@ -1,17 +1,55 @@
 import type { ReactElement } from 'react'
-import { Linking, StyleSheet } from 'react-native'
+import { Linking, StyleSheet, Text } from 'react-native'
 import Markdown, { MarkdownIt, type RenderRules } from 'react-native-markdown-display'
-
+import { isMermaidLang } from '@/lib/mermaid'
 import { colors, fonts, radii, type } from '@/ui/tokens'
-
+import { InsightCard } from './InsightCard'
+import { MermaidDiagram } from './MermaidDiagram'
+import { ObjectChip } from './ObjectChip'
+import { type ObjectCardSpec, type ObjectRef, objectTagsPlugin } from './objectTags'
+import { QueryCard } from './QueryCard'
 import { resolveReplyLink } from './webLinks'
 
 /** `html: false` renders raw HTML in a reply as text, so a reply can never inject markup. */
-const markdownIt = MarkdownIt({ html: false, linkify: true, typographer: false })
+const markdownIt = MarkdownIt({ html: false, linkify: true, typographer: false }).use(objectTagsPlugin)
+
+markdownIt.core.ruler.after('block', 'closed_fences', (state) => {
+    const lines = state.src.split('\n')
+    for (const token of state.tokens) {
+        if (token.type === 'fence' && token.map) {
+            const last = lines[token.map[1] - 1]?.replace(/^(?:\s*>\s*)+/, '').trim() || ''
+            token.meta = { closed: new RegExp(`^${token.markup[0]}{${token.markup.length},}\\s*$`).test(last) }
+        }
+    }
+})
 
 const rules: RenderRules = {
     // Remote images in a reply would load from any host; the thread drops them.
     image: () => null,
+    object_ref: (node) => (
+        <ObjectChip key={node.key} target={(node as unknown as { sourceMeta: ObjectRef }).sourceMeta} />
+    ),
+    object_card: (node) => {
+        const spec = (node as unknown as { sourceMeta: ObjectCardSpec }).sourceMeta
+        return spec.mode === 'insight' ? (
+            <InsightCard key={node.key} shortId={spec.shortId} title={spec.title} />
+        ) : (
+            <QueryCard key={node.key} query={spec.query} title={spec.title} />
+        )
+    },
+    fence: (node, _children, _parents, styles) => {
+        const fallback = (
+            <Text key={node.key} style={styles.fence}>
+                {node.content}
+            </Text>
+        )
+        const meta = node as unknown as { sourceMeta?: { closed?: boolean }; sourceInfo?: string }
+        return isMermaidLang(meta.sourceInfo) && meta.sourceMeta?.closed ? (
+            <MermaidDiagram key={node.key} code={node.content} fallback={fallback} />
+        ) : (
+            fallback
+        )
+    },
 }
 
 function openLink(url: string): boolean {

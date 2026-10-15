@@ -58,7 +58,7 @@ The app requests exactly these scopes (`OAUTH_SCOPES` in `src/auth/oauth.ts`):
 | `today:read` | `GET today/briefing/` and `GET today/reports/{id}/page/`. Without it both return 403 and the inbox always falls back to the signals report list. |
 | `query:read` | `POST query/` for the live report metrics and charts, and in Views for web analytics, compare on an insight, and the people and recordings at a chart point. Without it the query returns 403, and the report shows each metric's saved value and series instead. |
 | `dashboard:read` | Views: dashboard detail, the dashboard list, search, and the dashboards in Recent |
-| `insight:read` | Views: insight reads in every `refresh` mode, the insight list, search, and `POST insights/viewed/` |
+| `insight:read` | Views: insight reads in every `refresh` mode, the insight list, search, and `POST insights/viewed/`. Chat: cached insight names and descriptions in insight cards. Without it the chat card keeps its browser link and shows that the summary could not load. |
 | `file_system_shortcut:write` | Views: pins, which are the web's starred items. It also grants `file_system_shortcut:read` for the pin list. |
 
 ### Granted scopes and signing in again

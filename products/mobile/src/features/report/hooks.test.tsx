@@ -80,4 +80,80 @@ describe('useReport', () => {
         )
         expect(result.current.isRefetching).toBe(true)
     })
+
+    test.each([200, 500])(
+        'keeps the report visible while refreshing missing evidence (signals %s)',
+        async (signalsStatus) => {
+            jest.useFakeTimers()
+            let refreshing = false
+            let failRefresh = false
+            const pending: { evidence: boolean; resolve: () => void }[] = []
+            globalThis.fetch = jest.fn(async (input) => {
+                const url = String(input)
+                const page = url.endsWith('/page/')
+                const signals = url.endsWith('/signals/')
+                if (refreshing) {
+                    await new Promise<void>((resolve) => pending.push({ evidence: page || signals, resolve }))
+                }
+                const status = page ? 404 : signals ? signalsStatus : failRefresh ? 503 : 200
+                const body = url.includes('/artefacts/')
+                    ? { count: 0, next: null, results: [] }
+                    : signals
+                      ? { signals: [] }
+                      : reportFixture({ id: REPORT_ID })
+                return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+            }) as typeof fetch
+            const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+            const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+                <QueryClientProvider client={client}>{children}</QueryClientProvider>
+            )
+            const renders: QueryState<ReportView>[] = []
+            const { result, unmount } = renderHook(
+                () => {
+                    const state = useReport(REPORT_ID)
+                    renders.push(state)
+                    return state
+                },
+                { wrapper }
+            )
+            try {
+                expect(result.current.isLoading).toBe(true)
+                await act(async () => {
+                    await jest.advanceTimersByTimeAsync(10)
+                })
+                expect(result.current.data?.id).toBe(REPORT_ID)
+                renders.length = 0
+                refreshing = true
+                await act(async () => {
+                    void result.current.refetch()
+                    await jest.advanceTimersByTimeAsync(10)
+                })
+                expect(result.current.data?.id).toBe(REPORT_ID)
+                expect(result.current.isRefetching).toBe(true)
+                expect(renders.every((state) => state.data?.id === REPORT_ID && !state.isLoading)).toBe(true)
+                // Failed background requests must also leave the last report readable and stop the indicator.
+                failRefresh = true
+                await act(async () => {
+                    for (const request of pending.filter((request) => !request.evidence)) {
+                        request.resolve()
+                    }
+                    await jest.advanceTimersByTimeAsync(10)
+                })
+                expect(result.current.data?.id).toBe(REPORT_ID)
+                expect(result.current.isRefetching).toBe(true)
+                await act(async () => {
+                    for (const request of pending.filter((request) => request.evidence)) {
+                        request.resolve()
+                    }
+                    await jest.advanceTimersByTimeAsync(10)
+                })
+                expect(result.current.isRefetching).toBe(false)
+                expect(renders.every((state) => state.data?.id === REPORT_ID && !state.isLoading)).toBe(true)
+            } finally {
+                unmount()
+                client.clear()
+                jest.useRealTimers()
+            }
+        }
+    )
 })

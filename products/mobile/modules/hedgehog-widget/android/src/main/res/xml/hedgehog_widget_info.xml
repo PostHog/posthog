@@ -7,7 +7,7 @@
   android:targetCellHeight="2"
   android:resizeMode="horizontal|vertical"
   android:widgetCategory="home_screen"
-  android:updatePeriodMillis="1800000"
+  android:updatePeriodMillis="0"
   android:initialLayout="@layout/hedgehog_widget"
   android:previewLayout="@layout/hedgehog_widget_preview"
   android:previewImage="@drawable/hog_wave_10"

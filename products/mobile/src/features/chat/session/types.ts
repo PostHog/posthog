@@ -147,12 +147,12 @@ export interface Session {
     notice?: string
     unsentText?: string
     runConfig?: SessionRunConfig
-    start: (text: string, context: ChatContext, options: ChatRunOptions) => Promise<void>
+    start: (text: string, context: ChatContext, options: ChatRunOptions) => Promise<boolean>
     /**
      * Sends to the live run after it applies the changed options, or starts a run that continues this task when the
      * run has ended. Without a task it starts one, as `start` does.
      */
-    send: (text: string, context: ChatContext, options?: ChatRunOptions) => Promise<void>
+    send: (text: string, context: ChatContext, options?: ChatRunOptions) => Promise<boolean>
     answer: (input: DecisionAnswerInput) => Promise<void>
     /** Asks the agent to stop the current turn. Only while `phase` is not `idle`. */
     stop: () => void

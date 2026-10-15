@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react-native'
 import type { ReactElement, ReactNode } from 'react'
-
+import { AppState, type AppStateStatus } from 'react-native'
 import { setAuthProvider } from '@/api/client'
-import { INBOX_PAGE_SIZE } from '@/api/reports'
+import { INBOX_PAGE_SIZE, postReadStates, reportKeys } from '@/api/reports'
+import { useAuthStore } from '@/auth/authStore'
 import { reportFixture } from '@/model/adapters/testFixtures'
 
 import { useInboxItems, useMarkReadOnOpen } from './hooks'
@@ -35,6 +36,7 @@ describe('inbox hooks', () => {
 
     beforeEach(() => {
         posted.length = 0
+        jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: () => undefined })
         setAuthProvider({
             getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2 }),
             refreshAccessToken: async () => null,
@@ -48,10 +50,11 @@ describe('inbox hooks', () => {
 
     afterEach(() => {
         setAuthProvider(null)
+        jest.restoreAllMocks()
     })
 
     test('marks each report read on a fast Prev/Next', async () => {
-        const queryClient = new QueryClient()
+        const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
         const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
             <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
         )
@@ -66,6 +69,205 @@ describe('inbox hooks', () => {
             { report_ids: ['report-1'], read: true },
             { report_ids: ['report-2'], read: true },
         ])
+    })
+
+    test('does not mark an unloaded report read', async () => {
+        const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        )
+        renderHook(() => useMarkReadOnOpen(undefined), { wrapper })
+        await act(async () => undefined)
+        expect(posted).toEqual([])
+    })
+
+    test('restores unread state after a failed mark and permits a retry', async () => {
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+        const scope = { host: 'https://app.example.com', projectId: 2 }
+        const key = reportKeys.readStates(scope, ['report-1'])
+        queryClient.setQueryData(key, { 'report-1': false })
+        let rejectWrite: (error: Error) => void = () => undefined
+        globalThis.fetch = jest.fn(
+            () =>
+                new Promise<Response>((_resolve, reject) => {
+                    rejectWrite = reject
+                })
+        ) as typeof fetch
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        )
+        const first = renderHook(() => useMarkReadOnOpen('report-1'), { wrapper })
+        await waitFor(() => expect(queryClient.getQueryData(key)).toEqual({ 'report-1': true }))
+        await act(async () => rejectWrite(new Error('offline')))
+        await waitFor(() => expect(queryClient.getQueryData(key)).toEqual({ 'report-1': false }))
+        first.unmount()
+        renderHook(() => useMarkReadOnOpen('report-1'), { wrapper })
+        await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+    })
+
+    test('shows unread only after a fresh successful answer and hides it after a failed refresh', async () => {
+        let answerRead: ((response: Response) => void) | undefined
+        globalThis.fetch = jest.fn(async (url: string) => {
+            if (new URL(url).pathname.endsWith('/read_state/'))
+                return new Promise<Response>((resolve) => {
+                    answerRead = resolve
+                })
+            return jsonResponse({ count: 1, next: null, results: [reportFixture({ id: 'r1' })] })
+        }) as typeof fetch
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+        const scope = { host: 'https://app.example.com', projectId: 2 }
+        const key = reportKeys.readStates(scope, ['r1'])
+        queryClient.setQueryData(key, { r1: false })
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        )
+        const screen = renderHook(() => useInboxItems(), { wrapper })
+        await waitFor(() => expect(screen.result.current.data?.[0]?.read).toBe(true))
+        await waitFor(() => expect(answerRead).toBeDefined())
+        await act(async () => answerRead?.(jsonResponse({ states: { r1: false } })))
+        await waitFor(() => expect(screen.result.current.data?.[0]?.read).toBe(false))
+        globalThis.fetch = jest.fn(async () => jsonResponse({}, 404)) as typeof fetch
+        await act(async () => {
+            await queryClient.refetchQueries({ queryKey: key })
+        })
+        await waitFor(() => expect(screen.result.current.data?.[0]?.read).toBe(true))
+    })
+
+    test('polls every thirty seconds only while focused and foregrounded', async () => {
+        jest.useFakeTimers()
+        const previousState = AppState.currentState
+        AppState.currentState = 'active'
+        let appChange: ((state: AppStateStatus) => void) | undefined
+        const listener = jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
+            appChange = handler
+            return { remove: () => undefined }
+        })
+        let reads = 0
+        globalThis.fetch = jest.fn(async (url: string) => {
+            if (new URL(url).pathname.endsWith('/read_state/')) {
+                reads += 1
+                return jsonResponse({ states: { r1: false } })
+            }
+            return jsonResponse({ count: 1, next: null, results: [reportFixture({ id: 'r1' })] })
+        }) as typeof fetch
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        )
+        const screen = renderHook(
+            ({ focused }: { focused: boolean }) => useInboxItems({ refreshWhileVisible: focused }),
+            {
+                initialProps: { focused: true },
+                wrapper,
+            }
+        )
+        try {
+            await waitFor(() => expect(screen.result.current.data?.[0]?.read).toBe(false))
+            const initial = reads
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(30_000)
+            })
+            expect(reads).toBe(initial + 1)
+            screen.rerender({ focused: false })
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(30_000)
+            })
+            expect(reads).toBe(initial + 1)
+            screen.rerender({ focused: true })
+            await waitFor(() => expect(reads).toBe(initial + 2))
+            act(() => appChange?.('background'))
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(30_000)
+            })
+            expect(reads).toBe(initial + 2)
+            act(() => appChange?.('active'))
+            await waitFor(() => expect(reads).toBe(initial + 3))
+        } finally {
+            screen.unmount()
+            queryClient.clear()
+            listener.mockRestore()
+            AppState.currentState = previousState
+            jest.useRealTimers()
+        }
+    })
+
+    test('ignores a read write that completes after switching project', async () => {
+        const originalProject = useAuthStore.getState().projectId
+        const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
+        const key = reportKeys.readStates({ host: 'https://app.example.com', projectId: 2 }, ['report-1'])
+        queryClient.setQueryData(key, { 'report-1': false })
+        let finish: ((response: Response) => void) | undefined
+        globalThis.fetch = jest.fn(
+            () =>
+                new Promise<Response>((resolve) => {
+                    finish = resolve
+                })
+        ) as typeof fetch
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        )
+        const screen = renderHook(() => useMarkReadOnOpen('report-1'), { wrapper })
+        try {
+            await waitFor(() => expect(finish).toBeDefined())
+            act(() => {
+                useAuthStore.setState({ projectId: 9 })
+                queryClient.setQueryData(key, { 'report-1': false })
+            })
+            await act(async () => finish?.(jsonResponse({ states: { 'report-1': true } })))
+            expect(queryClient.getQueryData(key)).toEqual({ 'report-1': false })
+        } finally {
+            screen.unmount()
+            useAuthStore.setState({ projectId: originalProject })
+            queryClient.clear()
+        }
+    })
+
+    test('cancels an older read fetch and deduplicates simultaneous opens', async () => {
+        const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
+        const key = reportKeys.readStates({ host: 'https://app.example.com', projectId: 2 }, ['report-1'])
+        queryClient.setQueryData(key, { 'report-1': false })
+        let finishPoll: ((response: Response) => void) | undefined
+        let finishWrite: ((response: Response) => void) | undefined
+        let pollSignal: AbortSignal | undefined
+        let writes = 0
+        globalThis.fetch = jest.fn((_url: string, init: RequestInit) => {
+            const write = JSON.parse(String(init.body)).read === true
+            if (write) writes += 1
+            else pollSignal = init.signal as AbortSignal
+            return new Promise<Response>((resolve) => {
+                if (write) finishWrite = resolve
+                else finishPoll = resolve
+            })
+        }) as typeof fetch
+        const polling = queryClient
+            .fetchQuery({
+                queryKey: key,
+                queryFn: async ({ signal }) => (await postReadStates(['report-1'], undefined, signal)).states,
+            })
+            .catch(() => undefined)
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        )
+        const screen = renderHook(
+            () => {
+                useMarkReadOnOpen('report-1')
+                useMarkReadOnOpen('report-1')
+            },
+            { wrapper }
+        )
+        try {
+            await waitFor(() => expect(writes).toBe(1))
+            expect(pollSignal?.aborted).toBe(true)
+            await act(async () => {
+                finishPoll?.(jsonResponse({ states: { 'report-1': false } }))
+                finishWrite?.(jsonResponse({ states: { 'report-1': true } }))
+                await polling
+            })
+            expect(queryClient.getQueryData(key)).toEqual({ 'report-1': true })
+        } finally {
+            screen.unmount()
+            queryClient.clear()
+        }
     })
 
     test('pages through the ranking, retrying a failed page only when asked, reading states once per page', async () => {

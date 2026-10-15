@@ -6,14 +6,12 @@
   android:clipToOutline="true"
   android:contentDescription="@string/hedgehog_widget_label">
 
-  <FrameLayout
+  <ImageView
     android:layout_width="match_parent"
-    android:layout_height="1dp"
-    android:layout_gravity="bottom"
-    android:layout_marginStart="16dp"
-    android:layout_marginEnd="16dp"
-    android:layout_marginBottom="@dimen/hedgehog_floor_inset"
-    android:background="#D6D6D1" />
+    android:layout_height="match_parent"
+    android:scaleType="centerCrop"
+    android:src="@drawable/hoglet_garden"
+    android:importantForAccessibility="no" />
 
   <ViewFlipper
     android:id="@+id/hedgehog_flipper"
@@ -22,21 +20,4 @@
     android:autoStart="true"
     android:flipInterval="120" />
 
-  <TextView
-    android:id="@+id/hedgehog_caption"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:layout_gravity="top|center_horizontal"
-    android:layout_marginTop="8dp"
-    android:layout_marginStart="8dp"
-    android:layout_marginEnd="8dp"
-    android:paddingHorizontal="8dp"
-    android:paddingVertical="4dp"
-    android:background="@drawable/hedgehog_bubble"
-    android:textColor="#1F1F1C"
-    android:textSize="12sp"
-    android:maxLines="1"
-    android:ellipsize="end"
-    android:importantForAccessibility="no"
-    android:visibility="gone" />
 </FrameLayout>

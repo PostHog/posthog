@@ -89,7 +89,7 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
     const notice = useHandoffNotice(reportId)
     const githubOnlyReviewers = useGithubOnlyReviewerCount(reportId)
     const [overlay, setOverlay] = useState<Overlay>('none')
-    useMarkReadOnOpen(reportId)
+    useMarkReadOnOpen(query.data?.id)
     const queryClient = useQueryClient()
     const scope = useProjectScope()
     const demo = useDataMode() === 'demo'
@@ -146,6 +146,7 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
             <ReportBody
                 key={report.id}
                 report={report}
+                refreshing={query.isRefetching}
                 viewerName={viewer.name}
                 onBack={goBack}
                 onPrevious={goTo(neighbors.previousId)}
@@ -198,6 +199,7 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
 
 interface ReportBodyProps {
     report: ReportView
+    refreshing: boolean
     viewerName: string
     onBack: () => void
     onPrevious?: () => void
@@ -209,6 +211,7 @@ interface ReportBodyProps {
 // Keyed by report id from the parent, so the scroll offset and the measured headline start fresh for each report.
 function ReportBody({
     report,
+    refreshing,
     viewerName,
     onBack,
     onPrevious,
@@ -249,6 +252,7 @@ function ReportBody({
                 <Activity events={report.activity} viewerName={viewerName} />
             </Animated.ScrollView>
             <TopChrome
+                refreshing={refreshing}
                 onBack={onBack}
                 onPrevious={onPrevious}
                 onNext={onNext}

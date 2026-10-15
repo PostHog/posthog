@@ -10,7 +10,8 @@
             "!**/dist",
             "!**/web-build",
             "!**/coverage",
-            "!**/src/api/generated"
+            "!**/src/api/generated",
+            "!**/objectKinds.generated.ts"
         ]
     },
     "formatter": {

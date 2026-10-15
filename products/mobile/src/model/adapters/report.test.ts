@@ -66,6 +66,21 @@ const PAGE: ReportPageApi = {
 }
 
 describe('report view adapter', () => {
+    test('external handoffs use only the latest repository selection, including a cleared selection', () => {
+        const input = {
+            report: reportFixture(),
+            artefacts: [
+                artefact({ id: 'new', type: 'repo_selection', content: { repository: 'example/new-app' } }),
+                artefact({ id: 'old', type: 'repo_selection', content: { repository: 'example/old-app' } }),
+            ],
+            ...SCOPE,
+            now: NOW,
+        }
+        expect(reportView(input).repository).toBe('example/new-app')
+        input.artefacts[0] = artefact({ id: 'cleared', type: 'repo_selection', content: {} })
+        expect(reportView(input).repository).toBeUndefined()
+    })
+
     test('builds a claimed report with a Today page, an open PR and a work log', () => {
         const report = reportFixture({
             scout_name: 'signals-scout-error-tracking',

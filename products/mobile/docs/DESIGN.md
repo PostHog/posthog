@@ -81,8 +81,11 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
   Chats, Products) and the Chat button. Chats in the pill opens the Chats screen; the Chat button
   opens a new chat sheet. Products opens the project's product library in the web app, and is
   dimmed in demo mode or when the session has no project. A long press on a row (or the screen
-  reader's "Show report actions") opens a menu with Reassign, Snooze, Chat and, for an unread
-  report, Mark as read; each does what the report's action pill does, without leaving the inbox.
+  reader's "Show report actions") opens a menu with Hand off to the saved agent (PostHog,
+  Claude Code or Codex), Reassign, Snooze, Chat and, for an unread report, Mark as read.
+  Hand off uses the same eligibility rules and saved destination as the report's hand-off button;
+  it waits for report details, blocks repeat taps while pending and keeps failures in the menu for retry.
+  The other actions work like the report's action pill, without leaving the inbox.
   Loading, empty and error states are separate screens.
 - **Chats**: the mobile port of the web app's Chats pane. Header with the logomark, "Chats" and a
   New chat button. A search field above the list filters titles on the device. Rows are grouped

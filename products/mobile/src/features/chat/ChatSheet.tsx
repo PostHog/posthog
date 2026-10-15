@@ -41,6 +41,7 @@ import { SessionDecisionPanel } from './session/SessionDecisionPanel'
 import { SessionThread } from './session/SessionThread'
 import { type SessionOptions, useSession } from './session/useSession'
 import type { ChatContext } from './types'
+import { useChatDraft } from './useChatDraft'
 
 /** The Discuss shape and the context block name each attached report, so the list stays short. */
 const MAX_ATTACHED_REPORTS = 5
@@ -69,19 +70,36 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
     const scope = useProjectScope()
     const demo = useDataMode() === 'demo'
     const keyboard = useReanimatedKeyboardAnimation()
+    const preparingSend = useRef(false)
+    const [preparing, setPreparing] = useState(false)
     const [visible, setVisible] = useState(true)
     const { progress } = usePresence(visible, motion.sheet)
     const close = useCallback((): void => setVisible(false), [])
     const { drag, pan } = useSheetDrag(visible, close)
-    const [text, setText] = useState('')
-    const [attached, setAttached] = useState<string[]>(() =>
-        initialReportId && isReportId(initialReportId, demo) ? [initialReportId] : []
+    const [draftReportId, setDraftReportId] = useState(() =>
+        initialReportId && isReportId(initialReportId, demo) ? initialReportId : undefined
     )
+    const [draftTaskId, setDraftTaskId] = useState<string | null>(initialTaskId ?? null)
+    useEffect(() => {
+        if (!session.isSending && !session.unsentText && session.taskId) {
+            setDraftTaskId(session.taskId)
+        }
+    }, [session.isSending, session.unsentText, session.taskId])
+    const composerDraft = useChatDraft(draftTaskId, draftReportId, demo)
+    const { text, reportIds: attached } = composerDraft.draft
+    const setText = (value: string | ((current: string) => string)): void => {
+        composerDraft.change({ ...composerDraft.draft, text: typeof value === 'function' ? value(text) : value })
+    }
+    const setAttached = (value: string[] | ((current: string[]) => string[])): void => {
+        composerDraft.change({
+            ...composerDraft.draft,
+            reportIds: typeof value === 'function' ? value(attached) : value,
+        })
+    }
     const [reports, setReports] = useState<Record<string, ReportView>>({})
     const [mentionOpen, setMentionOpen] = useState(false)
     const [runOptions, dispatchRunOptions] = useReducer(chatRunOptionsReducer, DEFAULT_CHAT_RUN_OPTIONS)
     const pickedOptions = useRef(false)
-    const restoredDraft = useRef(false)
     const [optionsOpen, setOptionsOpen] = useState(false)
     const [optionsPage, setOptionsPage] = useState<ChatOptionsPage>('model')
     const input = useRef<TextInput>(null)
@@ -139,19 +157,6 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
         }
     }, [seedMode])
 
-    const unsentText = session.unsentText
-    useEffect(() => {
-        if (!unsentText) {
-            restoredDraft.current = false
-            return
-        }
-        if (restoredDraft.current) {
-            return
-        }
-        restoredDraft.current = true
-        setText((current) => (current.trim() ? current : unsentText))
-    }, [unsentText])
-
     const items = inbox.data ?? []
     const itemsById = useMemo(() => new Map(items.map((item) => [item.reportId, item])), [items])
     const mentionItems = useMemo(() => items.filter((item) => !attached.includes(item.reportId)), [items, attached])
@@ -164,7 +169,7 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
     const bottomInset = insets.bottom
     const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, bottomInset) }))
     // A message sent before the stored history loads would land in a thread the person cannot see yet.
-    const ready = historyStatus === 'idle' && !session.isSending
+    const ready = composerDraft.ready && !preparing && historyStatus === 'idle' && !session.isSending
     const canSend = text.trim().length > 0 && ready
     const showEmptyState = session.taskId === null && session.items.length === 0 && historyStatus === 'idle'
     const webUrl = (reportId: string): string | undefined => (scope ? reportWebUrl(scope, reportId) : undefined)
@@ -226,11 +231,13 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
         dispatchRunOptions(action)
     }
     const pickMention = (item: InboxItem): void => {
-        setAttached((previous) =>
-            previous.includes(item.reportId) ? previous : [...previous, item.reportId].slice(0, MAX_ATTACHED_REPORTS)
-        )
+        composerDraft.change({
+            text: text.replace(/@$/, ''),
+            reportIds: attached.includes(item.reportId)
+                ? attached
+                : [...attached, item.reportId].slice(0, MAX_ATTACHED_REPORTS),
+        })
         setMentionOpen(false)
-        setText((value) => value.replace(/@$/, ''))
         input.current?.focus()
     }
     const detach = (reportId: string): void => {
@@ -238,14 +245,25 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
     }
     const send = (): void => {
         const message = text.trim()
-        if (!message || !ready) {
+        if (!message || !ready || preparingSend.current) {
             return
         }
-        setText('')
         setMentionOpen(false)
         // The mode the chip shows, already mapped onto the harness the message runs on.
         const options: ChatRunOptions = { ...runOptions, permissionMode }
-        session.send(message, buildContext(), options).catch(() => undefined)
+        const context = buildContext()
+        preparingSend.current = true
+        setPreparing(true)
+        void composerDraft
+            .beginSend({ text: message, reportIds: attached })
+            .then(async (settle) => {
+                const sent = await session.send(message, context, options).catch(() => false)
+                await settle(sent)
+            })
+            .finally(() => {
+                preparingSend.current = false
+                setPreparing(false)
+            })
     }
     const startNewChat = (): void => {
         if (target.taskId) {
@@ -254,8 +272,8 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
         } else {
             session.reset()
         }
-        setText('')
-        setAttached([])
+        setDraftTaskId(null)
+        setDraftReportId(undefined)
         setMentionOpen(false)
         setOptionsOpen(false)
         pickedOptions.current = false

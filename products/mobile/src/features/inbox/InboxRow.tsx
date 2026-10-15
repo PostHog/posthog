@@ -31,7 +31,7 @@ export const InboxRow = memo(function InboxRow({ item, now, onOpen, onLongPress 
             onPress={() => onOpen(item.reportId)}
             pressedBackground={colors.sunken}
             style={styles.row}
-            accessibilityLabel={`${item.title}, ${item.sourceLabel}, ${when}${item.needsInput ? ', needs your input' : ''}`}
+            accessibilityLabel={`${item.title}, ${item.sourceLabel}, ${when}${!item.read ? ', unread' : ''}${item.needsInput ? ', needs your input' : ''}`}
             testID={`inbox-row-${item.reportId}`}
         >
             <IconTile muted={muted} needsInput={item.needsInput}>
@@ -51,11 +51,13 @@ export const InboxRow = memo(function InboxRow({ item, now, onOpen, onLongPress 
                     </Text>
                 </View>
             </View>
+            {!item.read ? <View style={styles.unreadDot} testID={`inbox-unread-${item.reportId}`} /> : null}
         </Pressable44>
     )
 })
 
 const styles = StyleSheet.create({
+    unreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.ink, marginRight: 6 },
     row: {
         flexDirection: 'row',
         alignItems: 'center',

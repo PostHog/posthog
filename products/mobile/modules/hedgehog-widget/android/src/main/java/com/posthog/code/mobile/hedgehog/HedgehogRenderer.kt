@@ -6,10 +6,11 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Parcel
 import android.util.Log
-import android.view.View
+import android.util.TypedValue
 import android.widget.RemoteViews
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -20,7 +21,6 @@ object HedgehogRenderer {
     const val ACTION_ADVANCE = "com.posthog.code.mobile.HEDGEHOG_ADVANCE"
 
     private const val FALLBACK_SPRITE = "hog_idle_00"
-    private const val REQUEST_POKE = 1
     private const val REQUEST_OPEN = 2
     private const val REQUEST_ADVANCE = 3
 
@@ -42,23 +42,22 @@ object HedgehogRenderer {
             val manager = AppWidgetManager.getInstance(context)
             val choreography = choreography(context)
             val now = System.currentTimeMillis()
-            val reacting = isReacting(context, choreography, now)
             for (id in ids) {
-                manager.updateAppWidget(id, build(context, manager, id, choreography, reacting, now))
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S || HedgehogStore.loop(context, id) == null) {
+                    manager.updateAppWidget(id, build(context, manager, id, choreography, now))
+                }
             }
-            if (ids.isNotEmpty()) {
-                scheduleAdvance(context, if (reacting) null else choreography.nextSlotStartMs(now))
-            }
+            cancelAlarms(context)
         } catch (e: Exception) {
             Log.e(TAG, "Could not render the hedgehog widget", e)
         }
     }
 
-    fun renderOne(context: Context, manager: AppWidgetManager, id: Int) {
+    fun renderOne(context: Context, manager: AppWidgetManager, id: Int, frameIndex: Int? = null) {
         try {
             val choreography = choreography(context)
             val now = System.currentTimeMillis()
-            manager.updateAppWidget(id, build(context, manager, id, choreography, isReacting(context, choreography, now), now))
+            manager.updateAppWidget(id, build(context, manager, id, choreography, now, frameIndex))
         } catch (e: Exception) {
             Log.e(TAG, "Could not render hedgehog widget $id", e)
         }
@@ -74,31 +73,13 @@ object HedgehogRenderer {
         return cachedChoreography ?: FallbackChoreography.value
     }
 
-    fun reactionTicks(choreography: Choreography, pokedAtMs: Long): List<Tick> =
-        choreography.reactionAt(pokedAtMs).ifEmpty { FallbackChoreography.value.reactionTicks }
-
-    /**
-     * Reaction ticks are authored at x 0.5 facing right. Shift them to where the loop starts, which is also where
-     * every loop comes to rest, so the hedgehog reacts on the spot instead of jumping to the centre.
-     */
-    private fun reactionInPlace(choreography: Choreography, anchor: Tick, pokedAtMs: Long): List<Tick> =
-        reactionTicks(choreography, pokedAtMs).map {
-            it.copy(x = (it.x + anchor.x - 0.5f).coerceIn(0f, 1f), facing = anchor.facing)
-        }
-
-    private fun isReacting(context: Context, choreography: Choreography, now: Long): Boolean {
-        val pokedAt = HedgehogStore.pokedAt(context)
-        val elapsed = now - pokedAt
-        return elapsed >= 0 && elapsed < reactionTicks(choreography, pokedAt).size.toLong() * choreography.tickMs
-    }
-
     private fun build(
         context: Context,
         manager: AppWidgetManager,
         id: Int,
         choreography: Choreography,
-        reacting: Boolean,
         now: Long,
+        frameIndex: Int? = null,
     ): RemoteViews {
         val pkg = context.packageName
         val resources = context.resources
@@ -109,34 +90,61 @@ object HedgehogRenderer {
         val heightPx = (options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: DEFAULT_HEIGHT_DP) * density
         val floorPx = resources.getDimensionPixelSize(R.dimen.hedgehog_floor_inset)
 
-        val loop = choreography.loopAt(now)
-        val ticks = (if (reacting) reactionInPlace(choreography, loop.first(), HedgehogStore.pokedAt(context)) else loop).take(Choreography.MAX_TICKS)
-        val caption = ticks.firstOrNull()?.bubble?.takeIf { heightPx >= 110 * density }
-        val poke = pokeIntent(context)
+        val loop = HedgehogStore.loop(context, id) ?: choreography.loopAt(now)
+            .take(Choreography.MAX_TICKS).map { it.copy(hoggie = null, bubble = null) }
+            .also { HedgehogStore.saveLoop(context, id, it) }
+        val substeps = ((choreography.tickMs + 32) / 33).coerceIn(1, 4)
+        val movement = loop.flatMapIndexed { index, tick ->
+            val next = loop[(index + 1) % loop.size]
+            List(substeps) { part ->
+                val progress = part.toFloat() / substeps
+                tick.copy(x = tick.x + (next.x - tick.x) * progress, y = tick.y + (next.y - tick.y) * progress)
+            }
+        }
+        val character = HedgehogStore.selected(context, id)
+        var facing = movement.first().facing
+        val ticks = movement.mapIndexed { index, tick ->
+            val previous = movement[(index + movement.size - 1) % movement.size]
+            val distance = tick.x - previous.x
+            if (tick.pose == "walk" && kotlin.math.abs(distance) > 0.001f) {
+                facing = if (distance < 0) Facing.LEFT else Facing.RIGHT
+            }
+            tick.copy(hoggie = character, facing = facing, bubble = null)
+        }
         val root = RemoteViews(pkg, R.layout.hedgehog_widget)
         root.removeAllViews(R.id.hedgehog_flipper)
-        for (tick in ticks) {
-            val illustrated = tick.hoggie != null && hoggieId(context, tick) != 0
-            val largeIllustration = illustrated && heightPx >= 140 * density
+        for ((index, tick) in ticks.withIndex()) {
+            val largeIllustration = heightPx >= 140 * density
             val spritePx = resources.getDimensionPixelSize(if (largeIllustration) R.dimen.hoggie_sprite_size else R.dimen.hedgehog_sprite_size)
-            val maxLeft = (widthPx - spritePx).coerceAtLeast(0f)
-            val captionSpace = if (caption != null) 36 * density else 0f
-            val artInset = if (illustrated) spritePx * 0.125f else 0f
-            val minBottom = minOf(floorPx.toFloat(), (heightPx - spritePx).coerceAtLeast(0f))
-            val maxBottom = (heightPx - spritePx + artInset - captionSpace).coerceAtLeast(minBottom)
-            val frame = RemoteViews(pkg, if (largeIllustration) R.layout.hedgehog_hoggie_frame else R.layout.hedgehog_frame)
+            // The same centre/lift envelope for every character prevents a tap from shifting its feet.
+            val envelope = spritePx
+            val margin = envelope / 2f
+            val artInset = envelope * 0.125f
+            val minBottom = minOf(floorPx.toFloat(), (heightPx - envelope).coerceAtLeast(0f))
+            val maxBottom = (heightPx - envelope + artInset).coerceAtLeast(minBottom)
+            val stableFrames = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+            val frame = RemoteViews(pkg, if (!stableFrames && largeIllustration) R.layout.hedgehog_hoggie_frame else R.layout.hedgehog_frame)
+            if (stableFrames) {
+                frame.setViewLayoutWidth(R.id.hedgehog_sprite, spritePx.toFloat(), TypedValue.COMPLEX_UNIT_PX)
+                frame.setViewLayoutHeight(R.id.hedgehog_sprite, spritePx.toFloat(), TypedValue.COMPLEX_UNIT_PX)
+            }
             frame.setImageViewResource(R.id.hedgehog_sprite, spriteId(context, tick))
-            val left = (tick.x * widthPx - spritePx / 2f).coerceIn(0f, maxLeft).roundToInt()
+            val left = (margin + tick.x * (widthPx - 2 * margin).coerceAtLeast(0f) - spritePx / 2f).roundToInt()
             val bottom = (floorPx + tick.y * (heightPx - floorPx)).coerceIn(minBottom, maxBottom).roundToInt()
             frame.setViewPadding(R.id.hedgehog_frame, left, 0, 0, bottom)
             // The flipper hides every frame except the one on screen, so a tap reaches the sprite where it is now.
-            frame.setOnClickPendingIntent(R.id.hedgehog_sprite, poke)
-            root.addView(R.id.hedgehog_flipper, frame)
+            frame.setOnClickPendingIntent(R.id.hedgehog_sprite, pokeIntent(context, id, index))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Reapply the same child views in place, retaining the launcher's actual displayed frame.
+                root.addStableView(R.id.hedgehog_flipper, frame, index)
+            } else {
+                root.addView(R.id.hedgehog_flipper, frame)
+            }
         }
-        root.setInt(R.id.hedgehog_flipper, "setFlipInterval", choreography.tickMs)
-        root.setDisplayedChild(R.id.hedgehog_flipper, 0)
-        root.setTextViewText(R.id.hedgehog_caption, caption.orEmpty())
-        root.setViewVisibility(R.id.hedgehog_caption, if (caption.isNullOrEmpty()) View.GONE else View.VISIBLE)
+        root.setInt(R.id.hedgehog_flipper, "setFlipInterval", choreography.tickMs / substeps)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && frameIndex != null) {
+            root.setDisplayedChild(R.id.hedgehog_flipper, Math.floorMod(frameIndex, ticks.size))
+        }
         // A tap that misses the sprite falls through the frames, which are not clickable, to the root.
         openAppIntent(context)?.let { root.setOnClickPendingIntent(R.id.hedgehog_root, it) }
 
@@ -144,7 +152,7 @@ object HedgehogRenderer {
             val parcel = Parcel.obtain()
             try {
                 root.writeToParcel(parcel, 0)
-                Log.d(TAG, "widget $id: ${ticks.size} ticks, ${widthPx.roundToInt()}x${heightPx.roundToInt()}px, parcel ${parcel.dataSize()} bytes, reacting=$reacting")
+                Log.d(TAG, "widget $id: ${ticks.size} ticks, ${widthPx.roundToInt()}x${heightPx.roundToInt()}px, parcel ${parcel.dataSize()} bytes")
             } finally {
                 parcel.recycle()
             }
@@ -171,11 +179,14 @@ object HedgehogRenderer {
         }
     }
 
-    private fun pokeIntent(context: Context): PendingIntent =
+    private fun pokeIntent(context: Context, id: Int, frameIndex: Int): PendingIntent =
         PendingIntent.getBroadcast(
             context,
-            REQUEST_POKE,
-            Intent(context, HedgehogWidgetProvider::class.java).setAction(ACTION_POKE),
+            0,
+            Intent(context, HedgehogWidgetProvider::class.java).setAction(ACTION_POKE)
+                .setData(Uri.parse("posthog-widget://poke/$id/$frameIndex"))
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                .putExtra("frameIndex", frameIndex),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
@@ -196,27 +207,6 @@ object HedgehogRenderer {
             Intent(context, HedgehogWidgetProvider::class.java).setAction(ACTION_ADVANCE),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-
-    /**
-     * Wakes the provider at the next loop slot so the routine changes during the day.
-     * The alarm is inexact and does not wake the device, because nobody sees the widget while the screen is off.
-     */
-    private fun scheduleAdvance(context: Context, atMs: Long?) {
-        if (atMs == null) return
-        val alarms = context.getSystemService(AlarmManager::class.java) ?: return
-        alarms.set(AlarmManager.RTC, atMs, advanceIntent(context))
-    }
-
-    /** Ends a reaction too long to wait for inside the receiver. */
-    fun scheduleReactionEnd(context: Context, atMs: Long) {
-        val alarms = context.getSystemService(AlarmManager::class.java) ?: return
-        val pending = advanceIntent(context)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarms.canScheduleExactAlarms()) {
-            alarms.setExactAndAllowWhileIdle(AlarmManager.RTC, atMs, pending)
-        } else {
-            alarms.setWindow(AlarmManager.RTC, atMs, 60_000L, pending)
-        }
-    }
 
     fun cancelAlarms(context: Context) {
         context.getSystemService(AlarmManager::class.java)?.cancel(advanceIntent(context))

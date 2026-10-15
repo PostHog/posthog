@@ -1,6 +1,13 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, View } from 'react-native'
-import Animated, { Extrapolation, interpolate, type SharedValue, useAnimatedStyle } from 'react-native-reanimated'
+import { ActivityIndicator, StyleSheet, View } from 'react-native'
+import Animated, {
+    Extrapolation,
+    FadeIn,
+    FadeOut,
+    interpolate,
+    type SharedValue,
+    useAnimatedStyle,
+} from 'react-native-reanimated'
 
 import { BackChip } from '@/ui/BackChip'
 import { BlurEdge } from '@/ui/BlurEdge'
@@ -8,7 +15,7 @@ import { FadeEdge } from '@/ui/FadeEdge'
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { SegmentedPill } from '@/ui/SegmentedPill'
-import { colors, layout, type } from '@/ui/tokens'
+import { colors, layout, motion, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 const CHROME_TOP = 58
@@ -34,9 +41,10 @@ interface TopChromeProps {
     onPrevious?: () => void
     onNext?: () => void
     title?: ChromeTitle
+    refreshing?: boolean
 }
 
-export function TopChrome({ onBack, onPrevious, onNext, title }: TopChromeProps): ReactElement {
+export function TopChrome({ onBack, onPrevious, onNext, title, refreshing = false }: TopChromeProps): ReactElement {
     const insets = useScreenInsets()
     return (
         <View style={[styles.chrome, { paddingTop: topOffset(insets, CHROME_TOP) }]}>
@@ -44,6 +52,18 @@ export function TopChrome({ onBack, onPrevious, onNext, title }: TopChromeProps)
             <FadeEdge direction="down" solid={CHROME_SOLID} opacity={layout.chromeTint} />
             <BackChip onPress={onBack} testID="report-back" />
             <View style={styles.titleSlot}>{title ? <ScrollTitle title={title} /> : null}</View>
+            <View style={styles.refreshSlot}>
+                {refreshing ? (
+                    <Animated.View entering={FadeIn.duration(motion.fade)} exiting={FadeOut.duration(motion.fade)}>
+                        <ActivityIndicator
+                            size="small"
+                            color={colors.muted}
+                            accessibilityLabel="Refreshing report"
+                            testID="report-refreshing"
+                        />
+                    </Animated.View>
+                ) : null}
+            </View>
             <SegmentedPill
                 height={CHROME_ROW_HEIGHT}
                 raised
@@ -116,6 +136,14 @@ const styles = StyleSheet.create({
         flex: 1,
         alignItems: 'center',
         paddingHorizontal: 10,
+        pointerEvents: 'none',
+    },
+    refreshSlot: {
+        width: 20,
+        height: 20,
+        marginRight: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
         pointerEvents: 'none',
     },
     title: {

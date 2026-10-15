@@ -1,18 +1,29 @@
 import * as Clipboard from 'expo-clipboard'
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
-import { Gesture } from 'react-native-gesture-handler'
+import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 
 import { POSTHOG_AGENT } from '@/model/agent'
 import type { ReportView } from '@/model/types'
 import { BottomSheet } from '@/ui/BottomSheet'
+import { ClaudeIcon } from '@/ui/icons/ClaudeIcon'
 import { CopyIcon } from '@/ui/icons/CopyIcon'
+import { OpenAIIcon } from '@/ui/icons/OpenAIIcon'
 import { PlusSquareIcon } from '@/ui/icons/PlusSquareIcon'
+import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, fonts, radii, type } from '@/ui/tokens'
+import { colors, radii, type } from '@/ui/tokens'
+import { useScreenInsets } from '@/ui/useScreenInsets'
 
 import { BranchPage } from './BranchPage'
+import {
+    type ExternalHandoffTarget,
+    externalHandoffPrompt,
+    handoffRepository,
+    openExternalHandoff,
+} from './externalHandoff'
 import { type HandoffOptionRow, HandoffOptionRows } from './HandoffOptionRows'
+import { useHandoffPreferenceStore } from './handoffPreferenceStore'
 import { ModelPage } from './ModelPage'
 import { ModePage } from './ModePage'
 import {
@@ -26,6 +37,10 @@ import { useRunOptionsStore } from './runOptionsStore'
 import { useModelCatalogue, useRunDefaults, useRunOptionActions } from './useRunOptions'
 
 const COPIED_MS = 1600
+const EXTERNAL_AGENTS: { target: ExternalHandoffTarget; name: string; detail: string }[] = [
+    { target: 'claude', name: 'Claude Code', detail: 'Open a prepared prompt in Claude Code' },
+    { target: 'codex', name: 'Codex', detail: 'Open a prepared prompt in ChatGPT' },
+]
 
 type Page = 'main' | 'model' | 'mode' | 'branch'
 
@@ -40,6 +55,11 @@ interface HandoffSheetProps {
 export function HandoffSheet({ visible, report, onClose, onHandOff, pending }: HandoffSheetProps): ReactElement {
     const [copied, setCopied] = useState(false)
     const [page, setPage] = useState<Page>('main')
+    const [activeAction, setActiveAction] = useState<ExternalHandoffTarget | 'copy' | null>(null)
+    const [error, setError] = useState<string | null>(null)
+    const busy = useRef(false)
+    const { height } = useWindowDimensions()
+    const insets = useScreenInsets()
     const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const defaults = useRunDefaults(visible)
     const fallback = defaultModelSelection(defaults)
@@ -52,6 +72,8 @@ export function HandoffSheet({ visible, report, onClose, onHandOff, pending }: H
     useEffect(() => {
         if (!visible) {
             setPage('main')
+            setError(null)
+            setCopied(false)
             if (wasVisible.current) {
                 // Picks last one sheet session, so the quick button on another report never sends them.
                 useRunOptionsStore.getState().reset()
@@ -78,15 +100,34 @@ export function HandoffSheet({ visible, report, onClose, onHandOff, pending }: H
         []
     )
 
-    const copyPrompt = async (): Promise<void> => {
-        await Clipboard.setStringAsync(report.prompt).catch(() => undefined)
-        setCopied(true)
-        if (timer.current) {
-            clearTimeout(timer.current)
+    const runExternalAction = async (target: ExternalHandoffTarget | 'copy'): Promise<void> => {
+        if (pending || busy.current) {
+            return
         }
-        timer.current = setTimeout(() => setCopied(false), COPIED_MS)
+        busy.current = true
+        setActiveAction(target)
+        setError(null)
+        try {
+            if (target === 'copy') {
+                await Clipboard.setStringAsync(externalHandoffPrompt(report))
+                setCopied(true)
+                if (timer.current) {
+                    clearTimeout(timer.current)
+                }
+                timer.current = setTimeout(() => setCopied(false), COPIED_MS)
+            } else {
+                useHandoffPreferenceStore.getState().setTarget(target)
+                await openExternalHandoff(target, report)
+            }
+        } catch (cause) {
+            setError(target === 'copy' ? "Couldn't copy the prompt. Try again." : (cause as Error).message)
+        } finally {
+            busy.current = false
+            setActiveAction(null)
+        }
     }
 
+    const disabled = pending || activeAction !== null
     const back = (): void => setPage('main')
     const runtimeAdapter = effectiveRuntimeAdapter(options, defaults)
     // Defaults that arrive after a pick can move the run to the other harness, so show the mode it will send.
@@ -127,7 +168,7 @@ export function HandoffSheet({ visible, report, onClose, onHandOff, pending }: H
         <BottomSheet
             visible={visible}
             onClose={onClose}
-            scrollGesture={page === 'model' ? modelListGesture : undefined}
+            scrollGesture={page === 'model' || page === 'main' ? modelListGesture : undefined}
             accessibilityLabel="Hand off to"
             testID="handoff-sheet"
         >
@@ -165,35 +206,91 @@ export function HandoffSheet({ visible, report, onClose, onHandOff, pending }: H
                 <>
                     <View style={styles.titleRow}>
                         <Text style={styles.title}>Hand off to</Text>
-                        <Text style={styles.hint}>Tap to send</Text>
+                        <Text style={styles.hint}>Choose an agent</Text>
                     </View>
-                    <HandoffOptionRows rows={rows} disabled={pending} />
-                    <View style={styles.agents}>
-                        <Pressable44
-                            onPress={onHandOff}
-                            disabled={pending}
-                            haptic="light"
-                            accessibilityLabel={`Hand off to ${POSTHOG_AGENT.name}`}
-                            accessibilityState={{ busy: pending, disabled: pending }}
-                            style={styles.agent}
-                            pressedStyle={styles.agentPressed}
-                            testID="handoff-agent-posthog"
-                        >
-                            <View style={styles.mark}>
-                                <Text style={styles.markText}>{POSTHOG_AGENT.mark}</Text>
+                    <GestureDetector gesture={modelListGesture}>
+                        <ScrollView style={{ maxHeight: Math.max(120, height - insets.top - insets.bottom - 180) }}>
+                            <View style={styles.agents}>
+                                <Pressable44
+                                    onPress={() => {
+                                        useHandoffPreferenceStore.getState().setTarget('posthog')
+                                        onHandOff()
+                                    }}
+                                    disabled={disabled}
+                                    haptic="light"
+                                    accessibilityLabel={`Hand off to ${POSTHOG_AGENT.name}`}
+                                    accessibilityState={{ busy: pending, disabled }}
+                                    style={styles.agent}
+                                    pressedStyle={styles.agentPressed}
+                                    testID="handoff-agent-posthog"
+                                >
+                                    <View
+                                        style={styles.agentIcon}
+                                        aria-hidden
+                                        accessibilityElementsHidden
+                                        importantForAccessibility="no-hide-descendants"
+                                    >
+                                        <PostHogLogomark height={18} />
+                                    </View>
+                                    <View style={styles.agentBody}>
+                                        <Text style={styles.agentName}>{POSTHOG_AGENT.name}</Text>
+                                        <Text style={styles.agentMeta}>PostHog agent · opens a PR in your repo</Text>
+                                    </View>
+                                </Pressable44>
                             </View>
-                            <View style={styles.agentBody}>
-                                <Text style={styles.agentName}>{POSTHOG_AGENT.name}</Text>
-                                <Text style={styles.agentMeta}>PostHog agent · opens a PR in your repo</Text>
+                            <View style={styles.context}>
+                                <PlusSquareIcon size={15} color={colors.tertiary} />
+                                <Text style={styles.contextText}>{report.contextNote}</Text>
                             </View>
-                        </Pressable44>
-                    </View>
-                    <View style={styles.context}>
-                        <PlusSquareIcon size={15} color={colors.tertiary} />
-                        <Text style={styles.contextText}>{report.contextNote}</Text>
-                    </View>
+                            <Text style={styles.sectionLabel}>Use your own agent</Text>
+                            <View style={styles.agents}>
+                                {EXTERNAL_AGENTS.map(({ target, name, detail }) => (
+                                    <Pressable44
+                                        key={target}
+                                        onPress={() => void runExternalAction(target)}
+                                        disabled={disabled}
+                                        accessibilityLabel={name}
+                                        accessibilityHint={detail}
+                                        accessibilityState={{ busy: activeAction === target, disabled }}
+                                        style={styles.agent}
+                                        pressedStyle={styles.agentPressed}
+                                        testID={`handoff-agent-${target}`}
+                                    >
+                                        <View
+                                            style={styles.agentIcon}
+                                            aria-hidden
+                                            accessibilityElementsHidden
+                                            importantForAccessibility="no-hide-descendants"
+                                        >
+                                            {target === 'claude' ? <ClaudeIcon /> : <OpenAIIcon />}
+                                        </View>
+                                        <View style={styles.agentBody}>
+                                            <Text style={styles.agentName}>{name}</Text>
+                                            <Text style={styles.agentMeta}>{detail}</Text>
+                                        </View>
+                                        {activeAction === target && <ActivityIndicator color={colors.muted} />}
+                                    </Pressable44>
+                                ))}
+                            </View>
+                            <Text style={styles.externalNote}>
+                                Review the prompt before sending. Your agent needs PostHog connected to read the report.
+                                {handoffRepository(report.repository)
+                                    ? ` Repository: ${handoffRepository(report.repository)}.`
+                                    : ' Choose the correct repository in your agent.'}
+                            </Text>
+                            <Text style={styles.sectionLabel}>PostHog options</Text>
+                            <HandoffOptionRows rows={rows} disabled={disabled} />
+                        </ScrollView>
+                    </GestureDetector>
+                    {error && (
+                        <Text accessibilityRole="alert" style={styles.error} testID="handoff-external-error">
+                            {error}
+                        </Text>
+                    )}
                     <Pressable44
-                        onPress={() => void copyPrompt()}
+                        onPress={() => void runExternalAction('copy')}
+                        disabled={disabled}
+                        accessibilityState={{ busy: activeAction === 'copy', disabled }}
                         pressedBackground={colors.background}
                         style={styles.copy}
                         accessibilityLabel={copied ? 'Copied' : 'Copy prompt'}
@@ -232,8 +329,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 14,
-        // 60pt content box plus 8pt padding and a 1pt border on each side.
-        minHeight: 78,
+        minHeight: 68,
         paddingVertical: 8,
         paddingHorizontal: 12,
         borderRadius: radii.card,
@@ -244,19 +340,12 @@ const styles = StyleSheet.create({
     agentPressed: {
         borderColor: colors.disabled,
     },
-    mark: {
-        width: 38,
-        height: 38,
-        borderRadius: radii.tile,
-        backgroundColor: colors.ink,
+    agentIcon: {
+        width: 36,
+        height: 32,
+        flexShrink: 0,
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    markText: {
-        fontFamily: fonts.mono,
-        fontSize: 13,
-        fontWeight: '600',
-        color: colors.white,
     },
     agentBody: {
         flex: 1,
@@ -270,6 +359,23 @@ const styles = StyleSheet.create({
         ...type.metaSmall,
         color: colors.muted,
         marginTop: 1,
+    },
+    sectionLabel: {
+        ...type.metaSmall,
+        color: colors.muted,
+        marginTop: 20,
+        paddingHorizontal: 4,
+    },
+    externalNote: {
+        ...type.metaSmall,
+        color: colors.muted,
+        marginTop: 12,
+        paddingHorizontal: 4,
+    },
+    error: {
+        ...type.metaSmall,
+        color: colors.orange,
+        marginTop: 12,
     },
     context: {
         marginTop: 14,

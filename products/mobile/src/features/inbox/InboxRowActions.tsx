@@ -1,11 +1,17 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useState } from 'react'
-
 import { track } from '@/lib/analytics'
+import { useAsyncAction } from '@/lib/useAsyncAction'
 import type { InboxItem, SnoozeChoice } from '@/model/types'
 import { motion } from '@/ui/tokens'
 
-import { useReportActions } from '../report/hooks'
+import { actionBarStateFor } from '../handoff/actionBarState'
+import { openExternalHandoff } from '../handoff/externalHandoff'
+import { handoffAgentName, useHandoffPreferenceStore } from '../handoff/handoffPreferenceStore'
+import { useHandoffStore } from '../handoff/handoffStore'
+import { useHandoffEntry } from '../handoff/hooks'
+import { mergeLiveRun } from '../handoff/liveReport'
+import { useReport, useReportActions } from '../report/hooks'
 import { AssigneeSheet } from '../reviewers/AssigneeSheet'
 import { useGithubOnlyReviewerCount, useReportReviewers } from '../reviewers/hooks'
 import { SnoozeSheet } from '../snooze/SnoozeSheet'
@@ -17,7 +23,7 @@ export interface RowMenuTarget {
     anchor: RowAnchor
 }
 
-type RowMenuAction = 'reassign' | 'snooze' | 'chat' | 'mark_read'
+type RowMenuAction = 'reassign' | 'snooze' | 'chat' | 'mark_read' | 'hand_off'
 
 type Step = 'menu' | 'assignee' | 'snooze'
 
@@ -80,6 +86,12 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
     const reviewers = useReportReviewers(reportId)
     const githubOnlyReviewers = useGithubOnlyReviewerCount(reportId)
     const actions = useReportActions(reportId)
+    const reportQuery = useReport(reportId)
+    const entry = useHandoffEntry(reportId)
+    const report = reportQuery.data ? mergeLiveRun(reportQuery.data, entry) : undefined
+    const canHandOff = report !== undefined && actionBarStateFor(report).showHandoff
+    const handoffTarget = useHandoffPreferenceStore((state) => state.target)
+    const [handoffError, setHandoffError] = useState<string | undefined>()
     const [step, setStep] = useState<Step>('menu')
     const overlay: Overlay = open ? step : 'none'
 
@@ -90,6 +102,29 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
     const choose = (action: RowMenuAction): void => {
         track('mobile_inbox_report_menu_action', { action, report_id: reportId })
     }
+    const handOff = useAsyncAction(async () => {
+        if (!report || !canHandOff || actions.pending.handOff) {
+            return
+        }
+        choose('hand_off')
+        setHandoffError(undefined)
+        try {
+            if (handoffTarget === 'posthog') {
+                await actions.handOff()
+                const notice = useHandoffStore.getState().reports[reportId]?.notice
+                if (notice) {
+                    setHandoffError(notice)
+                    return
+                }
+            } else {
+                await openExternalHandoff(handoffTarget, report)
+            }
+            close()
+        } catch (error) {
+            setHandoffError(error instanceof Error ? error.message : "Couldn't hand off this report. Try again.")
+        }
+    })
+    const handoffPending = handOff.pending || actions.pending.handOff
     const reassign = (): void => {
         choose('reassign')
         setStep('assignee')
@@ -121,7 +156,17 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
                 item={item}
                 anchor={anchor}
                 reassignDisabled={!reviewers}
-                onClose={close}
+                handoffLabel={`Hand off to ${handoffAgentName(handoffTarget)}`}
+                showHandoff={!report || canHandOff || handoffPending}
+                handoffDisabled={!canHandOff}
+                handoffPending={handoffPending}
+                handoffError={handoffError}
+                onHandOff={() => void handOff.run()}
+                onClose={() => {
+                    if (!handoffPending) {
+                        close()
+                    }
+                }}
                 onReassign={reassign}
                 onSnooze={openSnooze}
                 onChat={chat}

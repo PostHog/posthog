@@ -248,6 +248,7 @@ export interface ReportView {
     priority?: ReportPriority
     summary?: string
     webUrl?: string
+    repository?: string
     canAct?: boolean
     suggestedPrompts?: string[]
     title: string

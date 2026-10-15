@@ -6,7 +6,7 @@ import {
     useQueries,
     useQueryClient,
 } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { NotSignedInError } from '@/api/client'
 import {
@@ -20,6 +20,7 @@ import {
     reportKeys,
     retryUnlessMissing,
 } from '@/api/reports'
+import { useAuthStore } from '@/auth/authStore'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode, useDemoMode } from '@/demo/demoMode'
 import { useDemoInboxQuery } from '@/demo/hooks'
@@ -31,6 +32,7 @@ import { inboxFromReports, reportsFromPages, signalCountsFromReports } from '@/m
 import { errorQuery, loadingQuery } from '@/model/queryStates'
 import type { InboxItem, QueryState } from '@/model/types'
 
+import { useAppActive } from '../handoff/useTaskRun'
 import { useSnoozeEntries, wakeSnooze } from '../snooze/hooks'
 import { applySnoozes } from '../snooze/snoozeEntries'
 
@@ -51,17 +53,41 @@ type InboxPages = InfiniteData<InboxPageApi, number>
 const noop = (): void => undefined
 const noMorePages = { hasMore: false, isLoadingMore: false, loadMoreFailed: false, loadMore: noop, retryLoadMore: noop }
 
-async function fetchReadStates(ids: readonly string[]): Promise<Record<string, boolean>> {
+let accountGeneration = 0
+const readWrites = new Set<AbortController>()
+useAuthStore.subscribe((state, previous) => {
+    if (
+        state.signedIn !== previous.signedIn ||
+        state.user?.uuid !== previous.user?.uuid ||
+        state.host !== previous.host ||
+        state.projectId !== previous.projectId
+    ) {
+        accountGeneration += 1
+        for (const controller of readWrites) controller.abort()
+        readWrites.clear()
+    }
+})
+
+const pendingReads = new WeakMap<QueryClient, Map<string, Promise<void>>>()
+
+function readKey(scope: ProjectScope | null, reportId: string): string {
+    return JSON.stringify([accountGeneration, scope, reportId])
+}
+
+async function fetchReadStates(ids: readonly string[], signal: AbortSignal): Promise<Record<string, boolean>> {
     const batches: string[][] = []
     for (let start = 0; start < ids.length; start += READ_STATE_BATCH) {
         batches.push(ids.slice(start, start + READ_STATE_BATCH))
     }
-    const responses = await Promise.all(batches.map((batch) => postReadStates(batch)))
+    const responses = await Promise.all(batches.map((batch) => postReadStates(batch, undefined, signal)))
     return Object.assign({}, ...responses.map((response: ReadStatesApi) => response.states))
 }
 
 function mergeReadStates(results: UseQueryResult<Record<string, boolean>>[]): Record<string, boolean> {
-    return Object.assign({}, ...results.map((result) => result.data ?? {}))
+    return Object.assign(
+        {},
+        ...results.map((result) => (result.isFetchedAfterMount && !result.isError ? (result.data ?? {}) : {}))
+    )
 }
 
 function nextOffset(lastPage: InboxPageApi, _pages: InboxPageApi[], lastOffset: number): number | undefined {
@@ -75,8 +101,9 @@ function keepFirstPage(queryClient: QueryClient, scope: ProjectScope): void {
     )
 }
 
-function useLiveInboxItems(enabled: boolean): InboxQueryState {
+function useLiveInboxItems(enabled: boolean, refreshWhileVisible: boolean): InboxQueryState {
     const scope = useProjectScope()
+    const appActive = useAppActive()
     const active = enabled && scope !== null
     const now = useNow()
     const snoozes = useSnoozeEntries()
@@ -105,18 +132,36 @@ function useLiveInboxItems(enabled: boolean): InboxQueryState {
     const readStates = useQueries({
         queries: pageIds.map((ids) => ({
             queryKey: reportKeys.readStates(scope, ids),
-            queryFn: () => fetchReadStates(ids),
+            queryFn: async ({ signal }: { signal: AbortSignal }) => {
+                const states = await fetchReadStates(ids, signal)
+                for (const id of ids) {
+                    if (pendingReads.get(queryClient)?.has(readKey(scope, id))) states[id] = true
+                }
+                return states
+            },
+            staleTime: 0,
+            refetchOnMount: 'always' as const,
+            refetchInterval: active && appActive && refreshWhileVisible ? 30_000 : false,
             enabled: active,
             retry: retryUnlessMissing,
         })),
         combine: mergeReadStates,
     })
 
+    const polling = active && appActive && refreshWhileVisible
+    const wasPolling = useRef(polling)
+    useEffect(() => {
+        if (polling && !wasPolling.current) {
+            void queryClient.invalidateQueries({ queryKey: reportKeys.readStatesAll(scope) })
+        }
+        wasPolling.current = polling
+    }, [polling, scope, queryClient])
+
     const items = useMemo(() => {
         if (!baseItems || !scope) {
             return undefined
         }
-        const withRead = baseItems.map((item) => ({ ...item, read: readStates[item.reportId] ?? item.read }))
+        const withRead = baseItems.map((item) => ({ ...item, read: readStates[item.reportId] !== false }))
         return applySnoozes(withRead, snoozes, scope, now, signalCounts)
     }, [baseItems, readStates, snoozes, scope, now, signalCounts])
 
@@ -174,10 +219,14 @@ function useLiveInboxItems(enabled: boolean): InboxQueryState {
     return { ...loadingQuery<InboxItem[]>(), refetch, ...noMorePages }
 }
 
-export function useInboxItems(): InboxQueryState {
+export function useInboxItems({
+    refreshWhileVisible = false,
+}: {
+    refreshWhileVisible?: boolean
+} = {}): InboxQueryState {
     const mode = useDataMode()
     const demoQuery = useDemoInboxQuery()
-    const liveQuery = useLiveInboxItems(mode === 'live')
+    const liveQuery = useLiveInboxItems(mode === 'live', refreshWhileVisible)
     if (mode === 'loading') {
         return { ...loadingQuery(), ...noMorePages }
     }
@@ -193,24 +242,61 @@ function setCachedRead(
     reportId: string,
     read: boolean
 ): void {
-    queryClient.setQueriesData<Record<string, boolean>>({ queryKey: reportKeys.readStatesAll(scope) }, (states) =>
-        states && reportId in states ? { ...states, [reportId]: read } : states
+    queryClient.setQueriesData<Record<string, boolean>>(
+        {
+            queryKey: reportKeys.readStatesAll(scope),
+            predicate: (query) => String(query.queryKey.at(-1)).split(',').includes(reportId),
+        },
+        (states) => ({ ...states, [reportId]: read })
     )
 }
 
-async function markReportRead(
-    queryClient: ReturnType<typeof useQueryClient>,
-    scope: ProjectScope,
-    reportId: string
-): Promise<void> {
-    setCachedRead(queryClient, scope, reportId, true)
-    try {
-        await postReadStates([reportId], true)
-    } catch (error) {
-        void queryClient.invalidateQueries({ queryKey: reportKeys.readStatesAll(scope) })
-        throw error
+function markReportRead(queryClient: QueryClient, scope: ProjectScope, reportId: string): Promise<void> {
+    let pending = pendingReads.get(queryClient)
+    if (!pending) {
+        pending = new Map()
+        pendingReads.set(queryClient, pending)
     }
-    track('mobile_report_marked_read', { report_id: reportId })
+    const generation = accountGeneration
+    const key = readKey(scope, reportId)
+    const controller = new AbortController()
+    const existing = pending.get(key)
+    if (existing) return existing
+    readWrites.add(controller)
+    const operation = (async (): Promise<void> => {
+        const filters = { queryKey: reportKeys.readStatesAll(scope) }
+        await queryClient.cancelQueries(filters)
+        if (generation !== accountGeneration) return
+        const previous = queryClient.getQueriesData<Record<string, boolean>>(filters)
+        setCachedRead(queryClient, scope, reportId, true)
+        try {
+            await postReadStates([reportId], true, controller.signal)
+            if (generation !== accountGeneration) return
+            await queryClient.cancelQueries(filters)
+            if (generation !== accountGeneration) return
+            setCachedRead(queryClient, scope, reportId, true)
+            track('mobile_report_marked_read', { report_id: reportId })
+        } catch (error) {
+            if (generation !== accountGeneration) return
+            await queryClient.cancelQueries(filters)
+            if (generation !== accountGeneration) return
+            for (const [queryKey, states] of previous) {
+                queryClient.setQueryData<Record<string, boolean>>(queryKey, (current) => {
+                    if (!current) return current
+                    const restored = { ...current }
+                    if (states && reportId in states) restored[reportId] = states[reportId] as boolean
+                    else delete restored[reportId]
+                    return restored
+                })
+            }
+            throw error
+        }
+    })().finally(() => {
+        pending?.delete(key)
+        readWrites.delete(controller)
+    })
+    pending.set(key, operation)
+    return operation
 }
 
 export function useMarkReadAction(reportId: string): AsyncAction<[]> {
@@ -231,12 +317,13 @@ export function useMarkReadAction(reportId: string): AsyncAction<[]> {
 }
 
 // Posts without `useAsyncAction`, whose in-flight guard would drop the next report's post on a fast Prev/Next.
-export function useMarkReadOnOpen(reportId: string): void {
+export function useMarkReadOnOpen(reportId: string | undefined): void {
     const demo = useDemoMode((state) => state.enabled)
     const demoMarkRead = useDemoMode((state) => state.markRead)
     const scope = useProjectScope()
     const queryClient = useQueryClient()
     useEffect(() => {
+        if (!reportId) return
         if (demo) {
             demoMarkRead(reportId)
             return

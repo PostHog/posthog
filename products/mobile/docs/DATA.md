@@ -163,7 +163,8 @@ The query endpoint needs the `query:read` scope. Without it the request answers 
 
 ## Actions
 
-- **Mark read.** `useMarkReadOnOpen` posts `read: true` each time a report opens and on Prev/Next, one request per report even when the previous one is still in flight. The cached read-state map is set to read first and refetched if the request fails.
+- **Read state.** Only a fresh, successful server response of `false` marks a row unread. Pending, missing and failed lookups stay quiet. The inbox refreshes read state every 30 seconds while focused in the foreground, and when it becomes active again. Rows show an unread dot; the menu counts unread reports in the loaded pages.
+- **Mark read.** `useMarkReadOnOpen` posts `read: true` after the report loads, including on Prev/Next. Separate reports can post concurrently. The cached state updates at once; a failed write restores that report's previous state without replacing other reports' updates. In-flight lookups cannot overwrite a pending read, and account or project changes invalidate the pending operation.
 - **Reviewers.** The sheet sends the full list of uuids. Reviewers that exist only as a GitHub login on the newest artefact are sent back as `{github_login}`, because the PUT replaces the whole list. The PUT takes at most 10 entries, so the sheet stops adding people when the selection plus the GitHub-only reviewers reaches 10. The hook waits for the work log to refetch so the sheet closes on the new list. A failed save keeps the sheet open with the error.
 - **Reviewer search.** Debounced by 250 ms, cached for 5 minutes, and the previous results stay on screen while the next search loads.
 

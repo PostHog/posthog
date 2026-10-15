@@ -34,12 +34,15 @@ describe('syncHedgehogWidget', () => {
         expect(JSON.parse(mockSetChoreography.mock.calls[1][0])).toMatchObject({ seed: 20261014 })
     })
 
-    it.each(['20261013', '2:20261013'])('upgrades the same day script after an older sync stamp %s', async (stamp) => {
-        await AsyncStorage.setItem('hedgehog_widget_seed', stamp)
+    it.each(['20261013', '2:20261013', '3:20261013'])(
+        'upgrades the same day script after an older sync stamp %s',
+        async (stamp) => {
+            await AsyncStorage.setItem('hedgehog_widget_seed', stamp)
 
-        await syncHedgehogWidget(new Date('2026-10-13T08:00:00Z'))
+            await syncHedgehogWidget(new Date('2026-10-13T08:00:00Z'))
 
-        expect(mockSetChoreography).toHaveBeenCalledTimes(1)
-        expect(JSON.parse(mockSetChoreography.mock.calls[0][0])).toMatchObject({ seed: 20261013, keyframeSec: 2 })
-    })
+            expect(mockSetChoreography).toHaveBeenCalledTimes(1)
+            expect(JSON.parse(mockSetChoreography.mock.calls[0][0])).toMatchObject({ seed: 20261013, keyframeSec: 2 })
+        }
+    )
 })

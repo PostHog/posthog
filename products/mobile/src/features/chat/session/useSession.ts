@@ -875,11 +875,11 @@ export function useSession(options: SessionOptions): Session {
     )
 
     const followUp = useCallback(
-        async (text: string, context: ChatContext, options: ChatRunOptions): Promise<void> => {
+        async (text: string, context: ChatContext, options: ChatRunOptions): Promise<boolean> => {
             const taskId = taskIdRef.current
             const trimmed = text.trim()
             if (!taskId || !trimmed || sendingRef.current) {
-                return
+                return false
             }
             const content = chatPrompt(trimmed, context)
             const reportCount = context.kind === 'reports' ? context.reports.length : 0
@@ -907,7 +907,7 @@ export function useSession(options: SessionOptions): Session {
                     ...sentOptionProperties(options, options.permissionMode),
                 })
                 await playDemoFrames(demoReplyFrames(DEMO_REPLY), controller.signal)
-                return
+                return true
             }
             sendingRef.current = true
             setSending(true)
@@ -915,7 +915,7 @@ export function useSession(options: SessionOptions): Session {
             try {
                 const current = liveRef.current ?? (await adoptLatestRun(taskId, controller.signal, mine))
                 if (epoch.current !== mine) {
-                    return
+                    return false
                 }
                 let delivered = false
                 let permissionMode: PermissionModeApi = options.permissionMode
@@ -956,26 +956,28 @@ export function useSession(options: SessionOptions): Session {
                 }
             } catch (error) {
                 if (epoch.current !== mine || controller.signal.aborted) {
-                    return
+                    return false
                 }
                 dispatchThread({ type: 'withdraw', id: localId })
                 setNotice(sendErrorMessage(error))
                 setUnsentText(trimmed)
+                return false
             } finally {
                 if (epoch.current === mine) {
                     sendingRef.current = false
                     setSending(false)
                 }
             }
+            return true
         },
         [adoptLatestRun, applyFrame, demo, playDemoFrames, startRun, syncConfig, updateLive]
     )
 
     const startNew = useCallback(
-        async (text: string, context: ChatContext, options: ChatRunOptions): Promise<void> => {
+        async (text: string, context: ChatContext, options: ChatRunOptions): Promise<boolean> => {
             const trimmed = text.trim()
             if (taskIdRef.current || !trimmed || sendingRef.current) {
-                return
+                return false
             }
             const requests = chatStartRequests(trimmed, context, options)
             const sentProperties = {
@@ -1006,7 +1008,7 @@ export function useSession(options: SessionOptions): Session {
                 applyFrame(echo, { source: 'live', sourceRunId: runId }, runId, signal)
                 track('mobile_session_sent', sentProperties)
                 await playDemoFrames(demoReplyFrames(DEMO_REPLY), signal)
-                return
+                return true
             }
             sendingRef.current = true
             setSending(true)
@@ -1014,11 +1016,11 @@ export function useSession(options: SessionOptions): Session {
                 // No abort signal, so the app always learns the task id and whether its run started.
                 const task = await withWarmRetry((headers) => createTask(requests.task, { headers }))
                 if (epoch.current !== mine) {
-                    // The sheet closed or New chat dropped this chat, so no run would ever start on the new task.
+                    // An empty task cannot start a run after its composer has gone.
                     if (!task.latest_run) {
                         await deleteTask(task.id).catch(() => undefined)
                     }
-                    return
+                    return task.latest_run != null
                 }
                 taskIdRef.current = task.id
                 runSource.current = requests.runSource
@@ -1049,7 +1051,7 @@ export function useSession(options: SessionOptions): Session {
                     throw new RunNotStartedError()
                 }
                 if (epoch.current !== mine) {
-                    return
+                    return true
                 }
                 runDetail.current = run
                 runConfigs.current.set(run.id, runConfigAfterStart(run, requests.fields))
@@ -1058,23 +1060,25 @@ export function useSession(options: SessionOptions): Session {
                 track('mobile_session_sent', sentProperties)
             } catch (error) {
                 if (epoch.current !== mine || signal.aborted) {
-                    return
+                    return false
                 }
                 dispatchThread({ type: 'withdraw', id: localId })
                 setNotice(sendErrorMessage(error))
                 setUnsentText(trimmed)
+                return false
             } finally {
                 if (epoch.current === mine) {
                     sendingRef.current = false
                     setSending(false)
                 }
             }
+            return true
         },
         [applyFrame, demo, playDemoFrames, setLive]
     )
 
     const submit = useCallback(
-        (text: string, context: ChatContext, options: ChatRunOptions = DEFAULT_CHAT_RUN_OPTIONS): Promise<void> =>
+        (text: string, context: ChatContext, options: ChatRunOptions = DEFAULT_CHAT_RUN_OPTIONS): Promise<boolean> =>
             taskIdRef.current ? followUp(text, context, options) : startNew(text, context, options),
         [followUp, startNew]
     )
