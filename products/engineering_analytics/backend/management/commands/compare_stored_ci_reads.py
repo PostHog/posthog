@@ -1,8 +1,7 @@
 """Compare the stored CI rows of one repository with the raw tables, query by query.
 
-It needs the ``engineering-analytics-stored-reads`` flag on for the team, and the stored days of the
-reads. The first run of the command starts a refresh if none ran in the last hour, so run it again
-once the refresh is done. Each stored read runs twice, so expect about twice the warehouse cost of
+It needs the stored days of the reads. The first run of the command starts a refresh if none ran in
+the last hour, so run it again once the refresh is done. Each stored read runs twice, so expect about twice the warehouse cost of
 the reads. A difference is a lead to check, not proof of a bug: stored rows can be minutes old.
 
 Usage:
@@ -41,7 +40,7 @@ class Command(BaseCommand):
         for query_type in parity.raw_reads:
             self.stdout.write(f"{query_type}: read the raw tables, so it went unchecked")
         if not parity.queries:
-            raise CommandError("No read took the stored rows. Check the flag, then run again after a refresh.")
+            raise CommandError("No read took the stored rows. Run again after a refresh stores the days.")
         for query in parity.queries:
             self.stdout.write(f"{query.query_type}: {query.stored_rows} stored, {query.raw_rows} raw rows")
             if query.raw_error:
