@@ -1055,32 +1055,66 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
     @parameterized.expand(
         [
-            ("team", TeamSerializer, {}, False),
-            ("project", ProjectBackwardCompatSerializer, {}, False),
-            ("team_raced", TeamSerializer, {}, True),
-            ("project_raced", ProjectBackwardCompatSerializer, {}, True),
-            ("team_raced_with_conversations", TeamSerializer, {"conversations_enabled": True}, True),
+            ("team", TeamSerializer, {}, False, None),
+            ("project", ProjectBackwardCompatSerializer, {}, False, None),
+            ("team_raced", TeamSerializer, {}, True, None),
+            ("project_raced", ProjectBackwardCompatSerializer, {}, True, None),
+            ("team_raced_with_conversations", TeamSerializer, {"conversations_enabled": True}, True, None),
             (
                 "project_raced_with_conversations",
                 ProjectBackwardCompatSerializer,
                 {"conversations_enabled": True},
                 True,
+                None,
+            ),
+            ("project_raced_with_name", ProjectBackwardCompatSerializer, {"name": "New Project Name"}, True, None),
+            (
+                "team_raced_resent_period",
+                TeamSerializer,
+                {},
+                True,
+                {
+                    "retention_days": 30,
+                    "retention_last_updated": "2025-01-01T00:00:00+00:00",
+                    "json_parse_logs_attribute_key": "changed",
+                },
+            ),
+            (
+                "project_raced_resent_period",
+                ProjectBackwardCompatSerializer,
+                {},
+                True,
+                {
+                    "retention_days": 30,
+                    "retention_last_updated": "2025-01-01T00:00:00+00:00",
+                    "json_parse_logs_attribute_key": "changed",
+                },
             ),
         ]
     )
-    def test_logs_retention_change_is_refused_when_another_write_landed_first(
-        self, _name: str, serializer_class: type, extra_fields: dict[str, Any], raced: bool
+    def test_logs_settings_change_is_refused_when_another_write_landed_first(
+        self,
+        _name: str,
+        serializer_class: type,
+        extra_fields: dict[str, Any],
+        raced: bool,
+        requested_settings_override: dict[str, Any] | None,
     ) -> None:
         self.team.logs_settings = {"retention_days": 30, "retention_last_updated": "2025-01-01T00:00:00+00:00"}
         self.team.save()
         # Validation read this snapshot of the team, and update() must compare against it.
         project = Project.objects.get(pk=self.project.pk)
         team = project.passthrough_team
+        original_project_name = project.name
+        original_team_name = team.name
         concurrent_settings = {"retention_days": 14, "retention_last_updated": "2025-01-03T00:00:00+00:00"}
         if raced:
             Team.objects.filter(pk=self.team.pk).update(logs_settings=concurrent_settings)
 
-        requested_settings = {"retention_days": 14, "retention_last_updated": "2025-01-03T00:00:01+00:00"}
+        requested_settings = requested_settings_override or {
+            "retention_days": 14,
+            "retention_last_updated": "2025-01-03T00:00:01+00:00",
+        }
         payload = {"logs_settings": requested_settings, **extra_fields}
         request = APIRequestFactory().patch("/", payload, format="json")
         request.user = self.user
@@ -1100,6 +1134,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.logs_settings, concurrent_settings if raced else requested_settings)
+
+        if "name" in extra_fields:
+            project.refresh_from_db()
+            self.assertEqual((project.name, self.team.name), (original_project_name, original_team_name))
 
     @parameterized.expand(
         [

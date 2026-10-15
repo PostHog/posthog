@@ -1072,7 +1072,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         for attr in other_team_fields:
             setattr(instance, attr, validated_data[attr])
 
-        with settings_validation.refuse_stale_logs_retention_change(
+        with settings_validation.refuse_stale_logs_settings_change(
             instance, before_update["logs_settings"], validated_data.get("logs_settings")
         ):
             # Merge conversations_settings under a lock; a null clear still keeps the managed keys.

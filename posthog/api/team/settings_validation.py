@@ -311,19 +311,21 @@ def is_throttled_logs_retention_change(read_settings: dict[str, Any] | None, new
 
 
 @contextmanager
-def refuse_stale_logs_retention_change(
+def refuse_stale_logs_settings_change(
     team: Team, read_settings: dict[str, Any] | None, new_settings: Any
 ) -> Iterator[None]:
-    """Wrap the save of a logs retention change, so that it fails when another write changed logs_settings first.
+    """Wrap the save of a logs_settings change, so that it fails when another write changed logs_settings first.
 
-    The 24-hour limit was checked against read_settings. The conditional update holds the row
-    lock until the save commits, so a concurrent change waits for it and then fails the same check.
+    Every write over a stored value is guarded, not only a retention change. A parallel write that
+    sends the old period back would otherwise undo a retention change and its timestamp.
+    The conditional update holds the row lock until the save commits, so a concurrent change
+    waits for it and then fails the same check.
     """
-    if not is_throttled_logs_retention_change(read_settings, new_settings):
+    if not read_settings or not isinstance(new_settings, dict):
         yield
         return
     with transaction.atomic():
         # Compare the whole value: an entitlement reset changes retention_days but not retention_last_updated.
         if not Team.objects.filter(pk=team.pk, logs_settings=read_settings).update(logs_settings=new_settings):
-            raise exceptions.ValidationError({"logs_settings": "Retention changed. Reload the settings and retry."})
+            raise exceptions.ValidationError({"logs_settings": "Logs settings changed. Reload the settings and retry."})
         yield
