@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     SERVER_SELECTION_TIMEOUT_MS,
     SOCKET_TIMEOUT_MS,
     MongoResumeConfig,
+    UnsupportedConnectionOptionError,
     _adaptive_chunk_size,
     _build_query,
     _get_avg_document_size,
@@ -1302,10 +1303,10 @@ class TestConnectionTimeouts(SimpleTestCase):
                 "/srv/bundle.pem",
             ),
             (
-                "revocation_and_client_cert_options_are_kept",
-                "mongodb://user:pw@db.example.com/db?tls=true&TLSCAFILE=ca.pem&tlsCRLFile=crl.pem",
+                "option_names_are_not_case_sensitive",
+                "mongodb://user:pw@db.example.com/db?TLSCAFILE=ca.pem&tls=true",
                 None,
-                "mongodb://user:pw@db.example.com/db?tls=true&tlsCRLFile=crl.pem",
+                "mongodb://user:pw@db.example.com/db?tls=true",
                 certifi.where(),
             ),
         ]
@@ -1319,6 +1320,18 @@ class TestConnectionTimeouts(SimpleTestCase):
 
         assert client_class.call_args.args[0] == expected_string
         assert client_class.call_args.kwargs["tlsCAFile"] == expected_ca
+
+    @parameterized.expand(
+        [("revocation_list", "tlsCRLFile=crl.pem"), ("client_certificate", "tlscertificatekeyfile=c.pem")]
+    )
+    def test_a_file_option_with_no_replacement_stops_the_sync_before_the_client_opens(self, _name, option):
+        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
+            with pytest.raises(UnsupportedConnectionOptionError) as raised:
+                with mongo_client(f"mongodb://user:pw@db.example.com/db?tls=true&{option}", team_id=1):
+                    pass
+
+        client_class.assert_not_called()
+        assert error_message_matches(str(raised.value), MongoDBSource().get_non_retryable_errors())
 
     def test_socket_timeout_error_is_retryable(self):
         # pymongo's NetworkTimeout wording when a socket read reaches `socketTimeoutMS`.

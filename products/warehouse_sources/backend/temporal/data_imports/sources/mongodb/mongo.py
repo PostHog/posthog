@@ -340,15 +340,24 @@ def connection_timeouts(connection_string: str) -> dict[str, int]:
     return {name: value for name, value in _CONNECTION_TIMEOUT_DEFAULTS.items() if name.lower() not in option_keys}
 
 
-# pymongo opens this path on our host while it parses the string, so a path from the customer's
-# machine fails the connection (AWS's DocumentDB string names `global-bundle.pem`). The CA bundle
-# always comes from the `tlsCAFile` keyword instead.
+# pymongo opens these paths on our host while it parses the string, so a path from the customer's
+# machine never works there. The CA bundle always comes from the `tlsCAFile` keyword, so that option
+# is dropped (AWS's DocumentDB string names `global-bundle.pem`). A revocation list or a client
+# certificate has no replacement, so the client refuses those rather than connect without them.
 _CA_FILE_OPTION = "tlscafile"
+_UNSUPPORTED_FILE_OPTIONS = frozenset({"tlscertificatekeyfile", "tlscrlfile"})
+UNSUPPORTED_FILE_OPTION_ERROR = "Connection string names a certificate file PostHog cannot read"
+
+
+class UnsupportedConnectionOptionError(ValueError):
+    pass
 
 
 def without_ca_file_option(connection_string: str) -> str:
     base, _, query = connection_string.partition("?")
     options = re.split(r"[&;]", query)
+    if any(option.partition("=")[0].lower() in _UNSUPPORTED_FILE_OPTIONS for option in options):
+        raise UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR)
     kept = [option for option in options if option.partition("=")[0].lower() != _CA_FILE_OPTION]
     if len(kept) == len(options):
         return connection_string

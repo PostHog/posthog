@@ -27,7 +27,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
     MONGO_DOCUMENT_MISSING_ID_ERROR,
+    UNSUPPORTED_FILE_OPTION_ERROR,
     MongoResumeConfig,
+    UnsupportedConnectionOptionError,
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
@@ -69,6 +71,11 @@ _MONGO_ATLAS_SQL_MESSAGE = (
     "(its host ends in .query.mongodb.net), which PostHog can't import from — those endpoints "
     "are served by a query proxy for the Atlas SQL ODBC/JDBC drivers, not the standard MongoDB "
     "driver. Use your regular cluster connection string (e.g. mongodb+srv://...mongodb.net) instead."
+)
+
+_MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE = (
+    "Your connection string sets tlsCertificateKeyFile or tlsCRLFile. These name files on your own "
+    "machine, which PostHog can't read. Remove them from the connection string and try again."
 )
 
 _MONGO_HOST_UNRESOLVED_MESSAGE = (
@@ -249,6 +256,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         auth_failed_msg = _MONGO_AUTHENTICATION_FAILED_MESSAGE
         return {
             _SERVER_TOO_OLD_MARKER: _MONGO_SERVER_TOO_OLD_MESSAGE,
+            UNSUPPORTED_FILE_OPTION_ERROR: _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
             # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
             # use urllib.parse.quote_plus") before any network call when the credentials in the
             # connection string contain unescaped reserved characters (e.g. ':', '/', '@', '%' in the
@@ -490,6 +498,8 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # rather than mislabelling it as an authentication problem.
             capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
+        except UnsupportedConnectionOptionError:
+            return False, _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE
         except HostNotAllowedError:
             # An SRV URI skips the host check above, so a cluster whose members resolve to private
             # addresses is only refused once `_make_safe_server_selector` sees them. Report the same
