@@ -267,6 +267,8 @@ def pinned_host_kwargs(host: str, *, port: int, connect_timeout: float, team_id:
     lookup to race and comes back unchanged. Dev and test connect to local or fake hosts, so the
     lookup is skipped there, as in `_get_sslmode`.
     """
+    note_oob_domain(host, team_id)
+
     if host_lookup_is_skipped():
         return {"host": host}
 

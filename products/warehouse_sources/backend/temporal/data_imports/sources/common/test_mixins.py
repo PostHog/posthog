@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     check_resolved_addresses,
     make_ssh_tunnel_factory,
     open_ssh_tunnel,
+    pinned_host_kwargs,
     resolve_safe_host,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import resolver
@@ -957,3 +958,18 @@ class TestOOBDomainDetection(SimpleTestCase):
 
         stages = [call.args[3] for call in log_host_check.call_args_list]
         assert "oob_domain" not in stages
+
+
+class TestOOBDomainDetectionOnThePinnedPath(SimpleTestCase):
+    def test_logs_before_it_resolves(self):
+        with (
+            patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
+            patch(f"{_MIXINS_MODULE}.host_lookup_is_skipped", return_value=False),
+            patch(f"{_MIXINS_MODULE}._resolve_hostaddr_with_timeout", side_effect=AssertionError("resolved first")),
+            patch(f"{_MIXINS_MODULE}._log_host_check") as log_host_check,
+        ):
+            with pytest.raises(AssertionError):
+                pinned_host_kwargs("abc.oast.live", port=5432, connect_timeout=1.0, team_id=2)
+
+        stages = [call.args[3] for call in log_host_check.call_args_list]
+        assert "oob_domain" in stages
