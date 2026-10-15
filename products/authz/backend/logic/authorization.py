@@ -16,7 +16,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.dashboards.backend.facade.authorization import active_authorization_dashboard_ids
 
 from ..client import Consistency, pooled_openfga_client
-from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
+from ..facade.contracts import CheckRequest, Context, ObjectIds, Resource, Subject
 from ..facade.enums import Action, Level, ResourceType
 from . import request_context, sync_state
 
@@ -188,7 +188,7 @@ def check(
         ]
 
 
-def list_resources(
+def list_objects(
     resource: Resource,
     action: Action,
     subject: Subject | None,
@@ -196,7 +196,7 @@ def list_resources(
     limit: int | None,
     *,
     consistency: Consistency = "HIGHER_CONSISTENCY",
-) -> ResourceIds:
+) -> ObjectIds:
     if action == Action.QUERY:
         return _query_resource_filter(resource, subject, context, limit, consistency=consistency)
     validate_context(context)
@@ -212,7 +212,7 @@ def list_resources(
     user = actor_key(subject)
     revision = ready_state(org_id)
     if revision is None:
-        return ResourceIds(ids=frozenset(), complete=False)
+        return ObjectIds(ids=frozenset(), complete=False)
     with pooled_openfga_client() as client:
         if client.get_store_id() is None:
             raise RuntimeError("Bootstrap the OpenFGA store before listing authorized resources")
@@ -236,7 +236,7 @@ def list_resources(
                             active_ids = active_authorization_insight_ids(resource.project_id, ids)
                         ids = set(active_ids)
                         if len(ids) > limit:
-                            return ResourceIds(ids=frozenset(), complete=False)
+                            return ObjectIds(ids=frozenset(), complete=False)
         finally:
             stream.close()
         if resource.type == ResourceType.DASHBOARD:
@@ -248,10 +248,10 @@ def list_resources(
 
             active_ids = active_authorization_insight_ids(resource.project_id, ids)
         if limit is not None and len(active_ids) > limit:
-            return ResourceIds(ids=frozenset(), complete=False)
+            return ObjectIds(ids=frozenset(), complete=False)
         if ready_state(org_id) != revision:
-            return ResourceIds(ids=frozenset(), complete=False)
-        return ResourceIds(ids=active_ids, complete=True)
+            return ObjectIds(ids=frozenset(), complete=False)
+        return ObjectIds(ids=active_ids, complete=True)
 
 
 MAX_IDS = 1000
@@ -264,7 +264,7 @@ def _query_resource_filter(
     limit: int | None,
     *,
     consistency: Consistency = "HIGHER_CONSISTENCY",
-) -> ResourceIds:
+) -> ObjectIds:
     """The resources that differ from the project default for this subject.
 
     The lists stay small because the model marks the objects a user has a rule on (`has_rule`). With
@@ -284,11 +284,11 @@ def _query_resource_filter(
     relation = action_relation(f"{prefix}0", Action.VIEW)
     category_key = object_key(resource, org_id=org_id)
     user = actor_key(subject)
-    capped = ResourceIds(ids=frozenset(), complete=False)
+    capped = ObjectIds(ids=frozenset(), complete=False)
 
-    def build(ids: frozenset[str], *, excluded: bool) -> ResourceIds:
+    def build(ids: frozenset[str], *, excluded: bool) -> ObjectIds:
         # OpenFGA already includes creators after applying project membership and action-specific gates.
-        return ResourceIds(ids=ids, complete=True, excluded=excluded)
+        return ObjectIds(ids=ids, complete=True, excluded=excluded)
 
     revision = ready_state(org_id)
     if revision is None:

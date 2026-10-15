@@ -87,7 +87,7 @@ def permissions(
     return rollout.permissions(resource, subject, context)
 
 
-def list_resources(
+def list_objects(
     *,
     resource: contracts.Resource,
     action: Action,
@@ -96,7 +96,7 @@ def list_resources(
     limit: int | None = None,
     creator_exempt: bool = False,
     user_access_control: UserAccessControl | None = None,
-) -> contracts.ResourceIds:
+) -> contracts.ObjectIds:
     """Return project-scoped IDs for the requested action.
 
     QUERY returns an inclusion or exclusion filter for HogQL rows. A complete result with
@@ -104,7 +104,7 @@ def list_resources(
     An incomplete result allows nothing. `creator_exempt` requests a creator predicate only when
     the selected engine permits it. `user_access_control` reuses the caller's legacy rule preload.
     """
-    return rollout.list_resources(resource, action, subject, context, limit, creator_exempt, user_access_control)
+    return rollout.list_objects(resource, action, subject, context, limit, creator_exempt, user_access_control)
 
 
 def list_subjects(

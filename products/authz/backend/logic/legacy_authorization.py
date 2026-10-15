@@ -15,7 +15,7 @@ from products.dashboards.backend.facade.authorization import LegacyDashboardAuth
 if TYPE_CHECKING:
     from products.product_analytics.backend.facade.contracts import AuthorizationInsight
 
-from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
+from ..facade.contracts import CheckRequest, Context, ObjectIds, Resource, Subject
 from ..facade.enums import Action, ResourceType
 from . import authorization, request_context
 
@@ -134,9 +134,7 @@ class LegacyAuthorization:
             return insight is not None and self.check_insight(access, action, insight)
         return self.dashboard_access(access).check(resource.id, level)
 
-    def list_resources(
-        self, resource: Resource, action: Action, subject: Subject | None, limit: int | None
-    ) -> ResourceIds:
+    def list_objects(self, resource: Resource, action: Action, subject: Subject | None, limit: int | None) -> ObjectIds:
         if resource.id is not None or resource.type not in (ResourceType.DASHBOARD, ResourceType.INSIGHT):
             raise ValueError("List resources requires a supported resource type")
         if resource.project_id is None:
@@ -147,13 +145,13 @@ class LegacyAuthorization:
         authorization.organization_id(resource)
         user = self.user(subject)
         if user is None:
-            return ResourceIds(ids=frozenset(), complete=True)
+            return ObjectIds(ids=frozenset(), complete=True)
         access = self.user_access(user, resource)
         if not access.has_project_access:
-            return ResourceIds(ids=frozenset(), complete=True)
+            return ObjectIds(ids=frozenset(), complete=True)
         if resource.type == ResourceType.DASHBOARD:
             dashboard_ids = self.dashboard_access(access).ids(dashboard_level(action), limit)
-            return ResourceIds(ids=dashboard_ids or frozenset(), complete=dashboard_ids is not None)
+            return ObjectIds(ids=dashboard_ids or frozenset(), complete=dashboard_ids is not None)
 
         assert access.team is not None
         ids: set[str] = set()
@@ -168,8 +166,8 @@ class LegacyAuthorization:
             if self.check_insight(access, action, insight):
                 ids.add(str(insight.id))
                 if limit is not None and len(ids) > limit:
-                    return ResourceIds(ids=frozenset(), complete=False)
-        return ResourceIds(ids=frozenset(ids), complete=True)
+                    return ObjectIds(ids=frozenset(), complete=False)
+        return ObjectIds(ids=frozenset(ids), complete=True)
 
     def query_resource_filter(
         self,
@@ -178,7 +176,7 @@ class LegacyAuthorization:
         limit: int | None,
         creator_exempt: bool,
         user_access_control: UserAccessControl | None,
-    ) -> ResourceIds:
+    ) -> ObjectIds:
         """Same shape as the OpenFGA list: only objects with a rule of their own can differ from the
         resource level, so those are resolved one by one and the rest follow the resource level."""
         if resource.id is not None or resource.project_id is None:
@@ -193,20 +191,20 @@ class LegacyAuthorization:
                 self.users.setdefault(preloaded_user.id, preloaded_user)
         user = self.user(subject)
         if user is None:
-            return ResourceIds(ids=frozenset(), complete=True)
+            return ObjectIds(ids=frozenset(), complete=True)
         access = self.adopt(user, resource, user_access_control) or self.user_access(user, resource)
 
-        def build(ids: frozenset[str], *, excluded: bool) -> ResourceIds:
-            return ResourceIds(ids=ids, complete=True, excluded=excluded, creator_exempt=creator_exempt)
+        def build(ids: frozenset[str], *, excluded: bool) -> ObjectIds:
+            return ObjectIds(ids=ids, complete=True, excluded=excluded, creator_exempt=creator_exempt)
 
         if not access.has_project_access:
-            return ResourceIds(ids=frozenset(), complete=True)
+            return ObjectIds(ids=frozenset(), complete=True)
         if access.is_organization_admin:
             return build(frozenset(), excluded=True)
         scope = cast(APIScopeObject, resource.type.value)
         with_rule = access.object_ids_with_rules(scope)
         if len(with_rule) > cap:
-            return ResourceIds(ids=frozenset(), complete=False)
+            return ObjectIds(ids=frozenset(), complete=False)
         allowed = {
             id: access.check_access_level_for_ref(
                 ObjectAccessRef(resource=scope, id=id, team_id=resource.project_id, created_by_id=None), level
@@ -244,7 +242,7 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
     return [access.check(request) for request in requests]
 
 
-def list_resources(
+def list_objects(
     resource: Resource,
     action: Action,
     subject: Subject | None,
@@ -252,9 +250,9 @@ def list_resources(
     limit: int | None,
     creator_exempt: bool = False,
     user_access_control: UserAccessControl | None = None,
-) -> ResourceIds:
+) -> ObjectIds:
     authorization.validate_context(context)
     engine = evaluator()
     if action == Action.QUERY:
         return engine.query_resource_filter(resource, subject, limit, creator_exempt, user_access_control)
-    return engine.list_resources(resource, action, subject, limit)
+    return engine.list_objects(resource, action, subject, limit)

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from posthog.scopes import APIScopeObject
 
-    from products.authz.backend.facade.contracts import ResourceIds
+    from products.authz.backend.facade.contracts import ObjectIds
 
 
 def build_access_control_warning(resources: Iterable["APIScopeObject"]) -> Optional["AccessControlFilterWarning"]:
@@ -44,7 +44,7 @@ def build_access_control_guard(
 ) -> Optional[ast.Expr]:
     """Build the WHERE guard that narrows the table to the rows the current user may query, or None.
 
-    The decision comes from the authz facade as a `ResourceIds`. This function only turns it into
+    The decision comes from the authz facade as a `ObjectIds`. This function only turns it into
     an expression, because only the table knows its id and creator columns.
     """
     resource = table.access_scope
@@ -65,7 +65,7 @@ def build_access_control_guard(
     user_access_control = context.database.user_access_control
     user_id = user_access_control.user.pk
     creator_field = table.access_control_creator_id
-    result = authz.list_resources(
+    result = authz.list_objects(
         resource=Resource(type=ResourceType(resource), project_id=context.team_id),
         action=Action.QUERY,
         subject=Subject(user_id=user_id),
@@ -85,7 +85,7 @@ def build_access_control_guard(
 
 
 def _resource_ids_to_expr(
-    result: "ResourceIds",
+    result: "ObjectIds",
     id_field: str,
     table_type: ast.TableOrSelectType,
     creator_field: Optional[str],

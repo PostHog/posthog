@@ -89,7 +89,7 @@ This is a `QueryError` (`posthog/hogql/errors.py`), so it's exposed to the user.
 Some resources support per-object access controls - dashboards, insights, notebooks, feature flags, experiments, surveys, error tracking issues, session recordings, etc.
 For these, denied objects are filtered out of the results.
 
-At print time the printer translates the SDK's `ResourceIds` into an `IN` or `NOT IN` guard.
+At print time the printer translates the SDK's `ObjectIds` into an `IN` or `NOT IN` guard.
 The SDK decides whether the IDs are grants or denials and whether a creator exemption applies.
 Incomplete decisions produce a false guard, including for creators.
 Child tables filter on the parent's FK — e.g. `system.dashboard_tiles` uses `access_control_id_field="dashboard_id"`.

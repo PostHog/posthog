@@ -9,7 +9,7 @@ from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.printer.access_control import _resource_ids_to_expr
 
-from products.authz.backend.facade.contracts import ResourceIds
+from products.authz.backend.facade.contracts import ObjectIds
 
 
 class TestHogQLAccessFilter(SimpleTestCase):
@@ -18,7 +18,7 @@ class TestHogQLAccessFilter(SimpleTestCase):
         table = SystemTables().children["dashboards"].table
         assert isinstance(table, Table)
         table_type = ast.TableType(table=table)
-        result = ResourceIds(ids=frozenset({"1"}), complete=True, excluded=excluded, creator_exempt=True)
+        result = ObjectIds(ids=frozenset({"1"}), complete=True, excluded=excluded, creator_exempt=True)
         guard = _resource_ids_to_expr(result, "id", table_type, "created_by_id", 7)
         assert guard is not None
         sql = print_prepared_ast(guard, HogQLContext(team_id=1), dialect="hogql").lower()
@@ -31,10 +31,10 @@ class TestHogQLAccessFilter(SimpleTestCase):
         assert isinstance(table, Table)
         table_type = ast.TableType(table=table)
         assert (
-            _resource_ids_to_expr(ResourceIds(ids=frozenset(), complete=True, excluded=True), "id", table_type, None, 1)
+            _resource_ids_to_expr(ObjectIds(ids=frozenset(), complete=True, excluded=True), "id", table_type, None, 1)
             is None
         )
         guard = _resource_ids_to_expr(
-            ResourceIds(ids=frozenset(), complete=False, creator_exempt=True), "id", table_type, "created_by_id", 1
+            ObjectIds(ids=frozenset(), complete=False, creator_exempt=True), "id", table_type, "created_by_id", 1
         )
         assert isinstance(guard, ast.Constant) and guard.value is False

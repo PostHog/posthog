@@ -288,10 +288,10 @@ Create the flag with these variant keys before testing a rollout.
 
 - `check` supports a single action or an ordered batch of requests.
 - `permissions` uses the same routed checks to return the supported actions the user can take.
-- `list_resources` returns authorized dashboard or insight IDs scoped to the requested project.
+- `list_objects` returns authorized dashboard or insight IDs scoped to the requested project.
   Legacy mode evaluates the existing object and collaborator checks; OpenFGA mode streams authorized IDs.
   A supplied limit returns an empty, incomplete result if exceeded.
-- HogQL uses `list_resources(action=Action.QUERY)` to request a project-scoped row filter.
+- HogQL uses `list_objects(action=Action.QUERY)` to request a project-scoped row filter.
   `excluded=False` includes only the returned IDs; `excluded=True` excludes those IDs.
   A permitted `creator_exempt` adds creator-owned rows within the existing tenant scope.
   Incomplete filters deny every row. Query filters default to a 1,000-ID cap; `limit` overrides it.

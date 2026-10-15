@@ -120,7 +120,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
-from products.authz.backend.facade.contracts import ResourceIds
+from products.authz.backend.facade.contracts import ObjectIds
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -1997,14 +1997,14 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             self.organization.available_product_features = []
             self.organization.save()
         with (
-            mock.patch("posthog.authz.api.list_resources") as list_resources,
+            mock.patch("posthog.authz.api.list_objects") as list_objects,
             mock.patch("posthog.hogql_queries.query_runner.queried_access_controlled_resources", return_value={scope}),
         ):
-            list_resources.return_value = ResourceIds(ids=frozenset(), complete=True, excluded=True)
+            list_objects.return_value = ObjectIds(ids=frozenset(), complete=True, excluded=True)
             unrestricted = self._runner(self.user, AnalyticsQueryRunner).get_cache_key()
-            list_resources.return_value = ResourceIds(ids=frozenset({"1"}), complete=True, excluded=True)
+            list_objects.return_value = ObjectIds(ids=frozenset({"1"}), complete=True, excluded=True)
             restricted = self._runner(self.user, AnalyticsQueryRunner).get_cache_key()
-            list_resources.return_value = ResourceIds(ids=frozenset(), complete=False)
+            list_objects.return_value = ObjectIds(ids=frozenset(), complete=False)
             incomplete = self._runner(self.user, AnalyticsQueryRunner).get_cache_key()
         assert len({unrestricted, restricted, incomplete}) == (3 if scope == "dashboard" else 1)
 

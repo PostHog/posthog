@@ -779,7 +779,7 @@ def _compute_system_table_access_decision(
 
     denied: set[str] = set(unentitled)
     for name, table in scoped_tables.items():
-        result = authz.list_resources(
+        result = authz.list_objects(
             resource=Resource(type=ResourceType(cast(str, table.access_scope)), project_id=team.id),
             action=Action.QUERY,
             subject=Subject(user_id=user.pk),
