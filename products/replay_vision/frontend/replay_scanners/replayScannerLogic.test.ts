@@ -1574,6 +1574,12 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    it('mounts when the scanner id carries a url-pattern token', () => {
+        const malformedLogic = replayScannerLogic({ id: 'abc)' })
+        expect(() => malformedLogic.mount()).not.toThrow()
+        malformedLogic.unmount()
+    })
+
     describe('observationsPage / sort URL sync', () => {
         let scannedLogic: ReturnType<typeof replayScannerLogic.build>
         let observationRequests: URL[]
