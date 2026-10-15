@@ -62,7 +62,7 @@ class ScarfSource(ResumableSource[ScarfSourceConfig, ScarfResumeConfig]):
             keywords=["open source", "package downloads", "oss"],
             caption="""Sync package downloads, pixel views and matched companies from Scarf.
 
-Create an API token in Scarf under **Settings > API tokens**. The owner is your Scarf user name or organization name. Event exports need a Scarf Basic or Premium plan, and each day synced uses one export run.""",
+Copy your API token from your [Scarf account settings](https://app.scarf.sh/account). The owner is your Scarf user name or organization name. Event exports need a Scarf Basic or Premium plan, and each day synced uses one export run.""",
             iconPath="/static/services/scarf.png",
             docsUrl="https://posthog.com/docs/cdp/sources/scarf",
             releaseStatus=ReleaseStatus.ALPHA,
