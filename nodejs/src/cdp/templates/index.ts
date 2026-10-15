@@ -11,7 +11,9 @@ import { template as emailTemplate } from './_destinations/email/email.template'
 import { template as githubAddLabelsTemplate } from './_destinations/github/github-add-labels.template'
 import { template as githubCreateCommentTemplate } from './_destinations/github/github-create-comment.template'
 import { template as githubFindCommentTemplate } from './_destinations/github/github-find-comment.template'
+import { template as githubGetPullRequestTemplate } from './_destinations/github/github-get-pull-request.template'
 import { template as githubRemoveLabelTemplate } from './_destinations/github/github-remove-label.template'
+import { template as githubUpdateIssueTemplate } from './_destinations/github/github-update-issue.template'
 import { template as githubTemplate } from './_destinations/github/github.template'
 import { template as gitlabTemplate } from './_destinations/gitlab/gitlab.template'
 import { template as googleTagManagerTemplate } from './_destinations/google-tag-manager/google-tag-manager.template'
@@ -135,6 +137,8 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     githubCreateCommentTemplate,
     githubAddLabelsTemplate,
     githubRemoveLabelTemplate,
+    githubGetPullRequestTemplate,
+    githubUpdateIssueTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [

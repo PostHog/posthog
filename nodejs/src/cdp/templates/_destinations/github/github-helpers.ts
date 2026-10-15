@@ -52,31 +52,38 @@ fun githubSplitList(value) {
   return arrayFilter(item -> notEmpty(item), arrayMap(item -> githubTrimWhitespace(item), splitByString(',', toString(value ?? ''))))
 }`
 
-export const githubIssueInputs: HogFunctionInputSchemaType[] = [
-    {
-        key: 'github_installation',
-        type: 'integration',
-        integration: 'github',
-        label: 'GitHub installation',
-        secret: false,
-        required: true,
-    },
-    {
-        key: 'repository',
-        type: 'string',
-        label: 'Repository',
-        description: 'Repository name, or owner/repo. With a GitHub trigger, this is the repository from the event.',
-        secret: false,
-        required: true,
-        default: '{event.properties.repository}',
-    },
-    {
-        key: 'number',
-        type: 'string',
-        label: 'Issue or PR number',
-        description: 'With a GitHub trigger, this is the issue or pull request from the event.',
-        secret: false,
-        required: true,
-        default: '{event.properties.number}',
-    },
-]
+function githubInputs(numberLabel: string): HogFunctionInputSchemaType[] {
+    return [
+        {
+            key: 'github_installation',
+            type: 'integration',
+            integration: 'github',
+            label: 'GitHub installation',
+            secret: false,
+            required: true,
+        },
+        {
+            key: 'repository',
+            type: 'string',
+            label: 'Repository',
+            description:
+                'Repository name, or owner/repo. With a GitHub trigger, this is the repository from the event.',
+            secret: false,
+            required: true,
+            default: '{event.properties.repository}',
+        },
+        {
+            key: 'number',
+            type: 'string',
+            label: numberLabel,
+            description: 'With a GitHub trigger, this is the issue or pull request from the event.',
+            secret: false,
+            required: true,
+            default: '{event.properties.number}',
+        },
+    ]
+}
+
+export const githubIssueInputs = githubInputs('Issue or PR number')
+
+export const githubPullRequestInputs = githubInputs('Pull request number')
