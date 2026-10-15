@@ -39,6 +39,22 @@ pub struct Config {
     #[envconfig(from = "AI_RESEARCH_V4_SESSION_IDLE_SECS", default = "3600")]
     pub session_idle_secs: u64,
 
+    /// Off, the recorder reads, admits and inspects, and stores nothing: no keys, no objects.
+    #[envconfig(from = "AI_RESEARCH_V4_WRITE_ENABLED", default = "false")]
+    pub write_enabled: bool,
+
+    #[envconfig(
+        from = "AI_RESEARCH_V4_KEY_TABLE",
+        default = "ai-research-replay-v4-keys"
+    )]
+    pub key_table: String,
+
+    #[envconfig(from = "AI_RESEARCH_V4_KMS_KEY_ARN", default = "")]
+    pub kms_key_arn: String,
+
+    #[envconfig(from = "AI_RESEARCH_V4_RRWEB_BUCKET", default = "")]
+    pub rrweb_bucket: String,
+
     #[envconfig(default = "9104")]
     pub metrics_port: u16,
 }
