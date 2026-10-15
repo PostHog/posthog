@@ -95,6 +95,43 @@ describe("AppServerClient", () => {
     await client.close();
   });
 
+  it("rejects a request and forgets its id when the app-server write fails", async () => {
+    const streams = createBidirectionalStreams();
+    const writeError = new Error("write EPIPE");
+    const written: RpcMessage[] = [];
+    const warnings: string[] = [];
+    const client = new AppServerClient(
+      {
+        readable: streams.client.readable,
+        writable: new WritableStream<Uint8Array>({
+          write(chunk) {
+            written.push(JSON.parse(new TextDecoder().decode(chunk)));
+            throw writeError;
+          },
+        }),
+      },
+      {
+        logger: new Logger({
+          onLog: (level, _scope, message) => {
+            if (level === "warn") warnings.push(message);
+          },
+        }),
+      },
+    );
+    const server = makeFakeServer(streams.agent);
+
+    const pending = client.request("turn/start", {});
+    await expect(pending).rejects.toThrow(/turn\/start/);
+    await expect(pending).rejects.toHaveProperty("cause", writeError);
+
+    await server.send({ id: written[0].id, result: {} });
+    await vi.waitFor(
+      () => expect(warnings).toContain("Response for unknown request id"),
+      { timeout: 200 },
+    );
+    await client.close();
+  }, 1_000);
+
   it("dispatches server notifications to the handler in order", async () => {
     const streams = createBidirectionalStreams();
     const received: string[] = [];

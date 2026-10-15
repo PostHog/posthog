@@ -40,6 +40,7 @@ export type SqlChartProps = {
     onPointClick?: (seriesKey: string, dataIndex: number, label: string) => void
     pointClickHint?: string
     directPointClick?: boolean
+    labelFormatter?: (label: string) => string
     xAxis?: XAxisConfig
     margins?: Partial<ChartMargins>
     children?: ReactNode

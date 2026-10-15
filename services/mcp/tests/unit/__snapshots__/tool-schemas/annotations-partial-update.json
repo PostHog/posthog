@@ -13,6 +13,28 @@
             ],
             "description": "Annotation text shown on charts to describe the change, release, or incident."
         },
+        "dashboard_id": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional dashboard ID to attach this annotation to. Must belong to the current project."
+        },
+        "dashboard_item": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional insight ID to attach this annotation to. Must belong to the current project."
+        },
         "date_marker": {
             "anyOf": [
                 {
