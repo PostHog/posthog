@@ -598,20 +598,22 @@ describe('shouldSharedDashboardAutoForceForStaleTime', () => {
 
 describe('getInsightQueryError', () => {
     it.each([
-        ['clickhouse_memory_limit_exceeded', 513],
-        ['invalid_query', 400],
-    ])('maps error code %s to status %s', (errorCode, expectedStatus) => {
+        ['clickhouse_memory_limit_exceeded', 'Query ran out of memory', 513, 'Query ran out of memory'],
+        ['rate_limited', 'concurrency_limit_exceeded', 429, 'Too many queries are running right now.'],
+        ['invalid_query', 'Query is invalid', 400, 'Query is invalid'],
+    ])('maps error code %s with message %s to status %s', (errorCode, errorMessage, expectedStatus, expectedDetail) => {
         const error = getInsightQueryError({
             query_status: {
                 id: 'query-id',
                 error: true,
-                error_message: 'Query ran out of memory',
+                error_message: errorMessage,
                 error_code: errorCode,
             },
         } as unknown as InsightModel)
 
         expect(error?.status).toBe(expectedStatus)
         expect(error?.data?.code).toBe(errorCode)
+        expect(error?.detail).toBe(expectedDetail)
     })
 
     it('reads the memory code out of the error message when the status field is absent', () => {

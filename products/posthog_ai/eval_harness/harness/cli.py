@@ -10,8 +10,7 @@ from .retries import DEFAULT_INFRA_RETRIES
 
 # Bare model ids, no "anthropic/"/"openai/" prefix: the LLM gateway checks the model against a
 # bare-id allowlist with startswith, so the prefixed form is rejected with a 403 and the agent
-# finishes without doing anything. `start_llm_gateway` declares this exact id free-tier on the
-# harness's own gateway, and a run that dies at the gate anyway now fails as an error rather than
+# finishes without doing anything. A run that dies at the gate fails as an error rather than
 # scoring zero on every outcome scorer.
 DEFAULT_AGENT_MODEL = "claude-opus-5"
 DEFAULT_CODEX_AGENT_MODEL = "gpt-5.5"
@@ -62,6 +61,7 @@ class HarnessOptions:
     """Sandbox-only flags the user passed explicitly, so a run without sandboxed
     suites can reject them instead of silently ignoring them."""
 
+    verbose: bool = False
     infrastructure_retries: int = DEFAULT_INFRA_RETRIES
 
 
@@ -177,6 +177,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Retries for temporary case setup failures and support-service readiness timeouts. Use 0 to disable.",
     )
     parser.add_argument(
+        "--verbose", action="store_true", help="Show detailed logs in the console as well as the transcript."
+    )
+    parser.add_argument(
         "--fail-under",
         type=float,
         default=None,
@@ -258,4 +261,5 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         fail_under=args.fail_under,
         sandbox_flags_set=sandbox_flags_set,
         infrastructure_retries=args.infra_retries,
+        verbose=args.verbose,
     )

@@ -132,6 +132,12 @@ function stateForToolCall(state: ResolvedState, intent: string | undefined): Res
     return scoped
 }
 
+// Hooks run after SDK preparation to share its conversation handle and preserve per-call privacy suppression.
+export interface ToolCallHooks {
+    beforeExecute(state: ResolvedState): Promise<Record<string, unknown> | undefined>
+    afterExecute(state: ResolvedState, result: unknown): Promise<void>
+}
+
 export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
@@ -201,7 +207,11 @@ export class ToolExecutor {
         return this.buildAdvertisedTools(state).find((tool) => tool.name === toolName)
     }
 
-    async handleToolCall(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {
+    async handleToolCall(
+        params: Record<string, unknown> | undefined,
+        state: ResolvedState,
+        hooks?: ToolCallHooks
+    ): Promise<unknown> {
         const toolName = params?.name as string
         if (!toolName) {
             return { content: [{ type: 'text', text: 'Missing tool name' }], isError: true }
@@ -231,8 +241,14 @@ export class ToolExecutor {
         const callState = stateForToolCall(state, analyticsMeta.intent)
         const callParams = { ...params, arguments: args }
 
+        const invitation = await hooks?.beforeExecute(callState)
+        if (invitation) {
+            return invitation
+        }
         const result = await this.dispatchToolCall(toolName, callParams, callState, analyticsMeta)
-        return this.deliverConversationHandle(result, preparedCall)
+        const delivered = this.deliverConversationHandle(result, preparedCall)
+        await hooks?.afterExecute(callState, delivered)
+        return delivered
     }
 
     // The agent can only echo a handle it has been given. One exit for every dispatch path,

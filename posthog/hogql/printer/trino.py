@@ -1017,6 +1017,10 @@ class TrinoPrinter(PostgresPrinter):
         if name == "md5":
             rendered_value = self._visit_unary_arg(node)
             return f"to_hex(md5(to_utf8(CAST({rendered_value} AS VARCHAR))))"
+        if name == "sha1":
+            rendered_value = self._visit_unary_arg(node)
+            # Trino's to_hex is uppercase; HogQL sha1 returns lowercase across dialects.
+            return f"lower(to_hex(sha1(to_utf8(CAST({rendered_value} AS VARCHAR)))))"
         if name == "extract":
             return self._visit_extract(node)
         if name in {"quantile", "quantileif"}:
