@@ -2715,6 +2715,40 @@ describe('Hogflow Executor', () => {
             expect(result.invocation.state.variables).toBeUndefined()
         })
 
+        it('stores a false value extracted via result_path', async () => {
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-false-found-result',
+                name: 'False found result template',
+                code: `return {'found': false, 'comment_id': null}`,
+                inputs_schema: [{ key: 'text', type: 'string', required: false }],
+            })
+
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                        },
+                        action_1: {
+                            type: 'function',
+                            config: { template_id: 'template-false-found-result', inputs: {} },
+                            output_variable: { key: 'comment_found', result_path: 'found' },
+                        } as any,
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'action_1', type: 'continue' },
+                        { from: 'action_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+            const result = await executeToCompletion(hogFlow)
+
+            expect(result.invocation.state.variables).toStrictEqual({ comment_found: false })
+        })
+
         it('links a create-ai-task result to the task in the stored action result log', async () => {
             // Mirrors the shape template-posthog-create-task returns on success: { id, run_id }.
             // A non-empty inputs_schema sidesteps an insertRow quirk where an empty array param
