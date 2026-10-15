@@ -5,6 +5,7 @@ from posthog.errors import (
     CHQueryErrorCannotParseBool,
     CHQueryErrorCannotParseUuid,
     CHQueryErrorInvalidJoinOnExpression,
+    ClickHouseAtCapacity,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
@@ -14,6 +15,22 @@ from posthog.errors import (
 
 
 class TestWrapClickhouseQueryError:
+    @parameterized.expand(
+        [
+            (202, "TOO_MANY_SIMULTANEOUS_QUERIES"),
+            (439, "CANNOT_SCHEDULE_TASK"),
+            # ClickHouse's own overload protection (min/max_os_cpu_wait_time_ratio_to_throw) rejects with
+            # this code. Dropping it here turns that rejection into a generic 500 with no Retry-After.
+            (745, "SERVER_OVERLOADED"),
+        ]
+    )
+    def test_capacity_codes_wrap_as_at_capacity(self, code: int, name: str) -> None:
+        err = ServerException(f"DB::Exception: {name}", code=code)
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, ClickHouseAtCapacity)
+
     @parameterized.expand(
         [
             (44, "ILLEGAL_COLUMN"),

@@ -1101,6 +1101,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "error": False,
                         "error_message": None,
                         "error_code": None,
+                        "error_status_code": None,
+                        "retry_after": None,
                         "bytes_read": None,
                         "budget_remaining_bytes": None,
                         "expiration_time": mock.ANY,

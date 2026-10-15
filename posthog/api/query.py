@@ -1,10 +1,12 @@
 import re
+import math
 from time import perf_counter
 from typing import Any, NoReturn
 
 from django.core.cache import cache
 from django.http import JsonResponse
 from django.http.response import HttpResponseBase
+from django.utils import timezone
 
 import orjson
 import structlog
@@ -484,7 +486,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             )
         http_code: int = status.HTTP_202_ACCEPTED
         if query_status.error:
-            if query_status.error_message:
+            if query_status.error_status_code is not None:
+                http_code = query_status.error_status_code
+            elif query_status.error_message:
                 http_code = status.HTTP_400_BAD_REQUEST  # An error where a user can likely take an action to resolve it
             else:
                 http_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # An internal surprise
@@ -495,6 +499,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         query_status_response = QueryStatusResponse(query_status=query_status)
         response = JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
+        if query_status.error and query_status.retry_after is not None:
+            remaining = (query_status.retry_after - timezone.now()).total_seconds()
+            response["Retry-After"] = max(0, math.ceil(remaining))
         if query_status.bytes_read is not None:
             _add_query_cost_headers(response, query_status.bytes_read, query_status.budget_remaining_bytes)
         return response
