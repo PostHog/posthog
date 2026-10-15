@@ -387,6 +387,11 @@ _HUMAN_REASONLESS_RESOLVE_SQL = (
     "toString(properties.status) = 'resolved' AND coalesce(toString(properties.dismissal_reason), '') = ''"
     " AND coalesce(toString(properties.actor_kind), '') IN (" + _HUMAN_ACTOR_KINDS_SQL + ")"
 )
+# A transition someone asked for: it carries a reason, or a person or an external agent made it.
+_RESOLVE_INTENT_SQL = (
+    "coalesce(toString(properties.dismissal_reason), '') != ''"
+    " OR coalesce(toString(properties.actor_kind), '') IN (" + _HUMAN_ACTOR_KINDS_SQL + ")"
+)
 # The time a person has to add a not-fixed reason to a reason-less resolve before it counts as fixed.
 # Today offers the reason right after the resolve, and the added reasons on the status stream arrive
 # well inside this window.
@@ -613,22 +618,12 @@ FROM (
     + """)), fromUnixTimestamp(0)) AS bucket_first_wrong_dismissed_at,
         -- coalesce is load-bearing: HogQL evaluates NULL != '' to true, so a reason-less event
         -- would otherwise count as reasoned.
-        max(
-            coalesce(toString(properties.dismissal_reason), '') != ''
-            OR coalesce(toString(properties.actor_kind), '') IN ("""
-    + _HUMAN_ACTOR_KINDS_SQL
-    + """)
-        ) AS bucket_resolve_intent,
-        nullIf(
-            minIf(
-                events.timestamp,
-                coalesce(toString(properties.dismissal_reason), '') != ''
-                OR coalesce(toString(properties.actor_kind), '') IN ("""
-    + _HUMAN_ACTOR_KINDS_SQL
-    + """)
-            ),
-            fromUnixTimestamp(0)
-        ) AS bucket_first_resolve_intent_at,
+        max("""
+    + _RESOLVE_INTENT_SQL
+    + """) AS bucket_resolve_intent,
+        nullIf(minIf(events.timestamp, """
+    + _RESOLVE_INTENT_SQL
+    + """), fromUnixTimestamp(0)) AS bucket_first_resolve_intent_at,
         nullIf(minIf(events.timestamp, """
     + _HUMAN_REASONLESS_RESOLVE_SQL
     + """), fromUnixTimestamp(0)) AS bucket_first_human_resolve_at,
