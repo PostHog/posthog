@@ -88,19 +88,26 @@ def platform_signals(evaluation: SourceBatchEvaluation) -> list[PlatformAlertSig
         for delivery in evaluation.deliveries
         if delivery.owned_by_platform and delivery.sends_messages
     }
-    return [
-        PlatformAlertSignal(
-            alert_id=announced[str(outcome.configuration_id)],
-            action=_SIGNAL_ACTIONS[group.kind],
-            result_count=int(group.value) if group.value is not None else None,
-            consecutive_failures=outcome.consecutive_failures,
-            evaluation_key=outcome.evaluation_key,
+    signals: list[PlatformAlertSignal] = []
+    for outcome in evaluation.outcomes:
+        if str(outcome.configuration_id) not in announced:
+            continue
+        # A failed check reports on the outcome and carries no groups, so a broken alert signals from there.
+        verdicts: list[tuple[AlertEventKind, float | None]] = [(group.kind, group.value) for group in outcome.groups]
+        if outcome.failure is not None:
+            verdicts.append((outcome.failure.kind, None))
+        signals.extend(
+            PlatformAlertSignal(
+                alert_id=announced[str(outcome.configuration_id)],
+                action=_SIGNAL_ACTIONS[kind],
+                result_count=int(value) if value is not None else None,
+                consecutive_failures=outcome.consecutive_failures,
+                evaluation_key=outcome.evaluation_key,
+            )
+            for kind, value in verdicts
+            if kind in _SIGNAL_ACTIONS
         )
-        for outcome in evaluation.outcomes
-        if str(outcome.configuration_id) in announced
-        for group in outcome.groups
-        if group.kind in _SIGNAL_ACTIONS
-    ]
+    return signals
 
 
 @activity.defn

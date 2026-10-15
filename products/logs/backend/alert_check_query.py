@@ -590,6 +590,132 @@ class BatchedAlertCheckQuery:
         )
 
 
+# The columns a grouped logs alert may split on. Both are low-cardinality columns of the logs table,
+# and `service_name` leads its primary key, so grouping on them stays cheap.
+GROUPABLE_LOGS_COLUMNS: frozenset[str] = frozenset({"service_name", "severity_text"})
+
+
+@dataclass(frozen=True)
+class GroupCounts:
+    labels: dict[str, str]
+    counts: list[BucketedCount]
+
+
+@dataclass(frozen=True)
+class GroupedRollingResult:
+    groups: list[GroupCounts]
+    period_starts: list[dt.datetime]
+    query_duration_ms: int
+
+    def zero_counts(self) -> list[BucketedCount]:
+        """The counts of a group with no matching log in any period, which returns no row."""
+        return [BucketedCount(timestamp=start, count=0) for start in self.period_starts]
+
+
+class GroupedAlertCheckQuery:
+    """One alert's rolling-window counts, split by the values of its grouping columns.
+
+    One query per alert rather than a column in `BatchedAlertCheckQuery`, because a batched cohort
+    reads one row per alert and a grouped alert needs one row per group.
+
+    Rows come back with the open groups first and then worst first, and `limit` cuts the rest. An
+    open group has to come back whatever its count, or a check could not resolve it.
+    """
+
+    def __init__(
+        self,
+        *,
+        team: Team,
+        alert: AlertQuerySubject,
+        date_from: dt.datetime,
+        date_to: dt.datetime,
+        group_by: Sequence[str],
+        open_groups: Sequence[dict[str, str]],
+        worst_is_highest: bool,
+        limit: int,
+        max_execution_time: int,
+        ch_user: ClickHouseUser,
+    ) -> None:
+        if alert.team_id != team.id:
+            raise ValueError(f"Alert {alert.id} belongs to team {alert.team_id}, not {team.id}")
+        unknown = set(group_by) - GROUPABLE_LOGS_COLUMNS
+        if not group_by or unknown:
+            raise ValueError(f"A logs alert cannot group by {sorted(unknown) or 'nothing'}")
+        self.team = team
+        self.alert = alert
+        self.group_by = tuple(group_by)
+        self.open_groups = list(open_groups)
+        self.worst_is_highest = worst_is_highest
+        self.limit = limit
+        self._ch_user = ch_user
+        self._settings = AlertCheckQuery.SETTINGS.model_copy(
+            update={"max_execution_time": max_execution_time, "timeout_overflow_mode": "throw"}
+        )
+        self.where_expr = build_alert_where_expr(team=team, alert=alert, date_from=date_from, date_to=date_to)
+
+    def execute_rolling_checks(
+        self, nca: dt.datetime, window_minutes: int, cadence_minutes: int, period_count: int
+    ) -> GroupedRollingResult:
+        _tag_alert_query(team=self.team, alert_config_id=str(self.alert.id), source="logs_alert_grouped")
+        ranges = _rolling_check_ranges(nca, window_minutes, cadence_minutes, period_count)
+        query = self._build_query(ranges)
+
+        start_ms = time.monotonic_ns() // 1_000_000
+        response = execute_hogql_query(
+            query_type="alert_check",
+            query=query,
+            team=self.team,
+            workload=Workload.LOGS,
+            ch_user=self._ch_user,
+            settings=self._settings,
+            limit_context=LimitContext.QUERY,
+            modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        )
+        duration_ms = time.monotonic_ns() // 1_000_000 - start_ms
+
+        width = len(self.group_by)
+        groups = [
+            GroupCounts(
+                labels={column: str(value) for column, value in zip(self.group_by, row[:width])},
+                counts=[BucketedCount(timestamp=start, count=count) for (start, _), count in zip(ranges, row[width:])],
+            )
+            for row in response.results
+        ]
+        return GroupedRollingResult(
+            groups=groups, period_starts=[start for start, _ in ranges], query_duration_ms=duration_ms
+        )
+
+    def _build_query(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> ast.SelectQuery:
+        columns: list[ast.Expr] = [ast.Field(chain=[column]) for column in self.group_by]
+        periods: list[ast.Expr] = [
+            ast.Alias(alias=f"period_{i}", expr=ast.Call(name="countIf", args=[_timestamp_in_range(start, end)]))
+            for i, (start, end) in enumerate(ranges)
+        ]
+        order_by = [
+            ast.OrderExpr(
+                expr=ast.Field(chain=[f"period_{len(ranges) - 1}"]), order="DESC" if self.worst_is_highest else "ASC"
+            )
+        ]
+        if self.open_groups:
+            group = ast.Tuple(exprs=[ast.Field(chain=[column]) for column in self.group_by])
+            known = ast.Tuple(
+                exprs=[
+                    ast.Tuple(exprs=[ast.Constant(value=labels.get(column, "")) for column in self.group_by])
+                    for labels in self.open_groups
+                ]
+            )
+            is_open = ast.CompareOperation(op=ast.CompareOperationOp.In, left=group, right=known)
+            order_by.insert(0, ast.OrderExpr(expr=is_open, order="DESC"))
+        return ast.SelectQuery(
+            select=[*columns, *periods],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["logs"])),
+            where=self.where_expr,
+            group_by=[ast.Field(chain=[column]) for column in self.group_by],
+            order_by=order_by,
+            limit=ast.Constant(value=self.limit),
+        )
+
+
 # Fall back to `now` when the checkpoint is older than this — a quiet partition
 # can pin `min(...)` hours behind while other partitions have fresh data.
 CHECKPOINT_MAX_STALENESS = dt.timedelta(minutes=5)

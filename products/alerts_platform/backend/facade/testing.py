@@ -24,7 +24,11 @@ from products.alerts_platform.backend.models import PlatformAlert, PlatformAlert
 
 def _configuration_snapshot(row: PlatformAlertConfiguration) -> PlatformConfigurationSnapshot:
     return PlatformConfigurationSnapshot(
-        id=row.id, next_check_at=row.next_check_at, consecutive_failures=row.consecutive_failures, owner=row.owner
+        id=row.id,
+        next_check_at=row.next_check_at,
+        consecutive_failures=row.consecutive_failures,
+        check_status=row.check_status,
+        owner=row.owner,
     )
 
 
