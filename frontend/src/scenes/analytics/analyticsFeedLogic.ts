@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { spaceLabel } from '~/layout/today/todaySpacesLogic'
@@ -268,10 +269,20 @@ export const analyticsFeedLogic = kea<analyticsFeedLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        refreshFeed: ({ query }) => {
+    listeners(({ actions, values, cache }) => ({
+        refreshFeed: async ({ query }) => {
             if (!values.currentTeamId) {
                 return
+            }
+            // An object made before its product joined the file system has no row until the unfiled sweep
+            // files it, and Today never opens the project tree that runs that sweep, so the first read runs it.
+            if (!cache.unfiledSwept) {
+                cache.unfiledSwept = true
+                try {
+                    await api.fileSystem.unfiled()
+                } catch {
+                    // The feed still lists every row that exists.
+                }
             }
             const projectId = String(values.currentTeamId)
             for (const type of analyticsFeedTypes(query)) {

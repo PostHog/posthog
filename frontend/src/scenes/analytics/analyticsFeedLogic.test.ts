@@ -41,6 +41,10 @@ describe('analyticsFeedLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/task_channels/': [],
+                '/api/projects/:team_id/file_system/unfiled/': () => {
+                    requests.push('unfiled')
+                    return { count: 0 }
+                },
                 '/api/projects/:team_id/file_system/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     const type = params.get('type') ?? params.get('type__startswith') ?? ''
@@ -111,7 +115,10 @@ describe('analyticsFeedLogic', () => {
             'dashboard:3',
             'notebook:n1',
         ])
-        expect(requests.sort()).toEqual([
+        // The unfiled sweep runs once, before any source is read, so pre-sync objects get their rows.
+        expect(requests[0]).toBe('unfiled')
+        expect(requests.filter((request) => request === 'unfiled')).toHaveLength(1)
+        expect(requests.filter((request) => request !== 'unfiled').sort()).toEqual([
             'canvas:0:-created_at',
             'dashboard:0:-created_at',
             'dashboard:2:-created_at',
