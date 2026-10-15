@@ -31,7 +31,10 @@ export interface DashboardTileApi {
 
 export interface DashboardApi extends DashboardBasicApi {
     tiles?: DashboardTileApi[] | null
+    /** The saved filters with the request's `filters_override` applied. */
     filters?: Record<string, unknown> | null
+    /** The saved filters alone, also on a read with an override. Null when the dashboard saved none. */
+    persisted_filters?: Record<string, unknown> | null
     /** Shared by every viewer and set by the web's bulk refresh. The app reads it and never writes it. */
     last_refresh?: string | null
 }

@@ -85,7 +85,8 @@ export function dashboardView(api: DashboardApi): DashboardView {
         id: api.id,
         name: api.name || 'Untitled',
         description: api.description || null,
-        savedRange: dashboardSavedRange(api.filters),
+        // `filters` carries the request's override, so only `persisted_filters` gives the saved range on such a read.
+        savedRange: dashboardSavedRange('persisted_filters' in api ? api.persisted_filters : api.filters),
         lastRefresh: api.last_refresh ?? null,
         tiles: phoneTiles(api).map(tileView),
     }

@@ -51,7 +51,14 @@ import {
     webAnalyticsRange,
 } from './rangeOverride'
 import { rangeValues } from './rangePresets'
-import { dashboardRangeKey, insightRangeKey, useViewRange, type ViewRange, webAnalyticsRangeKey } from './rangeStore'
+import {
+    dashboardRangeKey,
+    insightRangeKey,
+    useViewRange,
+    useViewRangeStore,
+    type ViewRange,
+    webAnalyticsRangeKey,
+} from './rangeStore'
 import { viewsQueue } from './refreshQueue'
 import { useViewRefresh, type ViewRefresh } from './useViewRefresh'
 import { reportScopeError, type ViewsAccess } from './useViewsAccess'
@@ -188,12 +195,12 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
         queryKey: dashboardQueryKey(scope, dashboardRef, null),
         queryFn: skipToken,
     })
-    const range = useViewRange(
-        dashboardRangeKey(context.dataScope, dashboardRef),
-        'dashboard',
-        savedQuery.data?.view.savedRange ?? NO_RANGE
-    )
-    const override = dashboardOverride(range.choice, range.compare)
+    const rangeKey = dashboardRangeKey(context.dataScope, dashboardRef)
+    // The same choice and compare that `useViewRange` returns. The override comes first because the saved range can come
+    // from the override read: its snapshot outlives the saved-range snapshot when the user stays on a session range.
+    const storedChoice = useViewRangeStore((state) => state.ranges[rangeKey] ?? null)
+    const storedCompare = useViewRangeStore((state) => state.compare[rangeKey] ?? false)
+    const override = dashboardOverride(storedChoice, storedCompare)
     const overrideId = overrideKey(override)
     // biome-ignore lint/correctness/useExhaustiveDependencies: `overrideId` stands for `override`.
     const container = useMemo(
@@ -206,6 +213,11 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
         queryFn: skipToken,
         placeholderData: keepPreviousData,
     })
+    const range = useViewRange(
+        rangeKey,
+        'dashboard',
+        savedQuery.data?.view.savedRange ?? current.data?.view.savedRange ?? NO_RANGE
+    )
     const view = current.data?.view
     // biome-ignore lint/correctness/useExhaustiveDependencies: `overrideId` stands for `override`.
     const tiles = useMemo<DashboardTileState[]>(
