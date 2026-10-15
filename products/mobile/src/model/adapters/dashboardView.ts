@@ -2,7 +2,7 @@ import type { DashboardApi, DashboardTileApi } from '@/api/dashboards'
 import { asRecord } from '@/lib/records'
 
 import type { DashboardTileView, DashboardView, SavedRange } from '../views'
-import { capabilitiesOf, ignoresRangeOverride, kindLabelOf, usesOwnRange } from './insightSnapshot'
+import { capabilitiesOf, ignoresRangeOverride, kindLabelOf, tileShapeOf, usesOwnRange } from './insightSnapshot'
 
 type Layout = { x?: number; y?: number } | undefined
 
@@ -51,6 +51,8 @@ function tileView(tile: DashboardTileApi): DashboardTileView {
             ignoresRangeOverride: false,
             capabilities: { number: false, chart: false, people: false },
             kindLabel: 'Text',
+            seriesCount: 0,
+            hasBreakdown: false,
         }
     }
     return {
@@ -64,6 +66,7 @@ function tileView(tile: DashboardTileApi): DashboardTileView {
         ignoresRangeOverride: ignoresRangeOverride(insight.query),
         capabilities: capabilitiesOf(insight.query, insight.result),
         kindLabel: kindLabelOf(insight.query),
+        ...tileShapeOf(insight.query),
     }
 }
 

@@ -168,6 +168,14 @@ function canShowPeople(query: unknown): boolean {
     )
 }
 
+/** The series count and breakdown of a trends insight, so "Choose tile" can say why a tile is out. */
+export function tileShapeOf(query: unknown): { seriesCount: number; hasBreakdown: boolean } {
+    if (queryKindOf(query) !== 'TrendsQuery') {
+        return { seriesCount: 0, hasBreakdown: false }
+    }
+    return { seriesCount: seriesNodes(query).length, hasBreakdown: hasBreakdown(sourceOf(query)) }
+}
+
 function trendsEntries(result: unknown): JsonRecord[] {
     return Array.isArray(result) ? result.filter(isRecord) : []
 }

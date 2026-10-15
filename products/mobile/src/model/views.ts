@@ -240,6 +240,9 @@ export interface DashboardTileView {
     ignoresRangeOverride: boolean
     capabilities: InsightCapabilities
     kindLabel: string
+    /** Why a pin cannot show the tile: a trends insight with several series, or with a breakdown. */
+    seriesCount: number
+    hasBreakdown: boolean
 }
 
 export interface DashboardView {

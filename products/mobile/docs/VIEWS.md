@@ -91,6 +91,8 @@ Web analytics and pins that open on the web show as rows only (`pinModes`).
 A dashboard pin in Number or Chart mode shows one tile.
 Picking Number or Chart on a dashboard pin without a tile opens "Choose tile" at once, with the first tile that can show that mode chosen.
 The sheet lists the dashboard's tiles from the cached dashboard, or one `force_cache` dashboard read when it has none or it is 5 minutes old.
+A pin shows one number or one line over time, so a funnel, a pie, a table, a text card, or a trends insight with several series or a breakdown cannot be its tile (`capabilitiesOf`).
+The tiles the mode can show come first, in dashboard order. The rest sit under "Can't show as a number" or "Can't show as a chart", disabled, each with its reason ("Has 3 series", "Has a breakdown", "Not a single number", "Not a chart over time", "Text card"; `tileEligibility.ts`). When no tile fits, the header says so.
 A pin whose tile is gone (its insight answers 404, or the cached dashboard no longer has the tile) shows as a row with "The chosen tile was removed. Choose another."
 
 ### Pin actions

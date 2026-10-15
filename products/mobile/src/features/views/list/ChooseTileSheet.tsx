@@ -13,6 +13,7 @@ import { insightQueryKey, tileTarget } from '../items'
 import { snapshotFormatter } from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
 import { useSnapshot } from '../viewsCache'
+import { splitTilesByEligibility } from './tileEligibility'
 import { useDashboardTiles } from './useDashboardTiles'
 
 export interface ChooseTileTarget {
@@ -70,6 +71,7 @@ function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): Reac
     const { dashboard, retry } = useDashboardTiles(pin.ref)
     const [chosen, setChosen] = useState<number | null>(pin.display.tileId ?? null)
     const tiles = dashboard.data?.tiles
+    const groups = useMemo(() => (tiles ? splitTilesByEligibility(tiles, mode) : null), [tiles, mode])
     const choose = (tile: DashboardTileView): void => {
         setChosen(tile.tileId)
         onChoose(pin, mode, tile)
@@ -78,15 +80,15 @@ function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): Reac
     chooseRef.current = choose
     const choseFirst = useRef(false)
     useEffect(() => {
-        if (!chooseFirst || !tiles || choseFirst.current) {
+        if (!chooseFirst || !groups || choseFirst.current) {
             return
         }
         choseFirst.current = true
-        const first = tiles.find((tile) => tile.capabilities[mode])
+        const first = groups.usable[0]
         if (first) {
             chooseRef.current(first)
         }
-    }, [chooseFirst, tiles, mode])
+    }, [chooseFirst, groups])
 
     return (
         <BottomSheet
@@ -115,7 +117,7 @@ function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): Reac
                     <Text style={styles.doneText}>Done</Text>
                 </Pressable44>
             </View>
-            {tiles ? (
+            {groups ? (
                 <GestureDetector gesture={listGesture}>
                     <ScrollView
                         style={{ maxHeight: windowHeight * 0.6 }}
@@ -123,17 +125,35 @@ function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): Reac
                         accessibilityRole="radiogroup"
                         accessibilityLabel={`Tiles on ${pin.name}`}
                     >
-                        {tiles.map((tile) => (
+                        {groups.usable.map((tile) => (
                             <TileOption
                                 key={tile.tileId}
                                 dashboardRef={pin.ref ?? ''}
                                 tile={tile}
-                                mode={mode}
                                 selected={tile.tileId === chosen}
                                 onPick={choose}
                             />
                         ))}
-                        <Text style={styles.note}>A pin can show a tile that has one number or one line.</Text>
+                        {groups.unusable.length > 0 ? (
+                            <View style={styles.sectionHead} testID="choose-tile-unusable">
+                                <Text style={styles.sectionTitle} accessibilityRole="header">
+                                    {groups.usable.length > 0
+                                        ? `Can't show as a ${mode}`
+                                        : `No tile here shows as a ${mode}`}
+                                </Text>
+                                <Text style={styles.note}>A pin shows one number, or one line over time.</Text>
+                            </View>
+                        ) : null}
+                        {groups.unusable.map(({ tile, reason }) => (
+                            <TileOption
+                                key={tile.tileId}
+                                dashboardRef={pin.ref ?? ''}
+                                tile={tile}
+                                selected={tile.tileId === chosen}
+                                onPick={choose}
+                                reason={reason}
+                            />
+                        ))}
                     </ScrollView>
                 </GestureDetector>
             ) : dashboard.isError ? (
@@ -155,18 +175,21 @@ function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): Reac
 interface TileOptionProps {
     dashboardRef: string
     tile: DashboardTileView
-    mode: 'number' | 'chart'
     selected: boolean
     onPick: (tile: DashboardTileView) => void
+    /** Set when the pin cannot show the tile: the row is disabled and says why. */
+    reason?: string
 }
 
-function TileOption({ dashboardRef, tile, mode, selected, onPick }: TileOptionProps): ReactElement {
+function TileOption({ dashboardRef, tile, selected, onPick, reason }: TileOptionProps): ReactElement {
     const { scope } = useViewsContext()
     const target = tileTarget(dashboardRef, tile, null)
     const snapshot = useSnapshot<InsightSnapshot>(target ? insightQueryKey(scope, target) : null)
-    const eligible = tile.capabilities[mode]
+    const eligible = reason === undefined
     const value = snapshot && snapshot.value !== null ? snapshotFormatter(snapshot)(snapshot.value) : null
-    const meta = eligible ? [tile.kindLabel, value].filter(Boolean).join(' · ') : "Can't show this tile here"
+    const meta = eligible
+        ? [tile.kindLabel, value].filter(Boolean).join(' · ')
+        : [tile.kind === 'text' ? null : tile.kindLabel, reason].filter(Boolean).join(' · ')
     const title = tile.name || tile.text?.split('\n')[0]?.trim() || tile.kindLabel
     return (
         <Pressable44
@@ -340,11 +363,19 @@ const styles = StyleSheet.create({
         ...type.meta,
         color: colors.tertiary,
     },
+    sectionHead: {
+        gap: 2,
+        marginTop: 8,
+        marginBottom: 2,
+        marginHorizontal: 4,
+    },
+    sectionTitle: {
+        ...type.bodySmallStrong,
+        color: colors.secondary,
+    },
     note: {
         ...type.meta,
         color: colors.tertiary,
-        marginTop: 6,
-        marginHorizontal: 4,
     },
     state: {
         alignItems: 'center',
