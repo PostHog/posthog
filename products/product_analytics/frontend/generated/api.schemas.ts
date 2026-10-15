@@ -8482,6 +8482,22 @@ export const MissingDatesApi = {
     Zero: 'zero',
 } as const
 
+export type ReferenceLinesApi = (typeof ReferenceLinesApi)[keyof typeof ReferenceLinesApi]
+
+export const ReferenceLinesApi = {
+    Pane: 'pane',
+    Worksheet: 'worksheet',
+} as const
+
+export interface BIPaneSettingsApi {
+    /** Ordered dimension IDs used to split returned groups into separate charts. */
+    fields: string[]
+    /** Use a separate value scale for each pane instead of a shared primary scale. */
+    independentAxes?: boolean | null
+    /** Calculate reference lines from each pane or from all returned worksheet marks. */
+    referenceLines?: ReferenceLinesApi | null
+}
+
 export type Operator1Api = (typeof Operator1Api)[keyof typeof Operator1Api]
 
 export const Operator1Api = {
@@ -8619,6 +8635,8 @@ export interface BIConfigApi {
     memberAliases?: MemberAliaseApi[] | null
     /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
     missingDates?: MissingDatesApi | null
+    /** Split the returned groups into charts using these ordered dimension IDs. */
+    panes?: BIPaneSettingsApi | null
     resultFilterGroup?: BIConditionGroupApi | null
     resultFilters?: BIResultFilterApi[] | null
     rowFilterGroup?: BIConditionGroupApi | null

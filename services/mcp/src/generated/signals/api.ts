@@ -517,7 +517,7 @@ export const SignalsReportsStateCreateBody = () => zod.object({
 })
 
 /**
- * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time.
+ * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time. `ranking_score` content keeps only the head fields of each model's metadata; get the artefact by id for the full metadata.
  * @summary List a report's artefacts
  */
 export const SignalsReportArtefactsListParams = () => zod.object({
@@ -586,7 +586,7 @@ export const SignalsReportArtefactsCreateBody = () => zod
     )
 
 /**
- * Get one artefact by id, content parsed (and reviewers enriched) the same way as the list.
+ * Get one artefact by id, content parsed (and reviewers enriched) the same way as the list. A `ranking_score` keeps its full model metadata.
  * @summary Get a single artefact
  */
 export const SignalsReportArtefactsRetrieveParams = () => zod.object({
