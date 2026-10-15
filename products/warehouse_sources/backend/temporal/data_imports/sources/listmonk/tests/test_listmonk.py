@@ -63,7 +63,8 @@ class TestListmonkLists:
                     "db_incremental_field_last_value": datetime(2026, 9, 30, 8, 15, tzinfo=UTC),
                 },
                 "updated_at",
-                "subscribers.updated_at >= '2026-09-30T08:15:00+00:00'",
+                "(subscribers.updated_at >= '2026-09-30T08:15:00+00:00' OR subscribers.id IN "
+                "(SELECT subscriber_id FROM subscriber_lists WHERE subscriber_lists.updated_at >= '2026-09-30T08:15:00+00:00'))",
             ),
             ("full_refresh", {}, "created_at", None),
         ]
@@ -119,13 +120,26 @@ class TestListmonkCampaignAnalytics:
             ("clicks", 51),
         ]
 
-    def test_resume_skips_requests_already_read(self) -> None:
-        result = _driver().run(
-            "campaign_analytics", self._script(60), resume_state=ListmonkResumeConfig(analytics_step=4)
-        )
+    @parameterized.expand(
+        [
+            (
+                "mid_type",
+                ListmonkResumeConfig(analytics_type="clicks", analytics_after_id=50),
+                60,
+                ["clicks", "bounces", "bounces"],
+            ),
+            # A campaign deleted before the retry must not shift the position past unread work.
+            ("after_deletion", ListmonkResumeConfig(analytics_type="bounces", analytics_after_id=50), 51, ["bounces"]),
+        ]
+    )
+    def test_resume_continues_from_the_saved_type_and_campaign(
+        self, _name: str, state: ListmonkResumeConfig, campaign_count: int, expected_types: list[str]
+    ) -> None:
+        result = _driver().run("campaign_analytics", self._script(campaign_count), resume_state=state)
 
-        analytics = [r.path for r in result.requests if r.path.startswith("/api/campaigns/analytics/")]
-        assert analytics == ["/api/campaigns/analytics/bounces"] * 2
+        analytics = [r for r in result.requests if r.path.startswith("/api/campaigns/analytics/")]
+        assert [r.path.rsplit("/", 1)[1] for r in analytics] == expected_types
+        assert int(analytics[0].query["id"][0]) == 51
 
 
 class TestListmonkHost:

@@ -41,8 +41,9 @@ REQUEST_TIMEOUT = 60
 class ListmonkResumeConfig:
     # Next page of a list endpoint.
     next_page: Optional[int] = None
-    # Next analytics request, counted across every (type, campaign batch) pair.
-    analytics_step: Optional[int] = None
+    # Analytics position: the count type in progress, and the last campaign id it finished.
+    analytics_type: Optional[str] = None
+    analytics_after_id: Optional[int] = None
 
 
 def normalize_host(host: str) -> str:
@@ -85,7 +86,12 @@ def updated_at_query(value: Any) -> str:
     parsed = parse_datetime_value(value)
     if parsed is None:
         raise ValueError(f"Cannot use {value!r} as a Listmonk updated_at filter")
-    return f"subscribers.updated_at >= '{parsed.isoformat()}'"
+    since = parsed.isoformat()
+    # Opt-in confirmations and unsubscribes update `subscriber_lists` only, so match those too.
+    return (
+        f"(subscribers.updated_at >= '{since}' OR subscribers.id IN "
+        f"(SELECT subscriber_id FROM subscriber_lists WHERE subscriber_lists.updated_at >= '{since}'))"
+    )
 
 
 def _client_config(host: str, api_user: str, api_token: str) -> ClientConfig:
@@ -153,32 +159,36 @@ def _campaign_analytics_rows(
     session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
     auth = HTTPBasicAuth(api_user, api_token)
     base = _api_base(host)
-    campaign_ids = _campaign_ids(session, base, auth, resumable_source_manager)
-    batches = [campaign_ids[i : i + ANALYTICS_BATCH_SIZE] for i in range(0, len(campaign_ids), ANALYTICS_BATCH_SIZE)]
-    # Campaigns are listed oldest first, so a resumed run sees the same batches unless one was deleted.
-    steps = [(analytics_type, batch) for analytics_type in ANALYTICS_TYPES for batch in batches]
+    # Ids sort ascending so the resume position stays valid when a campaign is deleted between attempts.
+    campaign_ids = sorted(_campaign_ids(session, base, auth, resumable_source_manager))
     to_date = (datetime.now(UTC) + timedelta(days=1)).date().isoformat()
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    first_step = resume.analytics_step if resume and resume.analytics_step is not None else 0
+    start_type = resume.analytics_type if resume and resume.analytics_type in ANALYTICS_TYPES else ANALYTICS_TYPES[0]
+    after_id = resume.analytics_after_id if resume and resume.analytics_after_id is not None else None
 
-    for step in range(first_step, len(steps)):
-        analytics_type, batch = steps[step]
-        params: dict[str, Any] = {"id": batch, "from": ANALYTICS_FROM_DATE, "to": to_date}
-        response = session.get(
-            f"{base}/campaigns/analytics/{analytics_type}",
-            params=params,
-            auth=auth,
-            timeout=REQUEST_TIMEOUT,
-        )
-        response.raise_for_status()
-        counts = response.json().get("data") or []
-        if step + 1 < len(steps):
-            resumable_source_manager.save_state(ListmonkResumeConfig(analytics_step=step + 1))
-        if counts:
-            yield [{**count, "type": analytics_type} for count in counts]
-        else:
-            resumable_source_manager.safe_point()
+    for type_index in range(ANALYTICS_TYPES.index(start_type), len(ANALYTICS_TYPES)):
+        analytics_type = ANALYTICS_TYPES[type_index]
+        remaining = [campaign_id for campaign_id in campaign_ids if after_id is None or campaign_id > after_id]
+        after_id = None
+        for offset in range(0, len(remaining), ANALYTICS_BATCH_SIZE):
+            batch = remaining[offset : offset + ANALYTICS_BATCH_SIZE]
+            params: dict[str, Any] = {"id": batch, "from": ANALYTICS_FROM_DATE, "to": to_date}
+            response = session.get(
+                f"{base}/campaigns/analytics/{analytics_type}",
+                params=params,
+                auth=auth,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            counts = response.json().get("data") or []
+            resumable_source_manager.save_state(
+                ListmonkResumeConfig(analytics_type=analytics_type, analytics_after_id=batch[-1])
+            )
+            if counts:
+                yield [{**count, "type": analytics_type} for count in counts]
+            else:
+                resumable_source_manager.safe_point()
 
 
 def listmonk_source(
