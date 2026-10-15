@@ -485,8 +485,8 @@ export interface infiniteListLogicActions {
         searchQuery: string,
         forbidden?: boolean
     ) => {
-        searchQuery: string
         forbidden: boolean
+        searchQuery: string
     }
     resetPinnedRowState: () => {
         value: true
