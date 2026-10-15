@@ -956,3 +956,69 @@ class TestOpenFgaDashboardMirror(BaseTest):
             resource=self._resource(), action=Action.VIEW, subject=self.subject, limit=len(expected_ids)
         )
         assert listed.complete and listed.ids == frozenset(str(id) for id in expected_ids)
+
+    def test_guest_views_only_their_grants_and_the_items_those_grants_embed(self) -> None:
+        def rule(resource: str, resource_id: object, level: str) -> None:
+            access_control_testing.create_access_control(
+                team_id=self.team.id,
+                resource=resource,
+                resource_id=str(resource_id),
+                access_level=level,
+                organization_member_id=self.membership.id,
+            )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.membership.level = OrganizationMembership.Level.GUEST
+            self.membership.save()
+            rule("project", self.team.id, "member")
+            on_dashboard, blocked_on_dashboard, in_notebook, unrelated = (
+                Insight.objects.create(team=self.team, created_by=self.user) for _ in range(4)
+            )
+            for insight in (on_dashboard, blocked_on_dashboard):
+                DashboardTile.objects.create(dashboard_id=self.dashboard_id, insight=insight)
+            rule("insight", blocked_on_dashboard.id, "none")
+            blocked_recording = SessionRecording.objects.create(team=self.team, session_id="blocked-session")
+            granted_recording = SessionRecording.objects.create(team=self.team, session_id="granted-session")
+            notebook = Notebook.objects.create(
+                team=self.team,
+                created_by=self.user,
+                content={
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-query",
+                            "attrs": {"query": {"kind": "SavedInsightNode", "shortId": in_notebook.short_id}},
+                        },
+                        {"type": "ph-recording", "attrs": {"id": "embedded-session"}},
+                        {"type": "ph-recording", "attrs": {"id": "blocked-session"}},
+                    ],
+                },
+            )
+            rule("session_recording", blocked_recording.id, "none")
+            rule("session_recording", granted_recording.id, "viewer")
+            rule("dashboard", self.dashboard_id, "viewer")
+            rule("notebook", notebook.id, "viewer")
+
+        def can(resource_type: ResourceType, id: object, action: Action = Action.VIEW) -> bool:
+            resource = Resource(type=resource_type, id=str(id), project_id=self.team.id)
+            return api.check(resource=resource, action=action, subject=self.subject)
+
+        assert can(ResourceType.DASHBOARD, self.dashboard_id)
+        assert not can(ResourceType.DASHBOARD, self.dashboard_id, Action.EDIT)
+        assert not can(ResourceType.DASHBOARD, self.second_dashboard_id)
+        assert can(ResourceType.INSIGHT, on_dashboard.id)
+        assert not can(ResourceType.INSIGHT, blocked_on_dashboard.id)
+        assert can(ResourceType.INSIGHT, in_notebook.id)
+        assert not can(ResourceType.INSIGHT, unrelated.id)
+        assert can(ResourceType.NOTEBOOK, notebook.id)
+        assert not can(ResourceType.NOTEBOOK, notebook.id, Action.EDIT)
+        assert can(ResourceType.SESSION_RECORDING, "embedded-session")
+        assert not can(ResourceType.SESSION_RECORDING, "blocked-session")
+        assert can(ResourceType.SESSION_RECORDING, "granted-session")
+        assert not can(ResourceType.SESSION_RECORDING, "other-session")
+        listed = api.list_resources(
+            resource=Resource(type=ResourceType.NOTEBOOK, project_id=self.team.id),
+            action=Action.VIEW,
+            subject=self.subject,
+        )
+        assert listed.complete and listed.ids == frozenset({str(notebook.id)})
