@@ -2,13 +2,16 @@ import type { ChartDimensions } from '../types'
 
 import { clearAndPrepare } from './clearCanvas'
 
-function makeCtx(backingWidth: number): {
+function makeCtx(
+    backingWidth: number,
+    backingHeight = backingWidth / 4
+): {
     ctx: CanvasRenderingContext2D
     transforms: number[][]
 } {
     const transforms: number[][] = []
     const ctx = {
-        canvas: { width: backingWidth } as HTMLCanvasElement,
+        canvas: { width: backingWidth, height: backingHeight } as HTMLCanvasElement,
         save: () => {},
         setTransform: (a: number, b: number, c: number, d: number, e: number, f: number) =>
             transforms.push([a, b, c, d, e, f]),
@@ -17,8 +20,8 @@ function makeCtx(backingWidth: number): {
     return { ctx, transforms }
 }
 
-function dims(width: number): ChartDimensions {
-    return { width, height: 200, plotLeft: 48, plotTop: 16, plotWidth: width - 64, plotHeight: 152 }
+function dims(width: number, height = width / 4): ChartDimensions {
+    return { width, height, plotLeft: 48, plotTop: 16, plotWidth: width - 64, plotHeight: height - 48 }
 }
 
 describe('clearAndPrepare', () => {
@@ -41,14 +44,19 @@ describe('clearAndPrepare', () => {
         expect(transforms[0][3]).toBe(1)
     })
 
-    it('uses the backing ratio for a normal hi-dpi canvas', () => {
+    it.each([
+        { case: 'a normal hi-dpi canvas', css: [784, 196], backing: [1568, 392] },
+        // `syncCanvasSize` caps a 512×34,000 grid at 493×32,767. Width rounding alone gives
+        // 0.9629; applied to the height, it puts the bottom row about 30px above its DOM label.
+        { case: 'a capped tall canvas', css: [512, 34000], backing: [493, 32767] },
+    ])('scales each axis by its own backing ratio for $case', ({ css, backing }) => {
         Object.defineProperty(window, 'devicePixelRatio', { value: 2, configurable: true })
-        const { ctx, transforms } = makeCtx(1568)
+        const { ctx, transforms } = makeCtx(backing[0], backing[1])
 
-        clearAndPrepare(ctx, dims(784))
+        clearAndPrepare(ctx, dims(css[0], css[1]))
 
-        expect(transforms[0][0]).toBe(2)
-        expect(transforms[0][3]).toBe(2)
+        expect(transforms[0][0]).toBe(backing[0] / css[0])
+        expect(transforms[0][3]).toBe(backing[1] / css[1])
     })
 
     it('falls back to window.devicePixelRatio when dimensions have no width', () => {

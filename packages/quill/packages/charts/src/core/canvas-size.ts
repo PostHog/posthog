@@ -31,7 +31,7 @@ export function syncCanvasSize(canvas: HTMLCanvasElement, rect: SizeRect, dpr: n
     // Chromium and Firefox paint nothing into a canvas with a side over 32,767 backing pixels. A
     // very tall chart (a retention grid with hundreds of cohorts) lowers its ratio to stay under
     // that side, so it draws less sharply instead of blank. Draw code reads the ratio back off
-    // `canvas.width`, so it follows. ponytail: one canvas per chart; above 32,767 css px the
+    // the backing size, so it follows. ponytail: one canvas per chart; above 32,767 css px the
     // ratio drops below 1 and blurs, and only splitting the canvas into tiles avoids that.
     dpr = Math.min(dpr, MAX_CANVAS_SIDE / Math.max(rect.width, rect.height))
     const width = backingSize(rect.width, dpr)

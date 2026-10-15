@@ -18,6 +18,10 @@
     &__rows {
         flex: 0 0 auto;
         max-width: 40%;
+
+        .RetentionHeatmap__head {
+            padding-right: 0.75rem;
+        }
     }
 
     &__grid {
@@ -63,7 +67,9 @@
     }
 
     &__size {
+        padding-left: 1rem;
         margin-left: auto;
+        font-variant-numeric: tabular-nums;
         color: var(--color-text-secondary);
     }
 
