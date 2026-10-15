@@ -1,8 +1,15 @@
 name: Build and deploy rust container images
 
-# Production build + deploy for Rust services on master.
-# Uses selective builds: only images affected by changed files are built and deployed.
-# workflow_dispatch builds all images unless image-filter names a subset (escape hatch).
+# Builds images for the Rust services affected by a change.
+#   master push: build, push and deploy.
+#   merge queue (trunk-merge/** PRs): build only, to validate the images before they land.
+#   other PRs: build nothing unless the author opts in with a label, for a dev or canary deploy:
+#     smoke_test:<image>  build and push one image (add one label per image)
+#     smoke_test          build and push every image
+#   workflow_dispatch: build all images unless image-filter names a subset (escape hatch).
+#
+# Opt-in PR images push to ghcr.io with a pr-<number> tag, which the Argo "deploy by PR URL"
+# flow in PostHog/charts looks up.
 #
 # Image list: .github/rust-images.yml
 # Build steps: .github/workflows/_rust-build-images.yml
@@ -25,15 +32,16 @@ on:
             - '.github/rust-images.yml'
         branches:
             - 'master'
+    # No base-branch filter, so that a stacked PR, which targets the PR below it, can opt in too.
+    # 'labeled' starts the opt-in build when the label is added after the last push.
     pull_request:
+        types: [opened, synchronize, reopened, labeled]
         paths:
             - 'rust/**'
             - 'proto/**'
             - '.github/workflows/rust-docker-build.yml'
             - '.github/workflows/_rust-build-images.yml'
             - '.github/rust-images.yml'
-        branches:
-            - 'master'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -44,13 +52,11 @@ jobs:
         name: compute affected images
         runs-on: ubuntu-24.04
         timeout-minutes: 10
-        # Skip on workflow_dispatch — always build everything (escape hatch)
-        # Skipped on trunk-merge/** branches: merge-queue PRs are ephemeral, nothing
-        # pulls images pushed for them, and each constituent PR already built its own.
+        # Runs on master pushes and merge-queue runs only. A fork can name its branch
+        # trunk-merge/*, so the queue arm also requires a same-repo head.
         if: >-
-            github.event_name != 'workflow_dispatch' &&
-            !startsWith(github.head_ref, 'trunk-merge/') &&
-            (github.event_name != 'pull_request' ||
+            github.event_name == 'push' ||
+            (startsWith(github.head_ref, 'trunk-merge/') &&
              github.event.pull_request.head.repo.full_name == github.repository)
         permissions:
             contents: read
@@ -83,23 +89,20 @@ jobs:
 
     build-images:
         needs: affected
-        # A status function is required because 'affected' may be skipped (workflow_dispatch)
+        # A status function is required because 'affected' is skipped on workflow_dispatch,
         # and a skipped need would otherwise cascade a skip here. !cancelled() covers that
         # while still stopping the build after manual workflow cancellation.
-        # Run unless affected explicitly found zero images ('none') or failed.
-        # The trunk-merge guard is repeated here because a skipped 'affected' leaves
-        # image-filter empty, which this condition would otherwise treat as buildable.
+        # Every other event needs 'affected' to succeed, because a skipped 'affected' leaves
+        # image-filter empty, which means "build all images".
         if: |
             !cancelled() &&
-            !startsWith(github.head_ref, 'trunk-merge/') &&
-            (github.event_name != 'pull_request' ||
-             github.event.pull_request.head.repo.full_name == github.repository) &&
-            needs.affected.result != 'failure' &&
+            (github.event_name == 'workflow_dispatch' || needs.affected.result == 'success') &&
             needs.affected.outputs.image-filter != 'none'
         uses: ./.github/workflows/_rust-build-images.yml
         with:
-            # Only the canonical deploy repo pushes prod images on master; PRs still push for validation.
-            push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
+            # Only the canonical deploy repo pushes prod images on master. Nothing deploys a
+            # merge-queue branch, so the queue builds without pushing.
+            push: ${{ github.event_name != 'pull_request' && vars.CD_DEPLOY_ENABLED == 'true' }}
             image-filter: ${{ needs.affected.outputs.image-filter || inputs.image-filter || '' }}
             tag-rules: |
                 type=ref,event=pr
@@ -116,6 +119,52 @@ jobs:
             # internal project, so there is no separate org secret to create.
             # Rotating POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY affects both uploads.
             POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+        permissions:
+            id-token: write
+            contents: read
+            packages: write
+
+    pr-image-labels:
+        name: resolve PR image labels
+        runs-on: ubuntu-24.04
+        timeout-minutes: 2
+        # Fork PRs never build here, because the build pushes to ghcr and reads the sccache secrets.
+        if: |
+            github.event_name == 'pull_request' &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            contains(toJson(github.event.pull_request.labels.*.name), 'smoke_test')
+        permissions: {}
+        outputs:
+            image-filter: ${{ steps.parse.outputs.filter }}
+        steps:
+            - name: Parse image labels
+              id: parse
+              env:
+                  PR_LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+              run: |
+                  filter=""
+                  for label in $(echo "$PR_LABELS" | jq -r '.[]'); do
+                      case "$label" in
+                          smoke_test:*)
+                              img="${label#smoke_test:}"
+                              filter="${filter:+$filter,}$img"
+                              ;;
+                      esac
+                  done
+                  echo "filter=$filter" >> "$GITHUB_OUTPUT"
+
+    build-pr-images:
+        needs: pr-image-labels
+        uses: ./.github/workflows/_rust-build-images.yml
+        with:
+            image-filter: ${{ needs.pr-image-labels.outputs.image-filter }}
+            tag-rules: |
+                type=ref,event=pr
+                type=sha
+                type=raw,value=${{ github.head_ref }}
+            checkout-ref: ${{ github.event.pull_request.head.sha }}
+            timeout-minutes: 30
         permissions:
             id-token: write
             contents: read

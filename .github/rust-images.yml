@@ -1,9 +1,8 @@
 # Rust service images built by CI.
 #
 # This is the single source of truth for which images get built.
-# Both production (rust-docker-build.yml) and smoke-test
-# (rust-smoke-test-build.yml) workflows read this file via the
-# shared build workflow (_rust-build-images.yml).
+# rust-docker-build.yml reads this file via the shared build
+# workflow (_rust-build-images.yml).
 #
 # To add a new service: append an entry here. The deploy matrix in
 # rust-docker-build.yml must also be updated for production deploys.
