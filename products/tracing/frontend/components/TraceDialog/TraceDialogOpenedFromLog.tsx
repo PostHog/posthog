@@ -22,7 +22,11 @@ export function TraceDialogOpenedFromLog(): JSX.Element | null {
         >
             <span className="font-semibold">Opened from log</span>
             <LogTag level={openedFrom.severity} />
-            <span className="font-mono truncate flex-1 basis-60 min-w-0" translate="no" title={openedFrom.body}>
+            <span
+                className="ph-replay-block font-mono truncate flex-1 basis-60 min-w-0"
+                translate="no"
+                title={openedFrom.body}
+            >
                 {openedFrom.body}
             </span>
             {openedSpan && (
