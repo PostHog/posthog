@@ -169,6 +169,7 @@ def _in_scope_queryset():
     return (
         # Unscoped manager on purpose: the scheduler scans the whole fleet.
         # `deleted` is nullable, so exclude(deleted=True), not filter(deleted=False).
+        # Keep the schema filters in step with the idx_extdataschema_sched_scope partial index.
         ExternalDataSchema.objects.filter(should_sync=True, sync_frequency_interval__isnull=False)
         .exclude(deleted=True)
         .exclude(source__deleted=True)

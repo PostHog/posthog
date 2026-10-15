@@ -373,6 +373,15 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 
     class Meta:
         db_table = "posthog_externaldataschema"
+        indexes = [
+            # Serves the scheduler's fleet-wide id keyset scan in scheduling/shadow.py.
+            # The condition must compile to the same SQL as that scan's filter, or the planner cannot use it.
+            models.Index(
+                fields=["id"],
+                name="idx_extdataschema_sched_scope",
+                condition=models.Q(should_sync=True, sync_frequency_interval__isnull=False) & ~models.Q(deleted=True),
+            ),
+        ]
 
     def _sync_teardown_kind(self, update_fields: Iterable[str] | None) -> str | None:
         """Which stop-syncing transition this save performs, read from the DB before writing.
