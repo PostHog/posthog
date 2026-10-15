@@ -1,11 +1,13 @@
 import threading
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional, ParamSpec, TypeVar
+from typing import Any, Optional, ParamSpec, TypeVar
 
 import stripe as stripe_lib
-from stripe import Invoice, InvoiceLineItem, InvoiceService, ListObject, StripeClient
+from stripe import Invoice, InvoiceLineItem, InvoiceService, ListObject, StripeClient, StripeObject
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.request_pacer import (
     RequestPacer,
@@ -109,6 +111,75 @@ class InvoiceListWithAllLines:
                 raise
             self.logger.debug(f"Stripe: invoice {invoice_id} no longer exists, yielding with partial lines")
             return None
+
+    def _thread_client(self) -> StripeClient:
+        client: Optional[StripeClient] = getattr(self._thread_clients, "client", None)
+        if client is None:
+            client = self._client_factory(self._pacer.throttled)
+            self._thread_clients.client = client
+        return client
+
+
+@frozen
+class WebhookRefetch:
+    """How to re-read one object type whose webhook payload can leave out data the list sync includes."""
+
+    is_incomplete: Callable[[dict[str, Any]], bool]
+    retrieve: Callable[[StripeClient, str], StripeObject]
+
+
+class WebhookObjectRefetcher:
+    """Replaces incomplete webhook objects with a fresh read from the API.
+
+    Stripe never expands an event payload, so an event object can be missing data the list sync
+    fetches: an invoice carries only its first 10 lines, a tiered price has no tiers. Upserting that
+    object would overwrite the complete row. Only incomplete objects are re-read, so a batch of
+    complete ones costs no API calls. The reads use the same pool, pacer and per-thread clients as
+    the invoice line fan-out. Objects keep their order, and an object deleted since the event keeps
+    its event payload.
+    """
+
+    def __init__(
+        self,
+        refetch: WebhookRefetch,
+        logger: FilteringBoundLogger,
+        client_factory: ClientFactory,
+        concurrency: int = LINE_FETCH_CONCURRENCY,
+        requests_per_second: float = LINE_REQUESTS_PER_SECOND,
+    ) -> None:
+        self._refetch = refetch
+        self._logger = logger
+        self._client_factory = client_factory
+        self._concurrency = concurrency
+        self._pacer = RequestPacer(requests_per_second)
+        self._thread_clients = threading.local()
+
+    def complete(self, objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not any(self._refetch.is_incomplete(obj) for obj in objects):
+            return objects
+
+        pool = ThreadPoolExecutor(max_workers=self._concurrency, thread_name_prefix="stripe-webhook-refetch")
+        try:
+            futures = [
+                submit_with_context(pool, self._retrieve, obj) if self._refetch.is_incomplete(obj) else None
+                for obj in objects
+            ]
+            completed = [obj if future is None else future.result() for obj, future in zip(objects, futures)]
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
+        self._logger.debug(f"Stripe: re-read {sum(f is not None for f in futures)} incomplete webhook objects")
+        return completed
+
+    def _retrieve(self, obj: dict[str, Any]) -> dict[str, Any]:
+        self._pacer.wait_turn()
+        try:
+            return self._refetch.retrieve(self._thread_client(), obj["id"])
+        except stripe_lib.InvalidRequestError as e:
+            if getattr(e, "code", None) != "resource_missing":
+                raise
+            self._logger.debug(f"Stripe: {obj.get('object')} {obj['id']} no longer exists, keeping the event payload")
+            return obj
 
     def _thread_client(self) -> StripeClient:
         client: Optional[StripeClient] = getattr(self._thread_clients, "client", None)

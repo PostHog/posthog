@@ -1,6 +1,7 @@
 import functools
 import threading
 import contextvars
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional, cast
@@ -27,6 +28,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
     StripeAuthMethodConfig,
@@ -42,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     BILLING_METER_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
     CHECKOUT_SESSION_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
@@ -57,10 +64,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     HISTORY_PREVIOUS_ATTRIBUTES_COLUMN,
     HISTORY_SNAPSHOT_EVENT_TYPE,
     INVOICE_PAYMENT_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
     PAYMENT_INTENT_RESOURCE_NAME,
     PAYMENT_LINK_RESOURCE_NAME,
     PAYMENT_METHOD_HISTORY_MAPPING_KEY,
     PLAN_RESOURCE_NAME,
+    PRICE_RESOURCE_NAME,
     PROMOTION_CODE_RESOURCE_NAME,
     QUOTE_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_OBJECT_TYPE,
@@ -81,6 +90,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
     InvoiceListWithAllLines,
     RateLimitCallback,
+    WebhookObjectRefetcher,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS,
@@ -1549,6 +1559,136 @@ class TestWebhookUpsertCollapse:
         )
         rows = stripe_module._webhook_table_transformer(events).to_pylist()
         assert [row["status"] for row in rows] == [expected_status]
+
+
+def _stripe_list(data: list[dict[str, Any]], url: str, has_more: bool = False) -> dict[str, Any]:
+    return {"object": "list", "data": data, "has_more": has_more, "url": url}
+
+
+_FIRST_PAGE = [{"id": f"line_{i}"} for i in range(10)]
+_ALL_LINES = [*_FIRST_PAGE, {"id": "line_10"}]
+
+
+class TestWebhookRefetch:
+    def _transform(self, endpoint: str, obj: dict[str, Any]) -> list[dict[str, Any]]:
+        refetcher = WebhookObjectRefetcher(
+            stripe_module.WEBHOOK_REFETCH[endpoint],
+            MagicMock(),
+            client_factory=stripe_module._client_factory("sk_test", None, STRIPE_API_VERSION_ACACIA),
+        )
+        events = table_from_py_list([_event_row("evt_1", f"{obj['object']}.updated", 1700000100, obj)])
+        return stripe_module._refetching_webhook_table_transformer(refetcher)(events).to_pylist()
+
+    @parameterized.expand(
+        [
+            (
+                "invoice lines past the first page",
+                INVOICE_RESOURCE_NAME,
+                {
+                    "id": "in_1",
+                    "object": "invoice",
+                    "lines": _stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines", True),
+                },
+                {
+                    "/v1/invoices/in_1": {
+                        "id": "in_1",
+                        "object": "invoice",
+                        "lines": _stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines", True),
+                    },
+                    "/v1/invoices/in_1/lines": _stripe_list(_ALL_LINES, "/v1/invoices/in_1/lines"),
+                },
+                lambda row: (
+                    [line["id"] for line in orjson.loads(row["lines"])["data"]]
+                    == [expected["id"] for expected in _ALL_LINES]
+                ),
+            ),
+            (
+                "credit note lines past the first page",
+                CREDIT_NOTE_RESOURCE_NAME,
+                {
+                    "id": "cn_1",
+                    "object": "credit_note",
+                    "lines": _stripe_list(_FIRST_PAGE, "/v1/credit_notes/cn_1/lines", True),
+                },
+                {
+                    "/v1/credit_notes/cn_1": {
+                        "id": "cn_1",
+                        "object": "credit_note",
+                        "lines": _stripe_list(_FIRST_PAGE, "/v1/credit_notes/cn_1/lines", True),
+                    },
+                    "/v1/credit_notes/cn_1/lines": _stripe_list(_ALL_LINES, "/v1/credit_notes/cn_1/lines"),
+                },
+                lambda row: len(orjson.loads(row["lines"])["data"]) == len(_ALL_LINES),
+            ),
+            (
+                "tiers of a tiered price",
+                PRICE_RESOURCE_NAME,
+                {"id": "price_1", "object": "price", "billing_scheme": "tiered"},
+                {
+                    "/v1/prices/price_1": {
+                        "id": "price_1",
+                        "object": "price",
+                        "billing_scheme": "tiered",
+                        "tiers": [{"up_to": 10, "unit_amount": 5}, {"up_to": None, "unit_amount": 3}],
+                    }
+                },
+                lambda row: len(orjson.loads(row["tiers"])) == 2,
+            ),
+            (
+                "expanded subscription discounts",
+                SUBSCRIPTION_RESOURCE_NAME,
+                {"id": "sub_1", "object": "subscription", "discounts": ["di_1"]},
+                {
+                    "/v1/subscriptions/sub_1": {
+                        "id": "sub_1",
+                        "object": "subscription",
+                        "discounts": [{"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}}],
+                    }
+                },
+                lambda row: orjson.loads(row["discounts"])[0]["coupon"]["id"] == "co_1",
+            ),
+        ]
+    )
+    def test_incomplete_object_is_read_again(
+        self,
+        _name: str,
+        endpoint: str,
+        event_object: dict[str, Any],
+        answers: dict[str, Any],
+        row_is_complete: Callable[[dict[str, Any]], bool],
+    ) -> None:
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            return ScriptedResponse(json=answers[request.path])
+
+        with scripted_network(script):
+            rows = self._transform(endpoint, event_object)
+
+        assert len(rows) == 1
+        assert row_is_complete(rows[0])
+
+    @parameterized.expand(
+        [
+            ("complete object", {"lines": _stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines")}, 0),
+            (
+                "object deleted since the event",
+                {"lines": _stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines", True)},
+                1,
+            ),
+        ]
+    )
+    def test_event_payload_is_kept(self, _name: str, fields: dict[str, Any], expected_requests: int) -> None:
+        missing = ScriptedResponse(
+            status=404,
+            json={"error": {"type": "invalid_request_error", "code": "resource_missing", "message": "No such invoice"}},
+        )
+
+        with scripted_network([missing]) as network:
+            rows = self._transform(INVOICE_RESOURCE_NAME, {"id": "in_1", "object": "invoice", **fields})
+
+        assert len(network.requests_log) == expected_requests
+        assert [line["id"] for line in orjson.loads(rows[0]["lines"])["data"]] == [
+            expected["id"] for expected in _FIRST_PAGE
+        ]
 
 
 class TestEndpointCatalogWiring:
