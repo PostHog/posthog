@@ -6158,7 +6158,7 @@ email@example.org,
 
         reference = {"type": "cohort", "key": "id", "value": id_type(base_cohort_id)}
         email_filter = {"type": "person", "key": "email", "operator": "icontains", "value": "@example.com"}
-        criteria: dict[str, Any] = {
+        criteria_by_field: dict[str, dict[str, Any]] = {
             "filters": {"filters": {"properties": {"type": "AND", "values": [reference]}}},
             "groups": {"groups": [{"properties": [reference]}]},
             # Cohort.properties ignores groups when filters is set.
@@ -6166,9 +6166,9 @@ email@example.org,
                 "filters": {"properties": {"type": "AND", "values": [email_filter]}},
                 "groups": [{"properties": [reference]}],
             },
-        }[field]
+        }
         dependent_response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts", data={"name": "Dependent Cohort", **criteria}
+            f"/api/projects/{self.team.id}/cohorts", data={"name": "Dependent Cohort", **criteria_by_field[field]}
         )
         self.assertEqual(dependent_response.status_code, status.HTTP_201_CREATED)
 
