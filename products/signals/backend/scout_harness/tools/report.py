@@ -1550,15 +1550,6 @@ async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
         logger.exception("signals_scout.emit_report: autostart failed", extra={"report_id": report_id})
 
 
-def _emit_report_ready_event(*, team_id: int, report_id: str) -> None:
-    """Best-effort hand-off to the project's "Inbox report ready" workflows, so a broker failure
-    never fails the emit."""
-    try:
-        emit_inbox_report_ready_event(team_id=team_id, report_id=report_id, source_products=[SOURCE_PRODUCT])
-    except Exception:
-        logger.exception("signals_scout.emit_report: inbox report ready event failed", extra={"report_id": report_id})
-
-
 # Telemetry caps for the report content carried on the lifecycle events. The signal channel surfaces a
 # finding's content on `signal_emitted` (via `_telemetry_props_from_extra`); the report channel now does
 # the same so internal consumers (dashboards, alerts, CDP forwards) can act on a report's substance, not
@@ -2255,8 +2246,8 @@ async def emit_report(
                 delivery_id=persisted.report_id,
             )
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
-        await database_sync_to_async(_emit_report_ready_event, thread_sensitive=False)(
-            team_id=team.id, report_id=persisted.report_id
+        await database_sync_to_async(emit_inbox_report_ready_event, thread_sensitive=False)(
+            team_id=team.id, report_id=persisted.report_id, source_products=[SOURCE_PRODUCT]
         )
     return await finish(_emit_result(persisted.report_id, judgement))
 
@@ -2444,7 +2435,7 @@ def emit_report_sync(
                 delivery_id=persisted.report_id,
             )
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
-        _emit_report_ready_event(team_id=team.id, report_id=persisted.report_id)
+        emit_inbox_report_ready_event(team_id=team.id, report_id=persisted.report_id, source_products=[SOURCE_PRODUCT])
     return finish(_emit_result(persisted.report_id, judgement))
 
 

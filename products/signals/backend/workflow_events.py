@@ -52,12 +52,15 @@ def emit_inbox_report_ready_event(*, team_id: int, report_id: str, source_produc
 
     Waits for the broker to accept the event, because the claim is what stops a second attempt.
     An event the broker rejects or never confirms keeps its claim unconfirmed, and
-    `reconcile_stranded_ready_events` sends it again once the claim goes stale. A rejected event
-    still raises, so the caller can log it.
+    `reconcile_stranded_ready_events` sends it again once the claim goes stale. So a rejected event
+    is only logged here, and never fails the report that settled.
     """
     if not _claim_ready_event(team_id, report_id, source_products):
         return
-    _publish_ready_event(team_id, report_id, source_products)
+    try:
+        _publish_ready_event(team_id, report_id, source_products)
+    except Exception:
+        logger.exception("inbox_report_ready_event_failed", team_id=team_id, report_id=report_id)
 
 
 def reconcile_stranded_ready_events() -> None:

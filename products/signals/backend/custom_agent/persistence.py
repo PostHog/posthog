@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from django.db import transaction
 from django.utils import timezone
 
-import structlog
-
 from products.signals.backend.artefact_schemas import ArtefactContent, SuggestedReviewers
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
@@ -15,8 +13,6 @@ from products.signals.backend.report_generation.reviewer_telemetry import captur
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.signals.backend.workflow_events import emit_inbox_report_ready_event
-
-logger = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -133,15 +129,6 @@ def create_custom_agent_ready_report(
             source="custom_agent",
         )
 
-    _emit_report_ready_event(team_id=team_id, report_id=str(report.id), source_product=agent_identifier[0])
+    emit_inbox_report_ready_event(team_id=team_id, report_id=str(report.id), source_products=[agent_identifier[0]])
 
     return PersistedCustomAgentReport(report_id=str(report.id), task_id=task_id)
-
-
-def _emit_report_ready_event(*, team_id: int, report_id: str, source_product: str) -> None:
-    """Best-effort hand-off to the project's "Inbox report ready" workflows, so a broker failure
-    never fails the report."""
-    try:
-        emit_inbox_report_ready_event(team_id=team_id, report_id=report_id, source_products=[source_product])
-    except Exception:
-        logger.exception("custom signal agent inbox report ready event failed", report_id=report_id)
