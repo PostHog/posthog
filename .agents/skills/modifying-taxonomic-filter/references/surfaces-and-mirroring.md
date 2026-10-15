@@ -39,7 +39,7 @@ legacy `<TaxonomicFilter>`.
 A call site reaching one of those wrappers can still land on the legacy
 path. `TaxonomicPopover` renders the rebuild only when
 `newMenuSupportsCallSite` holds (`!allowClear && closeOnChange && ref ==
-null`), because the rebuilt menu can't honour those three capabilities.
+null`), because the rebuilt menu can't honor those three capabilities.
 So "does this reach the rebuild?" depends on the wrapper and the props
 that call site passes. `ActionFilterRow` goes through `TaxonomicPopover`
 and passes none of the three, so it does reach the rebuild. Only a call

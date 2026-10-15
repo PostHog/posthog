@@ -149,7 +149,12 @@ ORDER BY share_pct DESC
 ### 8. The category trap (open level)
 
 Splits each session after every legacy `taxonomic filter closed`, so
-each chunk is one engaged legacy open. Then it compares opens with and
+each chunk is close to one engaged legacy open. It is not exact: the
+event fires when the logic unmounts, not when the picker visibly closes.
+A picker that stays mounted (for example in `ColumnConfigurator.tsx`)
+can put several picks in one chunk, and two mounted pickers can
+interleave. Read the ratios as direction, not as exact rates. There is
+no better open boundary in legacy telemetry today. Then it compares opens with and
 without a category pick. Do not split on `taxonomic filter add filter
 clicked`: it fires only when a property filter row is added, so most
 opens have no start marker. The rebuild is left out, because its close

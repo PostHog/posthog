@@ -12,8 +12,9 @@ Most `taxonomic filter *` events carry `surface` (`legacy-pill` or
 `rebuild-menu`). The legacy stamp comes from `legacyTaxonomicSurface()` in
 `taxonomicFilterSurface.ts`. The rebuild stamps `rebuild-menu` from
 `menu/TaxonomicFilterMenu.tsx`. These events have no `surface`:
-`category selected`, `category rail toggled`, `pin toggled` and
-`default pins seeded`. Older data also has `legacy-control` and empty
+`category selected`, `category dropdown opened`, `category rail toggled`,
+`include stale toggled`, `pin toggled`, `default pins seeded`, and the
+server-side `event match answered`. Older data also has `legacy-control` and empty
 values. A filter such as `surface = 'legacy-pill'` drops all of those
 rows.
 
@@ -28,6 +29,12 @@ A pick from Suggested has `groupType = suggested_filters` and a real
 `sourceGroupType`. To judge whether a group's items are used, count
 `sourceGroupType`. To judge whether a tab is used, count `groupType`.
 Mixing them up makes reachable groups look unused.
+
+This holds for legacy only. The rebuild sends no `groupType` for its
+`all`, `recent` and `pinned` scopes (`telemetryGroupType` in
+`menu/Combobox.tsx`). In a query over both surfaces, count an empty
+`groupType` from `rebuild-menu` as the rebuild's default view, or
+Suggested will seem to shrink as rebuild use grows.
 
 ## Shared events (both surfaces)
 
@@ -82,10 +89,12 @@ neither.
   `variant` and `shown`.
 - `taxonomic filter search intent switched`: `fromGroupType`,
   `toGroupType`, `surface`.
-- `taxonomic filter event match answered`: emitted server side.
-- `taxonomic filter event match suggested`: `suggestedEvents`, `surface`.
-- `taxonomic filter event match selected`: `eventName`, `position`,
+- `taxonomic filter event match answered`: `outcome`. Emitted server
+  side.
+- `taxonomic filter event match suggested`: `suggestedEvents`, `tab`,
   `surface`.
+- `taxonomic filter event match selected`: `eventName`, `position`,
+  `tab`, `surface`.
 
 Read these as funnels: answered, then suggested, then selected.
 

@@ -123,7 +123,9 @@ Engineering latency data shows real slow tails (see
 
 ## Caveats
 
-- The open-level splits cover engaged legacy opens only.
+- The open-level splits cover engaged legacy opens only. A picker that
+  stays mounted can merge several opens into one, so treat those ratios
+  as direction.
 - Some dashboard tiles include staff traffic. Filter it when it matters.
 - Replay classifier results are a sample, and the prompt has changed
   over time. Compare within one scanner version.

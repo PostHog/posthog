@@ -26,6 +26,8 @@ A 403 must not look like a slow request.
 - End the loading state on error in both `infiniteListLogic.ts` and `hooks/useGroupList.ts`.
 - Show what failed and offer a retry.
 - Keep `taxonomic filter fetch failed` firing with `groupType`, `searchQuery` and `surface`.
+  Only `infiniteListLogic.ts` sends it. `hooks/useGroupList.ts` has no capture, so the rebuild's
+  failures are invisible. Add one before you use this metric to judge a rebuild loading change.
 
 ## Backend search plan
 
