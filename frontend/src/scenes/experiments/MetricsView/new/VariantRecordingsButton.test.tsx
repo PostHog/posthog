@@ -58,10 +58,13 @@ const droppedMetricModes = (): ExperimentRecordingModes =>
 const linkParams = (element: Element | null): Record<string, string> =>
     Object.fromEntries(new URLSearchParams(element?.getAttribute('href')?.split('?')[1] ?? ''))
 
-const renderButton = (recordingModes: ExperimentRecordingModes): HTMLElement => {
+const renderButton = (
+    recordingModes: ExperimentRecordingModes,
+    forExperiment: Experiment = experiment
+): HTMLElement => {
     const { container } = render(
         <VariantRecordingsButton
-            experiment={experiment}
+            experiment={forExperiment}
             metric={metric}
             variantKey="test"
             isBaseline={false}
@@ -113,6 +116,20 @@ describe('VariantRecordingsButton', () => {
         expect(linkParams(button)).toEqual(expectedParams)
         // The caret keeps offering the variant's whole list, named, even when the metric is dropped.
         expect(container.querySelector('[data-attr="experiment-metrics-recordings-menu"]')).not.toBeNull()
+    })
+
+    it('refuses the link for a group-aggregated experiment, since the tab would only refuse it too', () => {
+        const grouped = {
+            id: 7,
+            feature_flag: { filters: { aggregation_group_type_index: 0 } },
+        } as unknown as Experiment
+        const container = renderButton(modes({}), grouped)
+
+        const button = container.querySelector('[data-attr="experiment-metrics-view-recordings"]')
+
+        expect(button?.getAttribute('aria-disabled')).toEqual('true')
+        expect(button?.getAttribute('href')).toBeNull()
+        expect(container.querySelector('[data-attr="experiment-metrics-recordings-menu"]')).toBeNull()
     })
 
     it('keeps the metric modes refused in the menu, and explains nothing the menu already names', async () => {
