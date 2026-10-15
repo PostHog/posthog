@@ -249,6 +249,7 @@ register_supported_function("postHogSetAccountProperties")
 #
 # Before adding a name, check what its handler in nodejs/src/cdp/async-functions/ stages.
 RESERVED_ASYNC_FUNCTIONS = {
+    "mcpEventFetch",
     "sendEmail",
     "sendPushNotification",
 }
