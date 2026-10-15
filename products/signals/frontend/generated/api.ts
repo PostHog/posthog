@@ -21,6 +21,7 @@ import type {
     FleetFindingsSummaryApi,
     ForgetRequestApi,
     ForgetResponseApi,
+    InboxSummaryApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
     PaginatedPauseStateResponseListApi,
@@ -215,6 +216,17 @@ export const signalsConfigCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalTeamConfigApi),
+    })
+}
+
+export const getSignalsInboxSummaryListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/inbox_summary/`
+}
+
+export const signalsInboxSummaryList = async (projectId: string, options?: RequestInit): Promise<InboxSummaryApi> => {
+    return apiMutator<InboxSummaryApi>(getSignalsInboxSummaryListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
