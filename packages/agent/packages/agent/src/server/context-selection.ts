@@ -12,6 +12,7 @@ function tail(value: string, limit: number): string {
 
 export class ContextSelection {
   private history = "";
+  private disabled = false;
 
   constructor(
     private readonly api: Pick<PostHogAPIClient, "prepareContextSelection">,
@@ -30,7 +31,7 @@ export class ContextSelection {
   }
 
   async prepare(message: HumanMessage): Promise<string> {
-    if (message.text.trimStart().startsWith("/")) return "";
+    if (this.disabled || message.text.trimStart().startsWith("/")) return "";
     try {
       const prepared = await this.api.prepareContextSelection({
         run_id: this.runId,
@@ -39,6 +40,8 @@ export class ContextSelection {
         history: this.history,
         runtime_version: this.runtimeVersion,
       });
+      if (prepared.mode === "disabled" && prepared.reason === "disabled")
+        this.disabled = true;
       return prepared.context;
     } catch (error) {
       const errorType =

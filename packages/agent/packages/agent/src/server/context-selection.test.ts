@@ -20,6 +20,35 @@ function fixture(runId = "r", history = "") {
 }
 
 describe("cloud context selection", () => {
+  it.each([
+    ["disabled", "disabled", true],
+    ["disabled", "error", false],
+    ["control", "control", false],
+    ["shadow", "selected", false],
+    ["treatment", "gate_skipped", false],
+  ])(
+    "only stops preparation for an explicit disabled result: %s/%s",
+    async (mode, reason, disabled) => {
+      const { api, selector } = fixture();
+      api.prepareContextSelection.mockResolvedValueOnce({
+        selection_id: "",
+        context: "",
+        mode,
+        reason,
+      });
+      expect(await selector.prepare(message)).toBe("");
+      selector.resetHistory();
+      expect(await selector.prepare(message)).toBe(
+        disabled ? "" : "retrieved definition",
+      );
+      expect(api.prepareContextSelection).toHaveBeenCalledTimes(
+        disabled ? 1 : 2,
+      );
+      const nextSession = new ContextSelection(api, "next");
+      expect(await nextSession.prepare(message)).toBe("retrieved definition");
+    },
+  );
+
   it("keeps the human request separate from restored history", async () => {
     const { api, selector } = fixture("r", "Earlier conversation summary");
     expect(await selector.prepare(message)).toBe("retrieved definition");
@@ -66,6 +95,13 @@ describe("cloud context selection", () => {
         error_type: category,
         ...(status ? { http_status: status } : {}),
       });
+      api.prepareContextSelection.mockResolvedValueOnce({
+        selection_id: "s",
+        context: "retrieved definition",
+        mode: "treatment",
+        reason: "selected",
+      });
+      expect(await selector.prepare(message)).toBe("retrieved definition");
     },
   );
 
