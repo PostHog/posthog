@@ -107,6 +107,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     hideAxes?: boolean
     /** Hide or resize the visualization selector when the host provides its own chart picker. */
     chartTypeSelectorClassName?: string
+    onEditBIAxis?: (axis: 'x' | 'left' | 'right') => void
     /** Hosts visualization settings in the scene's own panel instead of opening another sidebar. */
     visualizationSettingsPanel?: {
         isOpen: boolean
