@@ -241,7 +241,7 @@ class TestOAuthApplicationAdmin(BaseTest):
         selected = self._signing_partner("allow_unsigned_selected")
         not_selected = self._signing_partner("allow_unsigned_not_selected")
         not_a_partner = self._signing_partner("allow_unsigned_not_a_partner", is_provisioning_partner=False)
-        until = timezone.now() + timedelta(days=7)
+        until = datetime(2100, 1, 8, 12, 0, tzinfo=UTC)
 
         request = RequestFactory().post(
             "/", {"apply": "yes", "unsigned_allowed_until": until.strftime("%Y-%m-%d %H:%M:%S")}
