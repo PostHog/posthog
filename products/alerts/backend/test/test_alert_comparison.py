@@ -20,7 +20,12 @@ from products.alerts.backend.alert_comparison import INSIGHT_INTENTIONAL_DIVERGE
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.alerts.backend.platform_source_cycle import CAPACITY_REJECTED, evaluation_key_for_slot
 from products.alerts_platform.backend.facade.api import slot_of
-from products.alerts_platform.backend.facade.contracts import PlatformCheck, SourceCoverage, SourceVerdict
+from products.alerts_platform.backend.facade.contracts import (
+    PlatformCheck,
+    SourceCoverage,
+    SourceVerdict,
+    SuppressionReason,
+)
 from products.alerts_platform.backend.facade.testing import undeclared_policy_divergences
 from products.product_analytics.backend.facade.models import Insight
 
@@ -84,7 +89,10 @@ class TestInsightCorrespondence(BaseTest):
         for state, offset in checks:
             metadata = {"skipped_reason": "no data"} if skipped else None
             row = AlertCheck.objects.create(
-                alert_configuration=self.alert, state=state.value, triggered_metadata=metadata
+                alert_configuration=self.alert,
+                state=state.value,
+                triggered_metadata=metadata,
+                calculated_value=None if skipped else 42.0,
             )
             AlertCheck.objects.filter(id=row.id).update(created_at=SLOT + offset)
             rows.append(row)
@@ -151,7 +159,7 @@ class TestInsightCorrespondence(BaseTest):
         self._production((InsightAlertState.NOT_FIRING, offset))
         AlertConfiguration.objects.filter(id=self.alert.id).update(**alert_fields)
 
-        check = self._check(evaluation_key=evaluation_key_for_slot(slot_of(slot, slot)))
+        check = self._check(evaluation_key=evaluation_key_for_slot(slot_of(slot, slot)), occurred_at=slot)
 
         assert self._verdict(check).coverage is coverage
 
@@ -215,7 +223,9 @@ class TestInsightCorrespondence(BaseTest):
         self.team.timezone = timezone
         self.team.save()
         AlertConfiguration.objects.filter(id=self.alert.id).update(calculation_interval=interval.value)
-        row = AlertCheck.objects.create(alert_configuration=self.alert, state=InsightAlertState.FIRING.value)
+        row = AlertCheck.objects.create(
+            alert_configuration=self.alert, state=InsightAlertState.FIRING.value, calculated_value=42.0
+        )
         AlertCheck.objects.filter(id=row.id).update(created_at=production_check)
         check = self._check(evaluation_key=evaluation_key_for_slot(slot_of(slot, slot)), occurred_at=slot)
 
@@ -225,18 +235,27 @@ class TestInsightCorrespondence(BaseTest):
 
         assert verdict.coverage is coverage
 
-    def test_a_slot_the_schedule_skips_is_not_compared_against_an_earlier_production_check(self) -> None:
+    def test_a_check_the_schedule_blocked_when_the_platform_decided_is_not_compared(self) -> None:
         self._production((InsightAlertState.FIRING, timedelta(minutes=5)))
         AlertConfiguration.objects.filter(id=self.alert.id).update(
             schedule_restriction={"blocked_windows": [{"start": "12:30", "end": "13:30"}]}
         )
-        blocked_slot = SLOT + timedelta(minutes=35)
-
-        verdict = self._verdict(
-            self._check(evaluation_key=evaluation_key_for_slot(slot_of(blocked_slot, blocked_slot)))
+        slot = SLOT + timedelta(minutes=25)
+        check = self._check(
+            evaluation_key=evaluation_key_for_slot(slot_of(slot, slot)), occurred_at=SLOT + timedelta(minutes=35)
         )
 
-        assert verdict.coverage is SourceCoverage.UNKNOWN
+        assert self._verdict(check).coverage is SourceCoverage.UNKNOWN
+
+    def test_a_snooze_row_is_not_paired_as_an_evaluation(self) -> None:
+        AlertCheck.objects.filter(
+            id=AlertCheck.objects.create(alert_configuration=self.alert, state=InsightAlertState.NOT_FIRING.value).id
+        ).update(created_at=SLOT + timedelta(minutes=5))
+        self._production((InsightAlertState.FIRING, timedelta(minutes=37)))
+
+        verdict = self._verdict(self._check())
+
+        assert (verdict.coverage, verdict.state) == (SourceCoverage.EVALUATED, "firing")
 
     def test_a_skipped_production_check_is_not_catching_up(self) -> None:
         self._production((InsightAlertState.FIRING, timedelta(minutes=37)))
@@ -257,10 +276,20 @@ class TestInsightCorrespondence(BaseTest):
 
         assert verdict.coverage is SourceCoverage.EVALUATED
 
-    def test_a_snoozed_check_is_suppressed_on_both_stacks(self) -> None:
+    @parameterized.expand(
+        [
+            ("production_still_snoozes_it", True, "snoozed", SuppressionReason.MUTED),
+            ("production_has_switched_it_off", False, None, SuppressionReason.DISABLED),
+        ]
+    )
+    def test_a_snoozed_check_is_suppressed_on_both_stacks(
+        self, _name: str, enabled: bool, state: str | None, reason: SuppressionReason
+    ) -> None:
+        AlertConfiguration.objects.filter(id=self.alert.id).update(enabled=enabled)
+
         verdict = self._verdict(self._check(state="snoozed"))
 
-        assert (verdict.coverage, verdict.state) == (SourceCoverage.SUPPRESSED, "snoozed")
+        assert (verdict.coverage, verdict.state, verdict.suppressed_by) == (SourceCoverage.SUPPRESSED, state, reason)
 
     @parameterized.expand(
         [

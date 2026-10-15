@@ -155,14 +155,6 @@ class InsightCorrespondence(SourceCorrespondence):
                 verdicts[check.ref] = _unknown("the platform configuration names no insight alert")
             elif slot is None:
                 verdicts[check.ref] = _unknown("the evaluation key names no due slot")
-            elif check.state == AlertState.SNOOZED:
-                # Both stacks hold the alert snoozed off the same production snooze and evaluate nothing.
-                verdicts[check.ref] = SourceVerdict(
-                    coverage=SourceCoverage.SUPPRESSED,
-                    state=AlertState.SNOOZED.value,
-                    suppressed_by=SuppressionReason.MUTED,
-                    caught_up_at=None,
-                )
             else:
                 by_team[check.team_id].append(_Pairing(check=check, alert_id=check.legacy_configuration_id, slot=slot))
 
@@ -213,9 +205,9 @@ def _team_verdicts(team_id: int, pairings: list[_Pairing]) -> dict[CheckRef, Sou
         rows = list(
             AlertCheck.objects.filter(since, alert_configuration__team_id=team_id)
             .order_by("alert_configuration_id", "created_at")
-            .values_list("alert_configuration_id", "id", "created_at", "state", "triggered_metadata")[
-                : MAX_CHECKS_PER_BATCH + 1
-            ]
+            .values_list(
+                "alert_configuration_id", "id", "created_at", "state", "triggered_metadata", "calculated_value", "error"
+            )[: MAX_CHECKS_PER_BATCH + 1]
         )
     if len(rows) > MAX_CHECKS_PER_BATCH:
         logger.warning("Insight alert comparison could not read every check it needs", team_id=team_id)
@@ -224,13 +216,18 @@ def _team_verdicts(team_id: int, pairings: list[_Pairing]) -> dict[CheckRef, Sou
         }
 
     checks: dict[UUID, list[_ProductionCheck]] = defaultdict(list)
-    for alert_id, check_id, created_at, state, metadata in rows:
+    for alert_id, check_id, created_at, state, metadata, value, error in rows:
+        skipped = bool((metadata or {}).get("skipped_reason"))
+        if value is None and error is None and not skipped:
+            # A snooze or unsnooze writes a row carrying the new state and no evaluation. An evaluated
+            # check has a value, or an error when its query failed.
+            continue
         checks[alert_id].append(
             _ProductionCheck(
                 id=check_id,
                 created_at=created_at,
                 state=_platform_state(state),
-                skipped=bool((metadata or {}).get("skipped_reason")),
+                skipped=skipped,
             )
         )
 
@@ -242,6 +239,9 @@ def _team_verdicts(team_id: int, pairings: list[_Pairing]) -> dict[CheckRef, Sou
         if alert is None:
             verdicts[pairing.check.ref] = _unknown("no insight alert with that id in this project")
             continue
+        if pairing.check.state == AlertState.SNOOZED:
+            verdicts[pairing.check.ref] = _snoozed(alert)
+            continue
         period = periods.get(pairing.check.ref)
         if period is None:
             verdicts[pairing.check.ref] = _unknown("the insight alert's interval has no period to pair within")
@@ -250,7 +250,8 @@ def _team_verdicts(team_id: int, pairings: list[_Pairing]) -> dict[CheckRef, Sou
         if period.start < kept_since:
             verdicts[pairing.check.ref] = _unknown("production no longer keeps its checks from this period")
             continue
-        if _skipped_by_schedule(pairing.slot, alert):
+        # The platform tests its schedule when it decides, which can be later than the slot.
+        if _skipped_by_schedule(pairing.check.occurred_at, alert):
             # Both stacks skip the slot by the alert's schedule, so the platform has no verdict to compare.
             verdicts[pairing.check.ref] = _unknown("the alert's schedule skips this slot")
             continue
@@ -319,10 +320,28 @@ def _verdict_at(pairing: _Pairing, alert: AlertConfiguration, period: _Period, h
     )
 
 
-def _skipped_by_schedule(slot: datetime, alert: AlertConfiguration) -> bool:
-    """Whether the alert's schedule skips the slot. The alert's current settings stand in for its
-    settings at the slot, because production keeps no history of them."""
-    return (alert.skip_weekend and is_weekend(slot, alert.team.timezone)) or is_utc_datetime_blocked(alert, slot)
+def _skipped_by_schedule(at: datetime, alert: AlertConfiguration) -> bool:
+    """Whether the alert's schedule skips a check at `at`. The alert's current settings stand in for
+    its settings then, because production keeps no history of them."""
+    return (alert.skip_weekend and is_weekend(at, alert.team.timezone)) or is_utc_datetime_blocked(alert, at)
+
+
+def _snoozed(alert: AlertConfiguration) -> SourceVerdict:
+    """A platform check that held the alert snoozed. Both stacks read the same production snooze and
+    evaluate nothing, unless production has since switched the alert off."""
+    if not alert.enabled:
+        return SourceVerdict(
+            caught_up_at=None,
+            coverage=SourceCoverage.SUPPRESSED,
+            state=None,
+            suppressed_by=SuppressionReason.DISABLED,
+        )
+    return SourceVerdict(
+        coverage=SourceCoverage.SUPPRESSED,
+        state=AlertState.SNOOZED.value,
+        suppressed_by=SuppressionReason.MUTED,
+        caught_up_at=None,
+    )
 
 
 def _no_check_in_period(alert: AlertConfiguration) -> SourceVerdict:
