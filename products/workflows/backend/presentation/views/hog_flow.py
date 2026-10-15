@@ -109,6 +109,7 @@ from products.cdp.backend.presentation.hog_invocations.results import (
     HogInvocationResultSerializer,
     HogInvocationResultsFiltersSerializer,
     HogInvocationResultsRequestSerializer,
+    fetch_hog_invocation_globals,
     fetch_hog_invocation_result,
     fetch_hog_invocation_results,
     fetch_hog_invocation_results_count,
@@ -6019,6 +6020,7 @@ class HogFlowViewSet(
             after=after_date,
             before=before_date,
         )
+        self._deny_assets_of_inbox_report_runs(request, str(obj.id), [row.invocation_id for row in data])
         enriched = [dataclasses.replace(row, function_name=obj.name or "") for row in data]
         return Response(MessageAssetSerializer(enriched, many=True).data)
 
@@ -6047,6 +6049,7 @@ class HogFlowViewSet(
         )
         if html is None:
             raise exceptions.NotFound("Asset content is no longer available.")
+        self._deny_assets_of_inbox_report_runs(request, str(obj.id), [params["invocation_id"]])
         response = HttpResponse(html, content_type="text/html; charset=utf-8")
         # Enforce sandboxing at the response layer so direct navigation to the asset URL
         # (bypassing the iframe with `sandbox=""` on the frontend) still can't execute
@@ -6058,6 +6061,18 @@ class HogFlowViewSet(
         response["X-Content-Type-Options"] = "nosniff"
         response["Referrer-Policy"] = "no-referrer"
         return response
+
+    def _deny_assets_of_inbox_report_runs(self, request: Request, function_id: str, invocation_ids: list[str]) -> None:
+        if _may_read_inbox_reports(request, self.team):
+            return
+        run_globals = fetch_hog_invocation_globals(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=function_id,
+            invocation_ids=invocation_ids,
+        )
+        if any(_is_inbox_report_run(invocation_globals) for invocation_globals in run_globals.values()):
+            raise exceptions.PermissionDenied(INBOX_REPORT_ACCESS_MESSAGE)
 
     @extend_schema(
         operation_id="hog_flows_metrics_global_retrieve",

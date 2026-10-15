@@ -19,6 +19,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.facade.clickhouse import INSERT_HOG_INVOCATION_RESULT_SQL
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.tests.api.test_message_assets import create_message_asset
 
 
 def create_hog_invocation_result(
@@ -336,6 +337,41 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("list_of_an_inbox_report_run", "assets/", "$inbox_report_ready", True, 403),
+            (
+                "content_of_an_inbox_report_run",
+                "assets/content/?invocation_id=inv-1&action_id=email-step",
+                "$inbox_report_ready",
+                True,
+                403,
+            ),
+            (
+                "content_for_a_report_reader",
+                "assets/content/?invocation_id=inv-1&action_id=email-step",
+                "$inbox_report_ready",
+                False,
+                200,
+            ),
+            ("list_of_another_run", "assets/", "$pageview", True, 200),
+        ]
+    )
+    def test_assets_of_an_inbox_report_run_require_report_read_access(
+        self, _name: str, path: str, run_event: str, deny_report_access: bool, expected_status: int
+    ) -> None:
+        # The email a run sends can quote the report, even after the workflow moved to another trigger.
+        self._seed("inv-1", invocation_globals=json.dumps({"event": {"event": run_event}}))
+        create_message_asset(
+            team_id=self.team.pk, function_id=str(self.hog_flow.pk), invocation_id="inv-1", subject="Checkout broken"
+        )
+        if deny_report_access:
+            self._deny_report_access()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/{path}")
+
+        assert response.status_code == expected_status
 
     def test_rerun_of_an_inbox_report_workflow_requires_report_read_access(self) -> None:
         self.hog_flow.trigger = {
