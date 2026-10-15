@@ -34,10 +34,10 @@ const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 export const ANALYTICS_SEARCH_LIMIT = 10
 
 // pinned: persisted section ids and the `section` property of `analytics section toggled`.
-export type TodayAnalyticsSection = 'by-posthog' | 'browse' | 'folders'
+export type TodayAnalyticsSection = 'browse' | 'monitor' | 'by-posthog'
 
 /** The folder tree starts closed, so the pane leads with what PostHog ships and the types to browse. */
-export const DEFAULT_COLLAPSED_SECTIONS: TodayAnalyticsSection[] = ['folders']
+export const DEFAULT_COLLAPSED_SECTIONS: TodayAnalyticsSection[] = []
 
 export interface FirstBuildState {
     hasVersion: boolean

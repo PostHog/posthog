@@ -121,6 +121,8 @@ const INSIGHTS = [
 
 const FILE_SYSTEM = [
     { id: 'fs-folder-finance', path: 'Finance', type: 'folder', depth: 1 },
+    { id: 'fs-folder-growth', path: 'Growth', type: 'folder', depth: 1 },
+    { id: 'fs-folder-unfiled', path: 'Unfiled', type: 'folder', depth: 1 },
     {
         id: 'fs-dash-12',
         path: 'Finance/Revenue overview',
@@ -134,11 +136,11 @@ const FILE_SYSTEM = [
     },
     {
         id: 'fs-ins-signups',
-        path: 'Unfiled/Insights/Signups by plan',
+        path: 'Growth/Signups by plan',
         type: 'insight/trends',
         ref: 'ins-signups',
         href: '/insights/ins-signups',
-        depth: 3,
+        depth: 2,
         created_at: at(1),
         last_viewed_at: at(27, 18),
         meta: { created_by: ADA.id },
@@ -156,29 +158,37 @@ const FILE_SYSTEM = [
     },
     {
         id: 'fs-canvas-1',
-        path: 'Unfiled/Canvases/Checkout funnel explorer',
+        path: 'Growth/Checkout funnel explorer',
         type: 'canvas',
         ref: 'canvas-1',
         href: '/canvases/canvas-1',
-        depth: 3,
+        depth: 2,
         created_at: at(20),
         last_viewed_at: at(26),
         meta: { created_by: GRACE.id },
     },
 ]
 
+// Answers the file system like the API does for the params the Analyses pages send.
 const fileSystemHandler = ({ request }: { request: Request }): [number, unknown] => {
     const params = new URL(request.url).searchParams
     const parent = params.get('parent')
-    const results =
-        parent !== null
-            ? FILE_SYSTEM.filter(
-                  (entry) =>
-                      entry.path.startsWith(parent ? `${parent}/` : '') &&
-                      entry.depth === (parent ? parent.split('/').length : 0) + 1
-              )
-            : FILE_SYSTEM.filter((entry) => entry.type !== 'folder')
-    return [200, { results, count: results.length, users: [ADA, GRACE] }]
+    const depth = params.get('depth')
+    const type = params.get('type')
+    const typePrefix = params.get('type__startswith')
+    const search = params.get('search')?.toLowerCase()
+    const ref = params.get('ref')
+    const results = FILE_SYSTEM.filter(
+        (entry) =>
+            (parent === null || entry.path.startsWith(`${parent}/`)) &&
+            (depth === null || entry.depth === Number(depth)) &&
+            (type === null || entry.type === type) &&
+            (typePrefix === null || entry.type.startsWith(typePrefix)) &&
+            (ref === null || entry.ref === ref) &&
+            (!search || entry.path.toLowerCase().includes(search)) &&
+            (parent !== null || depth !== null || type !== null || typePrefix !== null || entry.type !== 'folder')
+    )
+    return [200, { results, count: results.length, next: null, users: [ADA, GRACE] }]
 }
 
 const meta: Meta = {
@@ -233,20 +243,18 @@ export const List: Story = {
 }
 
 export const ListFiltered: Story = {
-    parameters: { pageUrl: urls.analyticsList({ type: 'dashboard', createdBy: 'user-ada', tags: ['finance'] }) },
+    parameters: { pageUrl: urls.analyticsList({ type: 'dashboard', createdBy: 'user-ada' }) },
+}
+
+export const Mine: Story = {
+    parameters: { pageUrl: urls.analyticsMine() },
+}
+
+export const Spaces: Story = {
+    parameters: { pageUrl: urls.analyticsSpaces() },
 }
 
 export const ListNoMatches: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/canvases/': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/notebooks/': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/insights/': EMPTY_PAGINATED_RESPONSE,
-            },
-        }),
-    ],
     parameters: { pageUrl: urls.analyticsList({ search: 'quarterly' }) },
 }
 
@@ -254,10 +262,8 @@ export const ListEmpty: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/canvases/': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/notebooks/': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/insights/': EMPTY_PAGINATED_RESPONSE,
+                '/api/environments/:team_id/file_system/': EMPTY_PAGINATED_RESPONSE,
+                '/api/projects/:team_id/file_system/': EMPTY_PAGINATED_RESPONSE,
             },
         }),
     ],
@@ -268,16 +274,14 @@ export const ListError: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/canvases/': () => [500, { detail: 'Server error' }],
-                '/api/projects/:team_id/dashboards/': () => [500, { detail: 'Server error' }],
-                '/api/projects/:team_id/notebooks/': () => [500, { detail: 'Server error' }],
-                '/api/projects/:team_id/insights/': () => [500, { detail: 'Server error' }],
+                '/api/environments/:team_id/file_system/': () => [500, { detail: 'Server error' }],
+                '/api/projects/:team_id/file_system/': () => [500, { detail: 'Server error' }],
             },
         }),
     ],
     parameters: { pageUrl: urls.analyticsList() },
 }
 
-export const ListFolder: Story = {
-    parameters: { pageUrl: urls.analyticsList({ folder: '' }) },
+export const ListSpace: Story = {
+    parameters: { pageUrl: urls.analyticsList({ folder: 'Growth' }) },
 }

@@ -8,16 +8,16 @@ import { FolderRow } from './analyticsListLogic'
 
 export function AnalyticsFolderBreadcrumbs({ crumbs }: { crumbs: FolderRow[] }): JSX.Element {
     return (
-        <nav aria-label="Folder" className="flex flex-wrap items-center gap-1 text-sm">
+        <nav aria-label="Space" className="flex flex-wrap items-center gap-1 text-sm">
             <Button
                 variant="link-muted"
                 size="sm"
                 nativeButton={false}
-                render={<LinkPrimitive to={urls.analyticsList({ folder: '' })} />}
+                render={<LinkPrimitive to={urls.analyticsSpaces()} />}
                 data-attr="analytics-list-folder-root"
             >
                 <IconFolder />
-                Project
+                Spaces
             </Button>
             {crumbs.map((crumb, index) => (
                 <span key={crumb.path} className="flex items-center gap-1">

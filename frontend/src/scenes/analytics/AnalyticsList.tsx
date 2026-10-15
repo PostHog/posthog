@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
 
-import { IconFolder, IconPlus, IconSearch } from '@posthog/icons'
+import { IconFolder, IconPlus, IconSearch, IconTrends } from '@posthog/icons'
 import {
     Button,
     DataTable,
@@ -35,9 +35,10 @@ import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
 import { analyticsListColumns } from './AnalyticsListColumns'
 import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
-import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
+import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { ANALYTICS_TYPE_INFO } from './analyticsUtils'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
+import { ShareToSpaceModal } from './ShareToSpaceModal'
 
 const SCROLL_PREFETCH_MARGIN = '1200px 0px'
 
@@ -63,16 +64,31 @@ function TableSkeleton(): JSX.Element {
 }
 
 function AnalyticsListContent(): JSX.Element {
-    const { filters, items, subfolders, folderBreadcrumbs, listState, loading, hasMore, failedTypes, feedStale, mode } =
-        useValues(analyticsListLogic)
+    const {
+        filters,
+        items,
+        subfolders,
+        folderBreadcrumbs,
+        listState,
+        loading,
+        hasMore,
+        failedTypes,
+        feedStale,
+        mode,
+        scope,
+    } = useValues(analyticsListLogic)
     const { clearFilters, loadList, loadMore } = useActions(analyticsListLogic)
     const { ref: endRef, inView: endInView } = useInView({
         root: document.getElementById('main-content'),
         rootMargin: SCROLL_PREFETCH_MARGIN,
     })
     // An opened page sends the person back to this exact list, filters included.
-    const backUrl = urls.analyticsList(analyticsListUrlParams(filters))
-    const columns = analyticsListColumns({ backUrl, showType: filters.type === 'all' })
+    const backUrl =
+        scope === 'mine'
+            ? urls.analyticsMine(analyticsListUrlParams(filters))
+            : urls.analyticsList(analyticsListUrlParams(filters))
+    const columns = analyticsListColumns({ backUrl, showSpace: mode === 'feed' })
+    const spaceName = mode === 'folder' ? folderBreadcrumbs[folderBreadcrumbs.length - 1]?.name || 'Project root' : null
 
     useEffect(() => {
         if (endInView && hasMore) {
@@ -140,11 +156,19 @@ function AnalyticsListContent(): JSX.Element {
                         <EmptyMedia variant="icon">
                             <IconFolder />
                         </EmptyMedia>
-                        <EmptyTitle>{mode === 'folder' ? 'This folder is empty' : 'No analytics yet'}</EmptyTitle>
+                        <EmptyTitle>
+                            {mode === 'folder'
+                                ? 'Nothing shared here yet'
+                                : scope === 'mine'
+                                  ? 'Nothing of yours yet'
+                                  : 'No analytics yet'}
+                        </EmptyTitle>
                         <EmptyDescription>
                             {mode === 'folder'
-                                ? 'Analytics moved into this folder show up here.'
-                                : 'Canvases, dashboards, notebooks and insights you create show up here.'}
+                                ? 'Share something into this space from its page and it shows up here.'
+                                : scope === 'mine'
+                                  ? 'Canvases, dashboards, notebooks and insights you create show up here.'
+                                  : 'Analytics shared into a space show up here. Yours stay personal until you share them.'}
                         </EmptyDescription>
                     </EmptyHeader>
                     <EmptyContent>
@@ -154,10 +178,10 @@ function AnalyticsListContent(): JSX.Element {
                             <Button
                                 variant="outline"
                                 nativeButton={false}
-                                render={<LinkPrimitive to={urls.analyticsList()} />}
+                                render={<LinkPrimitive to={urls.analyticsSpaces()} />}
                                 data-attr="analytics-list-browse-all"
                             >
-                                Browse all analytics
+                                Back to spaces
                             </Button>
                         )}
                     </EmptyContent>
@@ -205,7 +229,7 @@ function AnalyticsListContent(): JSX.Element {
                         // the table past its container, so the filters above keep their width across types.
                         // Below the minimum width the table scrolls sideways instead of squeezing the title away.
                         className="w-full min-w-0 **:data-expand:max-w-0 **:data-[slot=table]:min-w-208"
-                        empty={<Text size="sm">No analytics in this folder.</Text>}
+                        empty={<Text size="sm">Nothing in this space.</Text>}
                     />
                 )}
                 {hasMore && (
@@ -228,9 +252,18 @@ function AnalyticsListContent(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={mode === 'folder' ? 'Folders' : 'Analytics'}
-                description={mode === 'feed' ? 'Canvases, dashboards, notebooks and insights in this project.' : null}
-                resourceType={{ type: 'analytics', forceIcon: <AnalyticsTypeIcon type="dashboard" /> }}
+                name={spaceName ?? (scope === 'mine' ? 'My analytics' : 'Analytics')}
+                description={
+                    mode === 'folder'
+                        ? null
+                        : scope === 'mine'
+                          ? 'Everything you created, shared or not.'
+                          : 'Canvases, dashboards, notebooks and insights shared in this project.'
+                }
+                resourceType={{
+                    type: 'analytics',
+                    forceIcon: spaceName ? <AnalyticsSpaceGlyph name={spaceName} /> : <IconTrends />,
+                }}
                 actions={<div data-quill>{newButton}</div>}
             />
             <div data-quill className="@container/analytics flex flex-col gap-3">
@@ -258,6 +291,7 @@ function AnalyticsListContent(): JSX.Element {
                 <div ref={endRef} aria-hidden />
             </div>
             <AnalyticsCreateModals />
+            <ShareToSpaceModal />
         </SceneContent>
     )
 }

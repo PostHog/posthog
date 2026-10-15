@@ -183,6 +183,8 @@ export const urls = {
     library: (objectType?: string): string => (objectType ? `/library/${objectType}` : '/library'),
     analytics: (): string => '/analytics',
     analyticsList: (params: AnalyticsListUrlParams = {}): string => combineUrl('/analytics/all', params).url,
+    analyticsMine: (params: AnalyticsListUrlParams = {}): string => combineUrl('/analytics/mine', params).url,
+    analyticsSpaces: (): string => '/analytics/spaces',
     tools: (): string => '/tools',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
     aiTask: (taskId: string): string => combineUrl('/ai', { task: taskId }).url,

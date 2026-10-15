@@ -17,18 +17,18 @@ describe('todayAnalyticsLogic', () => {
         initKeaTests()
     })
 
-    it('starts with only the folders closed, and remembers a toggled section', () => {
+    it('starts with every section open, and remembers a toggled section', () => {
         const logic = todayAnalyticsLogic()
         logic.mount()
         expect(logic.values.collapsedSections).toEqual(DEFAULT_COLLAPSED_SECTIONS)
-        expect(logic.values.collapsedSections).toEqual(['folders'])
+        expect(logic.values.collapsedSections).toEqual([])
 
-        logic.actions.toggleSection('browse')
-        expect(logic.values.collapsedSections).toEqual(['folders', 'browse'])
+        logic.actions.toggleSection('monitor')
+        expect(logic.values.collapsedSections).toEqual(['monitor'])
 
         logic.unmount()
         const remounted = todayAnalyticsLogic()
         remounted.mount()
-        expect(remounted.values.collapsedSections).toEqual(['folders', 'browse'])
+        expect(remounted.values.collapsedSections).toEqual(['monitor'])
     })
 })
