@@ -61,6 +61,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     build_evaluation_event_properties,
     capture_evaluation_run_usage,
     emit_internal_telemetry_activity,
+    evaluation_event_uuid,
     fetch_evaluation_activity,
 )
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
@@ -70,7 +71,15 @@ from posthog.temporal.ai_observability.run_evaluation import (
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
-from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
+from posthog.temporal.ai_observability.team_capture import (
+    EMIT_EVENT_RETRY_POLICY,
+    EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
+    EMIT_EVENT_START_TO_CLOSE_TIMEOUT,
+    CaptureEventDropped,
+    capture_ai_internal_for_team,
+    raise_for_emit_attempt,
+    report_dropped_emit,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
@@ -812,7 +821,9 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
                 str(properties["$ai_target_id"]),
             )
         else:
-            timestamp = datetime.now(UTC)
+            # The workflow's start time, not emit time: ingestion dedup keys on the timestamp as
+            # well as the uuid, so only a stable one lets a retried emit collapse into the original.
+            timestamp = inputs.start_time
 
         capture_ai_internal_for_team(
             team_id=inputs.team_id,
@@ -821,6 +832,7 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
             distinct_id=inputs.distinct_id,
             timestamp=timestamp,
             properties=properties,
+            event_uuid=evaluation_event_uuid(),
         )
         # Completed runs emit telemetry in the workflow's separate activity.
         if inputs.result.get("skipped"):
@@ -833,16 +845,19 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
         increment_emit_event_outcome("success")
+    except CaptureEventDropped as e:
+        increment_emit_event_outcome("dropped_by_capture")
+        report_dropped_emit(e, team_id=inputs.team_id, event_name="$ai_evaluation")
     except CaptureInternalError as e:
         if e.is_billing_limit_exceeded:
             increment_emit_event_outcome("dropped_billing_limited")
             logger.info("Skipping eval event emission; team over billing quota", team_id=inputs.team_id)
             return
         increment_emit_event_outcome("failed")
-        raise
-    except Exception:
+        raise_for_emit_attempt(e)
+    except Exception as e:
         increment_emit_event_outcome("failed")
-        raise
+        raise_for_emit_attempt(e)
 
 
 @temporalio.workflow.defn(name="run-trace-evaluation")
@@ -938,8 +953,9 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
                     result=result,
                     start_time=eval_start,
                 ),
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=EMIT_EVENT_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
+                retry_policy=EMIT_EVENT_RETRY_POLICY,
             )
         except Exception:
             increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))

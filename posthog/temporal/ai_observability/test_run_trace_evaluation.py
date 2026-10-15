@@ -15,7 +15,7 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 
-from posthog.api.capture import CaptureInternalError
+from posthog.api.capture import CaptureInternalError, CaptureInternalResult
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, PropertyDefinition, Team, User
 from posthog.models.ai_events.test_util import bulk_create_ai_events
@@ -1042,19 +1042,32 @@ class TestEmitTraceEvaluationEventActivity:
                 "trace-123",
             )
         else:
-            # A live verdict is stamped when it is emitted.
-            assert call_kwargs["timestamp"] == FROZEN_NOW
+            # A live verdict keeps the workflow's start time, so a retried emit resends the same one.
+            assert call_kwargs["timestamp"] == datetime(2024, 1, 1, 12, 0, 0)
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "status_code,should_raise",
+        "capture_result,should_raise",
         [
-            pytest.param(402, False, id="billing_limit_is_swallowed"),
-            pytest.param(500, True, id="server_error_still_raises"),
+            pytest.param(
+                MagicMock(raise_for_status=MagicMock(side_effect=CaptureInternalError("boom", status_code=402))),
+                False,
+                id="billing_limit_is_swallowed",
+            ),
+            pytest.param(
+                CaptureInternalResult(status_code=200, dropped=["u1"]),
+                False,
+                id="capture_drop_is_swallowed",
+            ),
+            pytest.param(
+                MagicMock(raise_for_status=MagicMock(side_effect=CaptureInternalError("boom", status_code=500))),
+                True,
+                id="server_error_still_raises",
+            ),
         ],
     )
-    async def test_emits_event_billing_limit(self, setup_data, status_code: int, should_raise: bool):
+    async def test_emits_event_billing_limit(self, setup_data, capture_result, should_raise: bool):
         team = setup_data["team"]
         result: EvaluationActivityResult = {
             "result_type": "boolean",
@@ -1064,9 +1077,6 @@ class TestEmitTraceEvaluationEventActivity:
             "model": "gpt-5-mini",
             "provider": "openai",
         }
-        capture_result = MagicMock(
-            raise_for_status=MagicMock(side_effect=CaptureInternalError("boom", status_code=status_code))
-        )
         inputs = EmitTraceEvaluationEventInputs(
             evaluation=evaluation_dict(setup_data),
             team_id=team.id,

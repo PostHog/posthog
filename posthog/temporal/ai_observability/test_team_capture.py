@@ -6,13 +6,18 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.api.capture import CaptureInternalError
+from posthog.api.capture import CaptureInternalError, CaptureInternalResult
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.team_capture import (
+    EMIT_EVENT_RETRY_POLICY,
     TOKEN_CACHE_TTL_SECONDS,
+    CaptureEventDropped,
     TeamNotFound,
+    TransientEmitError,
     capture_ai_internal_for_team,
     get_team_api_token,
+    raise_for_emit_attempt,
+    workflow_event_uuid,
 )
 
 
@@ -87,3 +92,51 @@ class TestTeamCapture(BaseTest):
         ):
             with self.assertNumQueries(0):
                 _emit(self.team.id)
+
+    @parameterized.expand(
+        [
+            ("dropped", CaptureInternalResult(status_code=200, dropped=["u1"]), CaptureEventDropped),
+            ("unaccounted", CaptureInternalResult(status_code=200, unaccounted=["u1"]), CaptureInternalError),
+            ("retried", CaptureInternalResult(status_code=200, retried=["u1"]), CaptureInternalError),
+        ]
+    )
+    def test_only_a_drop_raises_capture_event_dropped(self, _name, result, expected_error):
+        with patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal", return_value=result):
+            with self.assertRaises(CaptureInternalError) as ctx:
+                _emit(self.team.id)
+        assert type(ctx.exception) is expected_error
+
+
+def _activity_info(attempt: int, workflow_id: str = "wf-1") -> MagicMock:
+    return MagicMock(attempt=attempt, workflow_id=workflow_id)
+
+
+class TestEmitRetryHelpers(BaseTest):
+    @parameterized.expand(
+        [
+            ("first_attempt", 1, TransientEmitError),
+            ("second_to_last_attempt", (EMIT_EVENT_RETRY_POLICY.maximum_attempts or 0) - 1, TransientEmitError),
+            ("final_attempt", EMIT_EVENT_RETRY_POLICY.maximum_attempts, CaptureInternalError),
+        ]
+    )
+    def test_only_the_final_attempt_raises_a_reportable_error(self, _name, attempt, expected_error):
+        error = CaptureInternalError("blip")
+        with (
+            patch("temporalio.activity.in_activity", return_value=True),
+            patch("temporalio.activity.info", return_value=_activity_info(attempt)),
+        ):
+            with self.assertRaises(Exception) as ctx:
+                raise_for_emit_attempt(error)
+        assert type(ctx.exception) is expected_error
+
+    def test_workflow_event_uuid_is_stable_per_workflow_and_kind(self):
+        with patch("temporalio.activity.in_activity", return_value=True):
+            with patch("temporalio.activity.info", return_value=_activity_info(1)):
+                first = workflow_event_uuid("ai-tag")
+            with patch("temporalio.activity.info", return_value=_activity_info(3)):
+                retried = workflow_event_uuid("ai-tag")
+                other_kind = workflow_event_uuid("ai-evaluation")
+            with patch("temporalio.activity.info", return_value=_activity_info(1, workflow_id="wf-2")):
+                other_workflow = workflow_event_uuid("ai-tag")
+        assert first == retried
+        assert len({first, other_kind, other_workflow}) == 3

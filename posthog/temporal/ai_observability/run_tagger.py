@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import structlog
@@ -21,7 +21,16 @@ from posthog.temporal.ai_observability.evaluation_event_io import (
 from posthog.temporal.ai_observability.evaluation_workflow_activities import update_key_state_activity
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import ResolvedModel, model_spec
-from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
+from posthog.temporal.ai_observability.team_capture import (
+    EMIT_EVENT_RETRY_POLICY,
+    HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+    HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+    CaptureEventDropped,
+    capture_ai_internal_for_team,
+    raise_for_emit_attempt,
+    report_dropped_emit,
+    workflow_event_uuid,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
@@ -580,17 +589,25 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
             event_name="$ai_tag",
             event_source="llm_analytics_tagger",
             distinct_id=event_data["distinct_id"],
-            timestamp=datetime.now(UTC),
+            # Ingestion dedup keys on the timestamp as well as the uuid, so a retried emit must
+            # resend the same one to collapse into the original.
+            timestamp=start_time,
             properties=properties,
+            # One workflow emits one $ai_tag.
+            event_uuid=workflow_event_uuid("ai-tag"),
         )
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
+    except CaptureEventDropped as e:
+        report_dropped_emit(e, team_id=event_data["team_id"], event_name="$ai_tag")
     except CaptureInternalError as e:
         if e.is_billing_limit_exceeded:
             logger.info("Skipping tag event emission; team over billing quota", team_id=event_data["team_id"])
             return
-        raise
+        raise_for_emit_attempt(e)
+    except Exception as e:
+        raise_for_emit_attempt(e)
 
 
 @temporalio.activity.defn
@@ -726,8 +743,9 @@ class RunTaggerWorkflow(PostHogWorkflow):
                 result=result,
                 start_time=start_time,
             ),
-            schedule_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            start_to_close_timeout=HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+            schedule_to_close_timeout=HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+            retry_policy=EMIT_EVENT_RETRY_POLICY,
         )
 
         return {

@@ -13,7 +13,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.api.capture import CaptureInternalError
+from posthog.api.capture import CaptureInternalError, CaptureInternalResult
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES, is_expected_activity_failure
@@ -436,6 +436,7 @@ class TestRunTaggerWorkflow:
                 assert call_kwargs["event_name"] == "$ai_tag"
                 assert call_kwargs["token"] == team.api_token
                 assert call_kwargs["process_person_profile"] is True
+                assert call_kwargs["timestamp"] == datetime(2024, 1, 1, 12, 0, 0)
                 props = call_kwargs["properties"]
                 assert props["$ai_tags"] == result["tags"]
                 assert props["$ai_tag_count"] == len(result["tags"])
@@ -465,21 +466,31 @@ class TestRunTaggerWorkflow:
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "status_code,should_raise",
+        "capture_result,should_raise",
         [
-            pytest.param(402, False, id="billing_limit_is_swallowed"),
-            pytest.param(500, True, id="server_error_still_raises"),
+            pytest.param(
+                MagicMock(raise_for_status=MagicMock(side_effect=CaptureInternalError("boom", status_code=402))),
+                False,
+                id="billing_limit_is_swallowed",
+            ),
+            pytest.param(
+                CaptureInternalResult(status_code=200, dropped=["u1"]),
+                False,
+                id="capture_drop_is_swallowed",
+            ),
+            pytest.param(
+                MagicMock(raise_for_status=MagicMock(side_effect=CaptureInternalError("boom", status_code=500))),
+                True,
+                id="server_error_still_raises",
+            ),
         ],
     )
-    async def test_emit_tagger_event_activity_billing_limit(self, setup_data, status_code: int, should_raise: bool):
+    async def test_emit_tagger_event_activity_billing_limit(self, setup_data, capture_result, should_raise: bool):
         team = setup_data["team"]
         tagger = {"id": str(setup_data["tagger"].id), "name": "Feature Tagger"}
         event_data = create_mock_event_data(team.id, properties={})
         result = {"tags": ["billing"], "reasoning": "matched", "is_hog": True}
 
-        capture_result = MagicMock(
-            raise_for_status=MagicMock(side_effect=CaptureInternalError("boom", status_code=status_code))
-        )
         inputs = EmitTaggerEventInputs(
             tagger=tagger, event_data=event_data, result=result, start_time=datetime(2024, 1, 1, 12, 0, 0)
         )
