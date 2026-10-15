@@ -376,9 +376,9 @@ def _refresh(team: Team) -> bool:
             continue
         failed = True
         # The framework stores the days of a span oldest first and stops at the first day that fails,
-        # so the newer days of a failed span are stored one at a time.
+        # so the newer days of a failed span are stored one at a time, after the other tables' steps.
         if span.until - span.since > timedelta(days=1):
-            queue.extendleft((stored, source, day) for day in reversed(_steps(span.since, span.until, 1)))
+            queue.extend((stored, source, day) for day in _steps(span.since, span.until, 1))
     return failed
 
 
