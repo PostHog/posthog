@@ -82,6 +82,16 @@ logger = structlog.get_logger(__name__)
 
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
 @with_team_scope()
+def launch_inbox_onboarding_job(team_id: int, job: str) -> None:
+    from products.signals.backend.onboarding_activation import (
+        InboxOnboardingActivation,  # noqa: PLC0415 - keep the Temporal graph off task discovery
+    )
+
+    InboxOnboardingActivation(team_id).run(job)
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
 def reconcile_inbox_onboarding(team_id: int, failed_checks: int = 0) -> None:
     from products.signals.backend.onboarding_completion import (
         InboxOnboardingReconciler,  # noqa: PLC0415 - keep onboarding dependencies off task discovery

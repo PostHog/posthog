@@ -1,12 +1,14 @@
 from datetime import timedelta
 
-from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 from requests import Timeout
+from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.transport.transport import EgressBudgetExhausted
@@ -21,6 +23,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.oauth_provenance import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalTeamConfig
+from products.signals.backend.onboarding_activation import InboxOnboardingActivation
 from products.signals.backend.onboarding_completion import InboxOnboardingReconciler
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import seed_canonical_skills
@@ -134,8 +137,26 @@ class TestInboxOnboarding(APIBaseTest):
         config.refresh_from_db()
         assert not config.onboarding.get("completed_at")
 
-    @parameterized.expand([("github",), ("source",), ("disabled_source",), ("scanner",), ("empty",)])
+    @parameterized.expand(
+        [
+            ("github",),
+            ("source",),
+            ("disabled_source",),
+            ("scanner",),
+            ("empty",),
+            ("quick_scout",),
+            ("quick_implementation",),
+        ]
+    )
     def test_incomplete_setup_never_converts(self, missing: str) -> None:
+        if missing.startswith("quick_"):
+            config = SignalTeamConfig.objects.get(team=self.team)
+            config.onboarding = {"variant": "quick"}
+            config.save()
+        if missing == "quick_implementation":
+            self.draft["suggestions"] = [self.suggestion]
+            self.draft["automatic_implementation"] = True
+            SignalScoutConfig.objects.create(team=self.team, skill_name=self.scout_skill_name, enabled=True, emit=True)
         if missing == "source":
             self.source.enabled = False
             self.source.save()
@@ -155,8 +176,11 @@ class TestInboxOnboarding(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert not (SignalTeamConfig.objects.get(team=self.team).onboarding or {}).get("completed_at")
 
-    @parameterized.expand([(None,), ("control",), ("test",)])
+    @parameterized.expand([(None,), ("control",), ("test",), ("quick",)])
     def test_completion_is_durable_and_retry_safe(self, variant: str | None) -> None:
+        if variant == "quick":
+            self.draft["suggestions"] = [self.suggestion]
+            SignalScoutConfig.objects.create(team=self.team, skill_name=self.scout_skill_name, enabled=True, emit=True)
         config = SignalTeamConfig.objects.get(team=self.team)
         config.onboarding = {"variant": variant}
         config.save()
@@ -166,6 +190,7 @@ class TestInboxOnboarding(APIBaseTest):
                 return_value=object(),
             ),
             patch("products.signals.backend.facade.onboarding.posthoganalytics.capture") as capture,
+            patch("products.signals.backend.tasks.launch_inbox_onboarding_job.delay") as launch,
             self.captureOnCommitCallbacks(execute=True),
         ):
             first = self.client.post(f"{self.url}complete/", self.draft, format="json")
@@ -173,6 +198,14 @@ class TestInboxOnboarding(APIBaseTest):
         assert first.status_code == 200, first.json()
         assert first.json() == second.json()
         config = SignalTeamConfig.objects.get(team=self.team)
+        if variant == "quick":
+            assert config.onboarding["jobs"] == {"scout": "pending", "recommendations": "pending"}
+            assert {call.args for call in launch.call_args_list} == {
+                (self.team.id, "scout"),
+                (self.team.id, "recommendations"),
+            }
+        else:
+            launch.assert_not_called()
         assert config.autostart_enabled is False
         assert config.default_autostart_priority == "P1"
         assert config.onboarding is not None
@@ -188,6 +221,24 @@ class TestInboxOnboarding(APIBaseTest):
             )
             == 1
         )
+
+    def test_completed_quick_activation_checks_scout_write_access_before_retrying_jobs(self) -> None:
+        self.draft["suggestions"] = [self.suggestion]
+        config = SignalTeamConfig.objects.get(team=self.team)
+        config.onboarding = {
+            "variant": "quick",
+            "completed_at": timezone.now().isoformat(),
+            "draft": self.draft,
+            "jobs": {"scout": "failed", "recommendations": "failed"},
+        }
+        config.save()
+        raw = self.create_personal_api_key_with_scopes(["task:write", "signal_scout:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+        with patch("products.signals.backend.tasks.launch_inbox_onboarding_job.delay") as launch:
+            response = self.client.post(f"{self.url}complete/", self.draft, format="json")
+        assert response.status_code == 403, response.json()
+        launch.assert_not_called()
 
     @parameterized.expand([(None, False), (True, False), (False, False), (None, True), (False, True)])
     def test_scout_only_completion_respects_source_gate(self, enabled: bool | None, control: bool) -> None:
@@ -483,3 +534,62 @@ class TestInboxOnboarding(APIBaseTest):
         ):
             reconcile_inbox_onboarding.run(self.team.id, failed_checks=6)
         assert schedule.call_args.kwargs["countdown"] == 3600
+
+
+class TestInboxOnboardingActivation(BaseTest):
+    @parameterized.expand([("scout",), ("recommendations",)])
+    def test_dispatch_retries_use_one_workflow_and_preserve_completed_jobs(self, job: str) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        config = SignalTeamConfig.objects.create(
+            team=self.team,
+            onboarding={
+                "variant": "quick",
+                "completed_at": timezone.now().isoformat(),
+                "activated_by": self.user.pk,
+                "jobs": {"scout": "pending", "recommendations": "pending"},
+            },
+        )
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-general", enabled=True, emit=True)
+        client = MagicMock()
+        client.start_workflow = AsyncMock()
+        with (
+            patch("products.signals.backend.onboarding_activation.sync_connect", return_value=client),
+            patch(
+                "posthoganalytics.get_feature_flag_payload",
+                return_value={"enabled": True, "guaranteed_team_ids": [self.team.id]},
+            ),
+        ):
+            activation = InboxOnboardingActivation(self.team.id)
+            activation.run(job)
+            activation.run(job)
+            client.start_workflow.assert_awaited_once()
+            dispatch = client.start_workflow.call_args.kwargs
+            assert dispatch["id_reuse_policy"] == WorkflowIDReusePolicy.REJECT_DUPLICATE
+            config.refresh_from_db()
+            assert config.onboarding["jobs"][job] == "started"
+            config.onboarding["jobs"][job] = "pending"
+            config.save()
+            client.start_workflow.side_effect = WorkflowAlreadyStartedError(dispatch["id"], "workflow")
+            activation.run(job)
+        config.refresh_from_db()
+        assert config.onboarding["jobs"][job] == "started"
+        assert client.start_workflow.call_args.kwargs["id"] == dispatch["id"]
+
+    @parameterized.expand([("scout",), ("recommendations",)])
+    def test_no_background_work_without_ai_consent(self, job: str) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        config = SignalTeamConfig.objects.create(
+            team=self.team,
+            onboarding={
+                "variant": "quick",
+                "completed_at": timezone.now().isoformat(),
+                "jobs": {"scout": "pending", "recommendations": "pending"},
+            },
+        )
+        with patch("products.signals.backend.onboarding_activation.sync_connect") as connect:
+            InboxOnboardingActivation(self.team.id).run(job)
+        connect.assert_not_called()
+        config.refresh_from_db()
+        assert config.onboarding["jobs"][job] == "skipped"

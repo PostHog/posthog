@@ -37,7 +37,7 @@ const draft: InboxOnboardingDraftApi = {
 describe('focused Inbox setup', () => {
     let logic: ReturnType<typeof inboxSetupLogic.build>
     let savedDraft: InboxOnboardingDraftApi | null
-    let variant: 'control' | 'test' | null
+    let variant: 'control' | 'test' | 'quick' | null
     let sources: SignalSourceConfigApi[]
     let failCompletion: boolean
     let createdSources: number
@@ -123,6 +123,10 @@ describe('focused Inbox setup', () => {
                 },
             },
             post: {
+                '/api/projects/:id/signals/onboarding/expose/': () => [
+                    200,
+                    { draft: savedDraft, completed_at: null, variant },
+                ],
                 '/api/projects/:id/signals/scout/configs/sync/': ({ request }) => {
                     expect(new URL(request.url).searchParams.get('surface')).toBe('onboarding')
                     return [200, canonicalScouts]
@@ -183,6 +187,48 @@ describe('focused Inbox setup', () => {
         jest.restoreAllMocks()
         jest.useRealTimers()
     })
+
+    it.each(['button', 'github_return'])(
+        'activates defaults through %s without setup steps or recommendation refreshes',
+        async (entry) => {
+            variant = 'quick'
+            savedDraft = null
+            failCompletion = false
+            hasEvents = true
+            canonicalScouts = [
+                {
+                    ...mockScoutConfigs[0],
+                    skill_name: 'signals-scout-general',
+                    enabled: false,
+                    scout_origin: 'canonical',
+                },
+            ]
+            const refresh = jest.spyOn(signalsApi, 'signalsScoutSuggestionsRefresh')
+            logic.actions.startSetup()
+            await waitFor(() => expect(logic.values.quickSetupReady).toBe(true))
+            expect(logic.values.isQuickSetup).toBe(true)
+            if (entry === 'github_return') {
+                router.actions.replace(router.values.location.pathname, { onboarding_step: 'quick' })
+                expect(logic.values.shouldResumeQuickSetup).toBe(true)
+                logic.actions.resumeQuickSetup()
+                logic.actions.resumeQuickSetup()
+            } else {
+                logic.actions.activateQuickSetup()
+                logic.actions.activateQuickSetup()
+            }
+            await waitFor(() => expect(logic.values.completed).toBe(true))
+            expect(enabledScouts).toEqual(['signals-scout-general'])
+            expect(logic.values.savedState?.draft?.automatic_implementation).toBe(false)
+            expect(logic.values.savedState?.draft?.suggestions.map((item) => item.skill_name)).toEqual([
+                'signals-scout-general',
+            ])
+            expect(sources).toEqual(
+                expect.arrayContaining([expect.objectContaining({ source_product: 'signals_scout', enabled: true })])
+            )
+            expect(router.values.searchParams.onboarding_step).toBeUndefined()
+            expect(refresh).not.toHaveBeenCalled()
+        }
+    )
 
     it.each(['control', null, 'test'] as const)(
         'opens setup and preserves the %s assignment through resume and activation',
