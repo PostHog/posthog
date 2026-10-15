@@ -190,14 +190,6 @@ const STORY_BREAKDOWNS_RESPONSE = {
             ],
             total_count: 38,
         },
-        $lib: {
-            values: [
-                { value: 'web', count: 24 },
-                { value: 'posthog-ios', count: 9 },
-                { value: 'posthog-android', count: 5 },
-            ],
-            total_count: 38,
-        },
         release_channel: {
             values: [
                 { value: 'stable', count: 25 },

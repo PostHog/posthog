@@ -22,7 +22,6 @@ const DEFAULT_BREAKDOWN_PROPERTY_NAMES = new Set([
     '$ip',
     '$geoip_country_name',
     '$geoip_city_name',
-    '$lib',
     '$current_url',
 ])
 

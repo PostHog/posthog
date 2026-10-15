@@ -71,7 +71,6 @@ describe('miniBreakdownsLogic', () => {
             '$ip',
             '$geoip_country_name',
             '$geoip_city_name',
-            '$lib',
             '$current_url',
         ])
     })
