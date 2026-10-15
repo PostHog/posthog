@@ -80,7 +80,7 @@ _MODEL_CALL_TIMEOUT_MS = 90_000
 # A slower failure already cost most of a draft's wait, so a retry would double it.
 _MAX_RETRYABLE_FAILURE_S = 10
 # Reasoning is most of the draft's wait, so the budget caps it.
-_DRAFT_THINKING_BUDGET = 1_024
+_DRAFT_THINKING_BUDGET = 2_048
 # Runs estimates a draft may not wait for, so they never hold a request's own threads.
 _BACKGROUND_WORKERS = 8
 _BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=_BACKGROUND_WORKERS, thread_name_prefix="vision-draft-background")
