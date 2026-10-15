@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::time::{Duration, Instant};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -6,9 +6,10 @@ use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
 
+use crate::batcher::key_queues::RunCap;
 use crate::batcher::packer::{PackTargets, Packer};
 use crate::batcher::retry_policy::RetryPolicy;
-use crate::batcher::state_machine::BatcherStateMachine;
+use crate::batcher::state_machine::{BatcherStateMachine, RequestBudget};
 use crate::batcher::worker_assigner::WorkerAssigner;
 use crate::discovery::DiscoveryMode;
 use crate::routing::{Router, RoutingStrategy};
@@ -180,19 +181,28 @@ pub struct Config {
     pub parked_retry_interval_ms: u64,
 
     /// Target request size in events for the key-table packer: once this many
-    /// events are ready, a free worker slot gets a request at once. One key's
-    /// run never holds more, so a key's backlog leaves in consecutive requests.
-    /// `0` disables the event target and the cap, and needs a byte target.
-    /// Only read under `INGESTION_SCHEDULER=key_table`.
+    /// events are ready, a free worker slot gets a request at once. Unless a
+    /// run cap is set, one key's run never holds more, so a key's backlog
+    /// leaves in consecutive requests. `0` disables the event target and the
+    /// cap, and needs a byte target. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
     #[envconfig(from = "INGESTION_PACK_TARGET_EVENTS", default = "500")]
     pub pack_target_events: usize,
 
     /// Target request size in key-plus-value bytes for the key-table packer.
-    /// One key's run never holds more. `0` (default) disables the byte target
-    /// and the cap, and needs an event target. Only read under
-    /// `INGESTION_SCHEDULER=key_table`.
+    /// Unless a run cap is set, one key's run never holds more. `0` (default)
+    /// disables the byte target and the cap, and needs an event target. Only
+    /// read under `INGESTION_SCHEDULER=key_table`.
     #[envconfig(from = "INGESTION_PACK_TARGET_BYTES", default = "0")]
     pub pack_target_bytes: usize,
+
+    /// With both run caps at `0` (default), the pack targets cap runs.
+    /// Otherwise a `0` run cap leaves that dimension uncapped.
+    #[envconfig(from = "INGESTION_RUN_CAP_EVENTS", default = "0")]
+    pub run_cap_events: usize,
+
+    #[envconfig(from = "INGESTION_RUN_CAP_BYTES", default = "0")]
+    pub run_cap_bytes: usize,
 
     /// How long ready events below the target wait for more, counted from
     /// when a worker slot is free for them, before the key-table packer sends
@@ -202,6 +212,20 @@ pub struct Config {
     /// `INGESTION_SCHEDULER=key_table`.
     #[envconfig(from = "INGESTION_PACK_LATENCY_BUDGET_MS", default = "0")]
     pub pack_latency_budget_ms: u64,
+
+    /// How long a worker may spend on one key-table request before it stops
+    /// starting work and acks what finished as partial (milliseconds). `0`
+    /// (default) sends no budget, otherwise at least 100. Needs
+    /// `INGESTION_SCHEDULER=key_table`. See `request_budget` for the bounds
+    /// against the ack and stall timeouts.
+    #[envconfig(from = "INGESTION_REQUEST_SOFT_BUDGET_MS", default = "0")]
+    pub request_soft_budget_ms: u64,
+
+    /// How many budgeted attempts may leave a key's messages unfinished, since
+    /// the key last finished a run, before it resends without a budget. At
+    /// least 1. Only read when `INGESTION_REQUEST_SOFT_BUDGET_MS` is set.
+    #[envconfig(from = "INGESTION_REQUEST_BUDGET_ATTEMPTS", default = "3")]
+    pub request_budget_attempts: u32,
 
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
@@ -307,10 +331,10 @@ pub struct Config {
     #[envconfig(from = "WORKER_DRAIN_TIMEOUT_MS", default = "30000")]
     pub worker_drain_timeout_ms: u64,
 
-    /// How unpinned routing keys are assigned to workers: `binpack` (default,
-    /// least-loaded — accurate for the co-located sidecar) or `p2c`
-    /// (power-of-two-choices — herd-resistant for a shared worker pool).
-    #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
+    /// How unpinned routing keys are assigned to workers: `p2c` (default,
+    /// power-of-two-choices — herd-resistant for a shared worker pool) or
+    /// `aperture` (P2C within this consumer's slice of the worker ring).
+    #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "p2c")]
     pub routing_strategy: RoutingStrategy,
 
     /// Which scheduler orders and places runs: `pin_stash` (default, sticky
@@ -440,23 +464,91 @@ impl Config {
     /// un-acked cap as its per-worker request cap, the parked-retry interval
     /// for every retry, and the deferred-flush timeout as its stall timeout.
     pub fn batcher_state_machine(&self) -> Result<BatcherStateMachine, String> {
-        let packer = Packer::new(PackTargets {
+        let mut packer = Packer::new(PackTargets {
             events: NonZeroUsize::new(self.pack_target_events),
             bytes: NonZeroUsize::new(self.pack_target_bytes),
             latency_budget: Duration::from_millis(self.pack_latency_budget_ms),
         });
+        let run_cap = RunCap {
+            messages: NonZeroUsize::new(self.run_cap_events),
+            bytes: NonZeroUsize::new(self.run_cap_bytes),
+        };
+        if run_cap != RunCap::default() {
+            packer = packer.with_run_cap(run_cap);
+        }
         let assigner = WorkerAssigner::new(
             Router::new(self.routing_strategy),
             self.ingestion_worker_concurrent_batches,
         )?;
         let retry = RetryPolicy::uniform(Duration::from_millis(self.parked_retry_interval_ms))?;
-        BatcherStateMachine::new(
+        Ok(BatcherStateMachine::new(
             packer,
             assigner,
             retry,
             Duration::from_millis(self.consumer_deferred_flush_timeout_ms),
             Instant::now(),
-        )
+        )?
+        .with_request_budget(self.request_budget()?))
+    }
+
+    const MIN_REQUEST_SOFT_BUDGET_MS: u64 = 100;
+
+    pub fn request_budget(&self) -> Result<Option<RequestBudget>, String> {
+        let budget_ms = self.request_soft_budget_ms;
+        if budget_ms == 0 {
+            return Ok(None);
+        }
+        // pin_stash keeps several requests per key in flight, so a partial
+        // ack's resend could overtake a newer request for the same key.
+        if self.scheduler != SchedulerKind::KeyTable {
+            return Err(
+                "INGESTION_REQUEST_SOFT_BUDGET_MS needs INGESTION_SCHEDULER=key_table".to_string(),
+            );
+        }
+        // Below this the worker's fixed work per frame outlasts the budget, so
+        // nearly every request comes back partial with nothing finished.
+        if budget_ms < Self::MIN_REQUEST_SOFT_BUDGET_MS {
+            return Err(format!(
+                "INGESTION_REQUEST_SOFT_BUDGET_MS must be at least {}",
+                Self::MIN_REQUEST_SOFT_BUDGET_MS
+            ));
+        }
+        // The worker treats a longer budget as unlimited.
+        if budget_ms > i32::MAX as u64 {
+            return Err(format!(
+                "INGESTION_REQUEST_SOFT_BUDGET_MS must be at most {}",
+                i32::MAX
+            ));
+        }
+        // The worker starts a frame's budget when it reads the frame, and a
+        // full worker reads the next frame only once the previous one has a
+        // slot, so the last frame in flight can ack a budget per frame late.
+        let in_flight = self.ingestion_worker_concurrent_batches.max(1) as u64;
+        if budget_ms.saturating_mul(in_flight) >= self.ingestion_worker_stream_ack_timeout_ms {
+            return Err(
+                "INGESTION_REQUEST_SOFT_BUDGET_MS times INGESTION_WORKER_CONCURRENT_BATCHES must \
+                 be below INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS"
+                    .to_string(),
+            );
+        }
+        let attempts = NonZeroU32::new(self.request_budget_attempts)
+            .ok_or("INGESTION_REQUEST_BUDGET_ATTEMPTS must be at least 1")?;
+        // A partial ack that finished nothing does not count as progress, so
+        // it must come back before the stall watchdog fires. Its resend goes
+        // without a budget, so no second one follows for the same key.
+        if budget_ms.saturating_add(self.pack_latency_budget_ms)
+            >= self.consumer_deferred_flush_timeout_ms
+        {
+            return Err(
+                "INGESTION_REQUEST_SOFT_BUDGET_MS plus INGESTION_PACK_LATENCY_BUDGET_MS must be \
+                 below CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS"
+                    .to_string(),
+            );
+        }
+        Ok(Some(RequestBudget {
+            soft_budget: Duration::from_millis(budget_ms),
+            attempts,
+        }))
     }
 
     pub fn worker_urls(&self) -> Vec<String> {
@@ -532,5 +624,90 @@ impl Config {
         builder = builder.strip_classic_protocol_keys_if_consumer();
 
         builder.build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use rstest::rstest;
+
+    use super::*;
+
+    fn config(vars: &[(&str, &str)]) -> Config {
+        let vars: HashMap<String, String> = vars
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        Config::init_from_hashmap(&vars).expect("valid config")
+    }
+
+    #[rstest]
+    #[case::unset(&[], None)]
+    #[case::under_key_table(
+        &[("INGESTION_SCHEDULER", "key_table"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "250")],
+        Some((250, 3))
+    )]
+    #[case::at_the_floor(
+        &[("INGESTION_SCHEDULER", "key_table"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "100")],
+        Some((100, 3))
+    )]
+    #[case::just_below_the_ack_and_stall_timeouts(
+        &[("INGESTION_SCHEDULER", "key_table"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "59999")],
+        Some((59999, 3))
+    )]
+    #[case::just_below_the_stall_timeout_with_the_pack_latency(
+        &[
+            ("INGESTION_SCHEDULER", "key_table"),
+            ("INGESTION_REQUEST_SOFT_BUDGET_MS", "49999"),
+            ("INGESTION_PACK_LATENCY_BUDGET_MS", "10000"),
+        ],
+        Some((49999, 3))
+    )]
+    fn a_valid_request_budget_is_read(
+        #[case] vars: &[(&str, &str)],
+        #[case] expected: Option<(u64, u32)>,
+    ) {
+        let expected = expected.map(|(budget_ms, attempts)| RequestBudget {
+            soft_budget: Duration::from_millis(budget_ms),
+            attempts: NonZeroU32::new(attempts).expect("nonzero attempts"),
+        });
+        assert_eq!(config(vars).request_budget(), Ok(expected));
+    }
+
+    #[rstest]
+    #[case::under_pin_stash(&[
+        ("INGESTION_SCHEDULER", "pin_stash"),
+        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "250"),
+    ])]
+    #[case::below_the_floor(&[
+        ("INGESTION_SCHEDULER", "key_table"),
+        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "99"),
+    ])]
+    #[case::longer_than_the_worker_honors(&[
+        ("INGESTION_SCHEDULER", "key_table"),
+        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "2147483648"),
+        ("INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS", "4294967296"),
+        ("CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS", "4294967296"),
+    ])]
+    #[case::at_the_ack_timeout_across_every_frame_in_flight(&[
+        ("INGESTION_SCHEDULER", "key_table"),
+        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "15000"),
+        ("INGESTION_WORKER_CONCURRENT_BATCHES", "4"),
+    ])]
+    #[case::at_the_stall_timeout_with_the_pack_latency(&[
+        ("INGESTION_SCHEDULER", "key_table"),
+        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "50000"),
+        ("INGESTION_PACK_LATENCY_BUDGET_MS", "10000"),
+        ("INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS", "120000"),
+    ])]
+    #[case::with_no_budgeted_attempt(&[
+        ("INGESTION_SCHEDULER", "key_table"),
+        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "250"),
+        ("INGESTION_REQUEST_BUDGET_ATTEMPTS", "0"),
+    ])]
+    fn an_invalid_request_budget_is_rejected(#[case] vars: &[(&str, &str)]) {
+        assert!(config(vars).request_budget().is_err());
     }
 }

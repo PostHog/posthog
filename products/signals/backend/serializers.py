@@ -14,6 +14,7 @@ from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_fiel
 from rest_framework import serializers
 from rest_framework.request import Request
 
+from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -1919,6 +1920,25 @@ class SignalReportsForYouQuerySerializer(serializers.Serializer):
         max_value=MAX_FOR_YOU_REPORTS,
         help_text=f"How many of the top reports to return, 1 to {MAX_FOR_YOU_REPORTS}. Defaults to 5.",
     )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text=(
+            "How many reports of the ranked list to skip, after `exclude` is applied. Pages of the same "
+            "query are slices of one ranked list. Defaults to 0."
+        ),
+    )
+    exclude = RepeatedOrCommaSeparatedListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=MAX_FOR_YOU_REPORTS,
+        help_text=(
+            "Report ids to leave out of `results` and `count`, for example the reports a briefing already "
+            "shows, as repeated parameters or comma-separated. The other reports keep their order."
+        ),
+    )
     include_unowned = serializers.BooleanField(
         required=False,
         default=True,
@@ -1934,17 +1954,19 @@ class SignalReportsForYouResponseSerializer(serializers.Serializer):
     results = SignalReportListSerializer(
         many=True,
         help_text=(
-            "The open, actionable reports that matter most to the current user, best first: reports "
-            "waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 "
-            "reports that nobody owns unless `include_unowned` is false. The Today briefing ranks "
+            "One page of the open, actionable reports that matter most to the current user. The ranking "
+            "model picks which reports make the page; the page is then in display order: by priority, P0 "
+            "first and reports without a priority last, then best first within a priority. They are "
+            "reports waiting for their input, reports they claimed, reports naming them as a reviewer, "
+            "and P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks "
             "reports the same way."
         ),
     )
     count = serializers.IntegerField(
         help_text=(
-            "How many open reports are for the current user: the reports in `results`, plus the other "
-            "open, actionable reports that name them as a reviewer. Counted over the same set as "
-            "`results`, so it follows `include_unowned` too."
+            "How many open, actionable reports are for the current user, on every page together, "
+            "without the `exclude` ids. Counted over the same set as `results`, so it follows "
+            "`include_unowned` too."
         ),
     )
 

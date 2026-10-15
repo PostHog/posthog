@@ -1804,7 +1804,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 fall_back_on_any_error=_is_final_attempt(),
                 changed_since=changed_since,
                 budget_left=budget_left,
-                # Requested reviews and the first whole-PR turns still look at code the push did not change.
+                # Requested reviews and the first review still look at code the push did not change.
                 changed_code_only=input.trigger_source == TRIGGER_AUTOMATIC and input.run_index > FLASH_WHOLE_PR_TURNS,
                 first_review=input.run_index == 1,
             )
