@@ -667,6 +667,7 @@ class TestGroupingJudgeNeverChangesTheMerge(BaseTest):
             ("gateway_not_configured", "unavailable"),
             ("gateway_down", "unavailable"),
             ("judge_hangs", "timeout"),
+            ("worker_drains_during_the_judge", "cancelled"),
         ]
     )
     def test_merge_and_event_survive_any_judge_failure(self, case: str, outcome: str) -> None:
@@ -684,6 +685,8 @@ class TestGroupingJudgeNeverChangesTheMerge(BaseTest):
             build_error = ValueError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
         elif case == "gateway_down":
             create.side_effect = APIConnectionError(request=httpx.Request("POST", "http://gateway.example.com"))
+        elif case == "worker_drains_during_the_judge":
+            create.side_effect = CancelledError("Cancelled")
         else:
             create.side_effect = lambda **_: release.wait(timeout=5)
 

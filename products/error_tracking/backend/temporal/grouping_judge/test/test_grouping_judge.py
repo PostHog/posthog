@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -16,6 +15,7 @@ from parameterized import parameterized
 from temporalio.exceptions import CancelledError
 
 from posthog.clickhouse.client import sync_execute
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge import (
     DEFAULT_AUTO_MERGE_THRESHOLD,
@@ -350,11 +350,16 @@ class TestGroupingJudgeProperties(SimpleTestCase):
         assert properties["live_merge_decision"] == "judge"
         assert (properties["live_judge_enabled"], properties["live_judge_shadow"]) == (True, False)
 
-    def test_a_cancellation_during_the_judge_cancels_the_activity(self) -> None:
-        client = _client_returning(error=CancelledError("Cancelled"))
+    @parameterized.expand(
+        [
+            ("temporal_cancel", CancelledError("Cancelled")),
+            ("worker_shutdown", WorkerShuttingDownError("activity-1", "merge", "queue", 1, None, None)),
+        ]
+    )
+    def test_a_drain_during_the_judge_ends_the_judge_not_the_activity(self, _name: str, error: Exception) -> None:
+        properties, _, _ = self._run(_client_returning(error=error))
 
-        with pytest.raises(CancelledError):
-            self._run(client)
+        assert properties["judge_outcome"] == "cancelled"
 
     def test_skips_the_judge_when_every_worker_is_busy(self) -> None:
         client = _client_returning(_tool_response(True))

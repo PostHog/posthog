@@ -92,8 +92,6 @@ class _JudgeResult:
 
 
 def _is_cancellation(error: BaseException) -> bool:
-    # A worker drain raises into the activity thread while it waits on the judge. It must still
-    # cancel the activity, so the judge's catch-alls let it through.
     return temporalio.exceptions.is_cancelled_exception(error) or isinstance(error, WorkerShuttingDownError)
 
 
@@ -201,7 +199,9 @@ def _judge(
         return _JudgeResult(outcome="timeout")
     except Exception as error:
         if _is_cancellation(error):
-            raise
+            # A worker drain raises into this thread while it waits. The merge has committed, and a
+            # retry cannot recover its reopened target, so the activity must still return its result.
+            return _JudgeResult(outcome="cancelled")
         # Caught here rather than only at the entry point, so the row keeps its other judge properties.
         logger.exception("error_tracking.grouping_judge.failed", team_id=team.id)
         return _JudgeResult(outcome="unavailable")
@@ -277,12 +277,10 @@ def grouping_judge_properties(
 ) -> dict[str, object]:
     """Decision and judge properties for the metrics event. `merge_outcome` is None when the merge raised.
 
-    Raises only a Temporal cancellation or a worker shutdown, and returns within about `TOTAL_BUDGET_SECONDS`.
+    Never raises, and returns within about `TOTAL_BUDGET_SECONDS`.
     """
     try:
         return _grouping_judge_properties(team, inputs, closest_fingerprints, merge_outcome, merge_config)
-    except Exception as error:
-        if _is_cancellation(error):
-            raise
+    except Exception:
         logger.exception("error_tracking.grouping_judge.properties_failed", team_id=team.id)
         return {"live_decision": _live_decision(merge_outcome)}
