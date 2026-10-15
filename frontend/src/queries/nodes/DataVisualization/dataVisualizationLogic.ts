@@ -921,7 +921,9 @@ export interface dataVisualizationLogicMeta {
         sourceTabularColumns: (
             tabularColumnSettings: (SelectedYAxis | null)[] | null,
             response: AnyResponseType | null,
-            columns: Column[]
+            columns: Column[],
+            query: VisualizationNode,
+            effectiveVisualizationType: ChartDisplayType
         ) => AxisSeries<any>[]
         sourceTabularData: (
             sourceTabularColumns: AxisSeries<any>[],
@@ -1638,7 +1640,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         sourceTabularColumns: [
-            (s) => [s.tabularColumnSettings, s.response, s.columns],
+            (s) => [s.tabularColumnSettings, s.response, s.columns, s.query, s.effectiveVisualizationType],
             (
                 tabularColumnSettings: (SelectedYAxis | null)[] | null,
                 response:
@@ -1656,7 +1658,9 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
-                columns: Column[]
+                columns: Column[],
+                query: VisualizationNode,
+                effectiveVisualizationType: ChartDisplayType
             ): AxisSeries<any>[] => {
                 if (!response) {
                     return []
@@ -1664,11 +1668,19 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 return columns.map((col) => {
                     const series = (tabularColumnSettings || []).find((n) => n?.name === col.name)
+                    const hasTableSettings = query.tableSettings?.columns?.some((column) => column.column === col.name)
+                    const chartFormatting =
+                        effectiveVisualizationType === ChartDisplayType.BoldNumber && !hasTableSettings
+                            ? query.chartSettings?.yAxis?.find((column) => column.column === col.name)?.settings
+                                  ?.formatting
+                            : undefined
 
                     return {
                         column: col,
                         data: [],
-                        settings: series?.settings ?? DefaultAxisSettings(),
+                        settings: chartFormatting
+                            ? { ...series?.settings, formatting: chartFormatting }
+                            : (series?.settings ?? DefaultAxisSettings()),
                     }
                 })
             },
@@ -1918,7 +1930,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         isTableVisualization: [
             (s) => [s.effectiveVisualizationType],
             (visualizationType: ChartDisplayType): boolean =>
-                // BoldNumber relies on yAxis formatting so it's considered a table visualization
+                // BoldNumber uses formatted table cells so column edits must update the table settings.
                 visualizationType === ChartDisplayType.ActionsTable ||
                 visualizationType === ChartDisplayType.BoldNumber,
         ],
@@ -2091,7 +2103,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         return actions.addSeries(column.name, lastValue?.settings)
                     }
 
-                    actions.addSeries(column.name)
+                    const settings = values.sourceTabularColumns.find(
+                        (series) => series.column.name === column.name
+                    )?.settings
+                    actions.addSeries(column.name, settings)
                 })
             }
 
