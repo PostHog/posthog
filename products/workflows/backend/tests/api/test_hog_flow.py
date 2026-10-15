@@ -3562,6 +3562,17 @@ class TestHogFlowAPI(APIBaseTest):
         )
         return {"authorization": f"Bearer {key}"}
 
+    def _inbox_report_trigger_action(self) -> dict:
+        return {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "internal-event",
+                "filters": {"source": "internal-events", "events": [{"id": "$inbox_report_ready", "type": "events"}]},
+            },
+        }
+
     @parameterized.expand(
         [
             ("member_who_reads_reports", None, False, 201),
@@ -3578,22 +3589,43 @@ class TestHogFlowAPI(APIBaseTest):
         if deny_report_access:
             self._deny_report_access()
         headers = self._api_key_headers(api_key_scopes) if api_key_scopes is not None else {}
-        trigger_action = {
-            "id": "trigger_node",
-            "name": "trigger_1",
-            "type": "trigger",
-            "config": {
-                "type": "internal-event",
-                "filters": {"source": "internal-events", "events": [{"id": "$inbox_report_ready", "type": "events"}]},
-            },
+        hog_flow = {
+            "name": "Triage Inbox reports",
+            "status": "active",
+            "actions": [self._inbox_report_trigger_action()],
         }
-        hog_flow = {"name": "Triage Inbox reports", "status": "active", "actions": [trigger_action]}
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, format="json", headers=headers)
 
         assert response.status_code == expected_status, response.json()
         if expected_status == 400:
             assert "task:read" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("omitted", {}),
+            ("cleared", {"trigger_masking": None}),
+            ("keyed_on_something_else", {"trigger_masking": {"hash": "{person.id}", "ttl": 60, "threshold": None}}),
+        ]
+    )
+    def test_hog_flow_inbox_report_trigger_runs_once_per_report(self, _name: str, submitted_masking: dict) -> None:
+        hog_flow = {
+            "name": "Triage Inbox reports",
+            "status": "active",
+            "actions": [self._inbox_report_trigger_action()],
+            **submitted_masking,
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, format="json")
+
+        assert response.status_code == 201, response.json()
+        trigger_masking = response.json()["trigger_masking"]
+        assert {key: trigger_masking[key] for key in ("hash", "ttl", "threshold")} == {
+            "hash": "{event.properties.report_id}",
+            "ttl": 60 * 60 * 24 * 365 * 3,
+            "threshold": None,
+        }
+        assert trigger_masking["bytecode"][0] == "_H"
 
     def test_hog_flow_internal_event_trigger_rejects_a_disallowed_event_alongside_an_allowed_one(self):
         # Checking only the first event would let a second one smuggle the payload out.

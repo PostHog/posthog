@@ -298,6 +298,7 @@ from products.workflows.backend.presentation.views.hog_flow_batch_job import (
     HogFlowBatchJobSerializer,
 )
 from products.workflows.backend.presentation.views.hog_flow_fields import (
+    HOG_FLOW_MASKING_MAX_TTL_SECONDS,
     HOG_FLOW_VARIABLES_MAX_BYTES,
     HogFlowActionTypeField,
     HogFlowMaskingSerializer,
@@ -930,6 +931,14 @@ def _subscribes_to_inbox_reports(filters: object) -> bool:
     return isinstance(events, list) and any(
         isinstance(event, dict) and event.get("id") == INBOX_REPORT_READY_EVENT for event in events
     )
+
+
+def _once_per_inbox_report_masking() -> dict[str, Any]:
+    masking = HogFlowMaskingSerializer(
+        data={"hash": "{event.properties.report_id}", "ttl": HOG_FLOW_MASKING_MAX_TTL_SECONDS, "threshold": None}
+    )
+    masking.is_valid(raise_exception=True)
+    return dict(masking.validated_data)
 
 
 def _is_inbox_report_run(invocation_globals: dict[str, Any]) -> bool:
@@ -2770,7 +2779,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire "
             "once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an "
             "already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; "
-            "omit to disable."
+            "omit to disable. A $inbox_report_ready trigger always masks on the report, once per report "
+            "for the maximum ttl, and ignores the value sent."
         ),
     )
     conversion = HogFlowConversionSerializer(
@@ -3132,6 +3142,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                             )
                         }
                     )
+
+        # Kafka redelivers, and Signals re-emits a report it already announced. Masking on the report keeps
+        # one run per report, so it replaces whatever masking the caller sent.
+        if _subscribes_to_inbox_reports(data["trigger"].get("filters")):
+            data["trigger_masking"] = _once_per_inbox_report_masking()
 
         # Compute and store unique billable action types for efficient quota checking
         # Only track billable actions defined in BILLABLE_ACTION_TYPES

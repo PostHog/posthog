@@ -11,6 +11,8 @@ from products.workflows.backend.facade.workflows import SUPPORTED_ACTION_TYPES, 
 # variables against this same limit; each cap here front-runs that check with a clearer error.
 HOG_FLOW_VARIABLES_MAX_BYTES = 5120
 
+HOG_FLOW_MASKING_MAX_TTL_SECONDS = 60 * 60 * 24 * 365 * 3
+
 
 class HogFlowVariableSerializer(serializers.ListSerializer):
     child = serializers.DictField(
@@ -38,7 +40,7 @@ class HogFlowMaskingSerializer(serializers.Serializer):
     ttl = serializers.IntegerField(
         required=False,
         min_value=60,
-        max_value=60 * 60 * 24 * 365 * 3,
+        max_value=HOG_FLOW_MASKING_MAX_TTL_SECONDS,
         allow_null=True,
         help_text="Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.",
     )
