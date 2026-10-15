@@ -28,6 +28,8 @@ def backfill_task_tags(team_id: int | None = None, dry_run: bool = False) -> int
 
     tagged = 0
     for task in tasks.iterator(chunk_size=500):
+        if task.is_scout_experiment:
+            continue
         tags = task_tags_from_state(task.latest_run_state)
         if not tags:
             continue

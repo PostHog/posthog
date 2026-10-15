@@ -24,9 +24,8 @@ COMPANION_RETIRED_ERROR = "Extraction ended before this table's changes were wri
 def retire_companion_job(job_id: str) -> None:
     """Take one Running companion job terminal, touching nothing else.
 
-    Written straight onto the row, as the legacy CDC path retires its own companions: the shared
-    status helper would repaint the customer's schema FAILED and fire a failure digest for a row
-    that is not the schema's own.
+    Written straight onto the row, because the shared status helper would repaint the customer's
+    schema FAILED and fire a failure digest for a row that is not the schema's own.
     """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 

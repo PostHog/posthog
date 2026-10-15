@@ -9,6 +9,7 @@ day.
 
 import uuid
 import datetime
+from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlparse
 
@@ -23,7 +24,15 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 
-from products.signals.dags.inbox_ranking.common import LABELS_EPOCH, WRONG_DISMISSAL_REASONS, ensure_utc
+from products.signals.dags.inbox_ranking.common import (
+    FIXED_DISMISSAL_REASONS,
+    HUMAN_ACTOR_KINDS,
+    LABELS_EPOCH,
+    LOW_VALUE_DISMISSAL_REASONS,
+    NOT_FIXED_RESOLUTION_REASONS,
+    WRONG_DISMISSAL_REASONS,
+    ensure_utc,
+)
 
 # All regions' label telemetry lands in the US dogfood project (PostHog internal, team 2).
 LABELS_TEAM_ID = 2
@@ -313,22 +322,24 @@ WHERE event = 'Inbox report opened'
 GROUP BY report_id
 """
 
-ACTIONS_COLUMNS = (
-    "ui_dismiss_count",
-    "first_ui_dismissed_at",
-    "create_pr_click_count",
-    "first_create_pr_clicked_at",
-    "discuss_count",
-    "first_discussed_at",
-    "snooze_count",
-    "first_snooze_clicked_at",
-    "reviewer_add_count",
-    "first_reviewer_added_at",
-    "reviewer_remove_count",
-    "first_reviewer_removed_at",
-    "resolve_click_count",
-    "first_resolve_clicked_at",
+# Every `Inbox report action` type the label streams aggregate, with its count and first-event
+# columns. ACTIONS_COLUMNS, ACTIONS_SQL and the user-grain actions stream are all generated from this
+# one tuple, so a new action type cannot land in one grain and not the other.
+ACTION_TYPES: tuple[tuple[str, str, str], ...] = (
+    ("dismiss", "ui_dismiss_count", "first_ui_dismissed_at"),
+    ("create_pr", "create_pr_click_count", "first_create_pr_clicked_at"),
+    ("discuss", "discuss_count", "first_discussed_at"),
+    ("snooze", "snooze_count", "first_snooze_clicked_at"),
+    ("add_suggested_reviewer", "reviewer_add_count", "first_reviewer_added_at"),
+    ("remove_suggested_reviewer", "reviewer_remove_count", "first_reviewer_removed_at"),
+    ("resolve", "resolve_click_count", "first_resolve_clicked_at"),
+    ("copy_implementation_prompt", "copy_prompt_count", "first_prompt_copied_at"),
+    ("implement", "implement_click_count", "first_implement_clicked_at"),
+    ("open_pr", "open_pr_click_count", "first_open_pr_clicked_at"),
+    ("view_diff", "view_diff_count", "first_diff_viewed_at"),
+    ("restore", "restore_count", "first_restored_at"),
 )
+ACTIONS_COLUMNS = tuple(column for _, count, first in ACTION_TYPES for column in (count, first))
 # Bulk action rows carry no report_id and are excluded; bulk dismissals are recovered from the
 # server-side status stream instead. minIf misses fill non-nullable datetimes with epoch 0, hence
 # the nullIf(..., fromUnixTimestamp(0)) wraps here and below.
@@ -340,38 +351,94 @@ ACTIONS_COLUMNS = (
 #
 # `resolve` marks a report done without an inbox PR, so it is a distinct positive outcome the
 # `create_pr` click does not cover. The `*_click*` names keep it apart from the status stream's
-# `first_resolved_at`, which conflates every path a report reaches `resolved`. `restore`
-# (un-dismissing a report) shares this aggregation shape and is a follow-up.
+# `first_resolved_at`, which conflates every path a report reaches `resolved`.
+#
+# `copy_implementation_prompt`, `implement`, `open_pr`, `view_diff` and `restore` (un-dismissing a
+# report) are the other intent actions the `action` head counts.
 #
 # Blind spot: a bulk-bar resolve fires one report_id-less event and drops here like every bulk
 # action. Bulk dismissals are recovered from the status stream; bulk resolves are not, because the
 # same `first_resolved_at` conflation rules it out as a substitute. So a head must read
 # `resolve_click_count` = 0 as unknown, not as "the report was never resolved".
-ACTIONS_SQL = """
+_ACTION_AGGREGATES_SQL = ",\n".join(
+    f"    countIf(toString(properties.action_type) = '{action_type}') AS {count},\n"
+    f"    nullIf(minIf(timestamp, toString(properties.action_type) = '{action_type}'), fromUnixTimestamp(0)) AS {first}"
+    for action_type, count, first in ACTION_TYPES
+)
+ACTIONS_SQL = f"""
 SELECT
     toString(properties.report_id) AS report_id,
-    countIf(toString(properties.action_type) = 'dismiss') AS ui_dismiss_count,
-    nullIf(minIf(timestamp, toString(properties.action_type) = 'dismiss'), fromUnixTimestamp(0)) AS first_ui_dismissed_at,
-    countIf(toString(properties.action_type) = 'create_pr') AS create_pr_click_count,
-    nullIf(minIf(timestamp, toString(properties.action_type) = 'create_pr'), fromUnixTimestamp(0)) AS first_create_pr_clicked_at,
-    countIf(toString(properties.action_type) = 'discuss') AS discuss_count,
-    nullIf(minIf(timestamp, toString(properties.action_type) = 'discuss'), fromUnixTimestamp(0)) AS first_discussed_at,
-    countIf(toString(properties.action_type) = 'snooze') AS snooze_count,
-    nullIf(minIf(timestamp, toString(properties.action_type) = 'snooze'), fromUnixTimestamp(0)) AS first_snooze_clicked_at,
-    countIf(toString(properties.action_type) = 'add_suggested_reviewer') AS reviewer_add_count,
-    nullIf(minIf(timestamp, toString(properties.action_type) = 'add_suggested_reviewer'), fromUnixTimestamp(0)) AS first_reviewer_added_at,
-    countIf(toString(properties.action_type) = 'remove_suggested_reviewer') AS reviewer_remove_count,
-    nullIf(minIf(timestamp, toString(properties.action_type) = 'remove_suggested_reviewer'), fromUnixTimestamp(0)) AS first_reviewer_removed_at,
-    countIf(toString(properties.action_type) = 'resolve') AS resolve_click_count,
-    nullIf(minIf(timestamp, toString(properties.action_type) = 'resolve'), fromUnixTimestamp(0)) AS first_resolve_clicked_at
+{_ACTION_AGGREGATES_SQL}
 FROM events
 WHERE event = 'Inbox report action'
-  AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
+  AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
   AND toString(properties.report_id) != ''
 GROUP BY report_id
 """
 
 _WRONG_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in WRONG_DISMISSAL_REASONS)
+_NOT_FIXED_RESOLUTION_REASONS_SQL = ", ".join(f"'{reason}'" for reason in NOT_FIXED_RESOLUTION_REASONS)
+_FIXED_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in FIXED_DISMISSAL_REASONS)
+_HUMAN_ACTOR_KINDS_SQL = ", ".join(f"'{kind}'" for kind in HUMAN_ACTOR_KINDS)
+# A reason-less resolve that a person or an external agent asked for, such as the one-click Today
+# resolve. The reason is optional there and arrives later as a `reason_added` row. A reason-less
+# resolve with any other actor, or with no actor, is the automatic resolve after a tracked PR merges.
+_HUMAN_REASONLESS_RESOLVE_SQL = (
+    "toString(properties.status) = 'resolved' AND coalesce(toString(properties.dismissal_reason), '') = ''"
+    " AND coalesce(toString(properties.actor_kind), '') IN (" + _HUMAN_ACTOR_KINDS_SQL + ")"
+)
+# A transition someone asked for: it carries a reason, or a person or an external agent made it.
+_RESOLVE_INTENT_SQL = (
+    "coalesce(toString(properties.dismissal_reason), '') != ''"
+    " OR coalesce(toString(properties.actor_kind), '') IN (" + _HUMAN_ACTOR_KINDS_SQL + ")"
+)
+# The time a person has to add a not-fixed reason to a reason-less resolve before it counts as fixed.
+# Today offers the reason right after the resolve, and the added reasons on the status stream arrive
+# well inside this window.
+HUMAN_RESOLVE_GRACE_HOURS = 24
+# A `reason_added` row with no reason is a note-only update. It names no actor, so without this
+# guard it reads as a PR-merge resolve and skips the grace window of the resolve it follows.
+_NOTE_ONLY_UPDATE_SQL = (
+    "coalesce(toString(properties.reason_added), '') = 'true'"
+    " AND coalesce(toString(properties.dismissal_reason), '') = ''"
+)
+# A transition that says the problem was real and is fixed: a resolve without a not-fixed reason by
+# the PR-merge webhook or with a reason, or a dismissal with a fixed reason. A human reason-less
+# resolve waits for its grace window instead (`_HUMAN_RESOLVE_FIXED_TIMES_SQL`).
+_FIXED_TRANSITION_SQL = (
+    "(toString(properties.status) = 'resolved' AND coalesce(toString(properties.dismissal_reason), '') NOT IN ("
+    + _NOT_FIXED_RESOLUTION_REASONS_SQL
+    + ") AND NOT ("
+    + _HUMAN_REASONLESS_RESOLVE_SQL
+    + ") AND NOT ("
+    + _NOTE_ONLY_UPDATE_SQL
+    + ")) OR (toString(properties.status) = 'suppressed' AND toString(properties.dismissal_reason) IN ("
+    + _FIXED_DISMISSAL_REASONS_SQL
+    + "))"
+)
+_LOW_VALUE_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in LOW_VALUE_DISMISSAL_REASONS)
+# The bucket's human reason-less resolves that are fixed: the grace window closed before the snapshot
+# with no not-fixed reason added inside it. Each resolve is checked on its own, because a bucket can
+# hold a resolve, a reopen and a second resolve. Every reason inside a closed window is already in the
+# snapshot, so a later reason cannot take the label back and the label stays monotonic.
+_HUMAN_RESOLVE_FIXED_TIMES_SQL = f"""arrayFilter(
+            resolved_at -> resolved_at + INTERVAL {HUMAN_RESOLVE_GRACE_HOURS} HOUR <= toDateTime({{snapshot_end}})
+                AND NOT arrayExists(
+                    reason_at -> reason_at >= resolved_at
+                        AND reason_at < resolved_at + INTERVAL {HUMAN_RESOLVE_GRACE_HOURS} HOUR,
+                    not_fixed_reason_times
+                ),
+            bucket_human_resolve_times
+        )"""
+
+# The outcome a transition reaches, shared by the report-grain and user-grain status streams.
+_STATUS_OUTCOME_SQL = """multiIf(
+            toString(properties.status) = 'suppressed', 'dismissed',
+            toString(properties.status) = 'resolved', 'resolved',
+            toString(properties.status) = 'failed', 'failed',
+            toString(properties.previous_status) IN ('ready', 'resolved') AND toString(properties.status) = 'potential', 'snoozed',
+            'other'
+        )"""
 
 STATUS_COLUMNS = (
     "first_resolved_at",
@@ -384,6 +451,12 @@ STATUS_COLUMNS = (
     "first_dismissal_reason",
     "wrong_dismissal_count",
     "first_wrong_dismissed_at",
+    "reasoned_resolution_count",
+    "first_reasoned_resolved_at",
+    "fixed_count",
+    "first_fixed_at",
+    "lowvalue_dismissal_count",
+    "first_lowvalue_dismissed_at",
     "status_event_priority",
     "status_event_actionability",
     "status_event_team_id",
@@ -455,6 +528,50 @@ SELECT
         bucket_first_wrong_dismissed_at,
         outcome = 'dismissed' AND event_team_id = latest_event_team_id
     ) AS first_wrong_dismissed_at,
+    -- A resolve that carries a reason, or that a person or an external agent asked for, is someone
+    -- marking the report done, from any surface. The one-click Today resolve carries no reason but
+    -- names its actor. A reason-less resolve with no human actor is the automatic resolve after a
+    -- tracked PR merges, so it is not counted. Counted per bucket and dated by the bucket's first
+    -- counted event, under the same tenant restriction as the wrong-dismissal pair above. The
+    -- action head reads this pair.
+    countIf(
+        outcome = 'resolved' AND bucket_resolve_intent = 1 AND event_team_id = latest_event_team_id
+    ) AS reasoned_resolution_count,
+    minIf(
+        bucket_first_resolve_intent_at,
+        outcome = 'resolved' AND event_team_id = latest_event_team_id
+    ) AS first_reasoned_resolved_at,
+    -- Cumulative and tenant-scoped like wrong_dismissal_count, so a reopen or a later re-dismissal
+    -- with another reason cannot take the label back. A human reason-less resolve is dated from the
+    -- resolve, not from the end of its grace window. The fixed head reads this column.
+    countIf(
+        (bucket_fixed = 1 OR notEmpty("""
+    + _HUMAN_RESOLVE_FIXED_TIMES_SQL
+    + """)) AND event_team_id = latest_event_team_id
+    ) AS fixed_count,
+    minIf(
+        if(
+            notEmpty("""
+    + _HUMAN_RESOLVE_FIXED_TIMES_SQL
+    + """) AND (bucket_first_fixed_at IS NULL OR arrayMin("""
+    + _HUMAN_RESOLVE_FIXED_TIMES_SQL
+    + """) < bucket_first_fixed_at),
+            arrayMin("""
+    + _HUMAN_RESOLVE_FIXED_TIMES_SQL
+    + """),
+            bucket_first_fixed_at
+        ),
+        event_team_id = latest_event_team_id
+    ) AS first_fixed_at,
+    -- The same cumulative count, timestamp and tenant restriction for the low-value reasons. The
+    -- dismiss_lowvalue head reads this column.
+    countIf(
+        outcome = 'dismissed' AND bucket_lowvalue_dismissal = 1 AND event_team_id = latest_event_team_id
+    ) AS lowvalue_dismissal_count,
+    minIf(
+        bucket_first_lowvalue_dismissed_at,
+        outcome = 'dismissed' AND event_team_id = latest_event_team_id
+    ) AS first_lowvalue_dismissed_at,
     -- These two must stay paired with latest_status_event, so coalesce/nullIf keeps argMax from
     -- skipping a null: a judgment artefact can be deleted, and then the latest transition
     -- genuinely carries none. Plain argMax would reach back to an older transition and present
@@ -477,7 +594,13 @@ FROM (
         -- tenant is the tie-breaker so the selection is deterministic.
         argMax(
             coalesce(event_team_id, ''), tuple(last_timestamp, coalesce(event_team_id, ''))
-        ) OVER (PARTITION BY report_id) AS latest_event_team_id
+        ) OVER (PARTITION BY report_id) AS latest_event_team_id,
+        -- The not-fixed reasons added to this report, on every bucket row, so a human reason-less
+        -- resolve can check its grace window. Partitioned by tenant, so a reason that names another
+        -- team never takes a fixed label away.
+        arrayFlatten(
+            groupArray(bucket_not_fixed_reason_times) OVER (PARTITION BY report_id, event_team_id)
+        ) AS not_fixed_reason_times
     FROM (
     SELECT
         min(events.timestamp) AS first_timestamp,
@@ -485,13 +608,9 @@ FROM (
         toString(properties.report_id) AS report_id,
         toString(properties.previous_status) AS previous_status,
         toString(properties.status) AS status,
-        multiIf(
-            toString(properties.status) = 'suppressed', 'dismissed',
-            toString(properties.status) = 'resolved', 'resolved',
-            toString(properties.status) = 'failed', 'failed',
-            toString(properties.previous_status) IN ('ready', 'resolved') AND toString(properties.status) = 'potential', 'snoozed',
-            'other'
-        ) AS outcome,
+        """
+    + _STATUS_OUTCOME_SQL
+    + """ AS outcome,
         -- Latest event in the bucket rather than any(): identical for the duplicate deliveries this
         -- grouping targets, and the one that matches last_timestamp when it collapsed real repeats.
         -- Named apart from the outer alias: ClickHouse resolves a bare `dismissal_reason` in the outer
@@ -511,6 +630,38 @@ FROM (
         nullIf(minIf(events.timestamp, toString(properties.dismissal_reason) IN ("""
     + _WRONG_DISMISSAL_REASONS_SQL
     + """)), fromUnixTimestamp(0)) AS bucket_first_wrong_dismissed_at,
+        -- coalesce is load-bearing: HogQL evaluates NULL != '' to true, so a reason-less event
+        -- would otherwise count as reasoned.
+        max("""
+    + _RESOLVE_INTENT_SQL
+    + """) AS bucket_resolve_intent,
+        nullIf(minIf(events.timestamp, """
+    + _RESOLVE_INTENT_SQL
+    + """), fromUnixTimestamp(0)) AS bucket_first_resolve_intent_at,
+        groupArrayIf(events.timestamp, """
+    + _HUMAN_REASONLESS_RESOLVE_SQL
+    + """) AS bucket_human_resolve_times,
+        -- Only reasons added to a resolve: a reason added to a later dismissal says nothing about it.
+        groupArrayIf(
+            events.timestamp,
+            coalesce(toString(properties.reason_added), '') = 'true'
+            AND toString(properties.status) = 'resolved'
+            AND toString(properties.dismissal_reason) IN ("""
+    + _NOT_FIXED_RESOLUTION_REASONS_SQL
+    + """)
+        ) AS bucket_not_fixed_reason_times,
+        max("""
+    + _FIXED_TRANSITION_SQL
+    + """) AS bucket_fixed,
+        nullIf(minIf(events.timestamp, """
+    + _FIXED_TRANSITION_SQL
+    + """), fromUnixTimestamp(0)) AS bucket_first_fixed_at,
+        max(toString(properties.dismissal_reason) IN ("""
+    + _LOW_VALUE_DISMISSAL_REASONS_SQL
+    + """)) AS bucket_lowvalue_dismissal,
+        nullIf(minIf(events.timestamp, toString(properties.dismissal_reason) IN ("""
+    + _LOW_VALUE_DISMISSAL_REASONS_SQL
+    + """)), fromUnixTimestamp(0)) AS bucket_first_lowvalue_dismissed_at,
         nullIf(argMax(toString(properties.priority), events.timestamp), '') AS event_priority,
         nullIf(argMax(toString(properties.actionability), events.timestamp), '') AS event_actionability,
         nullIf(toString(properties.team_id), '') AS event_team_id
@@ -614,6 +765,24 @@ WHERE event = 'signals_pr_refund_created'
 GROUP BY report_id
 """
 
+# Server-side actions, read from Postgres rather than from analytics events: the claims, linked
+# PRs and notes a person or an external agent wrote (`HUMAN_ACTOR_KINDS`), and Slack discussions.
+# These reach a report from surfaces that emit no `Inbox report action` event (coding agents over
+# MCP, the CLI, Slack, the desktop app). Each row is counted by its creation time only: artefact
+# content can be edited in place, but these labels only need the row to exist before the cutoff.
+# Postgres holds this region's reports only, so another region's report gets no server action.
+SERVER_ACTIONS_STREAM = "server_actions"
+SERVER_ACTIONS_COLUMNS = (
+    "claim_count",
+    "first_claimed_at",
+    "linked_pr_count",
+    "first_pr_linked_at",
+    "note_count",
+    "first_noted_at",
+    "slack_discussion_count",
+    "first_slack_discussed_at",
+)
+
 LABEL_STREAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("impressions", IMPRESSIONS_SQL, IMPRESSIONS_COLUMNS),
     ("opens", OPENS_SQL, OPENS_COLUMNS),
@@ -623,6 +792,12 @@ LABEL_STREAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("pr_events", PR_EVENTS_SQL, PR_COLUMNS),
     ("refunds", REFUNDS_SQL, REFUNDS_COLUMNS),
 )
+
+# The label columns each stream fills, the SQL streams and the Postgres one alike.
+LABEL_STREAM_COLUMNS: dict[str, tuple[str, ...]] = {
+    **{name: columns for name, _, columns in LABEL_STREAMS},
+    SERVER_ACTIONS_STREAM: SERVER_ACTIONS_COLUMNS,
+}
 
 # Every label column a report can have, with its no-events default. Streams overwrite their own
 # columns; the merge keeps counts at 0 (not null) so head derivations need no null handling.
@@ -660,6 +835,10 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "first_dismissal_reason": None,
     "wrong_dismissal_count": 0,
     "first_wrong_dismissed_at": None,
+    "fixed_count": 0,
+    "first_fixed_at": None,
+    "lowvalue_dismissal_count": 0,
+    "first_lowvalue_dismissed_at": None,
     "status_event_priority": None,
     "status_event_actionability": None,
     "status_event_team_id": None,
@@ -680,9 +859,27 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "first_reviewer_removed_at": None,
     "resolve_click_count": 0,
     "first_resolve_clicked_at": None,
+    "copy_prompt_count": 0,
+    "first_prompt_copied_at": None,
+    "implement_click_count": 0,
+    "first_implement_clicked_at": None,
+    "open_pr_click_count": 0,
+    "first_open_pr_clicked_at": None,
+    "view_diff_count": 0,
+    "first_diff_viewed_at": None,
+    "restore_count": 0,
+    "first_restored_at": None,
+    "reasoned_resolution_count": 0,
+    "first_reasoned_resolved_at": None,
+    "claim_count": 0,
+    "first_claimed_at": None,
+    "linked_pr_count": 0,
+    "first_pr_linked_at": None,
+    "note_count": 0,
+    "first_noted_at": None,
+    "slack_discussion_count": 0,
+    "first_slack_discussed_at": None,
 }
-
-_TIMESTAMP_LABEL_COLUMNS = frozenset(name for name in LABEL_DEFAULTS if name.endswith("_at"))
 
 # Every cumulative outcome count, paired with the column holding the moment its first counted event
 # arrived. A horizon read ("did the outcome happen within N days of this moment?") and a
@@ -692,16 +889,17 @@ _TIMESTAMP_LABEL_COLUMNS = frozenset(name for name in LABEL_DEFAULTS if name.end
 OUTCOME_FIRST_EVENT_COLUMNS: dict[str, str] = {
     "impression_unit_count": "first_impressed_at",
     "open_count": "first_opened_at",
-    "ui_dismiss_count": "first_ui_dismissed_at",
-    "create_pr_click_count": "first_create_pr_clicked_at",
-    "discuss_count": "first_discussed_at",
-    "snooze_count": "first_snooze_clicked_at",
-    "reviewer_add_count": "first_reviewer_added_at",
-    "reviewer_remove_count": "first_reviewer_removed_at",
-    "resolve_click_count": "first_resolve_clicked_at",
+    **{count: first for _, count, first in ACTION_TYPES},
+    "reasoned_resolution_count": "first_reasoned_resolved_at",
+    "claim_count": "first_claimed_at",
+    "linked_pr_count": "first_pr_linked_at",
+    "note_count": "first_noted_at",
+    "slack_discussion_count": "first_slack_discussed_at",
     "feedback_positive_count": "first_positive_feedback_at",
     "feedback_negative_count": "first_negative_feedback_at",
     "wrong_dismissal_count": "first_wrong_dismissed_at",
+    "fixed_count": "first_fixed_at",
+    "lowvalue_dismissal_count": "first_lowvalue_dismissed_at",
     "pr_created_count": "first_pr_created_at",
     "pr_merged_count": "first_pr_merged_at",
     "pr_closed_count": "first_pr_closed_at",
@@ -709,42 +907,334 @@ OUTCOME_FIRST_EVENT_COLUMNS: dict[str, str] = {
 }
 
 
-def canonical_stream_rows(rows: list[tuple[Any, ...]]) -> dict[str, tuple[Any, ...]]:
-    """One row per canonical report id, dropping ids that cannot be report UUIDs.
+# User grain: one row per (report, person). The person key is `User.distinct_id`: the app's own
+# events and the status stream's `actor_distinct_id` already carry it, so no stream needs a person
+# lookup. Each stream returns `(report_id, user_distinct_id, *columns)`.
+USER_KEY_COLUMNS = ("report_id", "user_distinct_id")
 
-    ClickHouse groups on the raw client-supplied id, so spelling variants of one UUID arrive as
-    separate rows that canonicalize onto the same report. The canonically spelled row wins, so a
-    forged alias can never overwrite a real report's aggregates; between aliases the smallest raw
-    id wins, so the choice does not depend on ClickHouse's row order."""
-    best: dict[str, tuple[tuple[bool, str], tuple[Any, ...]]] = {}
+USER_IMPRESSIONS_COLUMNS = (
+    "impression_unit_count",
+    "first_impressed_at",
+    "best_impression_rank",
+    "impressed_as_suggested_reviewer_count",
+    "first_impressed_as_suggested_reviewer_at",
+)
+# `is_suggested_reviewer` is the flag the list rendered for this person on each entry.
+USER_IMPRESSIONS_SQL = f"""
+SELECT
+    JSONExtractString(imp, 'report_id') AS report_id,
+    distinct_id AS user_distinct_id,
+    count() AS impression_unit_count,
+    min(timestamp) AS first_impressed_at,
+    min({IMPRESSION_RANK_SQL}) AS best_impression_rank,
+    countIf(JSONExtractBool(imp, 'is_suggested_reviewer') = 1) AS impressed_as_suggested_reviewer_count,
+    nullIf(
+        minIf(timestamp, JSONExtractBool(imp, 'is_suggested_reviewer') = 1), fromUnixTimestamp(0)
+    ) AS first_impressed_as_suggested_reviewer_at
+FROM events
+ARRAY JOIN JSONExtractArrayRaw(properties, 'impressions') AS imp
+WHERE event = 'Inbox reports impressed'
+  AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
+GROUP BY report_id, user_distinct_id
+HAVING report_id != ''
+"""
+
+USER_OPENS_COLUMNS = ("open_count", "first_opened_at", "last_opened_at", "first_open_method")
+USER_OPENS_SQL = """
+SELECT
+    toString(properties.report_id) AS report_id,
+    distinct_id AS user_distinct_id,
+    count() AS open_count,
+    min(timestamp) AS first_opened_at,
+    max(timestamp) AS last_opened_at,
+    nullIf(argMin(coalesce(toString(properties.open_method), ''), timestamp), '') AS first_open_method
+FROM events
+WHERE event = 'Inbox report opened'
+  AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
+  AND toString(properties.report_id) != ''
+GROUP BY report_id, user_distinct_id
+"""
+
+USER_CLOSES_COLUMNS = ("close_count", "first_closed_at", "total_time_spent_ms")
+# `time_spent_ms` is client-supplied. Each close counts between 0 and one day, so a malformed value
+# cannot overflow the sum or make the dwell negative.
+USER_CLOSES_SQL = """
+SELECT
+    toString(properties.report_id) AS report_id,
+    distinct_id AS user_distinct_id,
+    count() AS close_count,
+    min(timestamp) AS first_closed_at,
+    sum(least(greatest(coalesce(toInt(properties.time_spent_ms), 0), 0), 86400000)) AS total_time_spent_ms
+FROM events
+WHERE event = 'Inbox report closed'
+  AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
+  AND toString(properties.report_id) != ''
+GROUP BY report_id, user_distinct_id
+"""
+
+USER_ACTIONS_SQL = f"""
+SELECT
+    toString(properties.report_id) AS report_id,
+    distinct_id AS user_distinct_id,
+{_ACTION_AGGREGATES_SQL}
+FROM events
+WHERE event = 'Inbox report action'
+  AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
+  AND toString(properties.report_id) != ''
+GROUP BY report_id, user_distinct_id
+"""
+
+USER_FEEDBACK_COLUMNS = (
+    "feedback_positive_count",
+    "first_positive_feedback_at",
+    "feedback_negative_count",
+    "first_negative_feedback_at",
+)
+USER_FEEDBACK_SQL = f"""
+SELECT
+    toString(properties.report_id) AS report_id,
+    distinct_id AS user_distinct_id,
+    countIf(toString(properties.sentiment) = 'positive') AS feedback_positive_count,
+    nullIf(minIf(timestamp, toString(properties.sentiment) = 'positive'), fromUnixTimestamp(0)) AS first_positive_feedback_at,
+    countIf(toString(properties.sentiment) = 'negative') AS feedback_negative_count,
+    nullIf(minIf(timestamp, toString(properties.sentiment) = 'negative'), fromUnixTimestamp(0)) AS first_negative_feedback_at
+FROM events
+WHERE event = 'Inbox report feedback'
+  AND {FEEDBACK_SENTIMENTS_SQL}
+  AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
+  AND toString(properties.report_id) != ''
+GROUP BY report_id, user_distinct_id
+"""
+
+USER_REFUNDS_COLUMNS = ("refund_count", "first_refunded_at")
+# The refund endpoint stamps `was_impersonated` on its event, and a staff session acting as a
+# customer would otherwise credit the customer with the refund. The client streams need no such
+# filter: posthog-js opts out of capture in an impersonated session.
+USER_REFUNDS_SQL = """
+SELECT
+    toString(properties.report_id) AS report_id,
+    distinct_id AS user_distinct_id,
+    uniq(toString(properties.refund_id)) AS refund_count,
+    min(timestamp) AS first_refunded_at
+FROM events
+WHERE event = 'signals_pr_refund_created'
+  AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
+  AND toString(properties.report_id) != ''
+  AND coalesce(toString(properties.was_impersonated), '') != 'true'
+GROUP BY report_id, user_distinct_id
+"""
+
+USER_STATUS_STREAM = "user_status_changes"
+USER_STATUS_COLUMNS = (
+    "status_resolved_count",
+    "first_status_resolved_at",
+    "status_dismissed_count",
+    "first_status_dismissed_at",
+    "status_snoozed_count",
+    "first_status_snoozed_at",
+    "first_status_dismissal_reason",
+    "first_dismissal_actor_kind",
+)
+# The transitions this person asked for, directly (`user`) or through an external agent acting for
+# them (`agent`). `system` and `task` transitions name no person, and events from before the actor
+# keys shipped carry none, so neither reaches this stream.
+#
+# The tenant rule is STATUS_SQL's: every aggregate reads only the tenant of the report's latest
+# transition. The window runs over every transition of the report, before the actor filter, so the
+# tenant is the one the report-grain stream and its provenance check use. Buckets also split by
+# actor, so one person's transition never dedupes into another's. A trailing `status_event_team_id`
+# column carries that tenant, and `scoped_user_status_rows` strips it after it checks it against the
+# report's team.
+USER_STATUS_SQL = (
+    """
+SELECT
+    report_id,
+    actor_distinct_id AS user_distinct_id,
+    countIf(outcome = 'resolved' AND event_team_id = latest_event_team_id) AS status_resolved_count,
+    nullIf(minIf(first_timestamp, outcome = 'resolved' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_status_resolved_at,
+    countIf(outcome = 'dismissed' AND event_team_id = latest_event_team_id) AS status_dismissed_count,
+    nullIf(minIf(first_timestamp, outcome = 'dismissed' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_status_dismissed_at,
+    countIf(outcome = 'snoozed' AND event_team_id = latest_event_team_id) AS status_snoozed_count,
+    nullIf(minIf(first_timestamp, outcome = 'snoozed' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_status_snoozed_at,
+    nullIf(
+        argMinIf(bucket_first_dismissal_reason, first_timestamp, outcome = 'dismissed' AND event_team_id = latest_event_team_id),
+        ''
+    ) AS first_status_dismissal_reason,
+    nullIf(
+        argMinIf(actor_kind, first_timestamp, outcome = 'dismissed' AND event_team_id = latest_event_team_id), ''
+    ) AS first_dismissal_actor_kind,
+    toInt(any(latest_event_team_id)) AS status_event_team_id
+FROM (
+    SELECT
+        *,
+        argMax(
+            coalesce(event_team_id, ''), tuple(last_timestamp, coalesce(event_team_id, ''))
+        ) OVER (PARTITION BY report_id) AS latest_event_team_id
+    FROM (
+    SELECT
+        min(events.timestamp) AS first_timestamp,
+        max(events.timestamp) AS last_timestamp,
+        toString(properties.report_id) AS report_id,
+        toString(properties.previous_status) AS previous_status,
+        toString(properties.status) AS status,
+        """
+    + _STATUS_OUTCOME_SQL
+    + """ AS outcome,
+        argMin(
+            coalesce(toString(properties.dismissal_reason), ''), events.timestamp
+        ) AS bucket_first_dismissal_reason,
+        nullIf(toString(properties.team_id), '') AS event_team_id,
+        coalesce(toString(properties.actor_distinct_id), '') AS actor_distinct_id,
+        coalesce(toString(properties.actor_kind), '') AS actor_kind
+    FROM events
+    WHERE event = 'signal_report_status_changed'
+      AND events.timestamp >= toDateTime({labels_epoch}) AND events.timestamp < toDateTime({snapshot_end})
+      AND toString(properties.report_id) != ''
+    GROUP BY
+        report_id,
+        previous_status,
+        status,
+        event_team_id,
+        actor_distinct_id,
+        actor_kind,
+        toStartOfInterval(events.timestamp, INTERVAL 10 MINUTE)
+    )
+)
+WHERE actor_distinct_id != '' AND actor_kind IN ('user', 'agent')
+GROUP BY report_id, user_distinct_id
+-- A person whose every transition names another tenant, or reaches no counted outcome, gets no row.
+HAVING status_resolved_count + status_dismissed_count + status_snoozed_count > 0
+"""
+)
+
+USER_PR_COLUMNS = ("pr_closed_by_count", "first_pr_closed_by_at", "pr_merged_by_count", "first_pr_merged_by_at")
+# The closer and the merger are set only when their GitHub login maps to an org member.
+USER_PR_SQL = """
+SELECT
+    toString(properties.signal_report_id) AS report_id,
+    if(
+        event = 'pr_merged',
+        coalesce(toString(properties.pr_merged_by_distinct_id), ''),
+        coalesce(toString(properties.pr_closed_by_distinct_id), '')
+    ) AS user_distinct_id,
+    countIf(event = 'pr_closed') AS pr_closed_by_count,
+    nullIf(minIf(timestamp, event = 'pr_closed'), fromUnixTimestamp(0)) AS first_pr_closed_by_at,
+    countIf(event = 'pr_merged') AS pr_merged_by_count,
+    nullIf(minIf(timestamp, event = 'pr_merged'), fromUnixTimestamp(0)) AS first_pr_merged_by_at
+FROM events
+WHERE event IN ('pr_merged', 'pr_closed')
+  AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
+  AND properties.signal_report_id IS NOT NULL
+  AND toString(properties.signal_report_id) != ''
+GROUP BY report_id, user_distinct_id
+HAVING user_distinct_id != ''
+"""
+
+# Postgres, this region only: the claims, linked PRs and notes a person wrote, and the moment each
+# action row was first recorded. `first_at` is the only stable column of an action row: `count` and
+# `last_at` keep moving after the cutoff.
+USER_SERVER_ACTIONS_STREAM = "user_server_actions"
+USER_SERVER_ACTIONS_COLUMNS = (
+    "claim_count",
+    "first_claimed_at",
+    "linked_pr_count",
+    "first_pr_linked_at",
+    "note_count",
+    "first_noted_at",
+    "first_viewed_at",
+    "first_read_at",
+    "first_slack_discussed_at",
+)
+
+USER_LABEL_STREAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("user_impressions", USER_IMPRESSIONS_SQL, USER_IMPRESSIONS_COLUMNS),
+    ("user_opens", USER_OPENS_SQL, USER_OPENS_COLUMNS),
+    ("user_closes", USER_CLOSES_SQL, USER_CLOSES_COLUMNS),
+    ("user_actions", USER_ACTIONS_SQL, ACTIONS_COLUMNS),
+    ("user_feedback", USER_FEEDBACK_SQL, USER_FEEDBACK_COLUMNS),
+    ("user_refunds", USER_REFUNDS_SQL, USER_REFUNDS_COLUMNS),
+    (USER_STATUS_STREAM, USER_STATUS_SQL, USER_STATUS_COLUMNS),
+    ("user_pr_events", USER_PR_SQL, USER_PR_COLUMNS),
+)
+
+USER_LABEL_STREAM_COLUMNS: dict[str, tuple[str, ...]] = {
+    **{name: columns for name, _, columns in USER_LABEL_STREAMS},
+    USER_SERVER_ACTIONS_STREAM: USER_SERVER_ACTIONS_COLUMNS,
+}
+
+USER_LABEL_DEFAULTS: dict[str, Any] = {
+    column: 0 if column.endswith("_count") or column == "total_time_spent_ms" else None
+    for columns in USER_LABEL_STREAM_COLUMNS.values()
+    for column in columns
+}
+
+# The user-grain counterpart of OUTCOME_FIRST_EVENT_COLUMNS, under the same rule.
+USER_OUTCOME_FIRST_EVENT_COLUMNS: dict[str, str] = {
+    "impression_unit_count": "first_impressed_at",
+    "impressed_as_suggested_reviewer_count": "first_impressed_as_suggested_reviewer_at",
+    "open_count": "first_opened_at",
+    "close_count": "first_closed_at",
+    **{count: first for _, count, first in ACTION_TYPES},
+    "feedback_positive_count": "first_positive_feedback_at",
+    "feedback_negative_count": "first_negative_feedback_at",
+    "refund_count": "first_refunded_at",
+    "status_resolved_count": "first_status_resolved_at",
+    "status_dismissed_count": "first_status_dismissed_at",
+    "status_snoozed_count": "first_status_snoozed_at",
+    "pr_closed_by_count": "first_pr_closed_by_at",
+    "pr_merged_by_count": "first_pr_merged_by_at",
+    "claim_count": "first_claimed_at",
+    "linked_pr_count": "first_pr_linked_at",
+    "note_count": "first_noted_at",
+}
+
+
+def canonical_stream_rows(rows: list[tuple[Any, ...]], key_width: int = 1) -> dict[tuple[str, ...], tuple[Any, ...]]:
+    """One row per canonical key, dropping rows whose report id cannot be a report UUID.
+
+    A row starts with its `key_width` key columns, the report id first. ClickHouse groups on the raw
+    client-supplied id, so spelling variants of one UUID arrive as separate rows that canonicalize
+    onto the same report. The canonically spelled row wins, so a forged alias can never overwrite a
+    real report's aggregates; between aliases the smallest raw id wins, so the choice does not
+    depend on ClickHouse's row order. A row with an empty further key (a person) is dropped too."""
+    best: dict[tuple[str, ...], tuple[tuple[bool, str], tuple[Any, ...]]] = {}
     for row in rows:
         raw_id = str(row[0])
         report_id = canonical_report_uuid(raw_id)
         if report_id is None:
             continue
+        other_keys = row[1:key_width]
+        if any(value is None or value == "" for value in other_keys):
+            continue
+        key = (report_id, *(str(value) for value in other_keys))
         rank = (raw_id != report_id, raw_id)
-        current = best.get(report_id)
+        current = best.get(key)
         if current is None or rank < current[0]:
-            best[report_id] = (rank, row)
-    return {report_id: row for report_id, (_rank, row) in best.items()}
+            best[key] = (rank, row)
+    return {key: row for key, (_rank, row) in best.items()}
 
 
 def merge_label_streams(
-    stream_rows: dict[str, list[tuple[Any, ...]]], snapshot_date: datetime.date
+    stream_rows: dict[str, list[tuple[Any, ...]]],
+    snapshot_date: datetime.date,
+    *,
+    key_columns: tuple[str, ...] = ("report_id",),
+    stream_columns: Mapping[str, tuple[str, ...]] = LABEL_STREAM_COLUMNS,
+    defaults: Mapping[str, Any] = LABEL_DEFAULTS,
 ) -> list[dict[str, Any]]:
-    """Merge the per-stream aggregates (each row `(report_id, *stream_columns)`) into one labels
-    row per report, filling unseen streams with LABEL_DEFAULTS. Report ids are canonicalized and
-    rows with impossible ids dropped, so forged or malformed client events cannot mint label-only
-    training rows."""
-    merged: dict[str, dict[str, Any]] = {}
-    columns_by_stream = {name: columns for name, _, columns in LABEL_STREAMS}
+    """Merge the per-stream aggregates (each row `(*key_columns, *stream_columns)`) into one labels
+    row per key, filling unseen streams with `defaults`. Report ids are canonicalized and rows with
+    impossible ids dropped, so forged or malformed client events cannot mint label-only training
+    rows. The defaults are the report grain's; the user grain passes its own."""
+    key_width = len(key_columns)
+    merged: dict[tuple[str, ...], dict[str, Any]] = {}
     for stream_name, rows in stream_rows.items():
-        columns = columns_by_stream[stream_name]
-        for report_id, row in canonical_stream_rows(rows).items():
+        columns = stream_columns[stream_name]
+        for key, row in canonical_stream_rows(rows, key_width).items():
             entry = merged.setdefault(
-                report_id,
-                {"snapshot_date": snapshot_date, "report_id": report_id, **LABEL_DEFAULTS},
+                key,
+                {"snapshot_date": snapshot_date, **dict(zip(key_columns, key, strict=True)), **defaults},
             )
-            for column, value in zip(columns, row[1:], strict=True):
-                entry[column] = ensure_utc(value) if column in _TIMESTAMP_LABEL_COLUMNS else value
+            for column, value in zip(columns, row[key_width:], strict=True):
+                entry[column] = ensure_utc(value) if column.endswith("_at") else value
     return list(merged.values())

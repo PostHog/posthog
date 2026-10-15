@@ -1431,16 +1431,41 @@ async def test_first_agent_activity_signal_is_recorded_once(monkeypatch):
     schedule.assert_called_once_with("agent_first_activity_observed")
 
 
-async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(monkeypatch):
+async def test_boot_milestone_signal_before_context_is_dropped(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._agent_boot_interaction_telemetry_enabled = True
+    schedule = Mock()
+    monkeypatch.setattr(workflow_instance, "_schedule_boot_milestone", schedule)
+
+    await workflow_instance.agent_activity_observed()
+    await workflow_instance.agent_command_dispatched()
+
+    schedule.assert_not_called()
+    assert workflow_instance._first_agent_activity_recorded is False
+    assert workflow_instance._first_command_dispatched_recorded is False
+
+
+@pytest.mark.parametrize(
+    ("agent_ready_at", "since_agent_ready_ms"),
+    [
+        (datetime(2026, 8, 28, 10, 0, 20, tzinfo=UTC), 1_000),
+        (None, None),
+    ],
+)
+async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(
+    monkeypatch, agent_ready_at, since_agent_ready_ms
+):
     workflow_instance = ProcessTaskWorkflow()
     workflow_instance._context = _build_context(github_integration_id=123)
     workflow_instance._sandbox_id_for_cleanup = "sandbox-123"
     workflow_instance._chain_started_at = datetime(2026, 8, 28, 10, 0, tzinfo=UTC)
-    workflow_instance._agent_ready_at = datetime(2026, 8, 28, 10, 0, 20, tzinfo=UTC)
+    workflow_instance._agent_ready_at = agent_ready_at
     workflow_instance._boot_path = "overlap"
     workflow_instance._image_source = "base_image"
     track = AsyncMock()
     monkeypatch.setattr(workflow_instance, "_track_boot_milestone", track)
+    record_histogram = Mock()
+    monkeypatch.setattr(process_task_workflow_module, "record_agent_boot_milestone_ms", record_histogram)
     monkeypatch.setattr(
         process_task_workflow_module.workflow,
         "now",
@@ -1458,8 +1483,9 @@ async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(monkey
             "task_id": "task-id",
             "sandbox_id": "sandbox-123",
             "elapsed_ms": 21_000,
-            "since_agent_ready_ms": 1_000,
+            "since_agent_ready_ms": since_agent_ready_ms,
             "boot_path": "overlap",
+            "runtime": "gvisor",
             "image_source": "base_image",
             "origin_product": None,
             "mode": "background",
@@ -1471,6 +1497,75 @@ async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(monkey
             "prewarmed": False,
         },
     )
+    if since_agent_ready_ms is None:
+        # The milestone beat readiness: the sample waits for the ready stamp and clamps to zero.
+        record_histogram.assert_not_called()
+        workflow_instance._agent_ready_at = datetime(2026, 8, 28, 10, 0, 25, tzinfo=UTC)
+        workflow_instance._flush_boot_milestones_before_ready()
+        workflow_instance._flush_boot_milestones_before_ready()
+        expected_sample_ms = 0
+    else:
+        expected_sample_ms = since_agent_ready_ms
+    record_histogram.assert_called_once_with(
+        expected_sample_ms,
+        milestone="agent_first_command_dispatched",
+        origin_product=None,
+        boot_path="overlap",
+        runtime="gvisor",
+        sandbox_backend="modal",
+        runtime_adapter=None,
+        prewarmed=False,
+    )
+
+
+@pytest.mark.parametrize("timing_enabled", [False, True])
+@pytest.mark.parametrize("same_run_resume", [False, True])
+async def test_shared_startup_boundaries_are_present_only_for_new_workflows(
+    monkeypatch, timing_enabled, same_run_resume
+):
+    instance = ProcessTaskWorkflow()
+    instance._context = _build_context(github_integration_id=123)
+    instance._context.state = {
+        "startup_requested_at": "2026-01-01T00:00:00+00:00",
+        "same_run_resume": same_run_resume,
+    }
+    instance._startup_worker_started_at = datetime(2026, 1, 1, 0, 0, 2, tzinfo=UTC) if timing_enabled else None
+    instance._startup_context_loaded_at = datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC) if timing_enabled else None
+    now = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
+    instance._chain_started_at = now
+    instance._agent_ready_at = now
+    track = AsyncMock()
+    monkeypatch.setattr(instance, "_track_boot_milestone", track)
+    monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=now))
+    monkeypatch.setattr(
+        process_task_workflow_module.workflow,
+        "info",
+        Mock(return_value=SimpleNamespace(start_time=datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC))),
+    )
+    monkeypatch.setattr(process_task_workflow_module, "record_agent_boot_milestone_ms", Mock())
+
+    instance._schedule_boot_milestone("agent_first_activity_observed")
+    await instance._flush_boot_telemetry_tasks()
+
+    properties = track.call_args.args[1]
+    if timing_enabled:
+        assert properties["startup_requested_at"] == "2026-01-01T00:00:00+00:00"
+        assert properties["workflow_accepted_at"] == "2026-01-01T00:00:01+00:00"
+        assert properties["worker_started_at"] == "2026-01-01T00:00:02+00:00"
+        assert properties["context_loaded_at"] == "2026-01-01T00:00:03+00:00"
+        assert properties["observed_at"] == now.isoformat()
+        if same_run_resume:
+            assert "since_startup_requested_ms" not in properties
+            assert "handoff_ms" not in properties
+        else:
+            assert properties["since_startup_requested_ms"] == 10000
+            assert properties["handoff_ms"] == 1000
+        assert properties["worker_wait_ms"] == 1000
+        assert properties["task_setup_ms"] == 1000
+    else:
+        assert "startup_requested_at" not in properties
+        assert "observed_at" not in properties
+        assert "since_startup_requested_ms" not in properties
 
 
 @pytest.mark.parametrize(

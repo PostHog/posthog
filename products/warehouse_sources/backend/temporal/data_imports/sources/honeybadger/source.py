@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +36,48 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HoneybadgerSource(ResumableSource[HoneybadgerSourceConfig, HoneybadgerResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^HONEYBADGER_",
+            "^NEXT_PUBLIC_HONEYBADGER_API_KEY$",
+            "^NEXT_PUBLIC_HONEYBADGER_ASSETS_URL$",
+            "^NEXT_PUBLIC_HONEYBADGER_REVISION$",
+            "^NEXT_PUBLIC_HONEYBADGER_SERVICE_NAME$",
+            "^REACT_APP_HONEYBADGER_API_KEY$",
+        ),
+        script_hosts=("js.honeybadger.io",),
+        npm=(
+            "@honeybadger-io/js",
+            "@honeybadger-io/react",
+            "@honeybadger-io/vue",
+            "@honeybadger-io/react-native",
+            "@honeybadger-io/nextjs",
+            "@honeybadger-io/webpack",
+            "@honeybadger-io/core",
+            "@honeybadger-io/cloudflare",
+            "@honeybadger-io/esbuild-plugin",
+            "@honeybadger-io/rollup-plugin",
+            "@honeybadger-io/plugin-core",
+            "@honeybadger-io/gatsby-plugin-honeybadger",
+            "honeybadger-js",
+            "honeybadger",
+        ),
+        pypi=("honeybadger",),
+        cargo=("honeybadger",),
+        cocoapods=("Honeybadger",),
+        composer=(
+            "honeybadger-io/honeybadger-php",
+            "honeybadger-io/honeybadger-laravel",
+            "honeybadger-io/nova-honeybadger",
+        ),
+        go=("github.com/honeybadger-io/honeybadger-go", "github.com/honeybadger-io/api-go"),
+        hex=("honeybadger",),
+        maven=("io.honeybadger:honeybadger-java", "io.honeybadger:honeybadger-java-shaded"),
+        rubygems=("honeybadger", "yabeda-honeybadger_insights", "resque-honeybadger", "delayed_job_honeybadger"),
+        swiftpm=("github.com/honeybadger-io/honeybadger-cocoa",),
+        alternative_to=(ProductKey.ERROR_TRACKING,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -46,11 +91,11 @@ class HoneybadgerSource(ResumableSource[HoneybadgerSourceConfig, HoneybadgerResu
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Honeybadger",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Honeybadger personal authentication token to pull your error monitoring data (projects, errors, occurrences, deployments, and uptime checks) into the PostHog Data warehouse.
+            caption="""Enter your Honeybadger personal authentication token to pull your error monitoring data (projects, environments, errors, occurrences, affected users, comments, deployments, uptime checks and their results, outages, check-ins, and alarm history) into the PostHog Data warehouse.
 
 You can find your personal authentication token on your [Honeybadger profile page](https://app.honeybadger.io/users/edit).
 
-Note that Honeybadger's API is limited to 360 requests per hour, so large backfills (especially of the notices table) can take a while.""",
+Note that Honeybadger's API is limited to 360 requests per hour, so large backfills (especially of the notices, affected_users, comments, and uptime_checks tables) can take a while.""",
             iconPath="/static/services/honeybadger.png",
             docsUrl="https://posthog.com/docs/cdp/sources/honeybadger",
             fields=cast(
@@ -99,6 +144,29 @@ Note that Honeybadger's API is limited to 360 requests per hour, so large backfi
                     "One row per error occurrence. Fetched per fault, so syncing large accounts is slow "
                     "against Honeybadger's 360 requests/hour limit — prefer incremental sync"
                 )
+            if endpoint == "affected_users":
+                return (
+                    "Users affected by each error, with an occurrence count per user. Fetched per fault, so "
+                    "syncing large accounts is slow against Honeybadger's 360 requests/hour limit — prefer "
+                    "incremental sync"
+                )
+            if endpoint == "occurrences":
+                return (
+                    "Daily error occurrence counts per project. Honeybadger only serves the most recent month, "
+                    "so each sync replaces it; use the notices table for older history"
+                )
+            if endpoint == "uptime_checks":
+                return (
+                    "One row per uptime check result, per site and location. Frequent checks produce many rows, "
+                    "so syncing is slow against Honeybadger's 360 requests/hour limit. Prefer incremental sync"
+                )
+            if endpoint == "comments":
+                return (
+                    "Comments on each error. Fetched per fault with no time filter, so every sync is slow "
+                    "against Honeybadger's 360 requests/hour limit"
+                )
+            if endpoint == "alarm_history":
+                return "State changes of each Honeybadger Insights alarm"
             return None
 
         schemas = [

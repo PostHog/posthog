@@ -319,6 +319,9 @@ def refresh_scanner_estimate(
             budget=budget,
             ch_user=ch_user,
         )
+    # Balanced sampling redistributes rather than shrinks the budget (VariantSamplingPlan.
+    # effective_rate always equals the configured rate), so the projection is the same with
+    # balancing on or off and needs no plan here.
     projection = project_monthly_observations(estimate, scanner.sampling_rate)
     estimated_at = timezone.now()
     # Filtered write so a config edit racing the (slow) estimate query can't get stamped fresh with stale numbers.

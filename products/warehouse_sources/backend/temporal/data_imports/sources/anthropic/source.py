@@ -1,6 +1,7 @@
 from collections import defaultdict
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,69 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^ANTHROPIC_",
+            "^CLAUDE_CODE_OAUTH_TOKEN$",
+            "^CLAUDE_CODE_USE_BEDROCK$",
+            "^CLAUDE_CODE_USE_VERTEX$",
+            "^CLAUDE_CODE_USE_FOUNDRY$",
+            "^CLAUDE_CODE_USE_ANTHROPIC_AWS$",
+            "^CLAUDE_CODE_USE_MANTLE$",
+        ),
+        npm=(
+            "@anthropic-ai/sdk",
+            "@anthropic-ai/bedrock-sdk",
+            "@anthropic-ai/vertex-sdk",
+            "@anthropic-ai/foundry-sdk",
+            "@anthropic-ai/aws-sdk",
+            "@anthropic-ai/google-cloud-sdk",
+            "@anthropic-ai/claude-agent-sdk",
+            "@anthropic-ai/claude-code",
+            "@anthropic-ai/tokenizer",
+            "@ai-sdk/anthropic",
+            "@ai-sdk/anthropic-aws",
+            "@langchain/anthropic",
+            "@llamaindex/anthropic",
+            "@tanstack/ai-anthropic",
+            "@effect/ai-anthropic",
+            "@genkit-ai/anthropic",
+        ),
+        pypi=(
+            "anthropic",
+            "claude-agent-sdk",
+            "claude-code-sdk",
+            "anthropic-bedrock",
+            "langchain-anthropic",
+            "llama-index-llms-anthropic",
+        ),
+        composer=("anthropic-ai/sdk", "mozex/anthropic-php", "mozex/anthropic-laravel"),
+        go=(
+            "github.com/anthropics/anthropic-sdk-go",
+            "github.com/anthropics/anthropic-cli",
+            "github.com/liushuangls/go-anthropic",
+        ),
+        hex=("anthropix",),
+        maven=(
+            "com.anthropic:anthropic-java",
+            "com.anthropic:anthropic-java-core",
+            "com.anthropic:anthropic-java-client-okhttp",
+            "com.anthropic:anthropic-java-bedrock",
+            "com.anthropic:anthropic-java-vertex",
+            "com.anthropic:anthropic-java-aws",
+            "com.anthropic:anthropic-java-foundry",
+            "com.anthropic:anthropic-java-google-cloud",
+            "com.anthropic:anthropic-java-mcp",
+            "org.springframework.ai:spring-ai-anthropic",
+            "org.springframework.ai:spring-ai-starter-model-anthropic",
+            "org.springframework.ai:spring-ai-anthropic-spring-boot-starter",
+            "dev.langchain4j:langchain4j-anthropic",
+        ),
+        pub=("anthropic_sdk_dart",),
+        rubygems=("anthropic", "ruby-anthropic"),
+        swiftpm=("github.com/anthropics/claudeforfoundationmodels", "github.com/jamesrochabrun/swiftanthropic"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2023-06-01",)
     default_version = "2023-06-01"
@@ -91,6 +155,17 @@ The group, group membership and custom role tables come from the Claude Enterpri
         )
 
         return CANONICAL_DESCRIPTIONS
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # The report endpoints share one organization rate limit, and Anthropic can ask for a wait of
+        # up to an hour once it is spent. A schedule shorter than that keeps hitting the same limit,
+        # so the generic "short problem on the source's side" copy sends the customer nowhere.
+        return {
+            "HTTP 429 for https://api.anthropic.com": (
+                "Anthropic's API rate limit for your organization ran out before this sync finished. "
+                "Set this table to sync less often, such as every 6 hours, so each run stays within the limit."
+            ),
+        }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         rbac_group_denied = "This table comes from the Claude Enterprise user management API, which your key can't reach. Reconnect the source with an Admin API key created in claude.ai for all your linked organizations, carrying the read:rbac_groups scope, or turn this table's sync off."

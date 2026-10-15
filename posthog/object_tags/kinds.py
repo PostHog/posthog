@@ -19,8 +19,9 @@ Python consumers import this module directly.
 """
 
 import re
+from collections.abc import Mapping
 from functools import cache
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from posthog.dataclasses import frozen
 
@@ -43,6 +44,7 @@ class ObjectKindSpec:
     block: bool = False
     # The tag body is the object id itself rather than a label (hogql: the SQL).
     id_is_body: bool = False
+    url_aliases: tuple[str, ...] = ()
 
 
 OBJECT_KINDS: dict[str, ObjectKindSpec] = {
@@ -51,6 +53,7 @@ OBJECT_KINDS: dict[str, ObjectKindSpec] = {
         source="Product analytics",
         path_template="/insights/{id}",
         block=True,
+        url_aliases=("/i/{id}",),
     ),
     "hogql": ObjectKindSpec(
         kind_label="SQL query",
@@ -58,6 +61,7 @@ OBJECT_KINDS: dict[str, ObjectKindSpec] = {
         path_template="/sql?open_query={id}",
         block=True,
         id_is_body=True,
+        url_aliases=("/insights/new#q={query}",),
     ),
     "dashboard": ObjectKindSpec(
         kind_label="Dashboard",
@@ -68,12 +72,14 @@ OBJECT_KINDS: dict[str, ObjectKindSpec] = {
         kind_label="Error issue",
         source="Error tracking",
         path_template="/error_tracking/{id}",
+        url_aliases=("/error-tracking/{id}",),
     ),
     "replay": ObjectKindSpec(
         kind_label="Session replay",
         source="Session replay",
         path_template="/replay/{id}",
         block=True,
+        url_aliases=("/replay/home?sessionRecordingId={id}",),
     ),
     "flag": ObjectKindSpec(
         kind_label="Feature flag",
@@ -145,6 +151,10 @@ OBJECT_KIND_ALIASES: dict[str, str] = {
     "sql": "hogql",
 }
 
+RESERVED_URL_IDS: tuple[str, ...] = ("new", "home", "playlists", "settings", "configuration", "options")
+
+APP_HOST_ALIASES: dict[str, str] = {"app.posthog.com": "us.posthog.com"}
+
 # Rendering fallback for a tag whose kind nobody registered.
 FALLBACK_OBJECT_KIND = ObjectKindSpec(kind_label="Evidence", source="PostHog")
 
@@ -166,3 +176,46 @@ def object_web_path(spec: ObjectKindSpec, object_id: str) -> str | None:
     if spec.id_pattern is not None and not _compiled_pattern(spec.id_pattern).match(object_id):
         return None
     return spec.path_template.replace("{id}", quote(object_id, safe=""))
+
+
+@frozen
+class ObjectRef:
+    kind: str
+    id: str
+
+
+OBJECT_URL_TEMPLATES: dict[str, tuple[str, ...]] = {
+    name: tuple(template for template in (spec.path_template, *spec.url_aliases) if template and "#" not in template)
+    for name, spec in OBJECT_KINDS.items()
+}
+
+
+def _template_match(template: str, segments: list[str], params: dict[str, list[str]]) -> str | None:
+    path, _, query = template.partition("?")
+    expected = [segment for segment in path.split("/") if segment]
+    if query:
+        values = params.get(query.partition("=")[0])
+        return values[0] if values and segments == expected else None
+    if len(segments) < len(expected):
+        return None
+    if any(want != got and not want.startswith("{") for want, got in zip(expected, segments)):
+        return None
+    return segments[expected.index("{id}")]
+
+
+def object_ref_for_url(url: str, templates: Mapping[str, tuple[str, ...]] = OBJECT_URL_TEMPLATES) -> ObjectRef | None:
+    parsed = urlsplit(url)
+    segments = [unquote(segment) for segment in parsed.path.split("/") if segment]
+    if segments[:1] == ["project"]:
+        segments = segments[2:]
+    params = parse_qs(parsed.query)
+    for kind, kind_templates in templates.items():
+        spec = OBJECT_KINDS.get(kind)
+        for template in kind_templates:
+            object_id = _template_match(template, segments, params)
+            if not object_id or object_id in RESERVED_URL_IDS:
+                continue
+            if spec and spec.id_pattern and not _compiled_pattern(spec.id_pattern).match(object_id):
+                continue
+            return ObjectRef(kind=kind, id=object_id)
+    return None

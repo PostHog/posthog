@@ -132,11 +132,9 @@ def test_other_findings_section_membership(
     assert ("Membership marker finding" in body) is expected_in_section
 
 
-def test_off_diff_finding_sections_lead_with_description() -> None:
-    # The off-diff section must render its collapsed blocks in the same deliberate reading order as
-    # the inline comment (description first, then verdict, then fix). The two renderers are separate
-    # templates, so the inline-comment order test can't catch _render_off_diff_section flipping back
-    # to validation-first.
+def test_off_diff_finding_uses_the_inline_comment_heading() -> None:
+    # The off-diff section is a separate renderer from the inline comment, so it can drift back to the
+    # old heading, category line, or collapsed blocks without the inline comment tests failing.
     issue = Issue(
         id="1-1-1",
         title="Off-diff finding",
@@ -155,8 +153,7 @@ def test_off_diff_finding_sections_lead_with_description() -> None:
         published_priorities=_SHOULD_FIX_PUBLISHED,
     )
 
-    positions = [
-        body.index(f"<summary><strong>{label}</strong></summary>")
-        for label in ("Issue description", "Why we think it's a valid issue", "Suggested fix")
-    ]
-    assert positions == sorted(positions)
+    section = body.split(
+        "_Valid issues on this PR's files that sit on lines GitHub won't let us comment on inline._\n\n"
+    )[1]
+    assert section == "**P2 · Off-diff finding**\n\n`src/auth.py:240`\n\nproblem fix\n"

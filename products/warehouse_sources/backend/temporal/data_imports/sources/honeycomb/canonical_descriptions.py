@@ -125,4 +125,27 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "When the recipient was last modified.",
         },
     },
+    "board_views": {
+        "description": "A saved view on a board: a named set of filters applied to every query on the board.",
+        "docs_url": "https://api-docs.honeycomb.io/api/boards",
+        "columns": {
+            "id": "Unique identifier for the board view.",
+            "board_id": "ID of the board the view belongs to (added by PostHog during sync).",
+            "name": "Name of the view.",
+            "filters": "The filters the view applies, each with a column, an operation, and an optional value.",
+        },
+    },
+    "slo_counts_history": {
+        "description": "Hourly total and error event counts for an SLO, the data behind its compliance and budget burn.",
+        "docs_url": "https://api-docs.honeycomb.io/api/slos",
+        "columns": {
+            "slo_id": "ID of the SLO the counts belong to (added by PostHog during sync).",
+            "dataset_slug": "Slug of the dataset the SLO was listed under (added by PostHog during sync).",
+            "start_time": "Start of the hour as a Unix timestamp in seconds.",
+            "end_time": "End of the hour as a Unix timestamp in seconds.",
+            "total_count": "Total number of events (good and bad) in the hour.",
+            "error_count": "Number of failed (bad) events in the hour.",
+            "is_partial": "Whether the bucket covers the in-progress hour; its counts keep growing until the hour completes.",
+        },
+    },
 }

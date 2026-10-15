@@ -16,6 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
+from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
 from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
@@ -379,9 +380,9 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def publish_instructions(self, request, pk=None, **kwargs):
         sandbox_task_id = self._sandbox_task_id(request)
         if sandbox_task_id is not None and not tasks_facade.task_can_publish_channel_instructions(
-            sandbox_task_id, self.team_id, pk
+            sandbox_task_id, self.team_id
         ):
-            raise PermissionDenied("This loop can update only the CONTEXT.md configured for this run.")
+            raise PermissionDenied("This run can't update CONTEXT.md in this project.")
 
         serializer = ChannelInstructionsWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -392,7 +393,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 self._user_id(),
                 content=serializer.validated_data["content"],
                 base_version=serializer.validated_data.get("base_version"),
-                # The facade never sees the request, so the loop-vs-person split is set here.
+                # The facade never sees the request, so the agent-vs-person split is set here.
                 source="agent" if sandbox_task_id is not None else "user",
             )
         except tasks_facade.ChannelInstructionsVersionConflictError as err:
@@ -805,7 +806,16 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="The task's thread in chronological order.",
     )
     def list(self, request, *args, **kwargs):
-        messages = tasks_facade.list_thread_messages(self._task_id(), self.team_id, self._user_id())
+        task_id = self._task_id()
+        if is_sandbox_oauth_request(request) and not tasks_facade.task_accessible_for_run_view(
+            task_id,
+            self.team_id,
+            self._user_id(),
+            sandbox_request=True,
+            sandbox_task_id=getattr(get_oauth_access_token(request), "sandbox_task_id", None),
+        ):
+            raise NotFound("Task not found")
+        messages = tasks_facade.list_thread_messages(task_id, self.team_id, self._user_id())
         if messages is None:
             raise NotFound("Task not found")
         return Response(TaskThreadMessageSerializer(messages, many=True).data)

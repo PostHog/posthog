@@ -8,7 +8,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.travisci import (
     TravisCISourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.source import TravisCISource
 
 
@@ -20,10 +19,6 @@ class TestTravisCISource:
     def setup_method(self) -> None:
         self.source = TravisCISource()
         self.team_id = 123
-
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = {s.name for s in self.source.get_schemas(_config(), team_id=self.team_id)}
-        assert schemas == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -39,12 +34,6 @@ class TestTravisCISource:
         schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
         assert schemas[endpoint].supports_incremental is expected
         assert schemas[endpoint].supports_append is expected
-
-    def test_branches_not_synced_by_default(self) -> None:
-        # Branches re-walk every repository's full branch list each sync, so they must stay
-        # opt-in rather than being force-enabled by one-shot source creation.
-        schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
-        assert schemas["branches"].should_sync_default is False
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["builds"])

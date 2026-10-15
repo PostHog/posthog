@@ -6,6 +6,7 @@ import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { useMocks } from '~/mocks/jest'
@@ -99,6 +100,19 @@ describe('projectTreeDataLogic', () => {
         }
     )
 
+    it.each([false, true])('shows a starred flagged product only while its flag is on (%s)', (flagOn) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]: flagOn })
+        logic.actions.loadShortcutsSuccess([
+            { id: 'star-elt', path: 'ELT', type: 'product', href: urls.etlOverview() },
+            { id: 'star-sql', path: 'SQL editor', type: 'product', href: urls.sqlEditor() },
+        ])
+
+        expect(logic.values.getShortcutTreeItems('', false).map((item) => item.name)).toEqual(
+            flagOn ? ['ELT', 'SQL editor'] : ['SQL editor']
+        )
+        expect(logic.values.shortcutData).toHaveLength(2)
+    })
+
     it('reloads starred folders after a move, preserving custom labels and untouched environments', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.loadShortcutsSuccess([
@@ -121,6 +135,19 @@ describe('projectTreeDataLogic', () => {
         }).toFinishAllListeners()
         expect(api.fileSystemShortcuts.list).toHaveBeenCalled()
         expect(logic.values.shortcutData).toEqual(updatedShortcuts)
+    })
+
+    it('does not list a shortcut twice when starring returns one that already exists', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const existing = { id: 'star-dash', path: 'Dashboards', type: 'dashboard', ref: '42' }
+        logic.actions.loadShortcutsSuccess([existing])
+        jest.spyOn(api.fileSystemShortcuts, 'create').mockResolvedValue(existing)
+
+        await expectLogic(logic, () => {
+            logic.actions.addShortcutItem({ id: 'dash', path: 'Dashboards', type: 'dashboard', ref: '42' })
+        }).toFinishAllListeners()
+
+        expect(logic.values.shortcutData.map((shortcut) => shortcut.id)).toEqual(['star-dash'])
     })
 
     it.each([false, true])('keeps starred navigation in place unless explicitly revealed (%s)', async (explicit) => {
@@ -161,6 +188,18 @@ describe('projectTreeDataLogic', () => {
         const paths = logic.values.getCustomProductTreeItems('').map((item) => item.record?.path)
 
         expect(paths).toEqual(['Session replay'])
+    })
+
+    it('shows Warehouse properties in Data when its persisted feature flag is enabled', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]: false })
+
+        const dataRootWithoutFlag = logic.values.getStaticTreeItems('', false).find((item) => item.id === 'data://')
+        expect(dataRootWithoutFlag?.children?.some((item) => item.record?.path === 'Warehouse properties')).toBe(false)
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]: true })
+
+        const dataRootWithFlag = logic.values.getStaticTreeItems('', false).find((item) => item.id === 'data://')
+        expect(dataRootWithFlag?.children?.some((item) => item.record?.path === 'Warehouse properties')).toBe(true)
     })
 
     it('handles null unfiled item responses', async () => {
@@ -389,6 +428,34 @@ describe('projectTreeDataLogic', () => {
             offset: 0,
         })
     })
+
+    it.each(['notebook', 'folder'])(
+        'moves the underlying %s from a shortcut even when its parent has not been loaded',
+        async (type) => {
+            const item = { id: 'real-file', type, ref: 'notes-ref', path: 'Research/Notes' }
+            const shortcut = {
+                id: 'star-note',
+                type,
+                path: 'Pinned notes',
+                ref: type === 'folder' ? item.path : item.ref,
+            }
+            const move = jest.spyOn(api.fileSystem, 'move').mockResolvedValue({ ...item, path: 'Users/Alex/Notes' })
+            const createShortcut = jest.spyOn(api.fileSystemShortcuts, 'create')
+            jest.spyOn(api.fileSystem, 'count').mockResolvedValue({ count: 1, entries: [item], has_more: false })
+            jest.mocked(api.fileSystem.list).mockResolvedValue({ count: 1, results: [item], users: [] })
+
+            await expectLogic(logic, () => {
+                logic.actions.moveShortcutToFolder(shortcut, 'Users/Alex', 'test')
+            }).toFinishAllListeners()
+
+            expect(api.fileSystem.list).toHaveBeenCalledWith(
+                type === 'folder' ? { type: 'folder', path: 'Research/Notes' } : { type: 'notebook', ref: 'notes-ref' }
+            )
+            expect(move).toHaveBeenCalledWith('real-file', 'Users/Alex/Notes')
+            expect(createShortcut).not.toHaveBeenCalled()
+            expect(logic.values.viableItems).toContainEqual({ ...item, path: 'Users/Alex/Notes' })
+        }
+    )
 
     it('reports a bulk move once, with an undo that reverts every item', async () => {
         const success = jest.spyOn(lemonToast, 'success').mockReturnValue('' as any)

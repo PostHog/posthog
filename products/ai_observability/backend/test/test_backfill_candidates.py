@@ -234,9 +234,10 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
             # A judge response nobody could read may parse on a later run, so the unit is still owed a verdict.
             ("unparsable_response", 4),
             ("output_limit_exceeded", 4),
-            # These two skip the same way every run, so re-offering them would never produce a verdict.
+            # These skip the same way every run, so re-offering them would never produce a verdict.
             ("context_window_exceeded", 3),
             ("trace_errored", 3),
+            ("content_filtered", 3),
         ]
     )
     def test_only_a_transient_skip_leaves_the_unit_a_candidate(self, skip_reason: str, expected: int) -> None:

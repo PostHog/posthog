@@ -15,6 +15,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
@@ -36,6 +37,7 @@ import { RecentResults, SearchResults, projectTreeLogic } from '~/layout/panel-l
 import { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
 import {
     appendResultsToFolders,
+    calculateMovePath,
     convertFileSystemEntryToTreeDataItem,
     escapePath,
     formatUrlAsName,
@@ -477,6 +479,15 @@ export interface projectTreeDataLogicActions {
         }[]
         projectTreeLogicKey: string
     }
+    moveShortcutToFolder: (
+        shortcut: FileSystemEntry,
+        folder: string,
+        projectTreeLogicKey: string
+    ) => {
+        folder: string
+        projectTreeLogicKey: string
+        shortcut: FileSystemEntry
+    }
     movedItem: (
         item: FileSystemEntry,
         oldPath: string,
@@ -694,6 +705,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             item,
             newPath,
             force,
+            projectTreeLogicKey,
+        }),
+        moveShortcutToFolder: (shortcut: FileSystemEntry, folder: string, projectTreeLogicKey: string) => ({
+            shortcut,
+            folder,
             projectTreeLogicKey,
         }),
         // Prefer this over looping `moveItem`, which would report each move separately (see MoveBatch).
@@ -1058,6 +1074,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         item_name: shortcutItem.path,
                     })
                     lemonToast.success('Added to starred')
+                    // The API returns the existing shortcut when the item is already starred, so
+                    // appending it unconditionally would show the same star twice until a reload.
+                    if (values.shortcutData.some((shortcut) => shortcut.id === response.id)) {
+                        return values.shortcutData
+                    }
                     return [...values.shortcutData, response]
                 },
                 reorderShortcuts: async ({ orderedIds }) => {
@@ -1568,11 +1589,23 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 users: Record<string, UserBasicType>,
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
+                // Hide a starred product while its flag is off, but keep the star so it comes back with the flag.
+                const productIsEnabled = (product: FileSystemImport): boolean =>
+                    !product.flag || !!(featureFlags as Record<string, boolean>)[product.flag]
+                const products = getDefaultTreeProducts()
+                const enabledProductHrefs = new Set(products.filter(productIsEnabled).map((product) => product.href))
+                const hiddenProductHrefs = new Set(
+                    products
+                        .filter((product) => product.href && !enabledProductHrefs.has(product.href))
+                        .map((product) => product.href)
+                )
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const newShortcutData = []
                     for (const shortcut of shortcutData.filter(
-                        // only remove shortcuts that are group view shortcuts when CRM iteration one is enabled
-                        (shortcut) => !(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && isGroupViewShortcut(shortcut))
+                        (shortcut) =>
+                            // only remove shortcuts that are group view shortcuts when CRM iteration one is enabled
+                            !(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && isGroupViewShortcut(shortcut)) &&
+                            !(shortcut.type !== 'folder' && !shortcut.ref && hiddenProductHrefs.has(shortcut.href))
                     )) {
                         const shortcutTreeItem = convertFileSystemEntryToTreeDataItem({
                             root: 'shortcuts://',
@@ -1657,7 +1690,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     convertFileSystemEntryToTreeDataItem({
                         root: protocol,
                         imports: imports
-                            .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                            .filter((f) => isFileSystemImportFlagEnabled(f, featureFlags))
                             .map((i) => ({
                                 ...i,
                                 protocol,
@@ -1745,7 +1778,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         .filter((p): p is FileSystemImport => p !== null)
 
                     const imports = selectedProducts
-                        .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                        .filter((f) => isFileSystemImportFlagEnabled(f, featureFlags))
                         .map((i) => ({
                             ...i,
                             protocol: 'custom-products://',
@@ -1899,6 +1932,33 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 { type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path },
                 projectTreeLogicKey
             )
+        },
+        moveShortcutToFolder: async ({ shortcut, folder, projectTreeLogicKey }) => {
+            const { ref, type } = shortcut
+            if (!ref || !type) {
+                return
+            }
+            try {
+                const response = await api.fileSystem.list(
+                    type === 'folder' ? { type: 'folder', path: ref } : { ...refTypeParams(type), ref }
+                )
+                const item = response.results.find((entry) =>
+                    type === 'folder'
+                        ? entry.type === 'folder' && entry.path === ref
+                        : matchesRefType(entry.type, type) && entry.ref === ref
+                )
+                if (!item) {
+                    lemonToast.error('Could not find the starred item. Refresh the page and try again.')
+                    return
+                }
+                const { newPath, isValidMove } = calculateMovePath(item, folder)
+                if (isValidMove) {
+                    actions.createSavedItem(item)
+                    actions.moveItem(item, newPath, false, projectTreeLogicKey)
+                }
+            } catch {
+                lemonToast.error('Could not load the starred item. Try again.')
+            }
         },
         moveItem: ({ item, newPath, force, projectTreeLogicKey }) => {
             actions.moveItems([{ item, newPath }], force, projectTreeLogicKey)

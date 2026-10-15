@@ -24,6 +24,16 @@ TARGET_UNTRACKED_METRIC = "email_untracked"
 GUARDRAIL_METRICS = ("email_blocked", "email_bounced")
 GUARDRAIL_LABELS = {"email_blocked": "complaint rate", "email_bounced": "bounce rate"}
 
+# What a suggestion can aim at, and how each one is read: the metric counted, whether it divides by
+# tracked sends (an untracked send can record neither an open nor a click) or by every send, and the
+# name a person reads. A suggestion that names anything else is measured on opens, the default.
+TARGET_METRICS: dict[str, tuple[str, bool, str]] = {
+    TARGET_OPEN_METRIC: (TARGET_OPEN_METRIC, True, "email open rate"),
+    TARGET_CLICK_METRIC: (TARGET_CLICK_METRIC, True, "click rate"),
+    "email_bounced": ("email_bounced", False, "bounce rate"),
+    "email_blocked": ("email_blocked", False, "complaint rate"),
+}
+
 # `email_unsubscribed` exists only as a name in the worker's metric union with no producer. Named so
 # the surfaces can say the number is missing rather than imply a zero.
 UNAVAILABLE_GUARDRAILS = ("unsubscribe rate",)

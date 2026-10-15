@@ -39,6 +39,15 @@ class RunPurpose(StrEnum):
     OBSERVE = "observe"  # Tracking only — not approvable
 
 
+class RunReviewFilter(StrEnum):
+    """Where a run stands in review, as the run lists filter it."""
+
+    NEEDS_REVIEW = "needs_review"  # Completed PR run with changes nobody approved yet
+    CLEAN = "clean"  # No changes, or approved
+    PROCESSING = "processing"  # Diffs still computing
+    STALE = "stale"  # Superseded by a newer run while its changes were unapproved
+
+
 class ReviewDecision(StrEnum):
     """Run-level review outcome."""
 
@@ -117,8 +126,7 @@ class FlakinessState(StrEnum):
     BROKEN = "broken"  # Fails nearly every run: the baseline is wrong, not the story
     UNSTABLE = "unstable"  # Fails some runs and not others: the classic flake
     AT_RISK = "at_risk"  # Never fails, but its diff is already touching the threshold
-    NOISY = "noisy"  # Renders variants, absorbed with room to spare
-    CLEAN = "clean"  # Matched its baseline on every run in the window
+    CLEAN = "clean"  # No gate failure in the window, and any absorbed diff is far below the threshold
 
 
 class ActorType(StrEnum):
@@ -127,6 +135,23 @@ class ActorType(StrEnum):
     HUMAN = "human"
     AGENT = "agent"
     AUTO = "auto"
+
+
+class QuarantineLiftState(LabeledStrEnum):
+    """Where a request to lift a quarantine once its pull request merges stands.
+
+    The OpenAPI component name (QuarantineLiftStateEnum) derives from this class, so the
+    `state` field does not collide with other products' enums. Each label repeats its value,
+    because the API documents these choices as plain values.
+    """
+
+    # Waits for the merge and for a default-branch run that renders the expected picture
+    PENDING = "pending", "pending"
+    APPLIED = "applied", "applied"
+    # Withdrawn by a reviewer, or the pull request closed without merging into the run's branch
+    CANCELLED = "cancelled", "cancelled"
+    # The quarantine ended some other way, or another request lifted it
+    SUPERSEDED = "superseded", "superseded"
 
 
 class ToleratedReason(StrEnum):

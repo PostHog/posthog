@@ -62,13 +62,13 @@ export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps)
                     </Text>
                 </div>
                 <Badge className="shrink-0">Canvas</Badge>
+                {avatar}
             </div>
             {canvas.description && (
                 <Text size="xs" variant="muted" className="mt-1 line-clamp-2 leading-normal break-words">
                     {canvas.description}
                 </Text>
             )}
-            <div className="mt-3 flex justify-end">{avatar}</div>
         </Card>
     )
 }

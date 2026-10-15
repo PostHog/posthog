@@ -38,8 +38,8 @@ import json
 import asyncio
 import datetime as dt
 import functools
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -57,7 +57,9 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     S3_SUPPORTED_COMPRESSIONS,
     ConcurrentS3Consumer,
     IntermittentUploadPartTimeoutError,
+    InvalidCredentialsError,
     PolicyStatement,
+    S3IntegrationNotFoundError,
     get_credentials_using_user_aws_role,
     get_s3_integration,
     s3_client,
@@ -68,6 +70,10 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
     DestinationBatchContext,
     DestinationRunContext,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    MISSING_INTEGRATION_DETAIL,
+    DestinationConfigurationError,
+)
 
 if TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
@@ -77,6 +83,37 @@ logger = structlog.get_logger(__name__)
 
 ParquetCompression = Literal["gzip", "brotli", "lz4", "zstd", "snappy", "none"]
 DEFAULT_COMPRESSION: ParquetCompression = "zstd"
+
+CREDENTIALS_DETAIL = "S3 authentication failed. Check the access key ID and secret, then run the sync again."
+BUCKET_DETAIL = (
+    "The S3 bucket does not exist or is in another region. Check the bucket name and region, then run the sync again."
+)
+PERMISSIONS_DETAIL = (
+    "S3 denied access to the bucket path. Grant s3:PutObject and s3:AbortMultipartUpload on the bucket path, "
+    "then run the sync again."
+)
+ROLE_DETAIL = (
+    "PostHog cannot assume the role. Check the role ARN and the trust policy with the external ID, "
+    "then run the sync again."
+)
+
+
+def _configuration_error_detail(err: Exception) -> str | None:
+    if isinstance(err, InvalidCredentialsError):
+        return ROLE_DETAIL
+    if not isinstance(err, botocore.exceptions.ClientError):
+        return None
+    if err.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0) >= 500:
+        return None
+    code = err.response.get("Error", {}).get("Code")
+    if code in ("InvalidAccessKeyId", "SignatureDoesNotMatch"):
+        return CREDENTIALS_DETAIL
+    if code == "NoSuchBucket":
+        return BUCKET_DETAIL
+    if code in ("AccessDenied", "AccessDeniedException"):
+        return ROLE_DETAIL if err.operation_name == "AssumeRole" else PERMISSIONS_DETAIL
+    return None
+
 
 # The destination's `config` is an unvalidated JSONField, so whatever a user puts in it reaches
 # pyarrow directly. Anything outside this set fails mid-write, several hundred MiB in.
@@ -94,10 +131,6 @@ MAX_RETRY_DELAY = ConcurrentS3Consumer.MAX_RETRY_DELAY
 EXPONENTIAL_BACKOFF_COEFFICIENT = ConcurrentS3Consumer.EXPONENTIAL_BACKOFF_COEFFICIENT
 
 RefreshCredentials = Callable[[], Awaitable[AWSCredentials]]
-
-
-class S3DestinationConfigurationError(ValueError):
-    """The destination's config cannot produce a valid S3 write."""
 
 
 @dataclass(frozen=False, kw_only=True)
@@ -270,19 +303,21 @@ class S3DestinationWriter:
         name = self._ctx.destination_name
 
         if not self._bucket:
-            raise S3DestinationConfigurationError(
-                f"Destination {name} has no bucket. Add a bucket to the destination, then run the sync again."
+            raise DestinationConfigurationError(
+                name, "The destination has no bucket. Add a bucket to the destination, then run the sync again."
             )
         if not self._region:
-            raise S3DestinationConfigurationError(
-                f"Destination {name} has no region. Set the region the bucket is in, for example 'us-east-1', "
-                "then run the sync again."
+            raise DestinationConfigurationError(
+                name,
+                "The destination has no region. Set the region the bucket is in, for example 'us-east-1', "
+                "then run the sync again.",
             )
         if self._compression not in SUPPORTED_COMPRESSIONS:
             supported = ", ".join(sorted(SUPPORTED_COMPRESSIONS))
-            raise S3DestinationConfigurationError(
-                f"Destination {name} uses the compression '{self._compression}', which parquet files cannot use. "
-                f"Pick one of: {supported}."
+            raise DestinationConfigurationError(
+                name,
+                f"The destination uses the compression '{self._compression}', which parquet files cannot use. "
+                f"Pick one of: {supported}.",
             )
 
     # --- keys -------------------------------------------------------------------------
@@ -299,6 +334,16 @@ class S3DestinationWriter:
 
     # --- connection -------------------------------------------------------------------
 
+    @contextmanager
+    def _configuration_errors(self) -> Iterator[None]:
+        try:
+            yield
+        except Exception as err:
+            detail = _configuration_error_detail(err)
+            if detail is not None:
+                raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
+            raise
+
     @asynccontextmanager
     async def _client(self) -> AsyncIterator[S3Client]:
         """Their client, entered so its aiohttp session is closed on the way out.
@@ -306,9 +351,12 @@ class S3DestinationWriter:
         A writer is built per batch, so a client left open here leaks a session per batch.
         """
         if self._ctx.integration_id is None:
-            raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
 
-        integration = await get_s3_integration(self._ctx.integration_id, self._ctx.team_id)
+        try:
+            integration = await get_s3_integration(self._ctx.integration_id, self._ctx.team_id)
+        except S3IntegrationNotFoundError as error:
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL) from error
 
         endpoint_url: str | None = None
         refresh_credentials: RefreshCredentials | None = None
@@ -370,6 +418,12 @@ class S3DestinationWriter:
     async def write_batch(
         self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
     ) -> BatchWriteOutcome:
+        with self._configuration_errors():
+            return await self._write_batch(batches, ctx)
+
+    async def _write_batch(
+        self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
+    ) -> BatchWriteOutcome:
         first = await anext(batches, None)
         if first is None:
             # No record batches at all. An empty object is not a readable parquet file, so
@@ -397,6 +451,10 @@ class S3DestinationWriter:
         return None if self._compression == "none" else self._compression
 
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
+        with self._configuration_errors():
+            await self._finalize_run(ctx)
+
+    async def _finalize_run(self, ctx: DestinationRunContext) -> None:
         """Write a manifest, which is how a reader tells a finished run from an abandoned one.
 
         It carries no file list. `finalize_run` runs on a writer that may have written none of

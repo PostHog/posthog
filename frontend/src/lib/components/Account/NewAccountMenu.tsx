@@ -73,7 +73,7 @@ export function NewAccountMenu({
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const hasPendingInvites = pendingInvites.length > 0
     const { preflight } = useValues(preflightLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, currentOrganizationProjectCount } = useValues(organizationLogic)
     const { billingEntryUrl } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
@@ -134,7 +134,7 @@ export function NewAccountMenu({
                                 )}
                                 {hasPendingInvites && (
                                     <PendingInviteDot
-                                        className={isLayoutNavCollapsed ? 'absolute top-0.5 right-0.5' : 'mr-0.5'}
+                                        className={isLayoutNavCollapsed ? 'absolute top-0 right-0' : 'ml-1 mr-0.5'}
                                     />
                                 )}
                             </ButtonPrimitive>
@@ -169,7 +169,7 @@ export function NewAccountMenu({
                                                         setAccountMenuOpen(false)
                                                         showCreateProjectModal()
                                                     },
-                                                    { currentUsage: currentOrganization?.teams?.length }
+                                                    { currentUsage: currentOrganizationProjectCount }
                                                 )
                                             }}
                                         >
@@ -197,7 +197,6 @@ export function NewAccountMenu({
                                                     <span className="truncate font-semibold">
                                                         {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
                                                     </span>
-                                                    {hasPendingInvites && <PendingInviteDot className="mr-0.5" />}
                                                     <MenuOpenIndicator intent="sub" className="ml-auto" />
                                                 </ButtonPrimitive>
                                             }
@@ -307,6 +306,7 @@ export function NewAccountMenu({
                                                         ? currentOrganization.name
                                                         : 'Select organization'}
                                                 </span>
+                                                {hasPendingInvites && <PendingInviteDot className="mr-0.5" />}
                                                 <MenuOpenIndicator intent="sub" className="ml-auto" />
                                             </ButtonPrimitive>
                                         }

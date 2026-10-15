@@ -6,7 +6,12 @@ import type { WizardRunApi, WizardRunTaskApi, WizardRunTaskListApi } from '../ge
 import { wizardRunIsActive } from '../wizardRunDisplay'
 
 const RUN_POLL_MS = 30_000
-// ponytail: show five active and five completed runs; the Wizard page lists the rest.
+
+// Cutoff for wizard runs to be shown in the FAB.
+// This prevents users who already ran the wizard to get a FAB
+// for older runs.
+const RUN_VISIBLE_AFTER = '2026-09-28T00:00:00Z'
+
 const RUN_LIST_LIMIT = 5
 
 type RunStreamState = Pick<
@@ -121,19 +126,23 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
             }
             cache.checking = true
             try {
-                const [activePage, completedPage] = await Promise.all([
+                const [activePage, recentPage] = await Promise.all([
                     wizardRunsList(logicProps.projectId, {
                         status: ['created', 'running'],
+                        created_after: RUN_VISIBLE_AFTER,
                         limit: RUN_LIST_LIMIT,
                     }),
-                    wizardRunsList(logicProps.projectId, { status: ['completed'], limit: RUN_LIST_LIMIT }),
+                    wizardRunsList(logicProps.projectId, {
+                        created_after: RUN_VISIBLE_AFTER,
+                        limit: RUN_LIST_LIMIT,
+                    }),
                 ])
-                const activeRuns = activePage.results.filter(
-                    (run) => !completedPage.results.some((completedRun) => completedRun.id === run.id)
-                )
+                const activeRuns = activePage.results
+                    .map((run) => recentPage.results.find((recentRun) => recentRun.id === run.id) ?? run)
+                    .filter(wizardRunIsActive)
                 actions.runsLoaded(activePage.count - (activePage.results.length - activeRuns.length), [
                     ...activeRuns,
-                    ...completedPage.results,
+                    ...recentPage.results.filter((run) => !activeRuns.some((activeRun) => activeRun.id === run.id)),
                 ])
             } catch {
                 return

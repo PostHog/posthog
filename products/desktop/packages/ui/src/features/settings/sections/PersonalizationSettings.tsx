@@ -1,17 +1,12 @@
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import { Switch, Textarea } from "@posthog/quill";
-import {
-  ANALYTICS_EVENTS,
-  SERVER_AGENT_INSTRUCTIONS_FLAG,
-} from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
   SettingsCard,
   SettingsCardRow,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
-import { cloudTaskCarriesLocalInstructions } from "@posthog/ui/features/settings/serverAgentInstructions";
 import {
   type SyncedCustomInstructions,
   useSettingsStore,
@@ -31,8 +26,6 @@ export interface PersonalizationSettingsViewProps {
   synced: SyncedCustomInstructions | null;
   ste100Enabled: boolean;
   onSte100Toggle: (checked: boolean) => void;
-  /** Set once cloud tasks use "My instructions" from PostHog for this project. */
-  myInstructionsUrl?: string | null;
 }
 
 // Pure render of the instructions block. The container below owns the store
@@ -46,7 +39,6 @@ export function PersonalizationSettingsView({
   synced,
   ste100Enabled,
   onSte100Toggle,
-  myInstructionsUrl,
 }: PersonalizationSettingsViewProps) {
   return (
     <SettingsSection
@@ -117,20 +109,6 @@ export function PersonalizationSettingsView({
           )}
         </div>
       </SettingsCard>
-      {myInstructionsUrl && (
-        <span className="text-[12px] text-muted-foreground">
-          Cloud tasks use your My instructions from PostHog. Changes here apply
-          to local tasks only.{" "}
-          <a
-            href={myInstructionsUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="text-accent-11 underline hover:text-accent-12"
-          >
-            Edit My instructions
-          </a>
-        </span>
-      )}
     </SettingsSection>
   );
 }
@@ -149,26 +127,6 @@ export function PersonalizationSettings() {
   const synced = useSettingsStore((s) => s.syncedCustomInstructions);
   const ste100Enabled = useSettingsStore((s) => s.ste100Enabled);
   const setSte100Enabled = useSettingsStore((s) => s.setSte100Enabled);
-  const onServerProjectIds = useSettingsStore(
-    (s) => s.customInstructionsOnServerProjectIds,
-  );
-  const serverInstructionsEnabled = useFeatureFlag(
-    SERVER_AGENT_INSTRUCTIONS_FLAG,
-  );
-  const projectId = useAuthStateValue((state) => state.currentProjectId);
-  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
-  const myInstructionsUrl =
-    projectId != null &&
-    !cloudTaskCarriesLocalInstructions({
-      flagEnabled: serverInstructionsEnabled,
-      projectId,
-      onServerProjectIds,
-    })
-      ? buildPostHogUrl(
-          `/project/${projectId}/settings/environment-task-agent-instructions`,
-          cloudRegion,
-        )
-      : null;
 
   // The draft renders over the store value only while edits are pending
   // (null = none), instead of copying the store into state and mirroring it
@@ -236,7 +194,6 @@ export function PersonalizationSettings() {
         synced={synced}
         ste100Enabled={ste100Enabled}
         onSte100Toggle={handleSte100Toggle}
-        myInstructionsUrl={myInstructionsUrl}
       />
       <FunSection />
     </div>

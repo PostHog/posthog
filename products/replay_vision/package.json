@@ -23,6 +23,7 @@
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
         "@types/react": "*",
         "clsx": "*",
         "react": "*",

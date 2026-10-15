@@ -17,7 +17,8 @@ use tracing::instrument;
 use tracing::log::{debug, error, info};
 
 use crate::api::CaptureError;
-use crate::outputs::PublishEvents;
+use crate::outputs::{PreparedEvent, PublishEvents, PublishPrepared};
+use crate::sinks::sink::SinkResult;
 
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 const HEALTH_INTERVAL: Duration = Duration::from_secs(10);
@@ -54,12 +55,10 @@ impl EventBuffer {
         }
     }
 
-    fn add_event(&mut self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let json = serde_json::to_string(&event.event)?;
-        self.event_bytes.extend_from_slice(json.as_bytes());
+    fn add_line(&mut self, body: &[u8]) {
+        self.event_bytes.extend_from_slice(body);
         self.event_bytes.push(b'\n');
         self.event_count += 1;
-        Ok(())
     }
 
     fn should_flush(&self) -> bool {
@@ -273,19 +272,53 @@ impl Inner {
     }
 }
 
-#[async_trait]
-impl PublishEvents for S3Sink {
-    #[instrument(skip_all)]
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl S3Sink {
+    async fn write_lines<B: AsRef<[u8]>>(
+        &self,
+        bodies: impl ExactSizeIterator<Item = B> + Send,
+    ) -> Result<(), CaptureError> {
+        // An idle buffer never flushes, so waiting on it would never return.
+        if bodies.len() == 0 {
+            return Ok(());
+        }
         let mut buffer = self.inner.buffer.lock().await;
-        for event in events {
-            buffer.add_event(event)?;
+        for body in bodies {
+            buffer.add_line(body.as_ref());
         }
         let mut rx = buffer.tx.subscribe();
         drop(buffer);
         rx.recv()
             .await
-            .map_err(|_| CaptureError::NonRetryableSinkError)?
+            .unwrap_or(Err(CaptureError::NonRetryableSinkError))
+    }
+}
+
+#[async_trait]
+impl PublishEvents for S3Sink {
+    #[instrument(skip_all)]
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        let bodies = events
+            .iter()
+            .map(|event| serde_json::to_vec(&event.event))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.write_lines(bodies.iter()).await
+    }
+}
+
+#[async_trait]
+impl PublishPrepared for S3Sink {
+    #[instrument(skip_all)]
+    async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        let flushed = self
+            .write_lines(events.iter().map(|event| &event.payload))
+            .await;
+        events
+            .iter()
+            .map(|event| match &flushed {
+                Ok(()) => SinkResult::published(event.uuid),
+                Err(err) => SinkResult::failed(event.uuid, err.clone()),
+            })
+            .collect()
     }
 }
 
@@ -357,6 +390,17 @@ mod tests {
                 distinct_id_truncated_from: None,
             },
         }
+    }
+
+    #[tokio::test]
+    async fn empty_prepared_batch_returns_without_waiting_for_a_flush() {
+        let sink = setup_test_sink().await;
+
+        let results = tokio::time::timeout(Duration::from_secs(5), sink.publish_prepared(vec![]))
+            .await
+            .expect("an empty batch must not wait on the idle buffer");
+
+        assert!(results.is_empty());
     }
 
     #[tokio::test]

@@ -1,16 +1,15 @@
+import { libraryObjectHref, libraryObjectName, libraryTypeLabel } from 'scenes/library/libraryUtils'
+
+import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
+
 import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
-import { ChannelDTOApi, PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
-import { SpacePresence } from 'products/tasks/frontend/spaces/spacePresence'
+import { PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
 
 import { recentSourceLabel } from './todayRecentFilters'
 import { TodaySessionDot, todaySessionDot } from './todaySessionDot'
 import { TodaySessionMenuTarget, TodayWorkItem, sessionMenuTarget } from './todayWorkItems'
-
-/** Repositories past this are counted rather than named, so the card stays a glance. */
-const SPACE_PREVIEW_REPOSITORY_LIMIT = 3
-
-export type TodaySpaceKind = 'public' | 'private' | 'personal'
 
 /** What a session row's hover card says, built once per row so the shared card gets a stable payload. */
 export interface TodaySessionPreview {
@@ -33,23 +32,6 @@ export interface TodaySessionPreview {
     menu: TodaySessionMenuTarget
 }
 
-/** What a space row's hover card says. */
-export interface TodaySpacePreview {
-    kind: 'space'
-    /** What the card's actions act on. */
-    space: ChannelDTOApi
-    name: string
-    spaceKind: TodaySpaceKind
-    /** The creator first, then whoever worked in the space most recently. */
-    people: TaskUserBasicInfoApi[]
-    liveUuids: string[]
-    creatorUuid: string | null
-    lastActivityAt: string | null
-    unreadSessions: number
-    repositories: string[]
-    hiddenRepositoryCount: number
-}
-
 export interface TodayChatPreview {
     kind: 'chat'
     chatId: string
@@ -58,14 +40,18 @@ export interface TodayChatPreview {
     timestamp: string | null
 }
 
-export type TodayPreviewPayload = TodaySessionPreview | TodaySpacePreview | TodayChatPreview
-
-export function spaceKind(space: Pick<ChannelDTOApi, 'channel_type' | 'system_role'>): TodaySpaceKind {
-    if (space.system_role === 'personal' || space.channel_type === 'personal') {
-        return 'personal'
-    }
-    return space.channel_type === 'private' ? 'private' : 'public'
+export interface TodayObjectPreview {
+    kind: 'object'
+    name: string
+    type: string | undefined
+    ref: string | null
+    typeLabel: string | null
+    folder: string[]
+    href: string | null
+    lastViewedAt: string | null
 }
+
+export type TodayPreviewPayload = TodaySessionPreview | TodayChatPreview | TodayObjectPreview
 
 export function sessionPreview(
     item: TodayWorkItem,
@@ -107,21 +93,17 @@ export function sessionPreview(
     }
 }
 
-/**
- * The creator leads whether or not they worked here lately, so the crown always sits on the first face.
- * They are not listed twice when they are also in the recent people.
- */
-function spacePeople(
-    creator: TaskUserBasicInfoApi | null | undefined,
-    presence: SpacePresence | undefined
-): TaskUserBasicInfoApi[] {
-    const people = creator ? [creator] : []
-    for (const person of presence?.people ?? []) {
-        if (!people.some((existing) => existing.uuid === person.uuid)) {
-            people.push(person)
-        }
+export function objectPreview(entry: FileSystemEntry): TodayObjectPreview {
+    return {
+        kind: 'object',
+        name: libraryObjectName(entry),
+        type: entry.type,
+        ref: entry.ref ?? null,
+        typeLabel: libraryTypeLabel(entry.type),
+        folder: splitPath(entry.path).slice(0, -1),
+        href: libraryObjectHref(entry),
+        lastViewedAt: entry.last_viewed_at ?? null,
     }
-    return people
 }
 
 export function chatPreview(item: TodayWorkItem): TodayChatPreview {
@@ -131,27 +113,5 @@ export function chatPreview(item: TodayWorkItem): TodayChatPreview {
         title: item.title || 'Untitled chat',
         source: 'PostHog AI',
         timestamp: item.timestamp,
-    }
-}
-
-export function spacePreview(
-    space: ChannelDTOApi,
-    name: string,
-    presence: SpacePresence | undefined,
-    lastActivityAt: string | undefined,
-    unreadSessions: number = 0
-): TodaySpacePreview {
-    return {
-        kind: 'space',
-        space,
-        name,
-        spaceKind: spaceKind(space),
-        people: spacePeople(space.created_by, presence),
-        liveUuids: presence?.liveUuids ?? [],
-        creatorUuid: space.created_by?.uuid ?? null,
-        lastActivityAt: lastActivityAt ?? null,
-        unreadSessions,
-        repositories: space.repositories.slice(0, SPACE_PREVIEW_REPOSITORY_LIMIT),
-        hiddenRepositoryCount: Math.max(0, space.repositories.length - SPACE_PREVIEW_REPOSITORY_LIMIT),
     }
 }

@@ -3,7 +3,7 @@ import json
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import materialized
@@ -29,8 +29,9 @@ from posthog.clickhouse.cluster import (
     T,
     get_cluster,
     redact_sql_secrets,
+    wait_for_mutations_on_shards,
 )
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 
 pytestmark = pytest.mark.django_db
 
@@ -41,60 +42,114 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
 
 
 @pytest.mark.parametrize(
-    "static_password, password_file_set, overrides_arg, expect_token_bootstrap, expect_provider",
+    "ch_user, static_password, password_file_set, overrides_arg, expected_bootstrap, expected_overrides, expect_provider",
     [
-        pytest.param("static-fallback", True, None, True, True, id="dual_armed_default_bootstraps_on_token"),
-        pytest.param("", True, None, True, True, id="token_first_default_bootstraps_on_token"),
-        pytest.param("static-only", False, None, False, False, id="static_default_uses_password"),
         pytest.param(
+            ClickHouseUser.DEFAULT,
+            "static-fallback",
+            True,
+            None,
+            {"user": "default", "password": "live-token"},
+            {"user": "default"},
+            True,
+            id="dual_armed_default_bootstraps_on_token",
+        ),
+        pytest.param(
+            ClickHouseUser.DEFAULT,
+            "",
+            True,
+            None,
+            {"user": "default", "password": "live-token"},
+            {"user": "default"},
+            True,
+            id="token_first_default_bootstraps_on_token",
+        ),
+        pytest.param(
+            ClickHouseUser.DEFAULT,
+            "static-only",
+            False,
+            None,
+            {"user": "default", "password": "static-only"},
+            {},
+            False,
+            id="static_default_uses_password",
+        ),
+        pytest.param(
+            ClickHouseUser.DEFAULT,
             "static-fallback",
             True,
             {"user": "backups", "password": "bkp-static"},
-            True,
+            {"user": "default", "password": "live-token"},
+            {"user": "backups", "password": "bkp-static"},
             False,
             id="override_user_keeps_its_own_credential",
+        ),
+        pytest.param(
+            ClickHouseUser.MIGRATIONS,
+            "",
+            True,
+            None,
+            {"user": "migrations", "password": "live-token"},
+            {"user": "migrations"},
+            True,
+            id="dedicated_user_connects_on_its_token",
+        ),
+        pytest.param(
+            ClickHouseUser.MIGRATIONS,
+            "migrations-static",
+            False,
+            None,
+            {"user": "migrations", "password": "migrations-static"},
+            {"user": "migrations", "password": "migrations-static"},
+            False,
+            id="static_dedicated_user_connects_on_its_password",
         ),
     ],
 )
 def test_get_cluster_bootstraps_a_file_backed_user_on_its_live_token(
-    monkeypatch, tmp_path, static_password, password_file_set, overrides_arg, expect_token_bootstrap, expect_provider
+    monkeypatch,
+    tmp_path,
+    ch_user,
+    static_password,
+    password_file_set,
+    overrides_arg,
+    expected_bootstrap,
+    expected_overrides,
+    expect_provider,
 ) -> None:
-    token = "live-token"
     token_file = tmp_path / "token"
-    token_file.write_text(token)
+    token_file.write_text("live-token")
     creds = ClickHouseCredentials(
-        user="default",
+        user=ch_user.value,
         password=static_password,
         password_file=str(token_file) if password_file_set else None,
     )
-    monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.DEFAULT: creds})
+    users = {ClickHouseUser.DEFAULT: ClickHouseCredentials(user="default", password="default-static")}
+    users[ch_user] = creds
+    monkeypatch.setattr(connection, "__user_dict", users)
 
     with (
         patch("posthog.clickhouse.cluster.default_client") as mock_default_client,
         patch("posthog.clickhouse.cluster.ClickhouseCluster") as mock_cluster,
     ):
-        get_cluster(connection_overrides=overrides_arg)
+        get_cluster(connection_overrides=overrides_arg, ch_user=ch_user)
 
-    bootstrap_password = mock_default_client.call_args.kwargs.get("password")
+    bootstrap = {key: value for key, value in mock_default_client.call_args.kwargs.items() if key != "host"}
     bootstrap_provider = mock_cluster.call_args.kwargs["bootstrap_credential_provider"]
-    overrides = mock_cluster.call_args.kwargs["connection_overrides"]
+    overrides = dict(mock_cluster.call_args.kwargs["connection_overrides"])
+    provider = overrides.pop("credential_provider", None)
     token_file.write_text("rotated-token")
 
-    if expect_token_bootstrap:
-        assert bootstrap_password == token
+    assert bootstrap == expected_bootstrap
+    assert overrides == expected_overrides
+    if password_file_set:
         assert bootstrap_provider() == "rotated-token"
     else:
-        assert bootstrap_password is None
         assert bootstrap_provider is None
-
     if expect_provider:
-        assert overrides["credential_provider"]() == "rotated-token"
+        assert provider is not None and provider() == "rotated-token"
     else:
-        assert "credential_provider" not in overrides
-
-    if overrides_arg is not None:
-        assert overrides["user"] == overrides_arg["user"]
-        assert overrides["password"] == overrides_arg["password"]
+        assert provider is None
 
 
 def test_mutation_runner_rejects_invalid_parameters() -> None:
@@ -424,6 +479,34 @@ def test_find_existing_mutations_handles_delimiter_shaped_parameter_value(cluste
     assert all(not mutations for mutations in existing.values()), (
         "expected no pre-existing mutation for this delimiter-shaped parameter"
     )
+
+
+def test_find_existing_mutations_renders_tz_aware_datetimes_before_connecting() -> None:
+    """Regression test: commands were rendered with `client.connection.context` before the client had
+    connected, so `server_info` was None and a tz-aware datetime parameter (e.g. an event removal time
+    range) raised `'NoneType' object has no attribute 'get_timezone'`. The lookup must also render in the
+    server timezone, as submission does, or a non-UTC server would never match its stored mutation.
+    """
+    runner = LightweightDeleteMutationRunner(
+        table=EVENTS_DATA_TABLE(),
+        predicate="team_id = %(team_id)s AND timestamp >= %(start_time)s",
+        parameters={"team_id": 1, "start_time": datetime(2026, 1, 1, tzinfo=UTC)},
+    )
+    client = Client("unconnected-host")
+    assert client.connection.context.server_info is None
+
+    def fake_execute(query: str, params: dict | None = None, **kwargs) -> list[tuple]:
+        if query == "SELECT 1":  # connecting populates server_info, here a non-UTC server
+            client.connection.context.server_info = Mock(get_timezone=Mock(return_value="America/New_York"))
+            return [(1,)]
+        return [(None,)]
+
+    with patch.object(client, "execute", side_effect=fake_execute) as execute:
+        assert runner.find_existing_mutations(client) == {}
+
+    connect_call, lookup_call = execute.call_args_list
+    assert connect_call.args == ("SELECT 1",)
+    assert "'2025-12-31 19:00:00'" in lookup_call.args[1]["__command_0"]
 
 
 def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
@@ -897,6 +980,32 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
             host_info.shard_num, Query(f"SELECT count(1) FROM {table}")
         ).result()
         assert all(result[0][0] < count for result in query_results.values())
+
+
+def test_patch_part_delete_writes_no_mutation(cluster: ClickhouseCluster) -> None:
+    # A patch-part delete that fell back to ALTER UPDATE would still remove the rows, so the
+    # mutation log is the only place the regression shows.
+    table = EVENTS_JSON_DATA_TABLE
+    kept, deleted = uuid.uuid4(), uuid.uuid4()
+    cluster.map_one_host_per_shard(Query(f"TRUNCATE TABLE {table}")).result()
+    cluster.any_host(
+        Query(
+            f"INSERT INTO {table} (uuid, team_id, event, distinct_id, timestamp) VALUES",
+            [(u, 1, "$pageview", "d", datetime(2026, 1, 1, tzinfo=UTC)) for u in (kept, deleted)],
+        )
+    ).result()
+    mutations_sql = f"SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = '{table}'"
+    [[[mutations_before]]] = cluster.map_all_hosts(Query(mutations_sql)).result().values()
+
+    runner = LightweightDeleteMutationRunner(
+        table=table, predicate="uuid = %(uuid)s", parameters={"uuid": deleted}, patch_parts=True
+    )
+    wait_for_mutations_on_shards(cluster, runner.enqueue_on_shards(cluster))
+
+    for rows in cluster.map_all_hosts(Query(f"SELECT uuid FROM {table}")).result().values():
+        assert [row[0] for row in rows] == [kept]
+    [[[mutations_after]]] = cluster.map_all_hosts(Query(mutations_sql)).result().values()
+    assert mutations_after == mutations_before
 
 
 def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:

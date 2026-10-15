@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
 class HoneycombScope(Enum):
@@ -12,7 +12,8 @@ class HoneycombScope(Enum):
     environment-wide collections returned in a single request (datasets, boards, recipients);
     most are addressed per dataset (columns, triggers, SLOs, markers, …), so fetching those
     tables means fanning out one request per dataset. Burn alerts go one level deeper: they
-    are listed per SLO, so the fan-out walks datasets -> SLOs -> burn alerts.
+    are listed per SLO, so the fan-out walks datasets -> SLOs -> burn alerts. Board views are
+    listed per board.
     """
 
     # Environment-wide collection returned by a single static path (GET /1/datasets).
@@ -21,14 +22,19 @@ class HoneycombScope(Enum):
     PER_DATASET = "per_dataset"
     # Fan out over every SLO in every dataset (GET /1/burn_alerts/{dataset_slug}?slo_id=…).
     PER_SLO = "per_slo"
+    # Fan out over every SLO in every dataset, one request per SLO per time window
+    # (GET /1/slos/{dataset_slug}/{slo_id}/counts/history?start_time=…&end_time=…).
+    PER_SLO_TIME_WINDOW = "per_slo_time_window"
+    # Fan out over every board in the environment (GET /1/boards/{board_id}/views).
+    PER_BOARD = "per_board"
 
 
-@dataclass
+@dataclass(frozen=False)
 class HoneycombEndpointConfig:
     name: str
     scope: HoneycombScope
-    # Path template. PER_DATASET and PER_SLO paths contain ``{dataset_slug}``; ENVIRONMENT
-    # paths are static.
+    # Path template. Dataset fan-out paths contain ``{dataset_slug}`` (and ``{slo_id}`` for
+    # PER_SLO_TIME_WINDOW), PER_BOARD paths contain ``{board_id}``; ENVIRONMENT paths are static.
     path: str
     # Primary key columns used for merge dedup. For fan-out children the dataset slug is
     # included (and injected into every row) so the key stays unique across the whole table —
@@ -43,7 +49,8 @@ class HoneycombEndpointConfig:
     # than any real dataset, so skipping it would silently drop them.
     include_environment_wide: bool = False
     # The menu of incremental cursor candidates advertised to the user. Empty = full refresh
-    # only — none of Honeycomb's v1 config endpoints expose a server-side timestamp filter.
+    # only — Honeycomb's v1 config endpoints expose no server-side timestamp filter; only the
+    # SLO counts history takes a start_time/end_time range.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Whether the table is selected for sync by default in the connection wizard.
     should_sync_default: bool = True
@@ -115,6 +122,33 @@ HONEYCOMB_ENDPOINTS: dict[str, HoneycombEndpointConfig] = {
         path="/1/recipients",
         primary_keys=["id"],
         partition_key="created_at",
+    ),
+    "board_views": HoneycombEndpointConfig(
+        name="board_views",
+        scope=HoneycombScope.PER_BOARD,
+        path="/1/boards/{board_id}/views",
+        # View ids are only documented per board, so the injected board id is part of the key.
+        # Views carry no creation timestamp, so the table is unpartitioned.
+        primary_keys=["id", "board_id"],
+    ),
+    "slo_counts_history": HoneycombEndpointConfig(
+        name="slo_counts_history",
+        scope=HoneycombScope.PER_SLO_TIME_WINDOW,
+        path="/1/slos/{dataset_slug}/{slo_id}/counts/history",
+        # One bucket per SLO per hour. `start_time` is a Unix epoch integer; the pipeline
+        # partitions on integer epochs directly.
+        primary_keys=["slo_id", "dataset_slug", "start_time"],
+        partition_key="start_time",
+        incremental_fields=[
+            {
+                "label": "start_time",
+                "type": IncrementalFieldType.DateTime,
+                "field": "start_time",
+                "field_type": IncrementalFieldType.Integer,
+            },
+        ],
+        # Enterprise-only and enabled per team on request, so most keys get a 403/404 here.
+        should_sync_default=False,
     ),
 }
 

@@ -5,15 +5,18 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { onboardingVariantChrome, resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import type { SceneConfig } from '../../scenes/sceneTypes'
+import type { ProjectType } from '../../types'
 import { navigationLogic } from '../navigation/navigationLogic'
 
-export type Navigation3000Mode = 'none' | 'minimal' | 'zen' | 'full'
+export type Navigation3000Mode = 'none' | 'minimal' | 'zen' | 'embedded' | 'full'
 
 export type ZenModeTrigger = 'shortcut' | 'account_menu' | 'help_menu' | 'exit_button' | 'url'
 
@@ -21,6 +24,7 @@ export type ZenModeTrigger = 'shortcut' | 'account_menu' | 'help_menu' | 'exit_b
 export interface navigation3000LogicValues {
     mobileLayout: boolean // navigationLogic
     isCurrentOrganizationUnavailable: boolean // organizationLogic
+    currentProject: ProjectType | null // projectLogic
     activeSceneId: string | null // sceneLogic
     sceneConfig: SceneConfig | null // sceneLogic
     mode: Navigation3000Mode
@@ -49,6 +53,7 @@ export interface navigation3000LogicMeta {
         mode: (
             sceneConfig: SceneConfig | null,
             isCurrentOrganizationUnavailable: boolean,
+            currentProject: ProjectType | null,
             zenMode: boolean,
             activeSceneId: string | null,
             featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
@@ -73,6 +78,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['mobileLayout'],
             organizationLogic,
             ['isCurrentOrganizationUnavailable'],
+            projectLogic,
+            ['currentProject'],
         ],
     })),
     actions({
@@ -109,6 +116,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             (s) => [
                 s.sceneConfig,
                 s.isCurrentOrganizationUnavailable,
+                s.currentProject,
                 s.zenMode,
                 s.activeSceneId,
                 featureFlagLogic.selectors.featureFlags,
@@ -116,14 +124,20 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             (
                 sceneConfig: null | import('scenes/sceneTypes').SceneConfig,
                 isCurrentOrganizationUnavailable: boolean,
+                currentProject: import('~/types').ProjectType | null,
                 zenMode: boolean,
                 activeSceneId: string | null,
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): Navigation3000Mode => {
+                // An embedded page frame sits inside another app page, so it shows the scene alone.
+                if (isEmbeddedPageFrame()) {
+                    return 'embedded'
+                }
                 if (zenMode) {
                     return 'zen'
                 }
-                if (isCurrentOrganizationUnavailable) {
+                // My tickets stays open on a project pending deletion, so hide the links into the rest of the app.
+                if (isCurrentOrganizationUnavailable || currentProject?.is_pending_deletion) {
                     return 'minimal'
                 }
                 if (sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated) {

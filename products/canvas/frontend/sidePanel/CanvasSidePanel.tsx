@@ -7,9 +7,8 @@ import { canvasHistoryLogic } from '../history/canvasHistoryLogic'
 import { canvasSceneLogic } from '../scene/canvasSceneLogic'
 import { canvasPanelTab } from './canvasPanelTabs'
 import { CanvasSidePanelTabBody } from './CanvasSidePanelTabBody'
-import { canvasCommentsLogic } from './comments/canvasCommentsLogic'
 
-/** The canvas's tabs in the app side panel: the agent chat, comment threads, and version timeline. */
+/** The canvas's tabs in the app side panel: the agent chat, blocks, and version timeline. */
 export function CanvasSidePanel(): JSX.Element | null {
     const { selectedTab } = useValues(sidePanelStateLogic)
     const { sceneSidePanelContext } = useValues(sidePanelContextLogic)
@@ -22,15 +21,13 @@ export function CanvasSidePanel(): JSX.Element | null {
     return (
         <BindLogic logic={canvasSceneLogic} props={{ id: canvasId }}>
             <BindLogic logic={canvasHistoryLogic} props={{ id: canvasId }}>
-                <BindLogic logic={canvasCommentsLogic} props={{ id: canvasId }}>
-                    <div
-                        data-quill
-                        className="flex h-full min-h-0 flex-col bg-background"
-                        data-attr={`canvas-side-panel-${tab}`}
-                    >
-                        <CanvasSidePanelTabBody tab={tab} canvasId={canvasId} />
-                    </div>
-                </BindLogic>
+                <div
+                    data-quill
+                    className="flex h-full min-h-0 flex-col bg-background"
+                    data-attr={`canvas-side-panel-${tab}`}
+                >
+                    <CanvasSidePanelTabBody tab={tab} canvasId={canvasId} />
+                </div>
             </BindLogic>
         </BindLogic>
     )

@@ -119,6 +119,12 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines."
         ),
+    write_person_property: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored."
+        ),
 })
 
 /**
@@ -242,11 +248,29 @@ export const AutoresearchTrainingRunsArtifactsUploadCreateBody = /* @__PURE__ */
  * Finalize a training run. The backend selects the kept iteration with the highest holdout score, decides champion vs challenger via the promotion ladder, and persists the model. best_iteration_id is advisory: it breaks a tie at the top score and is otherwise logged and ignored. Agents cannot set the champion directly, because promotion is server-side.
  * @summary Complete a training run
  */
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemNameMax = 200
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemImportanceMin = 0
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesMax = 30
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneMethodMax = 500
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneNoteMax = 500
+
 export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextDefault = ``
 export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextMax = 2000
 
 export const autoresearchTrainingRunsCompleteCreateBodyDistillationDefault = ``
 export const autoresearchTrainingRunsCompleteCreateBodyDistillationMax = 2000
+
+export const autoresearchTrainingRunsCompleteCreateBodyReaderSummaryMax = 600
+
+export const autoresearchTrainingRunsCompleteCreateBodyNextStepsItemMax = 80
+
+export const autoresearchTrainingRunsCompleteCreateBodyNextStepsMax = 5
+
+export const autoresearchTrainingRunsCompleteCreateBodyReportNotebookShortIdDefault = ``
 
 export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
     .object({
@@ -257,7 +281,49 @@ export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
                 'Advisory nomination. The server promotes the kept iteration with the highest holdout_score; this id only breaks a tie at that score, and a lower-scoring nomination is logged and ignored.'
             ),
         model_explanation: zod
-            .looseObject({})
+            .object({
+                top_features: zod
+                    .array(
+                        zod.object({
+                            name: zod
+                                .string()
+                                .max(
+                                    autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemNameMax
+                                )
+                                .describe('Feature column name, as returned by the feature SQL.'),
+                            importance: zod
+                                .number()
+                                .min(
+                                    autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemImportanceMin
+                                )
+                                .describe(
+                                    'Non-negative importance, for example the mean holdout AUC drop when the feature is shuffled.'
+                                ),
+                            direction: zod
+                                .enum(['positive', 'negative'])
+                                .describe('\* `positive` - Positive\n\* `negative` - Negative')
+                                .describe(
+                                    "'positive' if a higher value raises the predicted probability, 'negative' if it lowers it.\n\n\* `positive` - Positive\n\* `negative` - Negative"
+                                ),
+                        })
+                    )
+                    .max(autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesMax)
+                    .optional()
+                    .describe('At most 30 features, strongest first.'),
+                method: zod
+                    .string()
+                    .max(autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneMethodMax)
+                    .optional()
+                    .describe(
+                        "Short description of how the importances were computed, e.g. 'permutation importance on holdout'."
+                    ),
+                note: zod
+                    .string()
+                    .max(autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneNoteMax)
+                    .optional()
+                    .describe('Optional caveat shown under the chart.'),
+            })
+            .describe('Global feature importances for the model card.')
             .optional()
             .describe('Global feature importance \/ directionality bundle for the champion model card.'),
         recommended_next: zod
@@ -273,6 +339,28 @@ export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
             .default(autoresearchTrainingRunsCompleteCreateBodyDistillationDefault)
             .describe(
                 'A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters.'
+            ),
+        reader_summary: zod
+            .string()
+            .max(autoresearchTrainingRunsCompleteCreateBodyReaderSummaryMax)
+            .nullish()
+            .describe('One or two plain sentences for people on what this run learned. Max 600 characters.'),
+        headline: zod
+            .string()
+            .nullish()
+            .describe(
+                'A short title for people, at most 60 characters, on what this run learned. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.'
+            ),
+        next_steps: zod
+            .array(zod.string().max(autoresearchTrainingRunsCompleteCreateBodyNextStepsItemMax))
+            .max(autoresearchTrainingRunsCompleteCreateBodyNextStepsMax)
+            .nullish()
+            .describe('Short next steps for people, at most 5 items of a few words each (max 80 characters per item).'),
+        report_notebook_short_id: zod
+            .string()
+            .default(autoresearchTrainingRunsCompleteCreateBodyReportNotebookShortIdDefault)
+            .describe(
+                'Short id of the report notebook you built for this run. Stored in the run summary only if the notebook exists in this project; an unknown id is dropped and does not fail the completion.'
             ),
     })
     .describe('Input for finalizing a training run. The backend selects\/promotes the champion.')
@@ -292,6 +380,8 @@ export const autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMax = 1
 
 export const autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault = ``
 export const autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionMax = 2000
+
+export const autoresearchTrainingRunsIterationsCreateBodySummaryMax = 300
 
 export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin = 0
 export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMax = 1
@@ -354,6 +444,19 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
             .max(autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionMax)
             .default(autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault)
             .describe("Agent's plain-English rationale for this iteration. Max 2000 characters."),
+        summary: zod
+            .string()
+            .max(autoresearchTrainingRunsIterationsCreateBodySummaryMax)
+            .nullish()
+            .describe(
+                'One plain sentence for people on what this experiment tried and what happened. Max 300 characters.'
+            ),
+        headline: zod
+            .string()
+            .nullish()
+            .describe(
+                'A short title for people, at most 60 characters, on what this experiment tried. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.'
+            ),
         agent_confidence: zod
             .number()
             .min(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin)
@@ -493,6 +596,12 @@ export const AutoresearchUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines."
         ),
+    write_person_property: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored."
+        ),
 })
 
 /**
@@ -604,6 +713,12 @@ export const AutoresearchPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines."
+        ),
+    write_person_property: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored."
         ),
 })
 

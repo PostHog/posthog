@@ -477,7 +477,11 @@ class TestCheckActionability:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "model,expected_output_config",
-        [("claude-sonnet-5", {"effort": "medium"}), ("claude-sonnet-4-5", None)],
+        [
+            ("claude-sonnet-5", {"effort": "medium"}),
+            ("claude-sonnet-5-5", {"effort": "medium"}),
+            ("claude-sonnet-4-5", None),
+        ],
     )
     async def test_pins_effort_only_on_adaptive_models(self, model, expected_output_config):
         mock_client = MagicMock()

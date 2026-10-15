@@ -200,6 +200,8 @@ class RelaySlackMessageInput:
     # Gateway trace id of the turn that produced this answer. Trailing and defaulted so a
     # relay enqueued before this field existed still decodes.
     trace_id: str | None = None
+    # Set only for the agent's own answer, so a notice or a placeholder never gets reply buttons.
+    offer_reply_suggestions: bool = False
 
 
 @activity.defn
@@ -211,7 +213,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         normalize_labeled_mentions_to_bare,
         project_web_url,
     )
-    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+    from products.slack_app.backend.slack_thread import ReplyKind, SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
     from products.tasks.backend.temporal.process_task.utils import slack_reply_target
 
@@ -304,14 +306,24 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
             # sections and the chart cards, so the footer follows it as its own message.
             handler.post_footer()
 
+    answer_delivered = answer_posted
     if not answer_posted:
-        for index, chunk in enumerate(chunks):
-            prefix = mention_prefix if index == 0 else ""
-            # This relay carries one agent answer, split only to fit Slack's length cap, so
-            # the last chunk is where the turn ends and the footer belongs.
-            handler.post_thread_message(f"{prefix}{chunk}", with_footer=index == len(chunks) - 1, markdown=True)
+        # This relay carries one agent answer, split only to fit Slack's length cap, so the last
+        # chunk is where the turn ends and the footer belongs. Every chunk posts even after one fails.
+        chunks_posted = [
+            handler.post_thread_message(
+                f"{mention_prefix if index == 0 else ''}{chunk}", with_footer=index == len(chunks) - 1, markdown=True
+            )
+            for index, chunk in enumerate(chunks)
+        ]
+        answer_delivered = bool(chunks_posted) and all(chunks_posted)
         if has_pending_slack_files and not compose_with_charts:
             deliver_pending_slack_file_artifacts(task_run)
+    handler.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
+
+    # Last, because the model call behind it is the slowest step and the answer must not wait for it.
+    if answer_delivered and input.offer_reply_suggestions:
+        handler.offer_reply_suggestions(text)

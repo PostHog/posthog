@@ -20,14 +20,19 @@ items with name + status + timestamp. The agent gets MCP tools (`surveys-get-all
 `feature-flag-get-all`, `experiment-list`, `insights-trending-retrieve`, etc.) for
 deep drilldowns; the profile only orients.
 
+**Surface usage** — `surfaces`: whether each canonical scout's surface is in use, from that
+scout's default pre-check query. `top_events` cannot answer this for a quiet surface.
+
 Per-entity ordering picks `updated_at` / `last_modified_at` where available, falling
 back to `created_at` for entities that don't track modifications (cohorts, alerts).
 """
 
 from __future__ import annotations
 
+import math
+import time
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.db.models import Count, F, Max, Q
@@ -42,6 +47,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.alerts.backend.facade.destinations import redact_urls_in_name
@@ -61,7 +67,10 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names
+from products.signals.backend.scout_harness.lazy_seed import canonical_precheck_queries
+from products.signals.backend.scout_harness.precheck import PRECHECK_TIMEOUT_S, run_precheck_query
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.surveys.backend.models import Survey
@@ -75,7 +84,7 @@ logger = logging.getLogger(__name__)
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache. A redaction change bumps it too, so rows built before the
 # redaction stop being served.
-INVENTORY_SOURCE_VERSION = "v14"
+INVENTORY_SOURCE_VERSION = "v16"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -118,6 +127,13 @@ REVIEWER_CORRECTIONS_LIMIT = 20
 # most), so it needs no result cap of its own.
 SCOUT_FLEET_EMITTED_LOOKBACK_DAYS = 30
 
+# `_surfaces` binds a pre-check's `{since}` to this many days before now, and `{interval_minutes}`
+# to the same span. Most default queries carry their own window off `{now}` and ignore both.
+SURFACES_LOOKBACK_DAYS = 30
+# The total time the surface queries can take in one build. A surface that the budget leaves out
+# reads as `in_use: null`.
+SURFACES_TIME_BUDGET_S = 30
+
 
 def build_inventory(team: Team) -> Inventory:
     """Aggregate the deterministic inventory layer for a team.
@@ -156,6 +172,7 @@ def build_inventory(team: Team) -> Inventory:
             "recent_actions": _recent_actions(team),
             "business_knowledge": _business_knowledge(team),
             "top_events": _top_events(team),
+            "surfaces": _surfaces(team),
         }
     )
 
@@ -180,6 +197,9 @@ def _project_context(team: Team) -> dict[str, Any]:
 
 def _products_in_use(team: Team) -> list[str]:
     """Products this team has completed onboarding for.
+
+    Onboarding is not usage: a team can use a product it never onboarded, and the reverse.
+    `surfaces` answers whether a surface is in use.
 
     `Team.has_completed_onboarding_for` is a JSON map of `{product_key: bool}` — keys
     we report are the ones the team explicitly finished onboarding. Missing or null
@@ -313,6 +333,7 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
     last_emitted_by_skill = {
         row["skill_name"]: row["last_emitted_at"]
         for row in SignalScoutRun.objects.for_team(team.id)
+        .exclude(metadata__has_key="scout_trial")
         .filter(created_at__gte=emitted_since)
         .filter(Q(emitted_count__gt=0) | touched_a_report)
         .values("skill_name")
@@ -899,3 +920,69 @@ def _top_events(team: Team) -> list[dict[str, Any]] | None:
         }
         for row in rows
     ]
+
+
+def _surfaces(team: Team) -> dict[str, dict[str, Any]]:
+    """Whether each canonical scout's surface is in use, keyed by scout name.
+
+    `top_events` keeps only the top events by volume, and `products_in_use` reads onboarding, so
+    neither can show that a quiet surface is in use. Each canonical scout that ships a default
+    pre-check (`scout-precheck-query`) already names the query that answers that question. This
+    section runs that query and reads its rows like a scheduled pre-check does: rows mean
+    `in_use: true`, no rows or one false value mean `in_use: false`.
+
+    Each query runs as that scout's acting user, so it can read the same `system.*` and warehouse
+    tables the scout can read. A query with no user loses those tables and reads as empty. An
+    entry is `in_use: null` when the query fails, when no member can act, or when the build runs
+    out of `SURFACES_TIME_BUDGET_S`. `source` names the cause. Held-back scouts are left out, so
+    the payload does not disclose them.
+    """
+    queries = canonical_precheck_queries()
+    configs = {
+        config.skill_name: config
+        for config in SignalScoutConfig.objects.for_team(team.id).filter(skill_name__in=queries.keys())
+    }
+    now = timezone.now()
+    deadline = time.monotonic() + SURFACES_TIME_BUDGET_S
+    return {
+        skill_name: _surface_entry(team, skill_name, queries[skill_name], configs.get(skill_name), now, deadline)
+        for skill_name in sorted(queries.keys() - withheld_skills_for_team(team.id))
+    }
+
+
+def _surface_entry(
+    team: Team, skill_name: str, query: str, config: SignalScoutConfig | None, now: datetime, deadline: float
+) -> dict[str, Any]:
+    unanswered: dict[str, Any] = {"in_use": None, "evaluated_at": None, "row_count": None}
+    # Each query gets at most the time left in the build, so one slow query cannot pass the budget.
+    remaining_s = math.floor(deadline - time.monotonic())
+    if remaining_s < 1:
+        return {**unanswered, "source": "time_budget"}
+    acting_user = resolve_scout_run_acting_user(team, skill_name, config)
+    user = User.objects.filter(pk=acting_user.user_id).first() if acting_user is not None else None
+    if user is None:
+        return {**unanswered, "source": "no_acting_user"}
+    try:
+        result = run_precheck_query(
+            team,
+            user,
+            query,
+            since=now - timedelta(days=SURFACES_LOOKBACK_DAYS),
+            now=now,
+            interval_minutes=SURFACES_LOOKBACK_DAYS * 24 * 60,
+            timeout_s=min(PRECHECK_TIMEOUT_S, remaining_s),
+        )
+    except Exception:
+        logger.warning(
+            "signals_scout_profile: surface query failed for team_id=%s skill_name=%s",
+            team.id,
+            skill_name,
+            exc_info=True,
+        )
+        return {**unanswered, "source": "query_error"}
+    return {
+        "in_use": result.should_run,
+        "evaluated_at": now.isoformat(),
+        "source": "skill_default",
+        "row_count": result.row_count,
+    }

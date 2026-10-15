@@ -1,4 +1,6 @@
 /* eslint-disable no-console -- sidecar logs to stdout */
+import { fileURLToPath } from 'node:url'
+
 import { loadConfig } from './config.ts'
 import { ORT_THREADS, SCRUB_WORKERS } from './cores.ts'
 import { bindingRatio } from './floors.ts'
@@ -6,10 +8,12 @@ import { ScrubMetrics, trackPool } from './metrics.ts'
 import { startPool } from './pool.ts'
 import { limitsFromEnv } from './scale-plan.ts'
 import { startServer } from './server.ts'
+import { isSvgDocument, startSvgRasterizer } from './svg.ts'
 
 // Resolved here rather than in pool.ts: entry points run under tsx, where import.meta works, while
 // jest's CJS transform cannot load a src/ module that contains it (see the note in qr.ts).
 const WORKER_URL = new URL('./scrub-worker.ts', import.meta.url)
+const SVG_RASTERIZER_PATH = fileURLToPath(new URL('./svg-rasterizer-process.mjs', import.meta.url))
 
 const cfg = loadConfig()
 const SCRUB_LIMITS = limitsFromEnv()
@@ -37,6 +41,7 @@ if (uvThreadpoolSize < SCRUB_WORKERS) {
 // scrub and the readiness probe cannot pass on a half-started pool.
 const pool = await startPool(SCRUB_WORKERS, WORKER_URL, cfg.jobTimeoutMs)
 trackPool(pool)
+const svg = await startSvgRasterizer(cfg.svgRasterizers, SVG_RASTERIZER_PATH, cfg.svgTimeoutMs, cfg.jobTimeoutMs)
 
 const { scrub, metrics } = startServer(
     cfg.port,
@@ -44,7 +49,8 @@ const { scrub, metrics } = startServer(
     cfg.maxConcurrency,
     cfg.maxBodyBytes,
     async (input, signal) => {
-        const { out, t } = await pool.scrub(input, signal)
+        const raster = isSvgDocument(input) ? await svg.rasterize(input, signal) : input
+        const { out, t } = await pool.scrub(raster, signal)
         ScrubMetrics.observeScrubOutcome(t)
         return out
     },
@@ -62,7 +68,7 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
                 // The backstop stays armed across pool.close(): terminating a worker wedged inside a
                 // native ORT call is exactly the step that can hang, and clearing the timer first
                 // would disarm it for the only part of shutdown that needs it.
-                void pool.close().finally(() => {
+                void Promise.all([pool.close(), svg.close()]).finally(() => {
                     clearTimeout(force)
                     process.exit(0)
                 })

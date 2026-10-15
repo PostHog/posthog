@@ -1,8 +1,13 @@
+import sys
+import math
 import asyncio
+import subprocess
+from pathlib import Path
 
 import pytest
 
 import psycopg
+from prometheus_client import CollectorRegistry, multiprocess
 
 from products.warehouse_sources_queue.backend.core.metrics import (
     QUEUE_QUERY_DURATION_SECONDS,
@@ -14,6 +19,44 @@ from products.warehouse_sources_queue.backend.core.metrics import (
 def _duration_count(query: str) -> float:
     """Total observations for a query label (buckets are stored non-cumulative)."""
     return sum(b.get() for b in QUEUE_QUERY_DURATION_SECONDS.labels(query=query)._buckets)
+
+
+@pytest.mark.parametrize("process_order", [("holder", "non-holder"), ("non-holder", "holder")])
+def test_queue_gauge_multiprocess_collection_preserves_holder_sample(tmp_path, process_order):
+    script = """
+import os
+import sys
+
+os.environ["PROMETHEUS_MULTIPROC_DIR"] = sys.argv[1]
+
+from products.warehouse_sources_queue.backend.core.metrics import (  # noqa: E402
+    OLDEST_UNCLAIMED_BATCH_SECONDS,
+    clear_queue_sample_gauges,
+)
+
+clear_queue_sample_gauges()
+if sys.argv[2] == "holder":
+    OLDEST_UNCLAIMED_BATCH_SECONDS.set(37)
+"""
+    repository_root = Path(__file__).resolve().parents[4]
+    for process in process_order:
+        subprocess.run(
+            [sys.executable, "-c", script, str(tmp_path), process],
+            check=True,
+            cwd=repository_root,
+        )
+
+    registry = CollectorRegistry()
+    multiprocess.MultiProcessCollector(registry, path=str(tmp_path))
+    family = next(
+        metric for metric in registry.collect() if metric.name == "warehouse_pg_queue_oldest_unclaimed_batch_seconds"
+    )
+    samples = [sample for sample in family.samples if sample.name == family.name]
+
+    assert len(samples) == 2
+    assert all(set(sample.labels) == {"pid"} for sample in samples)
+    assert [sample.value for sample in samples if math.isfinite(sample.value)] == [37]
+    assert sum(math.isnan(sample.value) for sample in samples) == 1
 
 
 class TestObserveQueueQuery:

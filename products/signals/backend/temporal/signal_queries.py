@@ -26,6 +26,8 @@ from products.signals.backend.signal_metadata import (
     SIGNAL_DOCUMENT_RENDERING,
     SIGNAL_DOCUMENT_TYPE,
     _deduped_signals_subquery,
+    _report_placeholders,
+    _signals_for_report_query,
 )
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
@@ -64,37 +66,6 @@ def _ensure_tz_aware(value: Union[datetime, str]) -> datetime:
 
 # Backwards-compatible aliases for callers that import the shared query constants directly.
 _DEDUPED_SIGNALS_SUBQUERY = _deduped_signals_subquery()
-
-
-def _signals_for_report_query(*, include_deleted: bool = False, limit: int | None = None) -> str:
-    """Build a HogQL query that fetches signal rows for a single report.
-
-    Args:
-        include_deleted: When True the ``NOT deleted`` filter is omitted.
-            Used by soft-delete which intentionally re-processes already-deleted rows.
-        limit: Optional row cap appended as a LIMIT clause.
-    """
-    deleted_filter = "" if include_deleted else "\n          AND NOT JSONExtractBool(metadata, 'deleted')"
-    limit_clause = "" if limit is None else f"\n        LIMIT {limit}"
-
-    return f"""
-        SELECT
-            document_id,
-            content,
-            metadata,
-            timestamp,
-            latest_inserted_at
-        FROM ({_deduped_signals_subquery(candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
-        WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}{deleted_filter}
-        ORDER BY timestamp ASC{limit_clause}
-    """
-
-
-def _report_placeholders(report_id: str) -> dict:
-    return {
-        "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-        "report_id": ast.Constant(value=report_id),
-    }
 
 
 def _parse_signal_row(row: tuple) -> SignalData:
@@ -154,6 +125,69 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
             timestamp=_ensure_tz_aware(timestamp_raw),
             metadata=metadata,
         )
+
+
+_RETRACT_PAGE_SIZE = 500
+
+
+def retract_source_signals(*, team: Team, source_product: str, source_type: str, source_id: str) -> int:
+    """Blank and mark deleted every signal embedding for one source record.
+
+    Re-emits each document at its original timestamp so the ReplacingMergeTree
+    row is replaced, not appended. Content is cleared because a deleted flag
+    alone leaves the text in ClickHouse.
+
+    Pages by document_id, because re-emitted rows land asynchronously and a
+    repeated or offset query can return them again or skip others.
+    """
+    if not source_id:
+        return 0
+    extra_where = """
+        JSONExtractString(metadata, 'source_product') = {source_product}
+        AND JSONExtractString(metadata, 'source_type') = {source_type}
+        AND JSONExtractString(metadata, 'source_id') = {source_id}
+    """
+    retracted = 0
+    after = ""
+    while True:
+        result = execute_hogql_query(
+            query_type="SignalsRetractSource",
+            query=f"""
+                SELECT document_id, content, metadata, timestamp
+                FROM ({_deduped_signals_subquery(extra_where=extra_where)})
+                WHERE document_id > {{after}}
+                ORDER BY document_id ASC
+                LIMIT {_RETRACT_PAGE_SIZE}
+            """,
+            team=team,
+            placeholders={
+                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+                "source_product": ast.Constant(value=source_product),
+                "source_type": ast.Constant(value=source_type),
+                "source_id": ast.Constant(value=source_id),
+                "after": ast.Constant(value=after),
+            },
+        )
+        rows = result.results or []
+        for row in rows:
+            document_id, _content, metadata_str, timestamp_raw = row
+            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else dict(metadata_str or {})
+            metadata["deleted"] = True
+            emit_embedding_request(
+                content="",
+                team_id=team.id,
+                product=SIGNAL_DOCUMENT_PRODUCT,
+                document_type=SIGNAL_DOCUMENT_TYPE,
+                rendering=SIGNAL_DOCUMENT_RENDERING,
+                document_id=document_id,
+                models=[model.value for model in EmbeddingModelName],
+                timestamp=_ensure_tz_aware(timestamp_raw),
+                metadata=metadata,
+            )
+            retracted += 1
+        if len(rows) < _RETRACT_PAGE_SIZE:
+            return retracted
+        after = rows[-1][0]
 
 
 def reassign_report_signals(*, source_report_id: str, survivor_report_id: str, team_id: int, team: Team) -> int:
@@ -617,37 +651,6 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             report_id=input.report_id,
         )
         raise
-
-
-def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
-    """Fetch all signals for a report from ClickHouse, including full metadata. Synchronous."""
-    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
-    result = execute_hogql_query(
-        query_type="SignalsDebugFetchForReport",
-        query=_signals_for_report_query(),
-        team=team,
-        placeholders=_report_placeholders(report_id),
-    )
-
-    signals_list = []
-    for row in result.results or []:
-        document_id, content, metadata_str, timestamp, _inserted_at = row
-        metadata = json.loads(metadata_str)
-        signals_list.append(
-            {
-                "signal_id": document_id,
-                "content": content,
-                "source_product": metadata.get("source_product", ""),
-                "source_type": metadata.get("source_type", ""),
-                "source_id": metadata.get("source_id", ""),
-                "weight": metadata.get("weight", 0.0),
-                "timestamp": timestamp,
-                "extra": metadata.get("extra", {}),
-                "match_metadata": metadata.get("match_metadata"),
-            }
-        )
-
-    return signals_list
 
 
 # ---------------------------------------------------------------------------

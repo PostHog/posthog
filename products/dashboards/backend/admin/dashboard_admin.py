@@ -19,6 +19,12 @@ class DashboardTileInline(admin.TabularInline):
     autocomplete_fields = ("insight", "text", "team")
     readonly_fields = ("filters_hash",)
 
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if formfield and db_field.name == "badge":
+            formfield.required = False
+        return formfield
+
 
 @admin.register(Dashboard)
 class DashboardAdmin(admin.ModelAdmin):

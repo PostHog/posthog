@@ -1,13 +1,6 @@
 {
     "products": [
         {
-            "path": "AI gateway",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "ai_gateway",
-            "intents": ["ai_gateway"]
-        },
-        {
             "path": "LLM analytics",
             "category": "AI engineering",
             "iconType": null,
@@ -64,11 +57,18 @@
             "intents": ["autoresearch"]
         },
         {
+            "path": "Business intelligence",
+            "category": "Data",
+            "iconType": "business_intelligence",
+            "type": null,
+            "intents": []
+        },
+        {
             "path": "Business knowledge",
             "category": "Data",
             "iconType": "business_knowledge",
             "type": null,
-            "intents": ["conversations"]
+            "intents": ["business_knowledge"]
         },
         {
             "path": "Web scripts",
@@ -169,14 +169,6 @@
             "intents": ["marketing_analytics"]
         },
         { "path": "Inbox", "category": "Tools", "iconType": null, "type": null, "intents": [] },
-        { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["links"] },
-        {
-            "path": "Live Debugger",
-            "category": "Unreleased",
-            "iconType": "live_debugger",
-            "type": "live_debugger",
-            "intents": ["live_debugger"]
-        },
         { "path": "Logs", "category": "Monitoring", "iconType": null, "type": null, "intents": ["logs"] },
         {
             "path": "Marketing analytics",
@@ -256,13 +248,6 @@
         },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         { "path": "Tracing", "category": "Monitoring", "iconType": "tracing", "type": null, "intents": ["tracing"] },
-        {
-            "path": "User research",
-            "category": "Unreleased",
-            "iconType": "user_interview",
-            "type": "user_interview",
-            "intents": ["user_interviews"]
-        },
         {
             "path": "Visual review",
             "category": "Unreleased",

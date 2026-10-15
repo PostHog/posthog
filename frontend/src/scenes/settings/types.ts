@@ -23,6 +23,13 @@ export type SettingsLogicProps = {
 export const SettingLevelIds = ['environment', 'project', 'organization', 'user'] as const
 export type SettingLevelId = (typeof SettingLevelIds)[number]
 
+export const SettingLevelNames: Record<SettingLevelId, string> = {
+    environment: 'Environment',
+    project: 'Project',
+    organization: 'Organization',
+    user: 'User',
+} as const
+
 export type SettingSectionId =
     // Environment
     | 'environment-details'
@@ -222,7 +229,6 @@ export type SettingId =
     | 'logs-retention'
     | 'logs-session-id-attribute-keys'
     | 'marketing-settings'
-    | 'mcp-hints'
     | 'mcp-servers-manage'
     | 'members'
     | 'member-notifications'
@@ -240,6 +246,7 @@ export type SettingId =
     | 'organization-id'
     | 'organization-integrations-list'
     | 'organization-ip-anonymization-default'
+    | 'organization-member-notice'
     | 'organization-oauth-apps-list'
     | 'organization-proxy'
     | 'organization-roles'
@@ -302,6 +309,7 @@ export type SettingId =
     | 'ai-cloud-custom-images'
     | 'task-comments-slack-dm'
     | 'task-agent-other-settings'
+    | 'task-agent-new-task-defaults'
     | 'task-agent-project-default'
     | 'theme'
     | 'tracing-distinct-id-attribute-keys'
@@ -316,6 +324,7 @@ export type SettingId =
     | 'web-analytics-pre-aggregated-tables'
     | 'web-revenue-events'
     | 'web-vitals-autocapture'
+    | 'workflows-frequency-cap'
     | 'workflows-ai-task-limits'
     | 'workflows-email-tracking-consent'
     | 'workflows-engagement-events'

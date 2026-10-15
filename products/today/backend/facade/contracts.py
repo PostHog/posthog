@@ -1,70 +1,193 @@
 """Contract types for today: what the product returns to its API, MCP tools and other products."""
 
+from dataclasses import field
 from datetime import date, datetime
+from typing import Any
 
 from pydantic.dataclasses import dataclass
 
-from .enums import BriefingStatus, BriefingWriter, ItemGroup, ItemReason, ItemSource, ItemState
+from .enums import (
+    CitedSource,
+    FigureSourceKind,
+    FigureText,
+    HighlightInterval,
+    HighlightLabel,
+    HighlightPriority,
+    HighlightsStatus,
+    HighlightUnit,
+    ImpactNumberKey,
+    KeyClauseRole,
+)
 
 
 @dataclass(frozen=True)
-class BriefingSegment:
+class PullRequestLink:
+    url: str
+    number: int
+
+
+@dataclass(frozen=True)
+class CodeFile:
+    repo: str
+    path: str
+
+
+@dataclass(frozen=True)
+class PreviewLine:
     text: str
-    item_key: str | None = None
-    highlight: bool = False
+    quiet: bool
 
 
 @dataclass(frozen=True)
-class BriefingItem:
-    key: str
-    group: ItemGroup
-    source: ItemSource
-    reason: ItemReason
-    title: str
-    label: str
-    signal: str
+class PageLink:
     url: str
-    rank: int
-    state: ItemState
-    # For a report, the product its signals came from (error_tracking, session_replay, ...), else None.
-    source_product: str | None
+    text: str
 
 
 @dataclass(frozen=True)
-class Briefing:
-    id: str
-    status: BriefingStatus
-    writer: BriefingWriter | None
-    local_day: date
+class SignalPreview:
+    hint: str
+    code: list[CodeFile]
+    block: list[PreviewLine]
+    text: str
+    facts: list[str]
+    link: PageLink | None
+    link_label: str | None
+
+
+@dataclass(frozen=True)
+class RecordingTarget:
+    session_id: str
+    start_at: datetime | None
+    offset: str | None
+    seek_seconds: int | None
+
+
+@dataclass(frozen=True)
+class SignalView:
+    signal_id: str
+    source_product: str
+    source_type: str
+    source_id: str
+    content: str
+    timestamp: datetime
+    extra: dict[str, Any]
     headline: str
-    paragraphs: list[list[BriefingSegment]]
-    items: list[BriefingItem]
-    more_reports_count: int
-    open_reports_count: int
-    created_at: datetime
-    ready_at: datetime | None
+    lead: str
+    meta: str
+    cited: CitedSource | None
+    recording: RecordingTarget | None
+    link: PageLink | None
+    preview: SignalPreview | None
 
 
 @dataclass(frozen=True)
-class CandidateFact:
-    name: str
+class ImpactWorking:
+    expression: str
+    result: str
+
+
+@dataclass(frozen=True)
+class ImpactNumber:
+    key: ImpactNumberKey
     value: str
+    sentence: str
+    signal: SignalView | None
+    values: list[str]
+    working: ImpactWorking | None
 
 
 @dataclass(frozen=True)
-class Candidate:
+class ReportPage:
+    lead: str
+    proposal: str
+    impact_sentence: str
+    named_pull_request: PullRequestLink | None
+    solution_names_pull_request: bool
+    evidence: list[SignalView]
+    source_count: int
+    impact_numbers: list[ImpactNumber]
+    last_seen: datetime | None
+
+
+@dataclass(frozen=True)
+class KeyClause:
+    start: int
+    end: int
+    role: KeyClauseRole
+    expansion: list[str]
+
+
+@dataclass(frozen=True)
+class ReportKeyClauses:
+    lead: list[KeyClause]
+    impact: list[KeyClause]
+    proposal: list[KeyClause]
+
+
+@dataclass(frozen=True)
+class FigureQuote:
+    kind: FigureSourceKind
+    signal: SignalView | None
+    at: datetime
+    sentence: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class FigureMark:
+    text: FigureText
+    start: int
+    end: int
+    figure: str
+    quote: FigureQuote
+
+
+class JevTimedOut(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class HighlightValueFormat:
+    format: str | None
+    prefix: str | None
+    postfix: str | None
+    decimal_places: int | None
+
+
+@dataclass(frozen=True)
+class HighlightMetric:
     key: str
-    group: ItemGroup
-    source: ItemSource
-    reason: ItemReason
-    title: str
-    url: str
-    rank: int
-    facts: list[CandidateFact]
+    name: str
+    value: float
+    unit: HighlightUnit
+    change_pct: float | None
+    series: list[float]
+    interval: HighlightInterval = HighlightInterval.DAY
+    url: str | None = None
+    value_format: HighlightValueFormat | None = None
+    period_starts: list[date] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
-class CandidateList:
-    local_day: date
-    candidates: list[Candidate]
-    more_reports_count: int
+class HighlightItem:
+    key: str
+    source: str
+    label: HighlightLabel
+    priority: HighlightPriority
+    title: str
+    detail: str
+    url: str | None
+    series: list[float] | None
+    score: float
+
+
+@dataclass(frozen=True)
+class Highlights:
+    status: HighlightsStatus
+    generated_at: datetime | None
+    day: date
+    refresh_at: datetime
+    pulse: list[HighlightMetric]
+    items: list[HighlightItem]

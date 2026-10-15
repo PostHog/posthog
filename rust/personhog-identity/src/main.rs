@@ -26,6 +26,7 @@ use personhog_coordination::store::PersonhogStore;
 use personhog_identity::config::Config;
 use personhog_identity::leader::LifecycleLeader;
 use personhog_identity::lifecycle::delete::DeleteDriver;
+use personhog_identity::lifecycle::detach::DetachedDrives;
 use personhog_identity::lifecycle::engine::Engine;
 use personhog_identity::lifecycle::merge::{MergeDriver, MergeOpExecutor};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
@@ -183,8 +184,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() }));
+        // Dense from 250ms to 5s, where merge tails sit.
         const BUCKETS: &[f64] = &[
-            1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
+            1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 1500.0, 2000.0, 3000.0,
+            5000.0, 10000.0, 30000.0,
         ];
         // Lifecycle ops span "settled in one drive" (tens of ms) to
         // "abandoned, parked, or leader-blocked and resumed by the sweeper"
@@ -271,7 +274,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.router_http2_windows(),
         )
         .expect("Invalid router URL")
-        .with_client_name("personhog-identity"),
+        .with_client_name("personhog-identity")
+        .with_attempts(config.leader_request_attempts),
     );
     // Both sagas' leader surface, reached through the router like the
     // property writes.
@@ -330,10 +334,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    let detached_drives = DetachedDrives::new(config.lifecycle_detached_drive_limit);
     // Separate proto service co-served on the same server so lifecycle
     // callers are insulated from any future split.
     let merge_entrance = MergeEntrance::new(
         storage.clone(),
+        property_writer.clone(),
         property_writer.clone(),
         MergeOpExecutor::new(
             engine.clone(),
@@ -342,6 +348,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.tables(),
                 config.lifecycle_leader_call_concurrency,
             ),
+            detached_drives.clone(),
         ),
     );
     let lifecycle_service = PersonHogLifecycleService::new(
@@ -420,6 +427,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));
         }
+        tracing::info!(
+            in_flight = detached_drives.in_flight(),
+            "waiting for detached merge drives before exit"
+        );
+        detached_drives.shutdown().await;
     });
 
     monitor.wait().await?;

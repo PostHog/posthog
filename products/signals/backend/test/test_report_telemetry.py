@@ -1,9 +1,11 @@
 import pytest
 from unittest.mock import patch
 
+from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalReport, SignalReportCheck
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck, SignalScoutConfig
+from products.signals.backend.report_check_agent import FALLBACK_CHECK_SKILL_NAME
 from products.signals.backend.temporal.summary import (
     MarkReportFailedInput,
     MarkReportInProgressInput,
@@ -16,6 +18,7 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
     reset_report_to_potential_activity,
 )
+from products.skills.backend.models.skills import LLMSkill
 
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.summary"
 
@@ -262,6 +265,64 @@ async def test_pending_input_fires_completed_and_status_changed_with_pending_rea
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "stored_title,stored_summary,expected_title,expected_summary",
+    [
+        (
+            "Checkout button does nothing on Safari",
+            "Users on Safari click checkout and nothing happens.",
+            "Checkout button does nothing on Safari",
+            "Users on Safari click checkout and nothing happens.",
+        ),
+        ("", "", "Repository selection required", "Could not automatically select a repository: no repository matched"),
+    ],
+    ids=["keeps_stored_content", "fills_blank_content"],
+)
+async def test_pending_input_without_new_content_keeps_title_summary_and_logs_note(
+    ateam, stored_title, stored_summary, expected_title, expected_summary
+):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=3,
+        total_weight=2.0,
+        title=stored_title,
+        summary=stored_summary,
+        suggested_prompts=["Why does checkout fail on Safari?"],
+    )
+    report_id = str(report.id)
+
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"):
+        await mark_report_pending_input_activity(
+            MarkReportPendingInput(
+                team_id=ateam.id,
+                report_id=report_id,
+                title="Repository selection required",
+                summary="Could not automatically select a repository: no repository matched",
+                reason="Requires human input: no repository matched",
+                pending_reason="repo_selection_required",
+                note="Could not automatically select a repository: no repository matched",
+                keep_existing_content=True,
+            )
+        )
+
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
+    assert refreshed.status == SignalReport.Status.PENDING_INPUT
+    assert refreshed.title == expected_title
+    assert refreshed.summary == expected_summary
+    assert refreshed.suggested_prompts == ["Why does checkout fail on Safari?"]
+    assert refreshed.error == "Requires human input: no repository matched"
+    notes = await database_sync_to_async(
+        lambda: list(
+            SignalReportArtefact.objects.filter(report_id=report_id, type=SignalReportArtefact.ArtefactType.NOTE)
+        )
+    )()
+    assert len(notes) == 1
+    assert "no repository matched" in notes[0].content
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_pending_input_is_idempotent_when_already_pending_input(ateam):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
@@ -325,6 +386,11 @@ async def test_reset_to_potential_is_idempotent_when_already_potential(ateam):
     assert refreshed.total_weight == 0.0
 
 
+def _seed_check_lane(team: Team) -> None:
+    LLMSkill.objects.create(team=team, name=FALLBACK_CHECK_SKILL_NAME, is_latest=True, deleted=False)
+    SignalScoutConfig.objects.for_team(team.id).create(team=team, skill_name=FALLBACK_CHECK_SKILL_NAME)
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
@@ -349,6 +415,7 @@ async def test_reset_to_potential_is_idempotent_when_already_potential(ateam):
 async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
     ateam, run_count: int, processed_signal_count: int, signal_count: int, expected_loop: bool
 ):
+    await database_sync_to_async(_seed_check_lane)(ateam)
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,

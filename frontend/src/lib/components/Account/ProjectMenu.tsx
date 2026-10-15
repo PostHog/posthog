@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonSnack } from '@posthog/lemon-ui'
 
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import {
@@ -27,14 +28,24 @@ export function ProjectName({ team, className }: { team: TeamBasicType; classNam
 }
 
 export function PendingInviteDot({ className }: { className?: string }): JSX.Element {
+    const { pendingInvites } = useValues(pendingInvitesLogic)
+    const organizationNames = pendingInvites.map((invite) => invite.organization_name)
+    const title =
+        organizationNames.length === 1
+            ? `You have a pending invite to join ${organizationNames[0]}.`
+            : `You have pending invites to join ${organizationNames.length} organizations.`
+
     return (
-        <span
-            aria-label="Pending invitation"
-            className={cn('relative flex items-center justify-center size-1.5 shrink-0', className)}
-        >
-            <span className="absolute inset-0 rounded-full bg-accent opacity-60 animate-ping" />
-            <span className="relative size-1.5 rounded-full bg-accent" />
-        </span>
+        <Tooltip title={title} placement="right">
+            <span
+                aria-label="Pending invite"
+                className={cn('relative flex items-center justify-center size-3 shrink-0', className)}
+            >
+                {/* The ping halo scales to twice the dot, so the box is twice the dot to keep it off the neighbors */}
+                <span className="absolute size-1.5 rounded-full bg-accent opacity-60 animate-ping" />
+                <span className="relative size-1.5 rounded-full bg-accent" />
+            </span>
+        </Tooltip>
     )
 }
 
@@ -61,7 +72,6 @@ export function ProjectMenu({
                         iconOnly ? 'min-w-auto' : '',
                         buttonProps.className
                     )}
-                    tooltip={hasPendingInvites ? 'You have a pending invitation' : buttonProps.tooltip}
                 >
                     {iconOnly ? (
                         <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] w-5 h-5 dark:text-tertiary">
@@ -70,9 +80,7 @@ export function ProjectMenu({
                     ) : (
                         <span className="truncate">{currentTeam.name ?? 'Project'}</span>
                     )}
-                    {hasPendingInvites && (
-                        <PendingInviteDot className={iconOnly ? 'absolute top-0.5 right-0.5' : 'ml-1'} />
-                    )}
+                    {hasPendingInvites && <PendingInviteDot className={iconOnly ? 'absolute top-0 right-0' : 'ml-1'} />}
                     {!iconOnly && <MenuOpenIndicator className="ml-auto" />}
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>

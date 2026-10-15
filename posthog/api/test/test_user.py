@@ -30,6 +30,7 @@ from social_django.models import UserSocialAuth
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
 from posthog.api.user import MAX_PRODUCT_INTROS_SEEN, UserSerializer
+from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.models import Team, User
@@ -42,6 +43,7 @@ from posthog.models.user import default_ui_configuration_for_new_users
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
+from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -92,6 +94,7 @@ class TestUserAPI(APIBaseTest):
 
     # RETRIEVING USER
 
+    @covers_authentication(SessionAuthentication)
     def test_retrieve_current_user(self):
         response = self.client.get("/api/users/@me/")
 
@@ -116,6 +119,10 @@ class TestUserAPI(APIBaseTest):
 
         self.assertEqual(response_data["organization"]["name"], self.organization.name)
         self.assertEqual(response_data["organization"]["membership_level"], 1)
+        self.assertEqual(
+            response_data["organization"]["membership_joined_at"],
+            self.organization_membership.joined_at.isoformat(),
+        )
         self.assertEqual(response_data["organization"]["teams"][0]["id"], self.team.id)
         self.assertEqual(response_data["organization"]["teams"][0]["name"], self.team.name)
         self.assertNotIn(
@@ -2488,11 +2495,14 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "ai_evaluation_disabled": True,
+                "workflow_suggestions": True,
                 "materialized_view_sync_failed": True,
                 "materialized_view_sync_failed_daily": True,
                 "materialized_view_sync_failed_immediate": False,
                 "web_analytics_weekly_digest": True,
                 "data_catalog_weekly_digest": True,
+                "approval_requested": True,
+                "approval_resolved": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
                 "pipeline_notifications_disabled": {},
@@ -2513,11 +2523,14 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "ai_evaluation_disabled": True,
+                "workflow_suggestions": True,
                 "materialized_view_sync_failed": True,
                 "materialized_view_sync_failed_daily": True,
                 "materialized_view_sync_failed_immediate": False,
                 "web_analytics_weekly_digest": True,
                 "data_catalog_weekly_digest": True,
+                "approval_requested": True,
+                "approval_resolved": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
                 "pipeline_notifications_disabled": {},
@@ -2786,11 +2799,14 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.01,  # Default value
                 "project_api_key_exposed": True,  # Default value
                 "ai_evaluation_disabled": True,  # Default value
+                "workflow_suggestions": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value
                 "materialized_view_sync_failed_daily": True,  # Default value
                 "materialized_view_sync_failed_immediate": False,  # Default value
                 "web_analytics_weekly_digest": True,  # Default value
                 "data_catalog_weekly_digest": True,  # Default value
+                "approval_requested": True,  # Default value
+                "approval_resolved": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
                 "realtime_notifications_disabled": {},  # Default value
                 "pipeline_notifications_disabled": {},  # Default value
@@ -2808,6 +2824,9 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("activity_not_customizable", {"version": 1, "sidebar": {"items": {"activity": {"visible": False}}}}),
             ("non_boolean_visible", {"version": 1, "sidebar": {"items": {"home": {"visible": "nope"}}}}),
             ("unknown_node_key", {"version": 1, "sidebar": {"items": {"home": {"visible": False, "size": 1}}}}),
+            ("non_boolean_vim_mode", {"version": 1, "sql_editor": {"vim_mode_enabled": "nope"}}),
+            ("non_string_vimrc", {"version": 1, "sql_editor": {"vimrc": ["imap jj <Esc>"]}}),
+            ("vimrc_too_long", {"version": 1, "sql_editor": {"vimrc": "x" * 10001}}),
         ]
     )
     def test_invalid_ui_configuration_is_rejected(self, _name, value):
@@ -2842,6 +2861,13 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
                 },
             ),
             ("new_user_default", default_ui_configuration_for_new_users()),
+            (
+                "sql_editor",
+                {
+                    "version": 1,
+                    "sql_editor": {"vim_mode_enabled": True, "vimrc": "imap jj <Esc>\nset cursorblink"},
+                },
+            ),
         ]
     )
     def test_valid_ui_configuration_is_accepted(self, _name, value):

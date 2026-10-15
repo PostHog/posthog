@@ -2,10 +2,10 @@
 templates that ship as code."""
 
 from products.workflows.backend.services.hog_flow_templates import (
-    WorkflowTemplateNotFound,
     create_template,
     delete_template,
     function_template_exists,
+    get_function_template_schema,
     get_global_template,
     get_template,
     list_global_templates,
@@ -14,10 +14,10 @@ from products.workflows.backend.services.hog_flow_templates import (
 )
 
 __all__ = [
-    "WorkflowTemplateNotFound",
     "create_template",
     "delete_template",
     "function_template_exists",
+    "get_function_template_schema",
     "get_global_template",
     "get_template",
     "list_global_templates",

@@ -2170,29 +2170,77 @@ describe('experimentReplayTabLogic', () => {
         // experiment's id (dropping the filter would list every scanner in the project) and surface
         // the name, type, and monthly observation count each row shows.
         logic.unmount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]: true })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
         ;(visionScannersList as jest.Mock).mockResolvedValue({
             results: [
-                { id: 's1', name: 'Checkout confusion', scanner_type: 'classifier', observations_this_month: 50 },
-                { id: 's2', name: 'Rage clicks', scanner_type: 'summarizer', observations_this_month: 3 },
+                {
+                    id: 's1',
+                    name: 'Checkout confusion',
+                    scanner_type: 'classifier',
+                    enabled: true,
+                    observations_this_month: 50,
+                },
+                {
+                    id: 's2',
+                    name: 'Rage clicks',
+                    scanner_type: 'summarizer',
+                    enabled: false,
+                    observations_this_month: 3,
+                },
+                {
+                    id: 's3',
+                    name: 'Checkout redesign (#42)',
+                    scanner_type: 'experiment',
+                    enabled: false,
+                    scanner_config: { experiment_id: 42, start_on_launch: true },
+                    observations_this_month: 0,
+                },
             ],
         })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
         const withScanners = experimentReplayTabLogic({ experiment: EXPERIMENT })
         withScanners.mount()
 
         await expectLogic(withScanners)
             .toFinishAllListeners()
             .toMatchValues({
+                // Only an off scanner that waits for launch says so; a scanner turned off by hand does not.
                 linkedScanners: [
-                    { id: 's1', name: 'Checkout confusion', scannerType: 'classifier', observationsThisMonth: 50 },
-                    { id: 's2', name: 'Rage clicks', scannerType: 'summarizer', observationsThisMonth: 3 },
+                    {
+                        id: 's1',
+                        name: 'Checkout confusion',
+                        scannerType: 'classifier',
+                        observationsThisMonth: 50,
+                        startsAtLaunch: false,
+                    },
+                    {
+                        id: 's2',
+                        name: 'Rage clicks',
+                        scannerType: 'summarizer',
+                        observationsThisMonth: 3,
+                        startsAtLaunch: false,
+                    },
+                    {
+                        id: 's3',
+                        name: 'Checkout redesign (#42)',
+                        scannerType: 'experiment',
+                        observationsThisMonth: 0,
+                        startsAtLaunch: true,
+                    },
                 ],
             })
         expect(visionScannersList).toHaveBeenCalledWith(expect.any(String), { experiment_id: '42' })
+        // The adoption funnel reads which entry point was shown from this event.
+        expect(captureSpy).toHaveBeenCalledWith('experiment recordings scanner entry point shown', {
+            experiment_id: 42,
+            state: 'scanners_listed',
+            scanner_count: 3,
+        })
+        captureSpy.mockRestore()
         withScanners.unmount()
     })
 
-    it('does not query scanners when the vision entry-point flag is off', async () => {
+    it('does not query scanners when the experiment scanner flag is off', async () => {
         // The card only renders behind the flag, so the lookup must not fire for the many users who
         // open the Recordings tab without it. The default test flags leave the flag off.
         logic.unmount()
@@ -2209,7 +2257,7 @@ describe('experimentReplayTabLogic', () => {
         // The skeleton branch keys off linkedScannersLoading. Without the loading flag, the tab would
         // flash the cross-sell banner (linkedScanners is [] until the fetch resolves) before the card.
         logic.unmount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]: true })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
         let resolve: (value: unknown) => void = () => {}
         ;(visionScannersList as jest.Mock).mockReturnValue(new Promise((r) => (resolve = r)))
         const loadingLogic = experimentReplayTabLogic({ experiment: EXPERIMENT })
@@ -2224,12 +2272,19 @@ describe('experimentReplayTabLogic', () => {
     it('degrades to no back-link when the scanner lookup fails', async () => {
         // The tab must render even if the lookup errors, so the loader swallows to an empty list.
         logic.unmount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]: true })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
         ;(visionScannersList as jest.Mock).mockRejectedValue(new Error('boom'))
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
         const withError = experimentReplayTabLogic({ experiment: EXPERIMENT })
         withError.mount()
 
         await expectLogic(withError).toFinishAllListeners().toMatchValues({ linkedScanners: [] })
+        // With no scanners the tab offers the set-up card, and the shown event must say so.
+        expect(captureSpy).toHaveBeenCalledWith(
+            'experiment recordings scanner entry point shown',
+            expect.objectContaining({ state: 'set_up_offered', scanner_count: 0 })
+        )
+        captureSpy.mockRestore()
         withError.unmount()
     })
 })

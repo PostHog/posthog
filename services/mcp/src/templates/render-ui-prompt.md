@@ -1,5 +1,7 @@
 Render an interactive, explorable PostHog visualization for the user. Strongly prefer rendering whenever your answer centers on an analytics query, specific entity, or list that has a UI app — a trends or funnel result, experiment (or its results), survey (or its stats), cohort, action, error-tracking issue, session recording, trace, or workflow, plus the list view for most — so the user can see and verify it, not just read a text summary. Render in addition to your written summary, not instead of it, and not only when the user explicitly asks to "see" something.
 
+If the query result or harness explicitly says the user already sees an interactive view, keep your written conclusion and do not render the same result again. A UI resource on a query tool does not by itself establish that an exec call displayed the chart. Rendering is independent of query selection: keep typed runners for supported analytics, even when this separate presentation step is needed.
+
 ALWAYS run `exec` first — `render-ui` is the final presentation step, never a discovery step. Use `exec` (`search` → `info` → `schema` → `call`) to resolve the entity (look up its real ID), confirm the data exists, and gather what you need for your written summary; only then render. Never render with a guessed `tool_input`.
 
 `tool_name` must be a tool from the enum; `tool_input` is the same input you would `call` it with — which you already know from your exec work. The widget fetches its own data, so you may skip a *redundant* `call` of that same UI-app tool purely to populate the widget — but that is the only `call` you may skip, never the discovery/verification workflow. Never invent a `tool_name`.
@@ -10,7 +12,7 @@ When to render (always after exec, alongside your written answer):
 - Status, "how is X going" → `render-ui({ "tool_name": "experiment-get", "tool_input": { "id": 2 } })`
 - Lists / inventory, "what do we have" → the `*-list` tool, e.g. `render-ui({ "tool_name": "experiment-list", "tool_input": {} })`
 - Results / stats, "is it significant", "response rate" → the results tool, e.g. `render-ui({ "tool_name": "survey-stats", "tool_input": { "survey_id": "abc123" } })`
-- Analytics queries → run the query with `exec` for your analysis, then render the same tool with the same input, e.g. `render-ui({ "tool_name": "query-trends", "tool_input": { ... } })`
+- Analytics queries without an inline chart → run the query with `exec` for your analysis, then render the same tool with the same validated input (not result rows), e.g. `render-ui({ "tool_name": "query-trends", "tool_input": { ... } })`
 - After a mutation (create/launch/pause/end/resolve) → the entity's detail tool, to confirm the change landed
 - Evidence mid-investigation (a recording, error issue, trace) → render it inline, e.g. `render-ui({ "tool_name": "query-error-tracking-issue", "tool_input": { "issueId": "0190-..." } })`
 
@@ -43,6 +45,6 @@ WRONG — the answer centers on a single experiment that has a UI app (`experime
 
 <bad-example>
 User: Show me a trends chart of weekly signups
-Assistant: [Runs query-trends through exec, then replies with a text-only summary]
+Assistant: [Runs query-trends through exec, receives data without an inline chart, then replies with a text-only summary]
 WRONG — after running the query for analysis, render `query-trends` with the same validated input so the user can explore the chart.
 </bad-example>

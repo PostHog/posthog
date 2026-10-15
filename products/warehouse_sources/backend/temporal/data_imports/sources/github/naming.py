@@ -34,8 +34,14 @@ _GITHUB_URL_HOSTS = ("github.com", "www.github.com")
 _GITHUB_SCP_URL = re.compile(r"^(?:ssh://)?git@github\.com[:/](?P<path>.+)$", re.IGNORECASE)
 
 
+def _strip_git_suffix(name: str) -> str:
+    # GitHub rejects a repository name ending in `.git`, so any casing of that suffix belongs to
+    # the clone URL rather than to the name.
+    return name[: -len(".git")] if name.lower().endswith(".git") else name
+
+
 def normalize_repository(repository: str) -> str:
-    """`owner/repo` when the value is a GitHub URL, the stripped input otherwise.
+    """`owner/repo` when the value is a GitHub URL, the stripped input without a `.git` suffix otherwise.
 
     A clone URL, a browser URL and a bare `github.com/owner/repo` all name the repository as
     unambiguously as `owner/repo` does, so read them rather than rejecting input whose meaning
@@ -50,18 +56,14 @@ def normalize_repository(repository: str) -> str:
             return value
         path = parsed.path
     else:
-        return value
+        return _strip_git_suffix(value) or value
 
     # Anything past owner/repo is a browser URL's view of the repo (/tree/main, /issues), not part
     # of its name.
     parts = [part for part in path.split("/") if part]
     if len(parts) < 2:
         return value
-    owner, repo = parts[0], parts[1]
-    # GitHub rejects a repository name ending in `.git`, so any casing of that suffix belongs to
-    # the clone URL rather than to the name.
-    if repo.lower().endswith(".git"):
-        repo = repo[: -len(".git")]
+    owner, repo = parts[0], _strip_git_suffix(parts[1])
     if not repo:
         return value
     return f"{owner}/{repo}"

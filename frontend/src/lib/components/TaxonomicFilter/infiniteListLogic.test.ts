@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { getContext } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
@@ -9,11 +9,11 @@ import {
     recentTaxonomicFiltersLogic,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { Mocks } from '~/mocks/utils'
@@ -38,6 +38,10 @@ window.POSTHOG_APP_CONTEXT = {
 const setTabHidden = (hidden: boolean): void => {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
     document.dispatchEvent(new Event('visibilitychange'))
+}
+
+function setFlagEvaluationsMode(mode: FlagEvaluationsModeEnumApi): void {
+    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
 }
 
 describe('infiniteListLogic', () => {
@@ -557,6 +561,38 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('page URL search in a picker that collapses URLs to a contains row', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:team/events/values': [200, [{ name: 'https://example.com/pricing' }]],
+                },
+            })
+        })
+
+        it.each([
+            { kind: 'a plain word', query: 'pricing', offeredInAllTab: false },
+            { kind: 'a path', query: '/pricing', offeredInAllTab: true },
+            { kind: 'a domain', query: 'example.com', offeredInAllTab: true },
+        ])(
+            'offers the URL contains row for $kind on the URL tab, and in the All tab only when it looks like a URL',
+            async ({ query, offeredInAllTab }) => {
+                const urlLogic = logicWith({
+                    listGroupType: TaxonomicFilterGroupType.PageviewUrls,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls],
+                    collapseUrlsToContainsRow: true,
+                })
+
+                await expectLogic(urlLogic, () => {
+                    urlLogic.actions.setSearchQuery(query)
+                }).toDispatchActions(['setSearchQuery', 'loadRemoteItemsSuccess'])
+
+                expect(urlLogic.values.items.results).toHaveLength(1)
+                expect(urlLogic.values.topMatchesForQuery).toHaveLength(offeredInAllTab ? 1 : 0)
+            }
+        )
+    })
+
     describe('unmounting clears the shared api cache', () => {
         it('does not keep serving a cached response after the list unmounts', async () => {
             let requestCount = 0
@@ -716,6 +752,7 @@ describe('infiniteListLogic', () => {
                     // hunting for a tracking bug instead of retrying.
                     showEmptyState: false,
                     showErrorState: true,
+                    remoteFetchForbidden: false,
                 })
 
             const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
@@ -723,6 +760,43 @@ describe('infiniteListLogic', () => {
             expect(failedCalls[0][1]).toMatchObject({
                 groupType: TaxonomicFilterGroupType.Events,
                 searchQuery: 'user_signed_up',
+                forbidden: false,
+            })
+        })
+
+        it.each([
+            { code: 'permission_denied', forbidden: true },
+            { code: 'feature_flag_required', forbidden: false },
+        ])('marks a 403 with code $code as forbidden: $forbidden', async ({ code, forbidden }) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/feature_flags': () => [403, { detail: 'denied', code }],
+                },
+            })
+            initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const forbiddenLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'forbiddenList',
+                listGroupType: TaxonomicFilterGroupType.FeatureFlags,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags],
+                showNumericalPropsOnly: false,
+            })
+            forbiddenLogic.mount()
+            await expectLogic(forbiddenLogic, () => {
+                forbiddenLogic.actions.setSearchQuery('my-flag')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    showErrorState: true,
+                    remoteFetchForbidden: forbidden,
+                })
+
+            const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
+            expect(failedCalls).toHaveLength(1)
+            expect(failedCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.FeatureFlags,
+                forbidden,
             })
         })
 
@@ -1158,15 +1232,11 @@ describe('infiniteListLogic', () => {
     describe('events a picker excludes', () => {
         const HIDDEN_EVENT = '$feature_flag_called'
 
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        })
-
         // The Pinned and Recent tabs filter against the caller's record rather than the Events
         // group's own list, so the hidden names have to reach that record for a pin saved before
         // the event was hidden to drop.
         it('folds the hidden names into the record the Recent and Pinned tabs read', () => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true })
+            setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
             const listLogic = infiniteListLogic({
                 taxonomicFilterLogicKey: 'hidden-events',
                 listGroupType: TaxonomicFilterGroupType.Events,
@@ -1211,14 +1281,10 @@ describe('infiniteListLogic', () => {
     // that allows uncaptured events must not offer any of those forms as "not seen yet" — that would
     // commit a name no event carries and hide the explanation of the event's absence.
     describe('the "not seen yet" option and hidden events', () => {
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        })
-
         it.each([['$feature_flag_called'], ['$FEATURE_FLAG_CALLED'], ['Feature flag called']])(
             'does not offer the option when searching %p',
             async (query) => {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true })
+                setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
                 const listLogic = infiniteListLogic({
                     taxonomicFilterLogicKey: `hidden-not-seen-${query}`,
                     listGroupType: TaxonomicFilterGroupType.Events,

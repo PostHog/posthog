@@ -182,8 +182,13 @@ def get_rows(
         if response.status_code == 429 or response.status_code >= 500:
             raise GongRetryableError(f"Gong API error (retryable): status={response.status_code}, url={url}")
 
-        # Treat an empty date window as an empty page so the sync skips it instead of failing.
-        if config.uses_date_window and response.status_code == 404 and _EMPTY_WINDOW_404.search(response.text.lower()):
+        # Treat an empty date window, or a parent with nothing in it, as an empty page so the sync
+        # skips it instead of failing.
+        if (
+            (config.uses_date_window or config.not_found_is_empty)
+            and response.status_code == 404
+            and _EMPTY_WINDOW_404.search(response.text.lower())
+        ):
             return {}
 
         if not response.ok:
@@ -201,11 +206,15 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
+    elif config.fan_out_parent and config.fan_out_param:
+        yield from _iter_fan_out_rows(config, config.fan_out_parent, config.fan_out_param, fetch_page)
     else:
         yield from _iter_cursor_rows(config, fetch_page)
 
 
-def _iter_cursor_rows(config: GongEndpointConfig, fetch_page) -> Iterator[Any]:
+def _iter_cursor_rows(
+    config: GongEndpointConfig, fetch_page, base_params: Optional[dict[str, Any]] = None
+) -> Iterator[Any]:
     """Cursor-paginate a list endpoint until ``records.cursor`` is absent.
 
     Endpoints with no pagination (e.g. workspaces) return no cursor, so the loop exits after
@@ -213,7 +222,9 @@ def _iter_cursor_rows(config: GongEndpointConfig, fetch_page) -> Iterator[Any]:
     """
     cursor: str | None = None
     while True:
-        params: dict[str, Any] = {"cursor": cursor} if cursor else {}
+        params: dict[str, Any] = dict(base_params or {})
+        if cursor:
+            params["cursor"] = cursor
         data = fetch_page(_build_url(config.path, params))
 
         rows = data.get(config.response_key, [])
@@ -223,6 +234,49 @@ def _iter_cursor_rows(config: GongEndpointConfig, fetch_page) -> Iterator[Any]:
         cursor = data.get("records", {}).get("cursor")
         if not cursor:
             break
+
+
+def _iter_fan_out_rows(config: GongEndpointConfig, parent_name: str, param: str, fetch_page) -> Iterator[Any]:
+    """Request the endpoint once per row of its parent endpoint.
+
+    Rows that repeat across parents, such as the company flows Gong returns for every owner, are
+    kept once by primary key. The set holds one key per distinct row, so it stays small.
+    """
+    parent_config = GONG_ENDPOINTS[parent_name]
+    primary_key = config.primary_key if isinstance(config.primary_key, tuple) else (config.primary_key,)
+    seen: set[tuple[Any, ...]] = set()
+
+    for parents in _iter_cursor_rows(parent_config, fetch_page):
+        for parent in parents:
+            if config.fan_out_parent_filter and not parent.get(config.fan_out_parent_filter):
+                continue
+            parent_value = parent.get(config.fan_out_parent_field)
+            if not parent_value:
+                continue
+
+            for rows in _iter_cursor_rows(config, fetch_page, {param: parent_value}):
+                if config.fan_out_column:
+                    rows = [{**row, config.fan_out_column: parent_value} for row in rows]
+                if config.dedupe_fan_out_rows:
+                    unseen = []
+                    for row in rows:
+                        key = tuple(row.get(column) for column in primary_key)
+                        if key not in seen:
+                            seen.add(key)
+                            unseen.append(row)
+                    rows = unseen
+                if rows:
+                    yield rows
+
+
+def _flatten_nested_rows(records: list[dict[str, Any]], nested_rows_key: str) -> list[dict[str, Any]]:
+    """Turn each item of every record's nested list into a row carrying the record's other fields."""
+    rows: list[dict[str, Any]] = []
+    for record in records:
+        parent_fields = {key: value for key, value in record.items() if key != nested_rows_key}
+        for item in record.get(nested_rows_key) or []:
+            rows.append({**parent_fields, **item})
+    return rows
 
 
 def _iter_windowed_rows(
@@ -331,6 +385,8 @@ def _iter_date_filtered_rows(
         data = fetch_page(_build_url(config.path, {}), json_body=body)
 
         rows = data.get(config.response_key, [])
+        if config.nested_rows_key:
+            rows = _flatten_nested_rows(rows, config.nested_rows_key)
         if config.window_date_column:
             rows = [{**row, config.window_date_column: from_date} for row in rows]
         if rows:

@@ -5,8 +5,12 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
+import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
+import { MissingRecipientEmailBanner } from '../../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from '../BroadcastEmailPreview'
@@ -52,7 +56,7 @@ function ReviewRow({
                     {error}
                 </LemonButton>
             ))}
-            <div>{children}</div>
+            <div className="flex flex-col gap-2">{children}</div>
         </div>
     )
 }
@@ -68,8 +72,14 @@ export function BroadcastReviewStep(): JSX.Element {
         emailRateLimit,
         rateLimitedSendDuration,
         stepValidationErrors,
+        emailSettings,
+        missingRecipientEmail,
+        aiEmailDraftStatus,
     } = useValues(broadcastWizardLogic)
+    const { categories } = useValues(optOutCategoriesLogic())
+    const category = categories.find((item) => item.id === emailSettings.messageCategoryId)
     const { props } = useMountedLogic(broadcastWizardLogic)
+    const { openInWorkflowEditor } = useActions(broadcastWizardLogic)
     const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const { integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
@@ -118,6 +128,14 @@ export function BroadcastReviewStep(): JSX.Element {
                     ) : (
                         <div className="text-muted text-xs">No filters. This broadcast goes to everyone.</div>
                     )}
+                    {category && (
+                        <div className="text-xs text-secondary">
+                            Message category: {category.name}
+                            {category.category_type === 'transactional'
+                                ? '. Sent even to people who unsubscribed.'
+                                : '. People who unsubscribed from it are skipped.'}
+                        </div>
+                    )}
                 </ReviewRow>
 
                 <ReviewRow label="Goal" step="goal">
@@ -133,6 +151,12 @@ export function BroadcastReviewStep(): JSX.Element {
                 </ReviewRow>
 
                 <ReviewRow label="Email" step="content">
+                    {missingRecipientEmail ? <MissingRecipientEmailBanner {...missingRecipientEmail} /> : null}
+                    {!emailSettings.trackingEnabled && (
+                        <div className="text-xs text-secondary">Open and click tracking is off.</div>
+                    )}
+                    {emailSettings.utmTagsEnabled && <div className="text-xs text-secondary">Links get UTM tags.</div>}
+                    {aiEmailDraftStatus ? <AiEmailDraftStatus {...aiEmailDraftStatus} /> : null}
                     <BroadcastEmailPreview />
                 </ReviewRow>
 
@@ -146,6 +170,14 @@ export function BroadcastReviewStep(): JSX.Element {
                         {rateLimitedSendDuration ? `, so about ${rateLimitedSendDuration} to reach everyone` : ''}
                     </ReviewRow>
                 )}
+            </div>
+
+            <div className="text-xs text-secondary">
+                Need delays, follow-up emails or branches?{' '}
+                <Link onClick={openInWorkflowEditor} data-attr="broadcast-review-open-in-workflow-editor">
+                    Continue in the workflow editor
+                </Link>
+                .
             </div>
 
             {reviewOnlyErrors.length > 0 && (

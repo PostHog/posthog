@@ -65,9 +65,9 @@ impl LoadOutcome {
 ///
 /// PG-source data (`CacheSource::Fallback`) is never inserted: when the etag
 /// GET succeeds but the payload load falls through to PG, caching would seed
-/// the entry with single-stage `EvaluationMetadata` for the rest of the TTL
-/// window even though Django's full transitive-dep payload is still indexed
-/// under the same etag.
+/// the entry with PG data, which carries no preloaded cohorts, for the rest of
+/// the TTL window even though Django's full payload is still indexed under the
+/// same etag.
 ///
 /// Concurrent first-misses don't coalesce: `try_get_with` requires `E: Clone`
 /// and `FlagError` carries non-`Clone` payloads. Each task compiles its own
@@ -539,8 +539,8 @@ mod tests {
 
     /// When the etag GET succeeds but the loader returns `Fallback` (e.g.
     /// payload evicted before the etag key), the value must not land in
-    /// the cache under the still-fresh etag — otherwise single-stage PG
-    /// data would be served for the rest of the TTL window.
+    /// the cache under the still-fresh etag. Otherwise the service serves PG
+    /// data without preloaded cohorts for the rest of the TTL window.
     #[tokio::test]
     async fn test_pg_fallback_with_etag_present_does_not_cache() {
         let cache = FlagDefinitionsCache::new(None, None);

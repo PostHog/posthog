@@ -67,6 +67,15 @@ class TestTransientDatabaseErrorReporting:
                     error_cls=InternalError,
                 ),
             ),
+            # Code using a raw psycopg connection instead of Django's ORM (e.g. the
+            # warehouse-sources postgres queue producer) raises psycopg's own exception classes
+            # directly, never wrapped in Django's OperationalError/InterfaceError/InternalError.
+            (
+                "native_psycopg_pgbouncer_login_retry",
+                psycopg.errors.ProtocolViolation(
+                    "server login has been failing, cached error: connect failed (server_login_retry)"
+                ),
+            ),
         ]
     )
     async def test_transient_db_errors_are_not_reported(self, _name, error):

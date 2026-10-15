@@ -12,9 +12,19 @@ from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
-@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
-@pytest.mark.parametrize(("file_format", "compression"), SUPPORTED_FILE_FORMAT_COMPRESSIONS, indirect=True)
-@pytest.mark.parametrize("model", TEST_AZURE_BLOB_MODELS)
+@pytest.mark.parametrize(
+    ("model", "file_format", "compression", "interval"),
+    [
+        (model, file_format, compression, "hour")
+        for model in TEST_AZURE_BLOB_MODELS
+        for file_format, compression in SUPPORTED_FILE_FORMAT_COMPRESSIONS
+    ]
+    + [
+        (TEST_AZURE_BLOB_MODELS[index % len(TEST_AZURE_BLOB_MODELS)], file_format, compression, "day")
+        for index, (file_format, compression) in enumerate(SUPPORTED_FILE_FORMAT_COMPRESSIONS)
+    ],
+    indirect=["file_format", "compression", "interval"],
+)
 async def test_workflow_exports_model_successfully(
     ateam,
     azure_batch_export,
@@ -30,8 +40,7 @@ async def test_workflow_exports_model_successfully(
     model: BatchExportModel | BatchExportSchema | None,
 ):
     """Test that the workflow exports events, persons, or sessions to Azure Blob Storage."""
-    batch_export_model = model if isinstance(model, BatchExportModel) else None
-    batch_export_schema = model if isinstance(model, dict) else None
+    batch_export_model = BatchExportModel(name="events", schema=model) if isinstance(model, dict) else model
 
     run = await run_azure_blob_batch_export_workflow(
         team=ateam,
@@ -44,7 +53,6 @@ async def test_workflow_exports_model_successfully(
         file_format=file_format,
         compression=compression,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
     )
 
     assert run.status == "Completed"

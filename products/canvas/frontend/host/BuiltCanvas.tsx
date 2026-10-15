@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 
 import type { CanvasCapabilitiesApi } from '../generated/api.schemas'
-import { translateCanvasTextSelection } from '../sidePanel/comments/canvasCommentThreads'
+import { translateCanvasRect, translateCanvasTextSelection } from '../sidePanel/comments/canvasCommentThreads'
 import { assertCanvasCapability } from './canvasCapabilities'
 import { CanvasHostCallbacks, createCanvasHostMessageRouter } from './canvasHostMessageRouter'
 import {
@@ -74,6 +74,11 @@ export function BuiltCanvas({
                 onTextSelection: (selection) =>
                     latest.current.callbacks.onTextSelection?.(
                         translateCanvasTextSelection(selection, iframe?.getBoundingClientRect() ?? null)
+                    ),
+                onCommentActivate: (id, rect) =>
+                    latest.current.callbacks.onCommentActivate?.(
+                        id,
+                        rect ? translateCanvasRect(rect, iframe?.getBoundingClientRect() ?? null) : null
                     ),
             }),
             hasUserActivation: () => latest.current.hasUserActivation(),

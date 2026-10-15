@@ -1,5 +1,6 @@
 import os
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from urllib.parse import unquote
 
@@ -30,7 +31,7 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 
-from products.access_control.backend.models.role import Role
+from products.access_control.backend.facade.testing import add_role_member, create_role
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertThread,
@@ -89,8 +90,8 @@ class TestErrorTrackingSymbolSetBulkCheckUploadSerializer(SimpleTestCase):
 
 
 class TestErrorTracking(APIBaseTest):
-    def create_issue(self, fingerprints=None) -> ErrorTrackingIssue:
-        issue = ErrorTrackingIssue.objects.create(team=self.team)
+    def create_issue(self, fingerprints=None, status="active") -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(team=self.team, status=status)
         fingerprints = fingerprints if fingerprints else []
         for fingerprint in fingerprints:
             ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
@@ -236,9 +237,9 @@ class TestErrorTracking(APIBaseTest):
             ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
             expected_id, expected_python_type = self.user.id, int
         else:
-            role = Role.objects.create(name="Eng role", organization=self.organization)
-            ErrorTrackingIssueAssignment.objects.create(issue=issue, role=role)
-            expected_id, expected_python_type = str(role.id), str
+            role_id = create_role(organization_id=self.organization.id, name="Eng role")
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, role_id=role_id)
+            expected_id, expected_python_type = str(role_id), str
 
         response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
 
@@ -251,13 +252,31 @@ class TestErrorTracking(APIBaseTest):
     def test_issue_update(self):
         issue = self.create_issue(["fingerprint"])
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
-            data={"status": "resolved", "severity": "high"},
-        )
+        with patch("posthog.event_usage.posthoganalytics.capture") as mock_capture:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+                data={"status": "resolved", "severity": "high"},
+                headers={"X-Posthog-Client": "mcp"},
+            )
         issue.refresh_from_db()
 
         assert response.status_code == 200
+        changed_events = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "error_tracking_issue_changed"
+        ]
+        assert changed_events == [
+            {
+                **changed_events[0],
+                "action": "update",
+                "source": "mcp",
+                "issue_id": str(issue.id),
+                "updated_fields": ["severity", "status"],
+                "status": "resolved",
+                "severity": "high",
+            }
+        ]
         assert response.json() == {
             "id": str(issue.id),
             "name": None,
@@ -307,6 +326,77 @@ class TestErrorTracking(APIBaseTest):
                 }
             ],
         )
+
+    def _issue_noop_update(self) -> tuple[str, str, dict]:
+        issue = self.create_issue(["fingerprint"])
+        return "patch", f"issues/{issue.id}", {"status": "active"}
+
+    def _issue_noop_unassign(self) -> tuple[str, str, dict]:
+        issue = self.create_issue(["fingerprint"])
+        return "patch", f"issues/{issue.id}/assign", {"assignee": None}
+
+    def _issue_assign(self) -> tuple[str, str, dict]:
+        issue = self.create_issue(["fingerprint"])
+        return "patch", f"issues/{issue.id}/assign", {"assignee": {"id": self.user.id, "type": "user"}}
+
+    def _issue_bulk_resolve_skips_resolved(self) -> tuple[str, str, dict]:
+        active = self.create_issue(["fingerprint_active"])
+        resolved = self.create_issue(["fingerprint_resolved"])
+        resolved.status = ErrorTrackingIssue.Status.RESOLVED
+        resolved.save()
+        return (
+            "post",
+            "issues/bulk",
+            {"ids": [str(active.id), str(resolved.id)], "action": "set_status", "status": "resolved"},
+        )
+
+    def _issue_merge_drops_missing_source(self) -> tuple[str, str, dict]:
+        target = self.create_issue(["fingerprint_target"])
+        source = self.create_issue(["fingerprint_source"])
+        return "post", f"issues/{target.id}/merge", {"ids": [str(source.id), str(uuid7())]}
+
+    def _issue_split(self) -> tuple[str, str, dict]:
+        issue = self.create_issue(["fingerprint_one", "fingerprint_two"])
+        return "post", f"issues/{issue.id}/split", {"fingerprints": [{"fingerprint": "fingerprint_two"}]}
+
+    @parameterized.expand(
+        [
+            ("update_without_change", _issue_noop_update, None),
+            ("unassign_when_unassigned", _issue_noop_unassign, None),
+            ("assign", _issue_assign, {"action": "assign", "assignee_type": "user"}),
+            (
+                "bulk_skips_unchanged",
+                _issue_bulk_resolve_skips_resolved,
+                {"action": "bulk_set_status", "issue_count": 1},
+            ),
+            (
+                "merge_skips_missing_source",
+                _issue_merge_drops_missing_source,
+                {"action": "merge", "merged_issue_count": 1},
+            ),
+            ("split", _issue_split, {"action": "split", "fingerprint_count": 1, "new_issue_count": 1}),
+        ]
+    )
+    def test_issue_changed_event_counts_actual_changes(
+        self, _name: str, build_request: Callable[["TestErrorTracking"], tuple[str, str, dict]], expected: dict | None
+    ) -> None:
+        method, path, data = build_request(self)
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as mock_capture:
+            response = getattr(self.client, method)(
+                f"/api/environments/{self.team.id}/error_tracking/{path}", data=data, format="json"
+            )
+
+        assert response.status_code == 200, response.json()
+        changed_events = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "error_tracking_issue_changed"
+        ]
+        if expected is None:
+            assert changed_events == []
+        else:
+            assert changed_events == [{**changed_events[0], "source": "web", **expected}]
 
     @parameterized.expand(
         [
@@ -782,8 +872,8 @@ class TestErrorTracking(APIBaseTest):
         self.user.first_name = first_name
         self.user.last_name = "Doe" if first_name else ""
         self.user.save()
-        role = Role.objects.create(name="Backend", organization=self.organization)
-        assignee_id = self.user.id if assignee_type == "user" else str(role.id)
+        role_id = create_role(organization_id=self.organization.id, name="Backend")
+        assignee_id = self.user.id if assignee_type == "user" else str(role_id)
 
         with (
             patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
@@ -808,7 +898,7 @@ class TestErrorTracking(APIBaseTest):
                 "assignee_name": self.user.email,
                 "assignee_email": self.user.email,
             },
-            "role": {"assignee": f'{{"type":"role","id":"{role.id}"}}', "assignee_name": "Backend"},
+            "role": {"assignee": f'{{"type":"role","id":"{role_id}"}}', "assignee_name": "Backend"},
         }[case]
         assert {key: value for key, value in event.properties.items() if key.startswith("assignee")} == (
             expected_properties
@@ -888,6 +978,78 @@ class TestErrorTracking(APIBaseTest):
         assert activity.item_id == str(issue_one.id)
         assert activity.detail is not None
         assert activity.detail["changes"][0]["after"] == [str(issue_two.id)]
+
+    def test_issue_merge_into_resolved_issue_reopens_and_reports_it(self):
+        target = self.create_issue(fingerprints=["fingerprint_one"], status="resolved")
+        source = self.create_issue(fingerprints=["fingerprint_two"])
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{target.id}/merge",
+                data={"ids": [source.id]},
+            )
+
+        assert response.status_code == 200, response.json()
+        target.refresh_from_db()
+        assert target.status == "active"
+        events = [call.kwargs["event"] for call in mock_produce.call_args_list]
+        reopened = [event for event in events if event.event == "$error_tracking_issue_reopened"]
+        assert len(reopened) == 1
+        assert reopened[0].distinct_id == str(target.id)
+        assert reopened[0].properties["previous_status"] == "Resolved"
+
+        status_activity = ActivityLog.objects.get(
+            scope="ErrorTrackingIssue", activity="updated", item_id=str(target.id)
+        )
+        assert status_activity.user == self.user
+        assert status_activity.detail is not None
+        assert status_activity.detail["changes"] == [
+            {
+                "type": "ErrorTrackingIssue",
+                "action": "changed",
+                "field": "status",
+                "before": "resolved",
+                "after": "active",
+            }
+        ]
+
+    def test_issue_merge_reports_the_reopen_when_the_clickhouse_sync_fails(self):
+        target = self.create_issue(fingerprints=["fingerprint_one"], status="resolved")
+        source = self.create_issue(fingerprints=["fingerprint_two"])
+
+        # The merge has committed by the time these run, and no retry can repair the sync,
+        # so a broker outage must not drop the activity entry or the reopened alert.
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            patch(
+                "products.error_tracking.backend.models.sync_issues_to_clickhouse",
+                side_effect=Exception("clickhouse sync failed"),
+            ),
+            patch(
+                "products.error_tracking.backend.models.update_error_tracking_issue_fingerprint_overrides",
+                side_effect=Exception("fingerprint override sync failed"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{target.id}/merge",
+                data={"ids": [source.id]},
+            )
+
+        assert response.status_code == 200, response.json()
+        target.refresh_from_db()
+        assert target.status == "active"
+        events = [call.kwargs["event"].event for call in mock_produce.call_args_list]
+        assert events.count("$error_tracking_issue_reopened") == 1
+        assert ActivityLog.objects.filter(
+            scope="ErrorTrackingIssue", activity="updated", item_id=str(target.id)
+        ).exists()
+        assert ActivityLog.objects.filter(
+            scope="ErrorTrackingIssue", activity="merged", item_id=str(target.id)
+        ).exists()
 
     def test_issue_merge_without_effect_logs_no_activity(self):
         issue = self.create_issue(fingerprints=["fingerprint_one"])
@@ -1406,8 +1568,8 @@ class TestErrorTracking(APIBaseTest):
         issue_two = self.create_issue()
 
         ErrorTrackingIssueAssignment.objects.create(issue=issue_one, user=self.user)
-        role = Role.objects.create(name="Team role", organization=self.organization)
-        role.members.set([self.user])
+        role_id = create_role(organization_id=self.organization.id, name="Team role")
+        add_role_member(role_id=role_id, user_id=self.user.id)
 
         before_update = timezone.now()
         self.client.post(
@@ -1415,14 +1577,14 @@ class TestErrorTracking(APIBaseTest):
             data={
                 "ids": [issue_one.id, issue_two.id],
                 "action": "assign",
-                "assignee": {"id": role.id, "type": "role"},
+                "assignee": {"id": role_id, "type": "role"},
             },
         )
         after_update = timezone.now()
 
         self.assertEqual(len(ErrorTrackingIssueAssignment.objects.filter(issue=issue_one, user=self.user)), 0)
         self.assertEqual(
-            len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role=role)), 2
+            len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role_id=role_id)), 2
         )
         issue_one.refresh_from_db()
         issue_two.refresh_from_db()
@@ -1581,6 +1743,8 @@ class TestErrorTracking(APIBaseTest):
 
         assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_upload_started"
         assert patched_capture.call_args.kwargs["properties"] == {
+            **patched_capture.call_args.kwargs["properties"],
+            "source": "web",
             "team_id": self.team.id,
             "endpoint": "bulk_start_upload",
             "force": False,
@@ -2117,6 +2281,8 @@ class TestErrorTracking(APIBaseTest):
         assert response.json()["code"] == "symbol_set_not_found"
         assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_uploaded"
         assert patched_capture.call_args.kwargs["properties"] == {
+            **patched_capture.call_args.kwargs["properties"],
+            "source": "web",
             "file_size": 0,
             "success": False,
             "file_count": 1,
@@ -2145,6 +2311,8 @@ class TestErrorTracking(APIBaseTest):
         failure_call = patched_capture.call_args_list[0]
         assert failure_call.args[0] == "error_tracking_symbol_set_uploaded"
         assert failure_call.kwargs["properties"] == {
+            **failure_call.kwargs["properties"],
+            "source": "web",
             "file_size": 0,
             "success": False,
             "file_count": 1,

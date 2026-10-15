@@ -39,17 +39,30 @@ TwoDestinations.args = {
     destinationsById: BY_ID,
 }
 
+export const FailedDestination = Template.bind({})
+FailedDestination.args = {
+    ...TwoDestinations.args,
+    failedDestinationId: POSTGRES.id,
+}
+
 export const WarehouseOnly = Template.bind({})
 WarehouseOnly.args = {
     destinationIds: [WAREHOUSE.id],
     destinationsById: BY_ID,
 }
 
-// A run from before destinations existed recorded none, so there is nothing to show.
-export const NoneRecorded = Template.bind({})
-NoneRecorded.args = {
+// A run that recorded no ids wrote to the PostHog warehouse alone, so it shows as the warehouse.
+export const WarehouseByDefault = Template.bind({})
+WarehouseByDefault.args = {
     destinationIds: [],
     destinationsById: BY_ID,
+}
+
+// The same run on a project that has never configured a destination, so there is no row to look up.
+export const WarehouseByDefaultWithNoLookup = Template.bind({})
+WarehouseByDefaultWithNoLookup.args = {
+    destinationIds: [],
+    destinationsById: {},
 }
 
 // Deleting a destination leaves the runs that used it pointing at nothing.
