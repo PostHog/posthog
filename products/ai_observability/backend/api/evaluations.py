@@ -128,7 +128,8 @@ def _evaluation_output_enabled(serializer: serializers.BaseSerializer, flag_key:
                     "judge_method": {
                         "type": "string",
                         "enum": ["llm", "decision"],
-                        "description": "Judge method. Omit to preserve automatic routing for existing evaluations.",
+                        "nullable": True,
+                        "description": "Judge method. Omit to keep the saved method; null restores automatic routing.",
                     },
                 },
                 "additionalProperties": False,
@@ -550,6 +551,10 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         }
 
     def _uses_decision_model(self, data: dict[str, object]) -> bool:
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        if evaluation_type != EvaluationType.LLM_JUDGE.value:
+            return False
+
         stored_config = getattr(self.instance, "evaluation_config", {})
         evaluation_config = data.get("evaluation_config", stored_config)
         judge_method = evaluation_config.get("judge_method") if isinstance(evaluation_config, dict) else None

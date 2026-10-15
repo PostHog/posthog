@@ -63,6 +63,7 @@ Decision models are available under the existing LLM judge option. They return t
 The evaluation editor separates **Judge method** from **Model**. Choose **LLM with explanation** for chat completions or **Decision model** for typed decisions.
 Each method lists models with the corresponding capability from the project's saved provider connections. API keys stay in AI provider settings.
 Switching methods keeps a compatible model and its saved connection; an incompatible model is cleared without changing the criteria or output settings.
+Changing the judge method marks the evaluation as edited, including when the selected model supports both methods.
 The selection is stored as `evaluation_config.judge_method` (`llm` or `decision`). Evaluations without this field keep automatic routing until a method or model is explicitly selected.
 Automatic OpenRouter routing selects decisions only for models without text output. Models supporting both methods keep chat routing unless decisions are explicitly selected.
 Prompt-only `evaluation_config` PATCH requests preserve the saved method; an explicit `judge_method: null` restores automatic routing.

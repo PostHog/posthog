@@ -1061,6 +1061,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setTrueIsFailure: () => true,
                 setTriggerConditions: () => true,
                 setModelConfiguration: () => true,
+                setJudgeMethod: () => true,
                 setEvaluationType: () => true,
                 setEvaluationTarget: () => true,
                 setSettleStrategy: () => true,

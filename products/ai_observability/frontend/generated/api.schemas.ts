@@ -1967,8 +1967,11 @@ export type EvaluationApiEvaluationConfig =
            * @minLength 1
            */
           prompt: string
-          /** Judge method. Omit to preserve automatic routing for existing evaluations. */
-          judge_method?: 'llm' | 'decision'
+          /**
+           * Judge method. Omit to keep the saved method; null restores automatic routing.
+           * @nullable
+           */
+          judge_method?: 'llm' | 'decision' | null
       }
     | {
           /**
@@ -2279,8 +2282,11 @@ export type PatchedEvaluationApiEvaluationConfig =
            * @minLength 1
            */
           prompt: string
-          /** Judge method. Omit to preserve automatic routing for existing evaluations. */
-          judge_method?: 'llm' | 'decision'
+          /**
+           * Judge method. Omit to keep the saved method; null restores automatic routing.
+           * @nullable
+           */
+          judge_method?: 'llm' | 'decision' | null
       }
     | {
           /**

@@ -1731,8 +1731,12 @@ return result`,
                 await expectLogic(modelPickerLogic).toFinishAllListeners()
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
                 logic.actions.selectModelFromPicker('example/dual-model', 'key-3')
+                logic.actions.setJudgeMethod(method === 'llm' ? 'decision' : 'llm')
+                logic.actions.saveEvaluationSuccess(logic.values.evaluation!)
+                expect(logic.values.hasUnsavedChanges).toBe(false)
                 logic.actions.setJudgeMethod(method)
                 expect(logic.values.judgeMethod).toBe(method)
+                expect(logic.values.hasUnsavedChanges).toBe(true)
                 expect(logic.values.evaluation?.model_configuration).toEqual({
                     provider: 'openrouter',
                     model: 'example/dual-model',

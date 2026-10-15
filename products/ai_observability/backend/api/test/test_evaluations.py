@@ -175,6 +175,24 @@ class TestModelConfigurationSerializer(SimpleTestCase):
         self.assertEqual(evaluation.evaluation_config, stored_config)
 
     @parameterized.expand([("llm",), ("decision",)])
+    def test_switch_to_sentiment_ignores_stored_judge_method(self, method: str) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Check the response.", "judge_method": method},
+            output_type="boolean",
+            output_config={},
+            model_configuration=LLMModelConfiguration(provider="openrouter", model="example/model"),
+        )
+        serializer = EvaluationSerializer(
+            instance=evaluation,
+            data={"evaluation_type": "sentiment", "output_type": "sentiment", "model_configuration": None},
+            partial=True,
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["evaluation_config"], {"source": "user_messages"})
+        self.assertIsNone(serializer.validated_data["model_configuration"])
+
+    @parameterized.expand([("llm",), ("decision",)])
     def test_explicit_judge_method_requires_a_model_for_a_legacy_evaluation(self, method: str) -> None:
         evaluation = Evaluation(
             evaluation_type="llm_judge",
