@@ -1807,7 +1807,10 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   repository: PostHog/posthog
-                  ref: master
+                  # The schema dump takes its cache key from the pushed commit, so a push
+                  # migrates from that commit. A newer master can carry migrations that the
+                  # pushed commit does not have.
+                  ref: ${{ github.event_name == 'push' && github.sha || 'master' }}
                   path: upstream-master
             - name: Install python dependencies for master
               working-directory: upstream-master
