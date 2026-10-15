@@ -9,7 +9,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1391_organization_provisioning"),
-        ("signals", "0178_signalscoutconfig_autovacuum_scale_factor"),
+        ("signals", "0181_signalreportpullrequest_participant_logins"),
     ]
 
     operations = [

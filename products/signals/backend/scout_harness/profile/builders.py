@@ -84,7 +84,7 @@ logger = logging.getLogger(__name__)
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache. A redaction change bumps it too, so rows built before the
 # redaction stop being served.
-INVENTORY_SOURCE_VERSION = "v16"
+INVENTORY_SOURCE_VERSION = "v17"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -127,15 +127,16 @@ REVIEWER_CORRECTIONS_LIMIT = 20
 # most), so it needs no result cap of its own.
 SCOUT_FLEET_EMITTED_LOOKBACK_DAYS = 30
 
-# `_surfaces` binds a pre-check's `{since}` to this many days before now, and `{interval_minutes}`
+# `build_surfaces` binds a pre-check's `{since}` to this many days before now, and `{interval_minutes}`
 # to the same span. Most default queries carry their own window off `{now}` and ignore both.
 SURFACES_LOOKBACK_DAYS = 30
 # The total time the surface queries can take in one build. A surface that the budget leaves out
 # reads as `in_use: null`.
 SURFACES_TIME_BUDGET_S = 30
+_UNANSWERED_SURFACE: dict[str, Any] = {"in_use": None, "evaluated_at": None, "row_count": None}
 
 
-def build_inventory(team: Team) -> Inventory:
+def build_inventory(team: Team, *, surfaces: dict[str, dict[str, Any]] | None = None) -> Inventory:
     """Aggregate the deterministic inventory layer for a team.
 
     Each source is read independently — a failure in one (e.g. warehouse temporarily
@@ -172,7 +173,7 @@ def build_inventory(team: Team) -> Inventory:
             "recent_actions": _recent_actions(team),
             "business_knowledge": _business_knowledge(team),
             "top_events": _top_events(team),
-            "surfaces": _surfaces(team),
+            "surfaces": build_surfaces(team) if surfaces is None else surfaces,
         }
     )
 
@@ -922,7 +923,7 @@ def _top_events(team: Team) -> list[dict[str, Any]] | None:
     ]
 
 
-def _surfaces(team: Team) -> dict[str, dict[str, Any]]:
+def build_surfaces(team: Team) -> dict[str, dict[str, Any]]:
     """Whether each canonical scout's surface is in use, keyed by scout name.
 
     `top_events` keeps only the top events by volume, and `products_in_use` reads onboarding, so
@@ -946,22 +947,46 @@ def _surfaces(team: Team) -> dict[str, dict[str, Any]]:
     deadline = time.monotonic() + SURFACES_TIME_BUDGET_S
     return {
         skill_name: _surface_entry(team, skill_name, queries[skill_name], configs.get(skill_name), now, deadline)
-        for skill_name in sorted(queries.keys() - withheld_skills_for_team(team.id))
+        for skill_name in _surface_skill_names(team, queries)
     }
+
+
+def deferred_surfaces(
+    team: Team, stored: dict[str, dict[str, Any]], *, answered_since: datetime
+) -> dict[str, dict[str, Any]]:
+    """The `surfaces` section without the queries: the stored answers, and `deferred` for the rest.
+
+    A stored entry is kept only when its query answered at or after `answered_since`. A reader
+    cannot tell a copied entry from a new one, so an old answer or a failure is not copied.
+    """
+    deferred = {**_UNANSWERED_SURFACE, "source": "deferred"}
+    return {
+        skill_name: stored[skill_name] if _answered_since(stored.get(skill_name), answered_since) else deferred
+        for skill_name in _surface_skill_names(team, canonical_precheck_queries())
+    }
+
+
+def _answered_since(entry: dict[str, Any] | None, since: datetime) -> bool:
+    if not entry or entry.get("source") != "skill_default" or not entry.get("evaluated_at"):
+        return False
+    return datetime.fromisoformat(entry["evaluated_at"]) >= since
+
+
+def _surface_skill_names(team: Team, queries: dict[str, str]) -> list[str]:
+    return sorted(queries.keys() - withheld_skills_for_team(team.id))
 
 
 def _surface_entry(
     team: Team, skill_name: str, query: str, config: SignalScoutConfig | None, now: datetime, deadline: float
 ) -> dict[str, Any]:
-    unanswered: dict[str, Any] = {"in_use": None, "evaluated_at": None, "row_count": None}
     # Each query gets at most the time left in the build, so one slow query cannot pass the budget.
     remaining_s = math.floor(deadline - time.monotonic())
     if remaining_s < 1:
-        return {**unanswered, "source": "time_budget"}
+        return {**_UNANSWERED_SURFACE, "source": "time_budget"}
     acting_user = resolve_scout_run_acting_user(team, skill_name, config)
     user = User.objects.filter(pk=acting_user.user_id).first() if acting_user is not None else None
     if user is None:
-        return {**unanswered, "source": "no_acting_user"}
+        return {**_UNANSWERED_SURFACE, "source": "no_acting_user"}
     try:
         result = run_precheck_query(
             team,
@@ -979,7 +1004,7 @@ def _surface_entry(
             skill_name,
             exc_info=True,
         )
-        return {**unanswered, "source": "query_error"}
+        return {**_UNANSWERED_SURFACE, "source": "query_error"}
     return {
         "in_use": result.should_run,
         "evaluated_at": now.isoformat(),

@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("signals", "0179_spend_tracking"),
-    ]
+    dependencies = [("signals", "0182_spend_tracking")]
 
     operations = [
         migrations.AddField(
