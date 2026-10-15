@@ -48,12 +48,12 @@ describe('AgentsRoster', () => {
     it('renders a window of external sources and finds an unmounted source through search', async () => {
         render(<AgentsRoster />)
 
-        expect(await screen.findByText('Aha')).toBeInTheDocument()
-        expect(screen.queryByText('Zendesk')).not.toBeInTheDocument()
+        expect(await screen.findByText('GitHub issues')).toBeInTheDocument()
+        expect(screen.queryByText('GitLab')).not.toBeInTheDocument()
 
-        await userEvent.type(screen.getByLabelText('Search external sources'), 'Zendesk')
+        await userEvent.type(screen.getByLabelText('Search external sources'), 'GitLab')
 
-        expect(await screen.findByText('Zendesk')).toBeInTheDocument()
+        expect(await screen.findByText('GitLab')).toBeInTheDocument()
         expect(screen.getByLabelText('Arm Support')).toBeInTheDocument()
     })
 
