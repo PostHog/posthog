@@ -283,6 +283,28 @@ def record_slack_report_discussion(*, team_id: int, report_id: str, task_id: str
     )
 
 
+def claim_report_for_workflow_task(*, team_id: int, report_id: str, task_id: str) -> bool:
+    """Claim the report for a workflow task. False when another actor holds it or the report is gone.
+
+    A claim is not an implementation: it writes no implementation bridge, so it never raises the
+    fixed Signals charge, and the task's pull requests attach to the report as plain PR links.
+    """
+    from products.signals.backend.report_assignments import (
+        try_claim_report_for_task,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return try_claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
+
+
+def release_report_claim_of_task(*, team_id: int, report_id: str, task_id: str) -> None:
+    """Release the report's claim if the task still holds it."""
+    from products.signals.backend.report_assignments import (
+        release_report_claim_of_task as release_report_claim_of_task_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    release_report_claim_of_task_impl(team_id=team_id, report_id=report_id, task_id=task_id)
+
+
 def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":
     """Facade entrypoint for a report's latest repo selection. See select_repo.persisted_repo_selection."""
     from products.signals.backend.report_generation.select_repo import (

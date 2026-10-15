@@ -180,6 +180,24 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> Repo
         return claim or create_claim(report, actor)
 
 
+def try_claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> bool:
+    try:
+        claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
+    except (ReportClaimConflict, SignalReport.DoesNotExist):
+        return False
+    return True
+
+
+def release_report_claim_of_task(*, team_id: int, report_id: str, task_id: str) -> None:
+    with transaction.atomic():
+        if SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first() is None:
+            return
+        claim = get_active_claim(team_id=team_id, report_id=report_id)
+        actor = ArtefactAttribution.from_task(task_id)
+        if claim is not None and actor_owns_claim(claim, actor):
+            release_claim(claim, actor)
+
+
 def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
     parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
     if parsed is None:

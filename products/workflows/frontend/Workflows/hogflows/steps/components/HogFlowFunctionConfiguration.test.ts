@@ -199,10 +199,11 @@ describe('HogFlowFunctionConfiguration', () => {
     })
 
     describe('filterInputsSchemaForTrigger', () => {
-        const aiTaskSchema = [{ key: 'prompt' }, { key: 'reply_in_slack_thread' }]
+        const aiTaskSchema = [{ key: 'prompt' }, { key: 'reply_in_slack_thread' }, { key: 'link_inbox_report' }]
 
         it.each([
             ['slack message', slackTrigger, ['prompt', 'reply_in_slack_thread']],
+            ['inbox report', inboxReportTrigger, ['prompt', 'link_inbox_report']],
             ['event', { type: 'event' }, ['prompt']],
             ['undefined', undefined, ['prompt']],
             // An internal-event trigger for some other event is not a Slack trigger.

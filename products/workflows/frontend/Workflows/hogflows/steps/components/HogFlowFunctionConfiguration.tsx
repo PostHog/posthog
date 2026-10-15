@@ -193,17 +193,24 @@ export function buildSampleGlobals(
     }
 }
 
-// The AI task step's Slack thread toggle only means something when a Slack message can start
-// the workflow; on other triggers the runtime no-ops it, so hide it rather than explain it.
+// The AI task step's Slack thread and Inbox report toggles only mean something when their trigger
+// can start the workflow; on other triggers the runtime no-ops them, so hide them rather than explain them.
 export function filterInputsSchemaForTrigger<T extends { key: string }>(
     templateId: string,
     trigger: { type?: string; filters?: unknown } | undefined | null,
     inputsSchema: T[]
 ): T[] {
-    if (templateId === 'template-posthog-create-task' && !isSlackMessageTriggerConfig(trigger)) {
-        return inputsSchema.filter((schema) => schema.key !== 'reply_in_slack_thread')
+    if (templateId !== 'template-posthog-create-task') {
+        return inputsSchema
     }
-    return inputsSchema
+    const hiddenKeys = new Set<string>()
+    if (!isSlackMessageTriggerConfig(trigger)) {
+        hiddenKeys.add('reply_in_slack_thread')
+    }
+    if (!isInboxReportReadyTriggerConfig(trigger)) {
+        hiddenKeys.add('link_inbox_report')
+    }
+    return inputsSchema.filter((schema) => !hiddenKeys.has(schema.key))
 }
 
 export function HogFlowFunctionConfiguration({

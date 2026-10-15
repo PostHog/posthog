@@ -149,6 +149,13 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         required=False,
         help_text="Stable key for this invocation. A retried request with the same key returns the existing task.",
     )
+    inbox_report_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Inbox report that triggered the workflow. A task with a repository claims it, so the report "
+            "shows the task and its pull request. A report someone else already claimed keeps its claim."
+        ),
+    )
     output_fields = serializers.DictField(
         child=serializers.ChoiceField(choices=OUTPUT_FIELD_TYPES),
         required=False,
@@ -247,6 +254,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 ),
                 rate_limits=rate_limits,
                 output_schema=data.get("output_fields"),
+                inbox_report_id=str(data["inbox_report_id"]) if data.get("inbox_report_id") else None,
             )
         except WorkflowTaskConnectorsInvalid as error:
             raise serializers.ValidationError(

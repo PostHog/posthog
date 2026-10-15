@@ -25,8 +25,13 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from posthog.test.authentication_checks import covers_authentication
 
 from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
+from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
+from products.signals.backend.models import SignalReport
+from products.signals.backend.report_assignments import claim_report_for_task
+from products.signals.backend.report_claims import get_active_claim
 from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
+from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
@@ -602,6 +607,88 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         run = TaskRun.objects.get(id=response.json()["run_id"])
         assert run.state["pending_dispatch"]["create_pr"] is with_repository
+
+    @parameterized.expand(
+        [
+            ("an inbox report run with a repository", True, True, True),
+            ("a run with no repository", True, False, False),
+            ("a run not started by an inbox report", False, True, False),
+        ]
+    )
+    def test_claims_the_triggering_inbox_report_for_the_task(
+        self, _name: str, send_report_id: bool, with_repository: bool, claimed: bool
+    ) -> None:
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, signal_count=1, total_weight=1.0
+        )
+        body: dict = {}
+        if send_report_id:
+            body["inbox_report_id"] = str(report.id)
+        if with_repository:
+            Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+            body["repository"] = "posthog/posthog"
+
+        response = self._post(body)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        claim = get_active_claim(team_id=self.team.id, report_id=report.id)
+        if claimed:
+            assert claim is not None
+            assert str(claim.actor_task_id) == response.json()["id"]
+        else:
+            assert claim is None
+
+    def test_runs_without_a_claim_when_signals_already_holds_the_report(self) -> None:
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, signal_count=1, total_weight=1.0
+        )
+        signals_task = Task.objects.create(
+            team=self.team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        claim_report_for_task(team_id=self.team.id, report_id=str(report.id), task_id=str(signals_task.id))
+        Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+
+        response = self._post({"inbox_report_id": str(report.id), "repository": "posthog/posthog"})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        claim = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert claim is not None
+        assert claim.actor_task_id == signals_task.id
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state["inbox_report_claim"] == {"report_id": str(report.id), "claimed": False}
+
+    @parameterized.expand(
+        [
+            ("with a pull request", "https://github.com/posthog/posthog/pull/7"),
+            ("without a pull request", None),
+        ]
+    )
+    def test_finishing_the_run_settles_the_inbox_report_claim(self, _name: str, pr_url: str | None) -> None:
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, signal_count=1, total_weight=1.0
+        )
+        Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+        response = self._post({"inbox_report_id": str(report.id), "repository": "posthog/posthog"})
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+
+        run.status = TaskRun.Status.COMPLETED
+        run.output = {"final_message": "Done", **({"pr_url": pr_url} if pr_url else {})}
+        run.save(update_fields=["status", "output"])
+        with patch("products.tasks.backend.logic.services.workflow_step_resume.emit_workflow_step_resume"):
+            resume_workflow_step_for_run(run)
+
+        claim = get_active_claim(team_id=self.team.id, report_id=report.id)
+        linked_pr = fetch_implementation_pr_state_for_reports([str(report.id)], team_id=self.team.id).get(
+            str(report.id)
+        )
+        if pr_url:
+            assert claim is not None
+            assert str(claim.actor_task_id) == response.json()["id"]
+            assert linked_pr is not None and linked_pr.url == pr_url
+        else:
+            assert claim is None
+            assert linked_pr is None
 
     def test_teammates_can_see_and_drive_workflow_tasks(self) -> None:
         teammate = self._create_user("teammate@posthog.com")
