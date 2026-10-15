@@ -110,7 +110,7 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
     assert child.task_queue == settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE
 
 
-async def test_a_batch_over_the_payload_budget_records_in_chunks_and_splits_large_deliveries(
+async def test_a_batch_over_the_payload_budget_records_in_chunks_and_starts_one_delivery_per_check(
     environment: WorkflowEnvironment,
 ) -> None:
     recorded: list[SourceOutcomeInputs] = []
@@ -177,12 +177,11 @@ async def test_a_batch_over_the_payload_budget_records_in_chunks_and_splits_larg
             (request,) = converter.default().payload_converter.from_payloads(
                 attributes.input.payloads, [AlertDeliveryRequest]
             )
-            started[attributes.workflow_id] = (request.part, request.overflowed)
+            started[attributes.workflow_id] = (request.parts, request.overflowed)
     key = "slot:2026-09-16T10:00:00+00:00"
     assert started == {
-        f"alerts-deliver-preview-{ADMITTED[0]}:{key}:part-0": (0, 3),
-        f"alerts-deliver-preview-{ADMITTED[0]}:{key}:part-1": (1, 3),
-        f"alerts-deliver-preview-{ADMITTED[1]}:{key}": (0, 0),
+        f"alerts-deliver-preview-{ADMITTED[0]}:{key}": (2, 3),
+        f"alerts-deliver-preview-{ADMITTED[1]}:{key}": (1, 0),
     }
 
 

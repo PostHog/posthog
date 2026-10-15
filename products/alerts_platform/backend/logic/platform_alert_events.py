@@ -146,9 +146,7 @@ def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
     return len(rows)
 
 
-_ANNOUNCEMENT_SQL = f"""
-SELECT grouping_key, kind, episode_started_at, value, labels, condition_snapshot,
-       source_config_snapshot, error_message, occurred_at, alert_name, consecutive_failures
+_ANNOUNCED_ROWS = f"""
 FROM {PLATFORM_ALERT_EVENTS_TABLE}
 WHERE team_id = %(team_id)s
   AND configuration_id = %(configuration_id)s
@@ -158,6 +156,25 @@ ORDER BY grouping_key, occurred_at DESC
 LIMIT 1 BY grouping_key
 """
 
+_ANNOUNCEMENT_COLUMNS = """grouping_key, kind, episode_started_at, value, labels, condition_snapshot,
+       source_config_snapshot, error_message, occurred_at, alert_name, consecutive_failures"""
+
+_ANNOUNCEMENT_SQL = f"SELECT {_ANNOUNCEMENT_COLUMNS} {_ANNOUNCED_ROWS}"
+
+# Deals the announced groups out by their position in key order, so the parts of one evaluation
+# cover every group exactly once, and each part decodes only its own rows.
+_ANNOUNCEMENT_PART_SQL = f"""
+SELECT {_ANNOUNCEMENT_COLUMNS}
+FROM (
+    SELECT *, row_number() OVER (ORDER BY grouping_key) - 1 AS position
+    FROM ({_ANNOUNCEMENT_SQL})
+)
+WHERE modulo(position, %(parts)s) = %(part)s
+ORDER BY grouping_key
+"""
+
+_ANNOUNCED_KINDS_SQL = f"SELECT grouping_key, kind {_ANNOUNCED_ROWS}"
+
 
 def announcement(
     team_id: int,
@@ -166,6 +183,8 @@ def announcement(
     *,
     source: SourceKind,
     incident_grouping_keys: Collection[str] = (),
+    part: int = 0,
+    parts: int = 1,
 ) -> EvaluationAnnouncement | None:
     """What one evaluation left for a destination to say, or None when it announced nothing.
 
@@ -177,19 +196,21 @@ def announcement(
     `LIMIT 1 BY grouping_key` is the read's own deduplication. The insert carries a token the
     engine drops a repeat under, but it only remembers a bounded window of them, so a retry far
     enough behind writes a second row for a group. The newest is the one this evaluation meant.
+
+    With `parts` above one, only the groups of that `part` come back, and None when it has none.
     """
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
-    rows = sync_execute(
-        _ANNOUNCEMENT_SQL,
-        {
-            "team_id": team_id,
-            "configuration_id": configuration_id,
-            "evaluation_key": evaluation_key,
-            "check_kind": AlertEventKind.CHECK.value,
-            "incident_grouping_keys": list(incident_grouping_keys),
-        },
-        team_id=team_id,
-    )
+    parameters: dict[str, Any] = {
+        "team_id": team_id,
+        "configuration_id": configuration_id,
+        "evaluation_key": evaluation_key,
+        "check_kind": AlertEventKind.CHECK.value,
+        "incident_grouping_keys": list(incident_grouping_keys),
+    }
+    if parts > 1:
+        rows = sync_execute(_ANNOUNCEMENT_PART_SQL, {**parameters, "part": part, "parts": parts}, team_id=team_id)
+    else:
+        rows = sync_execute(_ANNOUNCEMENT_SQL, parameters, team_id=team_id)
     if not rows:
         return None
 
@@ -217,6 +238,29 @@ def announcement(
         consecutive_failures=consecutive_failures,
         transitions=transitions,
     )
+
+
+def announced_kinds(
+    team_id: int,
+    configuration_id: str,
+    evaluation_key: str,
+    *,
+    incident_grouping_keys: Collection[str] = (),
+) -> dict[str, AlertEventKind]:
+    """The kind of every group `announcement` returns across all parts, without the rows' payloads."""
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    rows = sync_execute(
+        _ANNOUNCED_KINDS_SQL,
+        {
+            "team_id": team_id,
+            "configuration_id": configuration_id,
+            "evaluation_key": evaluation_key,
+            "check_kind": AlertEventKind.CHECK.value,
+            "incident_grouping_keys": list(incident_grouping_keys),
+        },
+        team_id=team_id,
+    )
+    return {grouping_key: AlertEventKind(kind) for grouping_key, kind in rows}
 
 
 def _snapshot(raw: str) -> dict[str, Any]:

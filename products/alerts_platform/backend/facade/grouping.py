@@ -93,7 +93,7 @@ MAX_TRANSITIONS_PER_DELIVERY: Final = 5
 
 
 def delivery_parts(outcome: PlatformAlertOutcome, incident_grouping_keys: Collection[str] = ()) -> int:
-    """How many delivery workflows an outcome's transitions need.
+    """How many delivery activities an outcome's transitions need.
 
     Counts the rows the delivery reads back: every group that announced, every group whose firing
     opened or closed, and a failure.

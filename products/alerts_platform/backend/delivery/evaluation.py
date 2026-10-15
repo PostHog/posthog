@@ -32,12 +32,13 @@ from products.alerts_platform.backend.delivery.webhook import WebhookTransport
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
+    AlertEventKind,
     AnnouncedTransition,
     DestinationType,
     EvaluationAnnouncement,
     IncidentAction,
 )
-from products.alerts_platform.backend.logic.platform_alert_events import announcement
+from products.alerts_platform.backend.logic.platform_alert_events import announced_kinds, announcement
 
 logger = structlog.get_logger(__name__)
 
@@ -170,14 +171,22 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         request.evaluation_key,
         source=request.source,
         incident_grouping_keys=request.incident_actions.keys(),
+        part=request.part,
+        parts=request.parts,
     )
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
     notice_keys: dict[str, str] = {}
-    if request.parts > 1:
-        if request.overflowed:
-            notice_keys = _overflow_notice_keys(request, announced)
-        announced = replace(announced, transitions=_this_part(request, announced.transitions))
+    if request.parts > 1 and request.overflowed:
+        notice_keys = _overflow_notice_keys(
+            request,
+            announced_kinds(
+                request.team_id,
+                request.configuration_id,
+                request.evaluation_key,
+                incident_grouping_keys=request.incident_actions.keys(),
+            ),
+        )
 
     thread_store = DatabaseThreadStore(request.team_id)
     sent = 0
@@ -259,30 +268,21 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     return DeliveryOutcome(live=True, sent=sent, skipped_without_transport=skipped)
 
 
-def _this_part(
-    request: AlertDeliveryRequest, transitions: tuple[AnnouncedTransition, ...]
-) -> tuple[AnnouncedTransition, ...]:
-    """The transitions this part of a split delivery sends.
-
-    Every part reads the same recorded rows, so ordering them by key and dealing them out by
-    position gives each transition to exactly one part, whatever the count the source estimated.
-    """
-    ordered = sorted(transitions, key=lambda transition: transition.grouping_key)
-    return tuple(ordered[request.part :: request.parts])
-
-
-def _overflow_notice_keys(request: AlertDeliveryRequest, announced: EvaluationAnnouncement) -> dict[str, str]:
+def _overflow_notice_keys(request: AlertDeliveryRequest, kinds: dict[str, AlertEventKind]) -> dict[str, str]:
     """For each destination, the grouping key whose part tells it about the overflow.
 
-    Read from the whole announcement, so every part agrees, and a destination whose messages all
-    land in a later part still hears the notice once.
+    Read from the kinds of the whole announcement, so every part agrees, and a destination whose
+    messages all land in a later part still hears the notice once.
     """
-    message_event_ids = set(request.event_ids_by_kind.values())
+    if not request.sends_messages:
+        return {}
+    first_by_event_id: dict[str, str] = {}
+    for grouping_key, kind in kinds.items():
+        event_id = request.event_ids_by_kind.get(kind.value)
+        if event_id is not None:
+            first_by_event_id[event_id] = min(first_by_event_id.get(event_id, grouping_key), grouping_key)
     keys: dict[str, str] = {}
-    for event_id, transitions in _by_subscription(request, announced).items():
-        if event_id not in message_event_ids:
-            continue
-        first = min(transition.grouping_key for transition in transitions)
+    for event_id, first in first_by_event_id.items():
         for target in _destinations(request, event_id):
             destination = json.dumps(target, sort_keys=True)
             keys[destination] = min(keys.get(destination, first), first)

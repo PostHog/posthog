@@ -890,10 +890,8 @@ def _collect(decided: Sequence[Decision], team_id: int, slot: str, started_at: f
     deferred_deliveries = 0
     deferred_checks = 0
     spent = 0
-    # Each part of a split delivery is its own child workflow, so the cap counts parts.
-    delivery_workflows = 0
     for outcome, delivery in decided:
-        if delivery is not None and delivery_workflows + delivery.parts > MAX_DELIVERIES_PER_CYCLE:
+        if delivery is not None and len(deliveries) >= MAX_DELIVERIES_PER_CYCLE:
             deferred_deliveries += 1
             continue
         size = payload_bytes(outcome) + (payload_bytes(delivery) if delivery is not None else 0)
@@ -904,7 +902,6 @@ def _collect(decided: Sequence[Decision], team_id: int, slot: str, started_at: f
         outcomes.append(outcome)
         if delivery is not None:
             deliveries.append(delivery)
-            delivery_workflows += delivery.parts
 
     if deferred_deliveries:
         logger.warning(

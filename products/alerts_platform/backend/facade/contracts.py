@@ -625,7 +625,8 @@ class AlertDeliveryRequest:
     source_alert_url: str | None = None
     owned_by_platform: bool = False
     overflowed: int = 0
-    # Which of `parts` delivery workflows this is, when `MAX_TRANSITIONS_PER_DELIVERY` splits an evaluation.
+    # How many activities the delivery workflow splits an evaluation into, by `MAX_TRANSITIONS_PER_DELIVERY`,
+    # and which of them one activity sends. The workflow sets `part`.
     parts: int = 1
     part: int = 0
 

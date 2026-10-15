@@ -156,6 +156,7 @@ class TestDeliverEvaluation(APIBaseTest):
         overflowed: int = 0,
         parts: int = 1,
         part: int = 0,
+        kinds: dict[str, AlertEventKind] | None = None,
     ) -> Any:
         def groups(*, team_id: int, alert_id: str, allowed_event_ids: list[str]) -> list[AlertDestinationGroup]:
             return by_event.get(allowed_event_ids[0], [])
@@ -166,6 +167,7 @@ class TestDeliverEvaluation(APIBaseTest):
                 **({"side_effect": live} if isinstance(live, Exception) else {"return_value": live}),
             ),
             patch(f"{_MODULE}.announcement", return_value=announced),
+            patch(f"{_MODULE}.announced_kinds", return_value=kinds or {}),
             patch(f"{_MODULE}.list_alert_destination_groups", side_effect=groups),
             patch(f"{_MODULE}.DatabaseThreadStore"),
             patch.dict(
@@ -223,26 +225,10 @@ class TestDeliverEvaluation(APIBaseTest):
         ]
         assert len(overflow_notices) == 1
 
-    def test_the_parts_of_a_split_delivery_send_each_transition_once(self) -> None:
-        keys = [f"service-{index}" for index in range(7)]
-        announced = _announcement(*(_transition(AlertEventKind.FIRING, key) for key in reversed(keys)))
-
-        sent_by_part: list[list[str]] = []
-        for part in range(3):
-            RecordingTransport.sends = []
-            self._run(announced, {FIRING_EVENT: [_group(SLACK)]}, parts=3, part=part)
-            sent_by_part.append([message.transition.grouping_key for _, message in RecordingTransport.sends])
-
-        assert sorted(key for sent in sent_by_part for key in sent) == keys
-        assert [len(sent) for sent in sent_by_part] == [3, 2, 2]
-
     def test_each_destination_hears_the_overflow_once_across_the_parts_of_a_split_delivery(self) -> None:
         # Sorted by key, the firing lands in part 0 and the resolve in part 1, so a destination
         # that asked only for resolves sends nothing from part 0.
-        announced = _announcement(
-            _transition(AlertEventKind.FIRING, "checkout"),
-            _transition(AlertEventKind.RESOLVED, "search"),
-        )
+        by_part = [_transition(AlertEventKind.FIRING, "checkout"), _transition(AlertEventKind.RESOLVED, "search")]
         fires_only = cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-fires"})
         resolves_only = cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-resolves"})
 
@@ -250,7 +236,7 @@ class TestDeliverEvaluation(APIBaseTest):
         for part in range(2):
             RecordingTransport.sends = []
             self._run(
-                announced,
+                _announcement(by_part[part]),
                 {
                     FIRING_EVENT: [_group(fires_only), _group(SLACK)],
                     RESOLVED_EVENT: [_group(resolves_only), _group(SLACK)],
@@ -258,6 +244,7 @@ class TestDeliverEvaluation(APIBaseTest):
                 overflowed=3,
                 parts=2,
                 part=part,
+                kinds={transition.grouping_key: transition.kind for transition in by_part},
             )
             notices += [
                 channel

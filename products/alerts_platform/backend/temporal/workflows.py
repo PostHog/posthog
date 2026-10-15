@@ -163,13 +163,31 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: AlertDeliveryRequest) -> None:
+        """Delivers each part in turn, so a split evaluation's sends to one destination never overlap.
+
+        A part that fails does not stop the parts after it. The first failure fails the run once
+        every part has had its attempts.
+        """
+        if inputs.parts <= 1:
+            await self._deliver(inputs)
+            return
+        failures: list[ActivityError] = []
+        for part in range(inputs.parts):
+            try:
+                await self._deliver(replace(inputs, part=part))
+            except ActivityError as error:
+                failures.append(error)
+        if failures:
+            raise failures[0]
+
+    async def _deliver(self, request: AlertDeliveryRequest) -> None:
         busy_deadline: dt.datetime | None = None
         while True:
             started_at = workflow.now()
             try:
                 await workflow.execute_activity(
                     alerts_platform_deliver_preview_activity,
-                    inputs,
+                    request,
                     start_to_close_timeout=DELIVERY_START_TO_CLOSE,
                     schedule_to_close_timeout=DELIVERY_SCHEDULE_TO_CLOSE,
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -194,21 +212,20 @@ async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
     re-run of the same occasion reuses the ids, and a reused id raises, so one delivery already
     started does not stop the rest.
 
-    A request split into parts starts one workflow per part. Each carries the overflow, and the
-    delivery picks the one part that tells each destination about it.
+    A request split into parts still starts one workflow, which delivers the parts in turn, so its
+    deadline is one part's times the count.
     """
     results = await asyncio.gather(
         *(
             workflow.start_child_workflow(
                 AlertsPlatformDeliverPreviewWorkflow.run,
-                part,
-                id=_delivery_workflow_id(part),
+                delivery,
+                id=f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}",
                 task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
                 parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
+                execution_timeout=DELIVERY_EXECUTION_TIMEOUT * max(1, delivery.parts),
             )
             for delivery in deliveries
-            for part in _parts(delivery)
         ),
         return_exceptions=True,
     )
@@ -220,17 +237,6 @@ async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
             raise result
         started += 1
     return started
-
-
-def _parts(delivery: AlertDeliveryRequest) -> list[AlertDeliveryRequest]:
-    if delivery.parts <= 1:
-        return [delivery]
-    return [replace(delivery, part=part) for part in range(delivery.parts)]
-
-
-def _delivery_workflow_id(delivery: AlertDeliveryRequest) -> str:
-    workflow_id = f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}"
-    return workflow_id if delivery.parts <= 1 else f"{workflow_id}:part-{delivery.part}"
 
 
 @workflow.defn(name="alerts-platform-deliver")
