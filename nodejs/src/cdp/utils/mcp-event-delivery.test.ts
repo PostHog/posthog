@@ -82,6 +82,7 @@ describe('MCP event delivery authorization', () => {
         [403, false],
         [404, false],
         [400, false],
+        [408, true],
         [429, true],
         [500, true],
         [503, true],
