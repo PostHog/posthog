@@ -57,6 +57,7 @@ const businessKnowledgeDocumentsSearch = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/documents/search/`,
             query: {
+                library_id: params.library_id,
                 limit: params.limit,
                 query: params.query,
                 rerank: params.rerank,
@@ -87,6 +88,7 @@ const businessKnowledgeRepositoriesFileRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/repositories/file/`,
             query: {
+                library_id: params.library_id,
                 path: params.path,
                 repo: params.repo,
             },
@@ -115,6 +117,7 @@ const businessKnowledgeRepositoriesSearch = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/repositories/search/`,
             query: {
+                library_id: params.library_id,
                 query: params.query,
                 repo: params.repo,
             },
@@ -141,10 +144,12 @@ const businessKnowledgeSourcesList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/sources/`,
             query: {
                 added_by: params.added_by,
+                library_id: params.library_id,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
                 source_type: params.source_type,
+                unfiled: params.unfiled,
             },
         })
         const filtered = {
@@ -165,6 +170,7 @@ const businessKnowledgeSourcesList = (): ToolBase<
                     'next_refresh_at',
                     'created_at',
                     'updated_at',
+                    'library_ids',
                 ])
             ),
         } as typeof result
@@ -211,6 +217,9 @@ const businessKnowledgeSourcesPartialUpdate = (): ToolBase<
         }
         if (params.always_include !== undefined) {
             body['always_include'] = params.always_include
+        }
+        if (params.library_ids !== undefined) {
+            body['library_ids'] = params.library_ids
         }
         const result = await context.api.request<Schemas.KnowledgeSource>({
             method: 'PATCH',
@@ -294,6 +303,130 @@ const businessKnowledgeSourcesUrlCreate = (): ToolBase<
     },
 })
 
+const BusinessKnowledgeLibrariesListSchema = () => z.object({})
+
+const businessKnowledgeLibrariesList = (): ToolBase<
+    ReturnType<typeof BusinessKnowledgeLibrariesListSchema>,
+    WithPostHogUrl<Schemas.KnowledgeLibrary[]>
+> => ({
+    name: 'business-knowledge-libraries-list',
+    schema: BusinessKnowledgeLibrariesListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BusinessKnowledgeLibrariesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.KnowledgeLibrary[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/libraries/`,
+        })
+        return await withPostHogUrl(context, result, '/business-knowledge')
+    },
+})
+
+const BusinessKnowledgeLibrariesRetrieveSchema = () => {
+    const BusinessKnowledgeLibrariesRetrieveParams = orvalSchemas.BusinessKnowledgeLibrariesRetrieveParams()
+    return BusinessKnowledgeLibrariesRetrieveParams.omit({ project_id: true })
+}
+
+const businessKnowledgeLibrariesRetrieve = (): ToolBase<
+    ReturnType<typeof BusinessKnowledgeLibrariesRetrieveSchema>,
+    Schemas.KnowledgeLibrary
+> => ({
+    name: 'business-knowledge-libraries-retrieve',
+    schema: BusinessKnowledgeLibrariesRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BusinessKnowledgeLibrariesRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.KnowledgeLibrary>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/libraries/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const BusinessKnowledgeLibrariesCreateSchema = () => {
+    const BusinessKnowledgeLibrariesCreateBody = orvalSchemas.BusinessKnowledgeLibrariesCreateBody()
+    return BusinessKnowledgeLibrariesCreateBody
+}
+
+const businessKnowledgeLibrariesCreate = (): ToolBase<
+    ReturnType<typeof BusinessKnowledgeLibrariesCreateSchema>,
+    Schemas.KnowledgeLibrary
+> => ({
+    name: 'business-knowledge-libraries-create',
+    schema: BusinessKnowledgeLibrariesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BusinessKnowledgeLibrariesCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        const result = await context.api.request<Schemas.KnowledgeLibrary>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/libraries/`,
+            body,
+        })
+        return result
+    },
+})
+
+const BusinessKnowledgeLibrariesPartialUpdateSchema = () => {
+    const BusinessKnowledgeLibrariesPartialUpdateBody = orvalSchemas.BusinessKnowledgeLibrariesPartialUpdateBody()
+    const BusinessKnowledgeLibrariesPartialUpdateParams = orvalSchemas.BusinessKnowledgeLibrariesPartialUpdateParams()
+    return BusinessKnowledgeLibrariesPartialUpdateParams.omit({ project_id: true }).extend(
+        BusinessKnowledgeLibrariesPartialUpdateBody.shape
+    )
+}
+
+const businessKnowledgeLibrariesPartialUpdate = (): ToolBase<
+    ReturnType<typeof BusinessKnowledgeLibrariesPartialUpdateSchema>,
+    Schemas.KnowledgeLibrary
+> => ({
+    name: 'business-knowledge-libraries-partial-update',
+    schema: BusinessKnowledgeLibrariesPartialUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof BusinessKnowledgeLibrariesPartialUpdateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.source_ids !== undefined) {
+            body['source_ids'] = params.source_ids
+        }
+        if (params.repos !== undefined) {
+            body['repos'] = params.repos
+        }
+        const result = await context.api.request<Schemas.KnowledgeLibrary>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/libraries/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const BusinessKnowledgeLibrariesDestroySchema = () => {
+    const BusinessKnowledgeLibrariesDestroyParams = orvalSchemas.BusinessKnowledgeLibrariesDestroyParams()
+    return BusinessKnowledgeLibrariesDestroyParams.omit({ project_id: true })
+}
+
+const businessKnowledgeLibrariesDestroy = (): ToolBase<
+    ReturnType<typeof BusinessKnowledgeLibrariesDestroySchema>,
+    unknown
+> => ({
+    name: 'business-knowledge-libraries-destroy',
+    schema: BusinessKnowledgeLibrariesDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BusinessKnowledgeLibrariesDestroySchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/libraries/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'business-knowledge-document-window-retrieve': businessKnowledgeDocumentWindowRetrieve,
     'business-knowledge-documents-search': businessKnowledgeDocumentsSearch,
@@ -304,4 +437,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'business-knowledge-sources-retrieve': businessKnowledgeSourcesRetrieve,
     'business-knowledge-sources-text-create': businessKnowledgeSourcesTextCreate,
     'business-knowledge-sources-url-create': businessKnowledgeSourcesUrlCreate,
+    'business-knowledge-libraries-list': businessKnowledgeLibrariesList,
+    'business-knowledge-libraries-retrieve': businessKnowledgeLibrariesRetrieve,
+    'business-knowledge-libraries-create': businessKnowledgeLibrariesCreate,
+    'business-knowledge-libraries-partial-update': businessKnowledgeLibrariesPartialUpdate,
+    'business-knowledge-libraries-destroy': businessKnowledgeLibrariesDestroy,
 }

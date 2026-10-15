@@ -7,6 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { StatusTag } from '../../components/StatusTag/StatusTag'
 import type { KnowledgeSource } from '../sources/businessKnowledgeLogic'
+import { SourceLibraries } from './SourceLibraries'
 
 const SOURCE_TYPE_LABELS: Record<KnowledgeSource['source_type'], string> = {
     text: 'Text',
@@ -146,6 +147,7 @@ export function KnowledgeSourceDetails({
                         <span translate="no">{formatFileSize(source.file_size_bytes)}</span>
                     </DetailRow>
                 ) : null}
+                <SourceLibraries />
             </div>
             <div className="mt-3 flex flex-wrap justify-end gap-2 border-t pt-3">
                 {canRefresh ? (

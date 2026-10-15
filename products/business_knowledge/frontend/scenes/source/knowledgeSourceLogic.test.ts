@@ -14,6 +14,7 @@ jest.mock('../../api', () => ({
     updateSource: jest.fn(),
     deleteSource: jest.fn(),
     refreshSource: jest.fn(),
+    listLibraries: jest.fn(),
 }))
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -54,6 +55,7 @@ const MOCK_SOURCE: KnowledgeSourceApi = {
     file_content_type: '',
     file_size_bytes: null,
     always_include: false,
+    library_ids: [],
 }
 
 const mockedApi = api as jest.Mocked<typeof api>
@@ -69,6 +71,7 @@ describe('knowledgeSourceLogic', () => {
         mockedApi.getSourceDocuments.mockResolvedValue([])
         mockedApi.updateSource.mockResolvedValue({ ...MOCK_SOURCE, name: 'Updated policy', chunk_count: 4 })
         mockedApi.deleteSource.mockResolvedValue(undefined)
+        mockedApi.listLibraries.mockResolvedValue([])
         logic = knowledgeSourceLogic({ id: SOURCE_ID })
         logic.mount()
     })
