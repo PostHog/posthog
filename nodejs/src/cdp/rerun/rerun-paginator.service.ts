@@ -5,6 +5,7 @@ import { Counter } from 'prom-client'
 import { logger } from '~/common/utils/logger'
 
 import { HogFunctionInvocationGlobalsSchema } from '../schema/cyclotron'
+import { HogFlow, INBOX_REPORT_READY_EVENT, hasMatchingInternalEventFilter } from '../schema/hogflow'
 import { CyclotronJobConflictError } from '../services/cyclotron-v2'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
@@ -32,6 +33,18 @@ import {
     RerunJobProgress,
     RerunJobState,
 } from './rerun-job.types'
+
+// The API checks Inbox report access only while the trigger subscribes to the event, so a stored
+// report run, which carries the report's title and summary, must not outlive that subscription.
+function isUnsubscribedInboxReportRun(hogFlow: HogFlow, storedEventName: unknown): boolean {
+    return (
+        storedEventName === INBOX_REPORT_READY_EVENT &&
+        !hasMatchingInternalEventFilter(
+            'filters' in hogFlow.trigger ? hogFlow.trigger.filters : undefined,
+            INBOX_REPORT_READY_EVENT
+        )
+    )
+}
 
 const counterRerunPageProcessed = new Counter({
     name: 'cdp_hog_invocation_rerun_pages_processed_total',
@@ -768,6 +781,14 @@ export class RerunPaginatorService {
             }
             const persistedState = parsedGlobals as Record<string, any>
             const eventForFilter = persistedState.event ?? {}
+            if (isUnsubscribedInboxReportRun(hogFlow, eventForFilter.event)) {
+                logger.warn('⚠️', 'Skipping rerun of Inbox report run after the trigger stopped subscribing', {
+                    functionId,
+                    teamId,
+                    invocation_id: row.invocation_id,
+                })
+                return null
+            }
             const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
                 event: eventForFilter,
                 person: undefined,
