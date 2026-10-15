@@ -147,6 +147,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     SQUARE = "Square", "Square"
     ZOOM = "Zoom", "Zoom"
     TRELLO = "Trello", "Trello"
+    TRAFFICSTARS = "TrafficStars", "TrafficStars"
     MONDAY = "Monday", "Monday"
     CLICKUP = "ClickUp", "ClickUp"
     CONFLUENCE = "Confluence", "Confluence"
