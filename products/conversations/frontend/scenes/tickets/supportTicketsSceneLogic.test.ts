@@ -1,6 +1,9 @@
+import { MOCK_DEFAULT_ORGANIZATION_MEMBER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -8,7 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import { MAX_ASSIGNEE_FILTER_ENTRIES } from '../../components/Assignee'
+import { MAX_ASSIGNEE_FILTER_ENTRIES, assigneeSelectLogic } from '../../components/Assignee'
 import { normalizeAssigneeFilter, type SavedTicketView, type Ticket, type TicketViewFilters } from '../../types'
 import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
@@ -336,6 +339,35 @@ describe('supportTicketsSceneLogic', () => {
             expect(logic.values.statusFilter).toEqual([])
             expect(logic.values.dateFrom).toBe('-7d')
             expect(router.values.searchParams.view).toBeUndefined()
+        })
+    })
+
+    describe('assignee names', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        it('loads organization members on mount so a user assignee resolves to a name', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => [200, { count: 0, results: [] }],
+                },
+            })
+            initKeaTests()
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+
+            await expectLogic(membersLogic).toDispatchActions(['loadAllMembersSuccess'])
+
+            expect(
+                assigneeSelectLogic.values.resolveAssignee({
+                    type: 'user',
+                    id: MOCK_DEFAULT_ORGANIZATION_MEMBER.user.id,
+                })
+            ).toMatchObject({ type: 'user', id: MOCK_DEFAULT_ORGANIZATION_MEMBER.user.id })
         })
     })
 
