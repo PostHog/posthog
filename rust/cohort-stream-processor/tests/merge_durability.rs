@@ -46,8 +46,8 @@ use cohort_stream_processor::producer::{
 };
 use cohort_stream_processor::stage1::{Stage1State, StatefulRecord};
 use cohort_stream_processor::store::durability::{
-    run_boot_restore, store_hash_prefix, upload_cadence, CheckpointExporter, CheckpointSweeper,
-    OffsetManifest, RestoreSource, S3Uploader,
+    run_boot_restore, upload_cadence, CheckpointExporter, CheckpointSweeper, OffsetManifest,
+    RestoreSource, S3Uploader,
 };
 use cohort_stream_processor::store::{
     BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
@@ -969,7 +969,7 @@ async fn delete_s3_prefix(config: &Config) {
         Err(_) => return,
     };
     // Checkpoint SSTs are keyed under `<hash>/<s3_key_prefix>/…`; metadata.json at the bare prefix.
-    let hashed = format!("{}/{}", store_hash_prefix(), d.s3_key_prefix);
+    let hashed = format!("{}/{}", d.identity().hash_prefix(), d.s3_key_prefix);
     for raw_prefix in [d.s3_key_prefix.as_str(), hashed.as_str()] {
         let prefix = ObjPath::from(raw_prefix);
         let mut stream = store.list(Some(&prefix));

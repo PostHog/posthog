@@ -897,6 +897,7 @@ mod tests {
             version: MANIFEST_VERSION,
             captured_at: chrono::Utc::now(),
             topics,
+            owner: None,
         }
     }
 

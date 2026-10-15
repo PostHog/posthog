@@ -30,6 +30,15 @@ pub const MANIFEST_FILENAME: &str = "offsets.json";
 /// restore failure (fall through to S3 / cold-start) instead of a mis-seek.
 pub const MANIFEST_VERSION: u32 = 1;
 
+/// The pod config that took a checkpoint: the pod count `N`, the pod's StatefulSet ordinal, and the
+/// partitions the pod owned at capture time. Recorded in both `offsets.json` and `metadata.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckpointOwner {
+    pub pod_count: u32,
+    pub ordinal: u32,
+    pub owned_partitions: Vec<i32>,
+}
+
 /// The per-process resume positions captured alongside a whole-DB checkpoint: for each topic, the
 /// next offset to consume on each owned partition.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,6 +51,10 @@ pub struct OffsetManifest {
     /// deterministic, so the SHA256 the planner computes over non-SST files stays stable across
     /// captures with identical content.
     pub topics: BTreeMap<String, BTreeMap<i32, i64>>,
+    /// The pod config that took this checkpoint. `None` for a manifest written before the field
+    /// existed (always a single-pod checkpoint). Optional, so it needs no [`MANIFEST_VERSION`] bump.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<CheckpointOwner>,
 }
 
 impl OffsetManifest {
@@ -66,7 +79,14 @@ impl OffsetManifest {
             version: MANIFEST_VERSION,
             captured_at: Utc::now(),
             topics,
+            owner: None,
         }
+    }
+
+    /// Record the pod config that took this checkpoint.
+    pub fn with_owner(mut self, owner: CheckpointOwner) -> Self {
+        self.owner = Some(owner);
+        self
     }
 
     /// The next-offset-to-consume for one `(topic, partition)`, if present.
@@ -135,6 +155,11 @@ mod tests {
             version: MANIFEST_VERSION,
             captured_at: Utc::now(),
             topics,
+            owner: Some(CheckpointOwner {
+                pod_count: 2,
+                ordinal: 1,
+                owned_partitions: vec![1, 3],
+            }),
         };
 
         manifest.write_to_dir(dir.path()).unwrap();
@@ -280,6 +305,25 @@ mod tests {
             err.to_string().contains("version"),
             "version-mismatch error should mention version: {err}",
         );
+    }
+
+    #[test]
+    fn a_manifest_without_an_owner_still_loads() {
+        let dir = TempDir::new().unwrap();
+        let json = serde_json::json!({
+            "version": MANIFEST_VERSION,
+            "captured_at": Utc::now(),
+            "topics": { "cohort_stream_events": { "0": 100 } },
+        });
+        std::fs::write(
+            dir.path().join(MANIFEST_FILENAME),
+            serde_json::to_vec(&json).unwrap(),
+        )
+        .unwrap();
+
+        let loaded = OffsetManifest::load_from_dir(dir.path()).unwrap();
+        assert_eq!(loaded.owner, None);
+        assert_eq!(loaded.offset_for("cohort_stream_events", 0), Some(100));
     }
 
     #[test]

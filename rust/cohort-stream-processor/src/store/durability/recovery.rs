@@ -12,7 +12,9 @@
 //!    (`Offset::Stored`) is safe under the `committed <= durable` invariant.
 //! 2. **PvcCheckpoint(dir)** — the live store is gone/stale (lost or corrupt PVC) but a recent local
 //!    checkpoint with a readable `offsets.json` exists within `checkpoint_local_max_staleness`.
-//! 3. **S3** — no usable local source; restore from the most recent S3 checkpoint.
+//! 3. **S3** — no usable local source; restore from the most recent S3 checkpoint of this pod's
+//!    lineage, then, if `CHECKPOINT_RESTORE_SOURCE_ORDINAL` is set, from the split point of the
+//!    source pod's lineage.
 //! 4. **ColdStart** — nothing to restore; the wipe+replay path takes over.
 //!
 //! The PVC/S3 branches are **gated behind `checkpoint_enabled`**: with the gate off,
@@ -21,13 +23,13 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::Utc;
 use tracing::{info, warn};
 
 use super::{
-    CheckpointImporter, DirCleanupGuard, OffsetManifest, S3Downloader, MANIFEST_FILENAME,
-    METADATA_FILENAME,
+    CheckpointImporter, DirCleanupGuard, DurabilityConfig, OffsetManifest, S3Downloader,
+    StoreIdentity, MANIFEST_FILENAME, METADATA_FILENAME,
 };
 use crate::config::Config;
 use crate::observability::metrics::{
@@ -251,39 +253,74 @@ fn restore_from_pvc(checkpoint_dir: &Path, store_path: &Path) -> RestoreOutcome 
 }
 
 /// Import the newest usable S3 checkpoint directly into `store_path`, then read the downloaded
-/// manifest. On any failure (no S3 config, no usable checkpoint, unreadable manifest), downgrade to a
-/// cold start.
+/// manifest. The pod's own lineage comes first. When it has no usable checkpoint and
+/// `CHECKPOINT_RESTORE_SOURCE_ORDINAL` names another pod, the restore falls back to that pod's
+/// lineage, accepting only checkpoints taken under a different pod count (the split point). On any
+/// failure (no S3 config, no usable checkpoint, unreadable manifest), downgrade to a cold start.
 async fn restore_from_s3(config: &Config, store_path: &Path) -> RestoreOutcome {
     let durability = config.durability_config();
-    let downloader = match S3Downloader::new(&durability).await {
-        Ok(downloader) => downloader,
-        Err(e) => {
-            warn!(error = %e, "S3 downloader unavailable; cold start");
-            return cold_downgrade();
+    let own = durability.identity();
+    let own_error = match import_from_s3(&durability, own, None, store_path).await {
+        Ok(manifest) => {
+            return RestoreOutcome {
+                source: RestoreSource::S3,
+                manifest: Some(manifest),
+            }
         }
+        Err(e) => e,
     };
-    let importer = CheckpointImporter::new(
+
+    let Some(source) = durability.restore_source_identity() else {
+        warn!(error = %own_error, ordinal = own.ordinal(), "no usable S3 checkpoint to restore; cold start");
+        return cold_downgrade();
+    };
+    warn!(
+        error = %own_error,
+        ordinal = own.ordinal(),
+        source_ordinal = source.ordinal(),
+        "no usable S3 checkpoint of this pod; restoring from the configured restore source",
+    );
+    match import_from_s3(&durability, source, Some(durability.pod_count), store_path).await {
+        Ok(manifest) => {
+            info!(
+                ordinal = own.ordinal(),
+                source_ordinal = source.ordinal(),
+                "restored the restore source's checkpoint; remove CHECKPOINT_RESTORE_SOURCE_ORDINAL",
+            );
+            RestoreOutcome {
+                source: RestoreSource::S3,
+                manifest: Some(manifest),
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, source_ordinal = source.ordinal(), "no usable S3 checkpoint from the restore source; cold start");
+            cold_downgrade()
+        }
+    }
+}
+
+/// Import the newest usable checkpoint of `identity` into `store_path` and load its manifest.
+/// `skip_pod_count` skips checkpoints that record that pod count.
+async fn import_from_s3(
+    durability: &DurabilityConfig,
+    identity: StoreIdentity,
+    skip_pod_count: Option<u32>,
+    store_path: &Path,
+) -> Result<OffsetManifest> {
+    let downloader = S3Downloader::new(durability, identity)
+        .await
+        .context("S3 downloader unavailable")?;
+    let mut importer = CheckpointImporter::new(
         Box::new(downloader),
         durability.checkpoint_import_attempt_depth,
         durability.checkpoint_import_timeout,
     );
-
-    match importer.import_checkpoint(store_path).await {
-        Ok(_imported_path) => match OffsetManifest::load_from_dir(store_path) {
-            Ok(manifest) => RestoreOutcome {
-                source: RestoreSource::S3,
-                manifest: Some(manifest),
-            },
-            Err(e) => {
-                warn!(error = %e, "S3 checkpoint imported but {MANIFEST_FILENAME} unreadable; cold start");
-                cold_downgrade()
-            }
-        },
-        Err(e) => {
-            warn!(error = %e, "no usable S3 checkpoint to restore; cold start");
-            cold_downgrade()
-        }
+    if let Some(pod_count) = skip_pod_count {
+        importer = importer.skipping_pod_count(pod_count);
     }
+    importer.import_checkpoint(store_path).await?;
+    OffsetManifest::load_from_dir(store_path)
+        .with_context(|| format!("S3 checkpoint imported but {MANIFEST_FILENAME} unreadable"))
 }
 
 /// A failed disaster-restore path falls back to a cold start: no manifest, wipe+replay takes over.
@@ -313,11 +350,13 @@ fn copy_dir_recursive(from: &Path, to: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::durability::{CheckpointMetadata, STORE_PARTITION, STORE_TOPIC};
+    use crate::store::durability::{CheckpointMetadata, STORE_TOPIC};
     use chrono::Duration as ChronoDuration;
     use envconfig::Envconfig;
     use std::collections::BTreeMap;
     use tempfile::TempDir;
+
+    const STORE_PARTITION: i32 = 0;
 
     fn config_with(checkpoint_enabled: bool, store_path: &Path, checkpoint_dir: &Path) -> Config {
         let mut config = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
@@ -360,6 +399,7 @@ mod tests {
             version: super::super::manifest::MANIFEST_VERSION,
             captured_at: Utc::now() - age,
             topics,
+            owner: None,
         };
         manifest.write_to_dir(&attempt).unwrap();
         attempt
@@ -609,6 +649,7 @@ mod tests {
                 version: super::super::manifest::MANIFEST_VERSION,
                 captured_at: Utc::now(),
                 topics: BTreeMap::new(),
+                owner: None,
             }),
         };
         assert!(reopen.manifest.is_none());

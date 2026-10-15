@@ -17,6 +17,9 @@ pub struct CheckpointImporter {
     downloader: Box<dyn CheckpointDownloader>,
     import_attempt_depth: usize,
     import_timeout: Duration,
+    /// Skip a checkpoint whose recorded pod count equals this value. See
+    /// [`Self::skipping_pod_count`].
+    skip_pod_count: Option<u32>,
 }
 
 impl CheckpointImporter {
@@ -29,7 +32,17 @@ impl CheckpointImporter {
             downloader,
             import_attempt_depth,
             import_timeout,
+            skip_pod_count: None,
         }
+    }
+
+    /// Skip every checkpoint that records `pod_count`. A split restore from another pod's lineage
+    /// uses this to accept only the checkpoints taken before the split: the source pod's later
+    /// checkpoints record the new pod count and no longer hold the partitions this pod now owns. A
+    /// checkpoint with no recorded owner predates the field and is accepted.
+    pub fn skipping_pod_count(mut self, pod_count: u32) -> Self {
+        self.skip_pod_count = Some(pod_count);
+        self
     }
 
     /// Lists recent checkpoint metadata.json keys (newest first), tries up to `import_attempt_depth`
@@ -152,6 +165,18 @@ impl CheckpointImporter {
                     "Skipping checkpoint written under a different store schema version",
                 );
                 continue;
+            }
+
+            if let (Some(skip), Some(owner)) = (self.skip_pod_count, attempt.owner.as_ref()) {
+                if owner.pod_count == skip {
+                    warn!(
+                        store = STORE_TOPIC,
+                        checkpoint = %remote_key,
+                        pod_count = owner.pod_count,
+                        "Skipping checkpoint taken under the current pod count",
+                    );
+                    continue;
+                }
             }
 
             let attempt_tag = attempt.get_attempt_path();
@@ -293,7 +318,9 @@ mod tests {
     use std::time::Duration;
     use tempfile::TempDir;
 
-    use crate::store::durability::{STORE_PARTITION, STORE_TOPIC};
+    use crate::store::durability::{CheckpointOwner, STORE_TOPIC};
+
+    const STORE_PARTITION: i32 = 0;
 
     #[derive(Debug)]
     struct MockDownloader {
@@ -586,6 +613,37 @@ mod tests {
             loaded.id, current.id,
             "the accepted attempt is the older, schema-matching candidate",
         );
+    }
+
+    #[tokio::test]
+    async fn a_split_restore_skips_checkpoints_taken_under_the_current_pod_count() {
+        let tmp_dir = TempDir::new().unwrap();
+        let target_path = tmp_dir.path().join("store");
+
+        let owner = |pod_count: u32| CheckpointOwner {
+            pod_count,
+            ordinal: 0,
+            owned_partitions: Vec::new(),
+        };
+        let mut after_split = create_test_metadata(13);
+        after_split.owner = Some(owner(2));
+        let mut split_point = create_test_metadata(12);
+        split_point.owner = Some(owner(1));
+
+        let downloader =
+            CancellationTestDownloader::new(vec![after_split.clone(), split_point.clone()]);
+        let importer = CheckpointImporter::new(Box::new(downloader), 3, Duration::from_secs(60))
+            .skipping_pod_count(2);
+
+        let import_path = importer
+            .import_checkpoint(&target_path)
+            .await
+            .expect("import should skip the post-split checkpoint and use the split point");
+        let loaded = CheckpointMetadata::load_from_dir(&import_path)
+            .await
+            .unwrap();
+        assert_eq!(loaded.id, split_point.id);
+        assert_eq!(loaded.owner, Some(owner(1)));
     }
 
     #[tokio::test]

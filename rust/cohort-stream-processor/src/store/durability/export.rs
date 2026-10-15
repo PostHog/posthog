@@ -110,7 +110,7 @@ mod tests {
     use chrono::{TimeZone, Utc};
 
     use crate::store::durability::{
-        CheckpointInfo, CheckpointMetadata, UploadCancelledError, STORE_PARTITION, STORE_TOPIC,
+        CheckpointInfo, CheckpointMetadata, UploadCancelledError, STORE_TOPIC,
     };
 
     #[derive(Debug)]
@@ -168,14 +168,7 @@ mod tests {
 
     fn create_test_plan() -> CheckpointPlan {
         let timestamp = Utc.with_ymd_and_hms(2025, 6, 15, 12, 0, 0).unwrap();
-        let metadata = CheckpointMetadata::new(
-            STORE_TOPIC.to_string(),
-            STORE_PARTITION,
-            timestamp,
-            12345,
-            0,
-            0,
-        );
+        let metadata = CheckpointMetadata::new(STORE_TOPIC.to_string(), 0, timestamp, 12345, 0, 0);
         let info = CheckpointInfo::new(metadata, "checkpoints".to_string(), None);
         CheckpointPlan {
             info,

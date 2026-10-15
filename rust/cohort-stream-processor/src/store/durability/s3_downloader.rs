@@ -7,9 +7,9 @@ use tokio_util::bytes::Bytes;
 use super::config::DurabilityConfig;
 use super::downloader::CheckpointDownloader;
 use super::error::DownloadCancelledError;
-use super::metadata::{store_hash_prefix, DATE_PLUS_HOURS_ONLY_FORMAT, METADATA_FILENAME};
+use super::metadata::{DATE_PLUS_HOURS_ONLY_FORMAT, METADATA_FILENAME};
 use super::s3_client::create_s3_client;
-use super::{STORE_PARTITION, STORE_TOPIC};
+use super::{StoreIdentity, STORE_TOPIC};
 use crate::observability::metrics::{
     CHECKPOINT_FILES_DOWNLOADED_TOTAL, CHECKPOINT_FILES_FETCH_DURATION_SECONDS,
     CHECKPOINT_FILE_FETCH_DURATION_SECONDS, CHECKPOINT_FILE_FETCH_STORE_DURATION_SECONDS,
@@ -65,13 +65,14 @@ where
     }
 }
 
-/// Build the S3 key prefix for listing checkpoints. Includes the deterministic hash prefix so
-/// metadata and object files share a path. The trailing slash makes it a clean folder boundary, so a
-/// sibling namespace under the same hash can never prefix-match.
-fn format_checkpoint_list_prefix(s3_key_prefix: &str) -> String {
+/// Build the S3 key prefix for listing the checkpoints of `identity`. Includes the deterministic hash
+/// prefix so metadata and object files share a path. The trailing slash makes it a clean folder
+/// boundary, so a sibling namespace or ordinal under the same hash can never prefix-match.
+fn format_checkpoint_list_prefix(identity: StoreIdentity, s3_key_prefix: &str) -> String {
     format!(
-        "{}/{s3_key_prefix}/{STORE_TOPIC}/{STORE_PARTITION}/",
-        store_hash_prefix()
+        "{}/{s3_key_prefix}/{STORE_TOPIC}/{}/",
+        identity.hash_prefix(),
+        identity.partition(),
     )
 }
 
@@ -94,12 +95,14 @@ pub struct S3Downloader {
     store: Arc<LimitStore<object_store::aws::AmazonS3>>,
     s3_bucket: String,
     s3_key_prefix: String,
+    /// The lineage whose checkpoints this downloader lists.
+    identity: StoreIdentity,
     checkpoint_import_window_hours: u32,
     max_concurrent_file_downloads: usize,
 }
 
 impl S3Downloader {
-    pub async fn new(config: &DurabilityConfig) -> Result<Self> {
+    pub async fn new(config: &DurabilityConfig, identity: StoreIdentity) -> Result<Self> {
         let store =
             create_s3_client(config, config.max_concurrent_checkpoint_file_downloads).await?;
 
@@ -112,6 +115,7 @@ impl S3Downloader {
             store,
             s3_bucket: config.s3_bucket.clone(),
             s3_key_prefix: config.s3_key_prefix.clone(),
+            identity,
             checkpoint_import_window_hours: config.checkpoint_import_window_hours,
             max_concurrent_file_downloads: config.max_concurrent_checkpoint_file_downloads,
         })
@@ -330,7 +334,7 @@ impl CheckpointDownloader for S3Downloader {
     async fn list_recent_checkpoints(&self) -> Result<Vec<String>> {
         let start_time = Instant::now();
         let import_window_hours = Duration::hours(i64::from(self.checkpoint_import_window_hours));
-        let remote_key_prefix = format_checkpoint_list_prefix(&self.s3_key_prefix);
+        let remote_key_prefix = format_checkpoint_list_prefix(self.identity, &self.s3_key_prefix);
         let cutoff = Utc::now() - import_window_hours;
         let cutoff_id = cutoff.format(DATE_PLUS_HOURS_ONLY_FORMAT).to_string();
 
@@ -383,39 +387,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn format_checkpoint_list_prefix_uses_the_single_db_identity() {
-        let hash = store_hash_prefix();
-        let prefix = format_checkpoint_list_prefix("checkpoints");
+    fn format_checkpoint_list_prefix_uses_the_pod_identity() {
+        let single_pod = StoreIdentity::for_ordinal(0);
+        let hash = single_pod.hash_prefix();
         assert_eq!(
-            prefix,
-            format!("{hash}/checkpoints/{STORE_TOPIC}/{STORE_PARTITION}/")
+            format_checkpoint_list_prefix(single_pod, "checkpoints"),
+            format!("{hash}/checkpoints/{STORE_TOPIC}/0/"),
+            "ordinal 0 lists the single-pod prefix",
+        );
+
+        let second_pod = StoreIdentity::for_ordinal(1);
+        let hash = second_pod.hash_prefix();
+        assert_eq!(
+            format_checkpoint_list_prefix(second_pod, "checkpoints"),
+            format!("{hash}/checkpoints/{STORE_TOPIC}/1/"),
         );
     }
 
     #[test]
     fn format_checkpoint_list_prefix_has_a_trailing_slash_folder_boundary() {
-        let prefix = format_checkpoint_list_prefix("checkpoints");
+        let identity = StoreIdentity::for_ordinal(1);
+        let prefix = format_checkpoint_list_prefix(identity, "checkpoints");
         assert!(prefix.ends_with('/'));
 
-        let hash = store_hash_prefix();
-        // A real key under this prefix matches; a key with a longer trailing namespace does not.
-        let key = format!(
-            "{hash}/checkpoints/{STORE_TOPIC}/{STORE_PARTITION}/2026-01-22T12-00-00Z/metadata.json"
-        );
-        let sibling = format!(
-            "{hash}/checkpoints-other/{STORE_TOPIC}/{STORE_PARTITION}/2026-01-22T12-00-00Z/metadata.json"
-        );
+        let hash = identity.hash_prefix();
+        // A real key under this prefix matches; a longer namespace or ordinal does not.
+        let key = format!("{hash}/checkpoints/{STORE_TOPIC}/1/2026-01-22T12-00-00Z/metadata.json");
+        let sibling =
+            format!("{hash}/checkpoints-other/{STORE_TOPIC}/1/2026-01-22T12-00-00Z/metadata.json");
+        let longer_ordinal =
+            format!("{hash}/checkpoints/{STORE_TOPIC}/11/2026-01-22T12-00-00Z/metadata.json");
         assert!(key.starts_with(&prefix));
         assert!(!sibling.starts_with(&prefix));
+        assert!(!longer_ordinal.starts_with(&prefix));
     }
 
     #[test]
     fn format_checkpoint_list_prefix_with_namespaced_key_prefix() {
-        let hash = store_hash_prefix();
-        let prefix = format_checkpoint_list_prefix("env/prod/checkpoints");
+        let identity = StoreIdentity::for_ordinal(0);
+        let hash = identity.hash_prefix();
         assert_eq!(
-            prefix,
-            format!("{hash}/env/prod/checkpoints/{STORE_TOPIC}/{STORE_PARTITION}/")
+            format_checkpoint_list_prefix(identity, "env/prod/checkpoints"),
+            format!("{hash}/env/prod/checkpoints/{STORE_TOPIC}/0/")
         );
     }
 }
