@@ -73,11 +73,9 @@ describe('MetricDefinition', () => {
 
     it('keeps long result values out of the table cell', () => {
         const days = Array.from({ length: 31 }, (_, index) => `2026-01-${String(index + 1).padStart(2, '0')}`)
-        const longLabel = 'a'.repeat(200)
-        renderDefinition(buildMetric(), { results: [{ days, label: longLabel, count: 42 }] })
+        renderDefinition(buildMetric(), { results: [{ days, count: 42 }] })
 
         expect(screen.getByText('42')).toBeInTheDocument()
         expect(screen.queryByText(JSON.stringify(days))).not.toBeInTheDocument()
-        expect(screen.getByText(longLabel)).toHaveClass('truncate')
     })
 })

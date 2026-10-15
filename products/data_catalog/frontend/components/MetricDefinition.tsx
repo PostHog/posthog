@@ -1,8 +1,7 @@
 import { IconGraph, IconPencil, IconPlay, IconServer } from '@posthog/icons'
-import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
-import { JSONViewer } from 'lib/components/JSONViewer'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -14,6 +13,7 @@ import { METRIC_MARKDOWN_MAX_LENGTH } from '../common'
 import { definitionField } from '../dataCatalogMetricSceneLogic'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { MetricMarkdownEditorField } from './MetricMarkdownEditorField'
+import { ResultCell } from './ResultCell'
 import { RunMetricWithAIButton } from './RunMetricWithAIButton'
 import { Section } from './Section'
 
@@ -288,29 +288,4 @@ function ResultsTable({ results }: { results: unknown }): JSX.Element {
         )
     }
     return <CodeSnippet language={Language.JSON}>{JSON.stringify(results, null, 2)}</CodeSnippet>
-}
-
-// A trends row carries whole series (`data`, `days`, `filter`), so long values collapse to keep each row one line.
-const INLINE_VALUE_MAX_LENGTH = 60
-
-function ResultCell({ value }: { value: unknown }): JSX.Element | null {
-    if (value == null) {
-        return null
-    }
-    const text = typeof value === 'object' ? JSON.stringify(value) : String(value)
-    if (text.length <= INLINE_VALUE_MAX_LENGTH) {
-        return <>{text}</>
-    }
-    if (typeof value === 'object') {
-        return (
-            <div className="w-max max-w-120 overflow-x-auto">
-                <JSONViewer src={value} collapsed displayObjectSize />
-            </div>
-        )
-    }
-    return (
-        <Tooltip title={text}>
-            <span className="block max-w-80 truncate">{text}</span>
-        </Tooltip>
-    )
 }
