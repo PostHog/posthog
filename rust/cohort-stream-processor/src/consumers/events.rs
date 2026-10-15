@@ -20,6 +20,7 @@ use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
 use rdkafka::message::Message;
 use rdkafka::{Offset, TopicPartitionList};
+use tokio::sync::watch;
 use tracing::{debug, info, warn};
 
 pub use cohort_core::events::CohortStreamEvent;
@@ -104,6 +105,9 @@ pub struct EventDispatcher {
     /// Prevents post-shutdown worker registration that would hang the join. The structural guarantee
     /// is the router's terminal closed state, which refuses registration after `clear()`.
     draining: AtomicBool,
+    /// Set once the shutdown drain has joined every worker, carrying the owned partitions at that
+    /// moment. Followers wait on it so their final commit includes the offsets the drain applied.
+    shutdown_drain: watch::Sender<Option<Vec<i32>>>,
     /// When set, workers rebuild their `EvictionQueue` on spawn and boot/assign paths reclaim stale
     /// on-disk slices. Set once at startup before any worker spawns.
     durable_restore: AtomicBool,
@@ -134,6 +138,7 @@ impl EventDispatcher {
             sink,
             merge,
             draining: AtomicBool::new(false),
+            shutdown_drain: watch::Sender::new(None),
             durable_restore: AtomicBool::new(false),
             boot_assignment: OnceLock::new(),
             event_name_gating: OnceLock::new(),
@@ -936,6 +941,7 @@ impl EventDispatcher {
         self.draining.store(true, Ordering::SeqCst);
         self.router.clear();
         let partitions: Vec<i32> = self.workers.iter().map(|entry| *entry.key()).collect();
+        let drained_workers = partitions.len();
         for partition in partitions {
             if let Some((_, WorkerSlot::Running(worker))) = self.workers.remove(&partition) {
                 if let Err(err) = worker.join().await {
@@ -943,7 +949,26 @@ impl EventDispatcher {
                 }
             }
         }
+        let owned = self.owned_partitions();
+        info!(
+            drained_workers,
+            owned_partitions = ?owned,
+            "shutdown drain complete; partition workers joined",
+        );
+        self.shutdown_drain.send_replace(Some(owned));
         self.tracker.clone()
+    }
+
+    /// Wait until [`shutdown`](Self::shutdown) has joined every worker. Returns the partitions owned
+    /// at drain time, or `None` if the drain does not finish within `timeout`. The snapshot stays
+    /// valid after the events consumer closes and its revoke clears the live owned set.
+    pub(crate) async fn wait_for_shutdown_drain(&self, timeout: Duration) -> Option<Vec<i32>> {
+        let mut rx = self.shutdown_drain.subscribe();
+        let drained = tokio::time::timeout(timeout, rx.wait_for(Option::is_some))
+            .await
+            .ok()?
+            .ok()?;
+        drained.clone()
     }
 }
 
@@ -1363,9 +1388,9 @@ pub(crate) fn commit_offsets<C: ConsumerContext>(
     offsets: HashMap<i32, i64>,
     topic: &str,
     mode: CommitMode,
-) {
+) -> bool {
     if offsets.is_empty() {
-        return;
+        return false;
     }
     let tpl = build_commit_tpl(topic, &offsets);
     match consumer.commit(&tpl, mode) {
@@ -1374,16 +1399,19 @@ pub(crate) fn commit_offsets<C: ConsumerContext>(
             for (&partition, &next_offset) in &offsets {
                 tracker.mark_committed(partition, next_offset);
             }
+            true
         }
         Err(err) => {
             counter!(COHORT_STREAM_OFFSET_COMMIT_ERRORS).increment(1);
             warn!(topic, error = %err, "failed to commit consumer offsets");
+            false
         }
     }
 }
 
 /// fsync the store's WAL before committing offsets, upholding `committed <= durable`. Unconditional
 /// so reopen-live is safe whenever the durability gate is flipped. A fsync error skips the commit.
+/// Returns `true` only when the broker accepted the commit.
 ///
 /// The caller captures `offsets` before this runs, so the fsync makes durable exactly what they
 /// already reflect. It runs on the write lane with no permit so the commit cadence never queues
@@ -1395,14 +1423,14 @@ pub(crate) async fn fsync_then_commit<C: ConsumerContext>(
     offsets: HashMap<i32, i64>,
     topic: &str,
     mode: CommitMode,
-) {
+) -> bool {
     if offsets.is_empty() {
-        return;
+        return false;
     }
     if handle.flush_wal_sync().await.is_err() {
-        return; // store counted the error; skip commit so `committed` never outruns `durable`
+        return false; // store counted the error; skip commit so `committed` never outruns `durable`
     }
-    commit_offsets(consumer, tracker, offsets, topic, mode);
+    commit_offsets(consumer, tracker, offsets, topic, mode)
 }
 
 /// Flushes the store's WAL and commits the owned committable offsets on a fixed interval, independent
@@ -2796,6 +2824,48 @@ mod tests {
         );
 
         dispatcher.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn shutdown_drain_wakes_waiters_with_the_owned_partitions_at_drain_time() {
+        let (_dir, store) = temp_store();
+        let (dispatcher, _sink) = dispatcher_and_sink(&store, behavioral_catalog());
+        let dispatcher = Arc::new(dispatcher);
+
+        dispatcher.assign_partition(0);
+        dispatcher.assign_partition(1);
+        dispatcher.dispatch(vec![consumed(person(1), 0, 10)]).await;
+
+        assert_eq!(
+            dispatcher
+                .wait_for_shutdown_drain(Duration::from_millis(10))
+                .await,
+            None,
+            "no drain has run yet, so the wait times out",
+        );
+
+        let waiter = {
+            let dispatcher = dispatcher.clone();
+            tokio::spawn(async move {
+                dispatcher
+                    .wait_for_shutdown_drain(Duration::from_secs(30))
+                    .await
+            })
+        };
+        dispatcher.shutdown().await;
+        // The events consumer closes after the drain, and its revoke clears the live owned set.
+        dispatcher.revoke_partition_sync(0);
+        dispatcher.revoke_partition_sync(1);
+
+        let mut owned = waiter.await.unwrap().expect("the drain wakes the waiter");
+        owned.sort_unstable();
+        assert_eq!(owned, vec![0, 1]);
+        let mut late = dispatcher
+            .wait_for_shutdown_drain(Duration::from_millis(10))
+            .await
+            .expect("a wait that starts after the drain returns at once");
+        late.sort_unstable();
+        assert_eq!(late, vec![0, 1]);
     }
 
     #[tokio::test]
