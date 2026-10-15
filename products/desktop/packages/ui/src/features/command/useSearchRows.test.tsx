@@ -37,10 +37,7 @@ describe("useSearchRows", () => {
 
   function render(
     searchResults: TaskSearchResult[],
-    { taskIds = [], bluebirdEnabled = true } = {} as {
-      taskIds?: string[];
-      bluebirdEnabled?: boolean;
-    },
+    { taskIds = [] } = {} as { taskIds?: string[] },
   ) {
     return renderHook(() =>
       useSearchRows({
@@ -49,7 +46,6 @@ describe("useSearchRows", () => {
         tasks,
         taskSections: taskIds.length > 0 ? [taskSection(taskIds)] : [],
         channels: [{ id: "channel-a", name: "growth" }],
-        bluebirdEnabled,
       }),
     ).result.current;
   }
@@ -80,15 +76,6 @@ describe("useSearchRows", () => {
     expect(rows[0].command.label).toBe("Run rate");
     expect(rows[0].command.detail).toBe("#growth");
     expect(rows[0].command.action).toBe("open-canvas");
-  });
-
-  it("hides space matches while the spaces feature is off", () => {
-    const rows = render(
-      [searchResult({ id: "c1", kind: "channel", channel_id: "channel-b" })],
-      { bluebirdEnabled: false },
-    );
-
-    expect(rows).toEqual([]);
   });
 
   it("gives every row a place of its own to open in a tab", () => {

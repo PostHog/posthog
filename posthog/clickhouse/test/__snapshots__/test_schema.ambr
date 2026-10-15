@@ -2105,6 +2105,8 @@
       , session_id String COMMENT 'column_materializer::properties::$session_id'
       , request_id String COMMENT 'column_materializer::properties::$feature_flag_request_id'
   
+      , properties_group_custom Map(String, String)
+      , person_properties_map_custom Map(String, String)
       
   , _timestamp DateTime
   , _offset UInt64
@@ -8415,6 +8417,13 @@
       , request_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_request_id'
   
       
+      , properties_group_custom Map(String, String) MATERIALIZED mapSort( mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')) )
+      , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter
+      , INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter
+      , person_properties_map_custom Map(String, String) MATERIALIZED mapSort( mapFilter((key, _) -> key NOT LIKE '$%', CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')) )
+      , INDEX person_properties_map_custom_keys_bf mapKeys(person_properties_map_custom) TYPE bloom_filter
+      , INDEX person_properties_map_custom_values_bf mapValues(person_properties_map_custom) TYPE bloom_filter
+      
       , INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
       , INDEX person_id_idx   person_id   TYPE bloom_filter(0.01) GRANULARITY 1
       , INDEX session_id_idx  session_id  TYPE bloom_filter(0.01) GRANULARITY 1
@@ -14622,6 +14631,13 @@
       , session_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$session_id'
       , request_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_request_id'
   
+      
+      , properties_group_custom Map(String, String) MATERIALIZED mapSort( mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')) )
+      , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter
+      , INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter
+      , person_properties_map_custom Map(String, String) MATERIALIZED mapSort( mapFilter((key, _) -> key NOT LIKE '$%', CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')) )
+      , INDEX person_properties_map_custom_keys_bf mapKeys(person_properties_map_custom) TYPE bloom_filter
+      , INDEX person_properties_map_custom_values_bf mapValues(person_properties_map_custom) TYPE bloom_filter
       
       , INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
       , INDEX person_id_idx   person_id   TYPE bloom_filter(0.01) GRANULARITY 1

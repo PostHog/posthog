@@ -1,0 +1,892 @@
+{
+    "template-discord": {
+        "allowedMentions": ["none"],
+        "content": [
+            "**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\n{event.properties.breaches}\n{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}",
+            "**{person.name}** triggered event: '{event.event}'"
+        ]
+    },
+    "template-microsoft-teams": {
+        "text": [
+            "**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\n\n{event.properties.breaches}\n\n[View alert]({project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id})",
+            "**{person.name}** triggered event: '{event.event}'"
+        ]
+    },
+    "template-slack": {
+        "blocks": [
+            [
+                {
+                    "text": {
+                        "text": "*{person.name}* triggered event: '{event.event}'",
+                        "type": "mrkdwn"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "View Person in PostHog",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{person.url}"
+                        },
+                        {
+                            "text": {
+                                "text": "Message source",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{source.url}"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "*{person.name}* triggered event: '{event.name}'",
+                        "type": "mrkdwn"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "View Person in PostHog",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{person.url}"
+                        },
+                        {
+                            "text": {
+                                "text": "Message source",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{source.url}"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "{event.properties.breaches}",
+                        "type": "plain_text"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        },
+                        {
+                            "text": "Alert: <{source.url}|{source.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ],
+                    "type": "context"
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "View Insight",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/insights/{event.properties.insight_id}"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "{event.properties.breaches}",
+                        "type": "plain_text"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ],
+                    "type": "context"
+                },
+                "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
+                {
+                    "block_id": "insight_alert_snooze:{event.properties.alert_id}",
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "{event.properties.investigation_notebook_url ? 'View Investigation' : 'View Alert'}",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{event.properties.investigation_notebook_url ? event.properties.investigation_notebook_url : concat(project.url, '/insights/', event.properties.insight_id, '/alerts?alert_id=', event.properties.alert_id, '&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack')}"
+                        },
+                        {
+                            "text": {
+                                "text": "View Insight",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack"
+                        },
+                        {
+                            "action_id": "insight_alert_snooze",
+                            "options": [
+                                {
+                                    "text": {
+                                        "text": "For 1 hour",
+                                        "type": "plain_text"
+                                    },
+                                    "value": "{event.properties.alert_id}|1h"
+                                },
+                                {
+                                    "text": {
+                                        "text": "For 6 hours",
+                                        "type": "plain_text"
+                                    },
+                                    "value": "{event.properties.alert_id}|6h"
+                                },
+                                {
+                                    "text": {
+                                        "text": "For 1 day",
+                                        "type": "plain_text"
+                                    },
+                                    "value": "{event.properties.alert_id}|1d"
+                                },
+                                {
+                                    "text": {
+                                        "text": "For 1 week",
+                                        "type": "plain_text"
+                                    },
+                                    "value": "{event.properties.alert_id}|1w"
+                                },
+                                {
+                                    "text": {
+                                        "text": "Pick a date & time…",
+                                        "type": "plain_text"
+                                    },
+                                    "value": "{event.properties.alert_id}|custom"
+                                }
+                            ],
+                            "placeholder": {
+                                "text": "Snooze…",
+                                "type": "plain_text"
+                            },
+                            "type": "static_select"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "{event.properties.breaches}",
+                        "type": "plain_text"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ],
+                    "type": "context"
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "block_id": "insight_alert_snooze:{event.properties.alert_id}",
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "{event.properties.investigation_notebook_url ? 'View Investigation' : 'View Alert'}",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{event.properties.investigation_notebook_url ? event.properties.investigation_notebook_url : concat(project.url, '/insights/', event.properties.insight_id, '/alerts?alert_id=', event.properties.alert_id, '&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack')}"
+                        },
+                        {
+                            "text": {
+                                "text": "View Insight",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack"
+                        },
+                        {
+                            "action_id": "insight_alert_snooze",
+                            "options": [
+                                {
+                                    "text": {
+                                        "text": "For 1 hour",
+                                        "type": "plain_text"
+                                    },
+                                    "value": "{event.properties.alert_id}|1h"
+                                },
+                                {
+                                    "text": {
+                                        "text": "For 6 hours",
+                                        "type": "plain_text"
+                                    },
+                                    "value": "{event.properties.alert_id}|6h"
+                                },
+                                {
+                                    "text": {
+                                        "text": "For 1 day",
+                                        "type": "plain_text"
+                                    },
+                                    "value": "{event.properties.alert_id}|1d"
+                                },
+                                {
+                                    "text": {
+                                        "text": "For 1 week",
+                                        "type": "plain_text"
+                                    },
+                                    "value": "{event.properties.alert_id}|1w"
+                                },
+                                {
+                                    "text": {
+                                        "text": "Pick a date & time…",
+                                        "type": "plain_text"
+                                    },
+                                    "value": "{event.properties.alert_id}|custom"
+                                }
+                            ],
+                            "placeholder": {
+                                "text": "Snooze…",
+                                "type": "plain_text"
+                            },
+                            "type": "static_select"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "{event.properties.breaches}",
+                        "type": "plain_text"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ],
+                    "type": "context"
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "View Insight",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/insights/{event.properties.insight_id}"
+                        },
+                        {
+                            "text": {
+                                "text": "View Alert",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "{event.properties.breaches}",
+                        "type": "plain_text"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ],
+                    "type": "context"
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "View Insight",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack"
+                        },
+                        {
+                            "text": {
+                                "text": "View Alert",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "{event.properties.breaches}",
+                        "type": "plain_text"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ],
+                    "type": "context"
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "{event.properties.investigation_notebook_url ? 'View Investigation' : 'View Alert'}",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{event.properties.investigation_notebook_url ? event.properties.investigation_notebook_url : concat(project.url, '/insights/', event.properties.insight_id, '/alerts?alert_id=', event.properties.alert_id, '&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack')}"
+                        },
+                        {
+                            "text": {
+                                "text": "View Insight",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "{event.properties.breaches}",
+                        "type": "plain_text"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        },
+                        {
+                            "text": "Alert: <{source.url}|{source.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ],
+                    "type": "context"
+                },
+                "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
+                {
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "View Insight",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/insights/{event.properties.insight_id}"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "{event.properties.breaches}",
+                        "type": "plain_text"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ],
+                    "type": "context"
+                },
+                "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
+                {
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "View Insight",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/insights/{event.properties.insight_id}"
+                        },
+                        {
+                            "text": {
+                                "text": "View Alert",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "{event.properties.breaches}",
+                        "type": "plain_text"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ],
+                    "type": "context"
+                },
+                "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
+                {
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "View Insight",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack"
+                        },
+                        {
+                            "text": {
+                                "text": "View Alert",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "{event.properties.breaches}",
+                        "type": "plain_text"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ],
+                    "type": "context"
+                },
+                "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
+                {
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "{event.properties.investigation_notebook_url ? 'View Investigation' : 'View Alert'}",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{event.properties.investigation_notebook_url ? event.properties.investigation_notebook_url : concat(project.url, '/insights/', event.properties.insight_id, '/alerts?alert_id=', event.properties.alert_id, '&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack')}"
+                        },
+                        {
+                            "text": {
+                                "text": "View Insight",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "type": "header",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "{event.properties.breaches}"
+                    }
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": "Project: <{project.url}|{project.name}>"
+                        }
+                    ]
+                },
+                "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
+                {
+                    "type": "actions",
+                    "block_id": "insight_alert_snooze:{event.properties.alert_id}",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "View Insight"
+                            },
+                            "url": "{project.url}/insights/{event.properties.insight_id}"
+                        },
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "View Alert"
+                            },
+                            "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+                        },
+                        {
+                            "type": "static_select",
+                            "action_id": "insight_alert_snooze",
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": "Snooze…"
+                            },
+                            "options": [
+                                {
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": "For 1 hour"
+                                    },
+                                    "value": "{event.properties.alert_id}|1h"
+                                },
+                                {
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": "For 6 hours"
+                                    },
+                                    "value": "{event.properties.alert_id}|6h"
+                                },
+                                {
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": "For 1 day"
+                                    },
+                                    "value": "{event.properties.alert_id}|1d"
+                                },
+                                {
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": "For 1 week"
+                                    },
+                                    "value": "{event.properties.alert_id}|1w"
+                                },
+                                {
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": "Pick a date & time…"
+                                    },
+                                    "value": "{event.properties.alert_id}|custom"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ],
+            [
+                {
+                    "type": "header",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "{event.properties.breaches}"
+                    }
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": "Project: <{project.url}|{project.name}>"
+                        }
+                    ]
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "type": "actions",
+                    "block_id": "insight_alert_snooze:{event.properties.alert_id}",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "View Insight"
+                            },
+                            "url": "{project.url}/insights/{event.properties.insight_id}"
+                        },
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "View Alert"
+                            },
+                            "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+                        },
+                        {
+                            "type": "static_select",
+                            "action_id": "insight_alert_snooze",
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": "Snooze…"
+                            },
+                            "options": [
+                                {
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": "For 1 hour"
+                                    },
+                                    "value": "{event.properties.alert_id}|1h"
+                                },
+                                {
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": "For 6 hours"
+                                    },
+                                    "value": "{event.properties.alert_id}|6h"
+                                },
+                                {
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": "For 1 day"
+                                    },
+                                    "value": "{event.properties.alert_id}|1d"
+                                },
+                                {
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": "For 1 week"
+                                    },
+                                    "value": "{event.properties.alert_id}|1w"
+                                },
+                                {
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": "Pick a date & time…"
+                                    },
+                                    "value": "{event.properties.alert_id}|custom"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        ],
+        "body": [
+            {
+                "blocks": [
+                    {
+                        "text": {
+                            "text": "*{person.name}* triggered event: '{event.name}'",
+                            "type": "mrkdwn"
+                        },
+                        "type": "section"
+                    },
+                    {
+                        "elements": [
+                            {
+                                "text": {
+                                    "text": "View Person in PostHog",
+                                    "type": "plain_text"
+                                },
+                                "type": "button",
+                                "url": "{person.url}"
+                            },
+                            {
+                                "text": {
+                                    "text": "Message source",
+                                    "type": "plain_text"
+                                },
+                                "type": "button",
+                                "url": "{source.url}"
+                            }
+                        ],
+                        "type": "actions"
+                    }
+                ]
+            }
+        ],
+        "icon_emoji": [":hedgehog:"],
+        "text": [
+            "*{person.name}* triggered event: '{event.event}'",
+            "Alert triggered: {event.properties.insight_name}"
+        ],
+        "username": ["PostHog"]
+    },
+    "template-webhook": {
+        "body": [
+            {
+                "alert_name": "{event.properties.alert_name}",
+                "alert_url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}",
+                "breaches": "{event.properties.breaches}",
+                "insight_name": "{event.properties.insight_name}",
+                "insight_url": "{project.url}/insights/{event.properties.insight_id}"
+            },
+            {
+                "event": "{event}",
+                "person": "{person}"
+            }
+        ],
+        "headers": [
+            {
+                "Content-Type": "application/json"
+            }
+        ],
+        "method": ["POST"]
+    }
+}
