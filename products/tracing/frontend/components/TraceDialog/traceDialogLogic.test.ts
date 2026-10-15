@@ -287,6 +287,34 @@ describe('traceDialogLogic', () => {
             expect(pageListener).not.toHaveBeenCalled()
         })
 
+        it('collapses, climbs and expands with the arrow keys', async () => {
+            const child = (spanId: string, parentSpanId: string): Span => ({
+                ...span(spanId),
+                parent_span_id: parentSpanId,
+            })
+            getTraceSpy.mockResolvedValue({
+                results: [{ ...span('ROOT'), is_root_span: true }, child('A', 'ROOT'), child('A1', 'A')],
+                hasMore: false,
+                nextOffset: null,
+            })
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'A1' }, { entryPoint: 'log_details' })
+            await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+            const visible = (): string[] => logic.values.flatSpans.map((node) => node.span.span_id)
+
+            // A1 has nothing to collapse, so left climbs to A, then collapses A.
+            press('ArrowLeft')
+            expect(logic.values.selectedSpanId).toBe('A')
+            press('ArrowLeft')
+            expect(visible()).toEqual(['ROOT', 'A'])
+
+            // Right reopens A, then steps into its child.
+            press('ArrowRight')
+            expect(visible()).toEqual(['ROOT', 'A', 'A1'])
+            press('ArrowRight')
+            expect(logic.values.selectedSpanId).toBe('A1')
+            expect(pageListener).not.toHaveBeenCalled()
+        })
+
         it('steps onto a missing parent row and on past it', async () => {
             const orphan = { ...span('b'), parent_span_id: 'GONE' }
             getTraceSpy.mockResolvedValue({ results: [span('a'), orphan], hasMore: false, nextOffset: null })
@@ -418,6 +446,7 @@ describe('traceDialogLogic', () => {
 
             logic.actions.selectNextSpan()
             logic.actions.setInspectorTab('attributes')
+            logic.actions.toggleSpanCollapsed('a')
             logic.actions.closeTraceDialog()
 
             expect(captureSpy).toHaveBeenCalledWith('tracing trace dialog opened', {
@@ -432,6 +461,7 @@ describe('traceDialogLogic', () => {
                     reason: 'dismissed',
                     spans_selected: 1,
                     keyboard_steps: 1,
+                    collapse_toggles: 1,
                     tabs_viewed: ['attributes'],
                 })
             )

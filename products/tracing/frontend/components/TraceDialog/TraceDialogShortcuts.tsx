@@ -19,6 +19,11 @@ export function TraceDialogShortcuts(): JSX.Element {
                 <span>Next or previous span</span>
             </span>
             <span className="flex items-center gap-1">
+                <KeyboardShortcut arrowleft />
+                <KeyboardShortcut arrowright />
+                <span>Collapse or expand</span>
+            </span>
+            <span className="flex items-center gap-1">
                 <KeyboardShortcut command />
                 <span>Click Open in Tracing for a new tab</span>
             </span>
