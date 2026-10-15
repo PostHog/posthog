@@ -1166,7 +1166,7 @@ export const sceneLogic = kea<sceneLogicType>([
         // already at it, which also guards against loops when the homepage is the launchpad itself.
         const redirectToConfiguredHomepage = (searchParams: Params, hashParams: Params): boolean => {
             const homepage = values.homepage
-            // The rail nav makes /home the Today briefing and has no control to change the homepage,
+            // The rail nav makes /home the Today page and has no control to change the homepage,
             // so a homepage saved before the rail would hide Today with no way back.
             if (!homepage || values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
                 return false
