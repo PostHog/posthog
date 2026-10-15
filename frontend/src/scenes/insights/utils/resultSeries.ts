@@ -9,7 +9,7 @@ import {
 
 import { InsightQueryNode } from '~/queries/schema/schema-general'
 import { isInsightQueryWithSeries, isLifecycleQuery, isTrendsQuery } from '~/queries/utils'
-import { ActionFilter, BaseMathType, IntervalType } from '~/types'
+import { ActionFilter, BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 export type ResultSeriesMath = Pick<SeriesNode, 'math' | 'math_property' | 'math_hogql' | 'math_group_type_index'>
 
@@ -42,10 +42,15 @@ export function getResultOrder(result: ResultSeriesRow): number {
 
 /**
  * Whether the query returns formula rows in place of series rows. This mirrors the trends runner, which reads
- * `formulaNodes`, then `formulas`, then `formula`, and ignores an empty list or string.
+ * `formulaNodes`, then `formulas`, then `formula`, and ignores an empty list or string. The calendar heatmap runner
+ * ignores formulas and reports series 0, so its query keeps its formulas without returning formula rows.
  */
 export function hasFormulaResults(querySource: InsightQueryNode | null | undefined): boolean {
-    if (!isTrendsQuery(querySource) || !querySource.trendsFilter) {
+    if (
+        !isTrendsQuery(querySource) ||
+        !querySource.trendsFilter ||
+        querySource.trendsFilter.display === ChartDisplayType.CalendarHeatmap
+    ) {
         return false
     }
     const { formulaNodes, formulas, formula } = querySource.trendsFilter
