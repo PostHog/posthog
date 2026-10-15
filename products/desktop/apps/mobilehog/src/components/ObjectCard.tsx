@@ -71,7 +71,6 @@ function QueryCard({
 }): ReactElement {
   const url = useObjectUrl("hogql", query);
   const [expanded, setExpanded] = useState(false);
-  const long = query.split("\n").length > COLLAPSED_LINES;
   return (
     <Pressable
       onPress={() => openObjectUrl(url)}
@@ -87,13 +86,9 @@ function QueryCard({
       >
         {query}
       </Text>
-      {long ? (
-        <Pressable hitSlop={8} onPress={() => setExpanded(!expanded)}>
-          <Text style={styles.toggle}>
-            {expanded ? "Show less" : "Show all"}
-          </Text>
-        </Pressable>
-      ) : null}
+      <Pressable hitSlop={8} onPress={() => setExpanded(!expanded)}>
+        <Text style={styles.toggle}>{expanded ? "Show less" : "Show all"}</Text>
+      </Pressable>
     </Pressable>
   );
 }

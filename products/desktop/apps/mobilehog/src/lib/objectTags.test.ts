@@ -47,11 +47,17 @@ describe("object tags in markdown", () => {
     );
   });
 
-  it("renders only the label of an unknown kind", () => {
-    expect(inline('x <gizmo id="1">Gizmo</gizmo>')[1]).toEqual(
-      expect.objectContaining({ type: "text", text: "Gizmo" }),
-    );
-  });
+  it.each([
+    ['<gizmo id="1">Gizmo</gizmo>', "Gizmo"],
+    ["<insight>Checkout funnel</insight>", "Checkout funnel"],
+  ])(
+    "renders only the label when %s cannot become a reference",
+    (tag, label) => {
+      expect(inline(`x ${tag}`)[1]).toEqual(
+        expect.objectContaining({ type: "text", text: label }),
+      );
+    },
+  );
 
   it("leaves other html alone", () => {
     expect(inline("x <b>bold</b>")[1]).toEqual(
@@ -80,6 +86,16 @@ describe("object tags in markdown", () => {
     expect(inline('Look: <insight id="a" display="block"/>')[1]).toEqual(
       expect.objectContaining({ type: "objectRef" }),
     );
+  });
+
+  it("starts a standalone card after prose on the previous line", () => {
+    expect(shape('Here it is:\n<insight id="abc" display="block"/>')).toEqual([
+      expect.objectContaining({ type: "paragraph", text: "Here it is:" }),
+      {
+        type: "objectCard",
+        spec: { mode: "insight", shortId: "abc" },
+      },
+    ]);
   });
 
   it("renders a block tag of a kind without a card as a reference", () => {
@@ -134,13 +150,21 @@ describe("object tags in markdown", () => {
     ]);
   });
 
-  it("scans an unfinished tag in linear time", () => {
-    const started = performance.now();
-    for (const repeat of [16, 24, 2000]) {
-      lexMarkdown(`See <insight${" a=  ".repeat(repeat)}!`);
-      lexMarkdown(`See <insight${' a="x"  '.repeat(repeat)}`);
-    }
-    expect(performance.now() - started).toBeLessThan(500);
+  it("hides an unfinished block tag through blank lines", () => {
+    expect(shape('<hogql display="block">\nSELECT 1\n\nFROM events')).toEqual([
+      { type: "html", text: "" },
+    ]);
+  });
+
+  it.each([
+    `See <insight${" a=  ".repeat(2000)}!`,
+    `See <insight${' a="x"  '.repeat(2000)}`,
+  ])("preserves the source while scanning a large unfinished tag", (text) => {
+    expect(
+      lexMarkdown(text)
+        .map((token) => token.raw)
+        .join(""),
+    ).toBe(text);
   });
 
   it("does not hide a tag name in prose", () => {

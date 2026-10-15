@@ -449,6 +449,7 @@ describe("PostHogAPIClient", () => {
       });
       const url = fetch.mock.calls[0][0] as URL;
       expect(url.pathname).toBe("/api/projects/42/insights/sdyR2Pn8/");
+      expect(url.searchParams.get("basic")).toBe("true");
       expect(url.searchParams.get("refresh")).toBe("force_cache");
     });
   });

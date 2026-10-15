@@ -7780,13 +7780,19 @@ export class PostHogAPIClient {
   } | null> {
     const projectId = (await this.getTeamId()).toString();
     try {
-      const insight = await this.api.get(
-        "/api/projects/{project_id}/insights/{id}/",
-        {
-          path: { project_id: projectId, id: shortId },
-          query: { refresh: "force_cache" },
-        },
-      );
+      const urlPath = `/api/projects/${projectId}/insights/${encodeURIComponent(shortId)}/`;
+      const url = new URL(`${this.api.baseUrl}${urlPath}`);
+      url.searchParams.set("basic", "true");
+      url.searchParams.set("refresh", "force_cache");
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path: urlPath,
+      });
+      const insight = (await response.json()) as Pick<
+        Schemas.Insight,
+        "name" | "derived_name" | "description"
+      >;
       return {
         name: insight.name || insight.derived_name || null,
         description: insight.description || null,

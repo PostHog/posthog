@@ -20,6 +20,8 @@ const MAX_CARDS = 10;
 const TAG_RE =
   /^<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*)\s*(?:\/>|>([\s\S]*?)<\/\1\s*>)/;
 const BLOCK_TAIL_RE = /^[ \t]*(?:\n+|$)/;
+const BLOCK_TAG_START_RE =
+  /(?:^|\n) {0,3}<(?:(?:insight)|(?:hogql))(?=[\s/>])(?=[^>\n]*\sdisplay\s*=\s*"block"(?=\s|\/?>))[^>\n]*\/?>/;
 const OPEN_TAG_RE = /^<([a-z][\w-]*)(?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*\s*>/;
 const TAG_NAME_RE = /^<([a-z][\w-]*)/;
 // One piece of an opening tag that is still streaming. Each piece consumes at
@@ -89,7 +91,7 @@ function inlineToken(tag: MatchedTag): Token {
     ? buildObjectTagRef(tag.kind, tag.attrs, tag.body)
     : null;
   if (ref) return { type: "objectRef", raw: tag.raw, ref } as Token;
-  const label = tag.kind ? "" : tag.body?.trim() || tag.attrs.label?.trim();
+  const label = tag.body?.trim() || tag.attrs.label?.trim();
   return { type: "text", raw: tag.raw, text: label ?? "" };
 }
 
@@ -119,10 +121,20 @@ export function objectTagExtensions(): TokenizerExtension[] {
     {
       name: "objectCard",
       level: "block",
+      start(src) {
+        const match = BLOCK_TAG_START_RE.exec(src);
+        return match ? match.index + match[0].lastIndexOf("<") : undefined;
+      },
       tokenizer(src) {
         const indent = /^ {0,3}/.exec(src)?.[0].length ?? 0;
-        const tag = matchTag(src.slice(indent));
-        if (!tag || !isObjectTag(tag)) return undefined;
+        const source = src.slice(indent);
+        const tag = matchTag(source);
+        if (!tag) {
+          return isUnfinishedTag(source)
+            ? { type: "html", raw: src, text: "" }
+            : undefined;
+        }
+        if (!isObjectTag(tag)) return undefined;
         const end = indent + tag.raw.length;
         const tail = BLOCK_TAIL_RE.exec(src.slice(end));
         if (!tail) return undefined;
