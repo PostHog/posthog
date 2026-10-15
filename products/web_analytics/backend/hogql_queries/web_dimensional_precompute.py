@@ -318,10 +318,12 @@ DIMENSIONAL_INSERT_SETTINGS: dict[str, int | str] = {
     "load_balancing": "random",
 }
 
-# These inserts keep only sessions that start inside the job window, so HogQL's default 3-day
-# session-start padding only adds sessions that the HAVING discards. One hour covers a session id
-# created just before its first event.
-DIMENSIONAL_SESSION_BUFFER_MINUTES = 60
+# HogQL filters the sessions table by the time in the session id, which comes from the device
+# clock, while event timestamps are corrected at capture. A device clock that runs slow gives a
+# session id earlier than the session's real start, so the buffer is the clock skew we tolerate.
+# 25 hours matches the legacy pre-aggregation job and avoids the default 3 days on each side,
+# which makes these inserts read about twice as many sessions.
+DIMENSIONAL_SESSION_BUFFER_MINUTES = 25 * 60
 
 
 def _insert_modifiers(team: Team) -> HogQLQueryModifiers:
