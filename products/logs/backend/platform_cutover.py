@@ -159,7 +159,9 @@ def _roll_back_alert(alert_id: UUID, now: datetime | None) -> RollbackSkip | Non
         update_fields = apply_outcome(
             alert,
             ControlPlaneOutcome(
-                new_state=logs_state_of_platform(alert, handback.state, at),
+                new_state=logs_state_of_platform(
+                    handback.state, logs_state=alert.state, snooze_until=alert.snooze_until, at=at
+                ),
                 consecutive_failures=handback.consecutive_failures,
             ),
             kind=LogsAlertEvent.Kind.HANDBACK,

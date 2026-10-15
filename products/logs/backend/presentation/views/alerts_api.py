@@ -485,7 +485,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         runtime = runtimes.get(instance.id)
         if runtime is None:
             return data
-        data["state"] = logs_state_of_platform(instance, runtime.state, timezone.now()).value
+        data["state"] = logs_state_of_platform(
+            runtime.state, logs_state=instance.state, snooze_until=instance.snooze_until, at=timezone.now()
+        ).value
         data["consecutive_failures"] = runtime.consecutive_failures
         data["next_check_at"] = self.fields["next_check_at"].to_representation(runtime.next_check_at)
         data["last_notified_at"] = self.fields["last_notified_at"].to_representation(runtime.last_notified_at)
