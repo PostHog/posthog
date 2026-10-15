@@ -270,6 +270,7 @@ from posthog.schema_enums import (
     RecordingOrder as RecordingOrder,
     RecordingOrderDirection as RecordingOrderDirection,
     RedditAdsDefaultSources as RedditAdsDefaultSources,
+    ReferenceLines as ReferenceLines,
     RefreshType as RefreshType,
     ResultCustomizationBy as ResultCustomizationBy,
     RetentionDashboardDisplayType as RetentionDashboardDisplayType,
@@ -1025,6 +1026,24 @@ class BILocalFieldDefinition3(BaseModel):
     kind: Literal["bins"] = "bins"
     origin: float
     width: float
+
+
+class BIPaneSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: list[str] = Field(
+        ...,
+        description=("Ordered dimension IDs used to split returned groups into separate charts."),
+    )
+    independentAxes: bool | None = Field(
+        default=None,
+        description=("Use a separate value scale for each pane instead of a shared primary scale."),
+    )
+    referenceLines: ReferenceLines | None = Field(
+        default=None,
+        description=("Calculate reference lines from each pane or from all returned worksheet marks."),
+    )
 
 
 class BITotals(BaseModel):
@@ -11475,6 +11494,10 @@ class BIConfig(BaseModel):
     missingDates: MissingDates | None = Field(
         default=None,
         description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
+    )
+    panes: BIPaneSettings | None = Field(
+        default=None,
+        description=("Split the returned groups into charts using these ordered dimension IDs."),
     )
     resultFilterGroup: BIConditionGroup | None = None
     resultFilters: list[BIResultFilter] | None = None

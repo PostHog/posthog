@@ -10985,6 +10985,23 @@ export namespace Schemas {
       Zero: 'zero',
     } as const;
 
+    export type ReferenceLines = typeof ReferenceLines[keyof typeof ReferenceLines];
+
+
+    export const ReferenceLines = {
+      Pane: 'pane',
+      Worksheet: 'worksheet',
+    } as const;
+
+    export interface BIPaneSettings {
+      /** Ordered dimension IDs used to split returned groups into separate charts. */
+      fields: string[];
+      /** Use a separate value scale for each pane instead of a shared primary scale. */
+      independentAxes?: boolean | null;
+      /** Calculate reference lines from each pane or from all returned worksheet marks. */
+      referenceLines?: ReferenceLines | null;
+    }
+
     export type Operator1 = typeof Operator1[keyof typeof Operator1];
 
 
@@ -11128,6 +11145,8 @@ export namespace Schemas {
       memberAliases?: MemberAliase[] | null;
       /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
       missingDates?: MissingDates | null;
+      /** Split the returned groups into charts using these ordered dimension IDs. */
+      panes?: BIPaneSettings | null;
       resultFilterGroup?: BIConditionGroup | null;
       resultFilters?: BIResultFilter[] | null;
       rowFilterGroup?: BIConditionGroup | null;
@@ -95237,6 +95256,16 @@ export namespace Schemas {
          * @nullable
          */
       merge_queue_billable_minutes_prev: number | null;
+      /**
+         * Slice of billable_minutes from jobs that ran on the Depot CI engine; null when the job-level source isn't synced.
+         * @nullable
+         */
+      depot_ci_billable_minutes: number | null;
+      /**
+         * Depot CI billable minutes over the previous window; null when the job-level source isn't synced.
+         * @nullable
+         */
+      depot_ci_billable_minutes_prev: number | null;
       /** PRs merged in the window with at least one corroborated merge-queue gate run: the population behind every merge_queue_* landing stat. All authors, bots included. */
       merge_queue_merged_pr_count: number;
       /** Queue-landed merges over the previous window. */

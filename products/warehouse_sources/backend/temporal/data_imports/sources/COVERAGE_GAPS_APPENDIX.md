@@ -4178,7 +4178,7 @@ Today (1): `<non-system index>`
 
 Diffed against: <https://raw.githubusercontent.com/elastic/elasticsearch-specification/main/output/openapi/elasticsearch-openapi.json>
 
-- [ ] `Data stream documents (GET /{index}/_search, discovered via GET /_data_stream)` — import logs, events, and metrics stored in data streams whose hidden backing indices do not appear as source tables (high)
+- [x] `Data stream documents (GET /{index}/_search, discovered via GET /_data_stream)` — import logs, events, and metrics stored in data streams whose hidden backing indices do not appear as source tables (high)
 
 Note: The official OpenAPI spec lists index discovery, data stream discovery, and document search operations. Each discovered non-system index becomes a table; the placeholder represents dynamic names. Official data stream documentation confirms hidden backing indices, which current discovery excludes. Stream documents need separate discovery and logical stream tables; cluster administration and operational health endpoints are excluded.
 
