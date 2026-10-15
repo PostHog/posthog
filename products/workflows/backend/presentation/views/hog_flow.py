@@ -121,6 +121,7 @@ from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
 from products.tasks.backend.facade.workflow_tasks import (
+    MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH,
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskSkillsInvalid,
     resolve_connectors,
@@ -1289,10 +1290,20 @@ class HogFlowActionSerializer(serializers.Serializer):
         if value is None:
             return value
 
+        # The tasks API refuses an instruction the step cannot send, so a saved flow would fail at run time.
+        def validate_description(description: Any) -> None:
+            if description is None:
+                return
+            if not isinstance(description, str) or len(description.strip()) > MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH:
+                raise serializers.ValidationError(
+                    f"output_variable description must be text of at most {MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH} characters."
+                )
+
         def coerce(entry: Any) -> dict:
             if isinstance(entry, str) and entry:
                 return {"key": entry}
             if isinstance(entry, dict) and isinstance(entry.get("key"), str) and entry["key"]:
+                validate_description(entry.get("description"))
                 return entry
             raise serializers.ValidationError(
                 "output_variable must be an object with a non-empty string 'key' (or a list of those); "

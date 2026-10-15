@@ -1256,6 +1256,11 @@ class TestHogFlowAPI(APIBaseTest):
             ("empty_string", ""),
             ("dict_without_key", {"result_path": "r"}),
             ("list_with_invalid_entry", ["a", 42]),
+            ("description_not_a_string", {"key": "verdict", "result_path": "output.verdict", "description": 42}),
+            (
+                "description_too_long",
+                {"key": "verdict", "result_path": "output.verdict", "description": "x" * 501},
+            ),
         ]
     )
     def test_output_variable_invalid_shapes_rejected(self, _name, sent):
