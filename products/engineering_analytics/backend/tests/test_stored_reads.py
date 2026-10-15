@@ -141,6 +141,8 @@ class TestStoredReads(BaseTest):
             ("stored_rows_newer_than_the_sync", True, timedelta(minutes=1), True, timedelta(minutes=5)),
             # The CI cards read runs alone, so stored runs bound the age without stored jobs.
             ("only_the_runs_are_stored", True, timedelta(minutes=30), False, timedelta(minutes=30)),
+            # A read of jobs needs the stored runs too, so stored jobs alone bound nothing.
+            ("only_the_jobs_are_stored", False, timedelta(minutes=30), True, timedelta(minutes=5)),
             ("no_day_is_stored", False, timedelta(minutes=30), False, timedelta(minutes=5)),
             ("the_stored_days_lookup_fails", True, OperationalError("down"), True, timedelta(minutes=5)),
         ]
