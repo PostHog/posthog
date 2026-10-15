@@ -3,8 +3,8 @@ name: writing-pr-descriptions
 description: >-
   Shapes a PR body into something a reviewer understands at a glance.
   Use ALWAYS before writing or editing a PR description, before `gh pr create` or `gh pr edit --body`, and when asked to improve an existing description.
-  Puts the effect a person sees in the first line and the mechanism under it, routes each remaining fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), cuts everything a reviewer does not need, then holds what survives to a checkable shape: one fact per bullet, sentences under 25 words, active voice, no idioms.
-  Makes the body stand alone, so a reader who opens no files still knows why the PR is necessary and what it does, sizes the body to the change so a small PR reads as small, and makes every claim either linked to its evidence or labeled as unchecked.
+  Opens Problem with who needs the change and why, not the solution restated, and Changes with the effect a person sees, routes each remaining fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), cuts what a reviewer does not need, then holds what survives to a checkable shape: one fact per bullet, sentences under 25 words, active voice, no idioms.
+  Makes the body stand alone, so a reader who opens no files still knows why the PR is necessary and what it does, sizes the body to the change, and links every claim to its evidence or labels it unchecked.
   Ends with a scan test over the title and the first lines of Problem and Changes.
   Not for commit messages (see AGENTS.md, "Commit types") or user-facing product copy (see `/writing-user-facing-copy`).
 ---
@@ -37,18 +37,18 @@ gh pr edit <number> --body-file pr-body.md
 Carry every image, video, link and ticked box into the new body, under the heading it belongs to, and add the heading when your draft has none.
 Replace one only when the change made it wrong, and say in the body that you replaced it.
 
-## Pass 1: lead with the effect
+## Pass 1: lead with the need
 
 The first line is the one line you can count on being read.
-You just spent an hour inside the mechanism, so the mechanism comes out first. Push it down and spend that line on what a person experiences.
+You just spent an hour inside the mechanism, so the mechanism comes out first. Push it down and spend that line on who needs the change, and why.
 
-- Line 1 of Problem says what is different for a person, and who that person is. Name the surface they were on. Four shapes cover almost every PR:
+- Line 1 of Problem names the person who needs the change and what they are trying to do. Name the workflow or surface they are in. Four shapes cover almost every PR:
   - A fix: what breaks, and for whom.
-  - A feature: what someone could not do, and now can. "The SQL editor lets users join tables, but there is no way to attach a computed field to a table."
+  - A feature: who wants it, and the goal it serves. That person is often not the one who uses the new surface.
   - A refactor, a chore or an enabling change: who is blocked, what it costs them, or what class of failure it removes. Nobody sees it, but somebody is waiting.
-  - A follow-up or a layer in a stack: what the earlier PR left undone, and what this one adds. Link that PR and assume nobody read it.
-- Problem must stay true if you pick a different solution. Name the task the person cannot do, not the missing part of your solution. "Users cannot share a dashboard with someone who has no PostHog login" passes. "Dashboards have no PDF export" fails.
-- Name a cost only when an issue, a thread or a measurement states it. A guessed cost is a claim nobody can check.
+  - A follow-up or a layer in a stack: which need the earlier PR left unmet. Link that PR and assume nobody read it.
+- Problem must stay true if you pick a different solution. A line that negates the first Changes bullet only restates the solution, so a reviewer cannot judge whether the solution fits.
+- Take the why from whoever asked for the change: the issue, the thread, the task. When none of them states it, ask. If you cannot ask, name the person and the goal you know, and say that the reason is unstated. A guessed goal or cost is a claim nobody can check.
 - If line 1 opens with a symbol, a file path, a class, or a setting, you led with the mechanism. Rewrite it.
 - Size the problem in one clause where you know it: how many teams, how often, since when.
 - The mechanism follows, in the order a reviewer has to check it.
@@ -57,9 +57,23 @@ You just spent an hour inside the mechanism, so the mechanism comes out first. P
 - Say in one line which part of Changes is mechanical. A reviewer cannot otherwise tell a purely internal change from a visible one you described as internal.
 - If one part of the diff is riskier than the rest, name that part and say the rest is mechanical.
 
-Most of the time you already wrote the effect and put it third. Move it up rather than writing a new sentence.
+For a fix or a chore, the draft usually states what breaks or who is blocked, but in the third bullet. Move it up rather than writing a new sentence.
+For a feature, the goal is often missing from the draft, because the diff does not contain it. Get it from whoever asked.
 
 Line 1 can be a bullet or a standalone sentence, whichever reads faster, but one sentence and never a paragraph.
+
+### Solution-shaped problems
+
+❌ The toolbar has no way to report a bug.
+
+✅ Support engineers cannot reproduce toolbar bugs, because reports arrive without the page URL or the toolbar version.
+
+❌ The insights API has no CSV export.
+
+✅ Finance analysts rebuild the monthly revenue report by hand, because they cannot move insight results into a spreadsheet.
+
+Each ✅ line names who wants the change and what blocks them, so a reviewer can judge whether the solution fits.
+In the first, the person who needs the change is not the toolbar user.
 
 ### Worked example
 
@@ -207,7 +221,7 @@ The shape is checkable. Tone is not, which is why this skill does not ask for on
 8. Noun strings of at most three words. "The flag evaluation column codec" becomes "the codec on the flag evaluation column".
 9. No idioms, no figurative language, no jokes.
 
-Rule 2 orders the words inside a bullet. Pass 1 orders the bullets. They never conflict: the effect goes first, and the bullet that states it starts with the person it happened to.
+Rule 2 orders the words inside a bullet. Pass 1 orders the bullets. They never conflict: the need goes first, and the bullet that states it starts with the person who has it.
 
 A reviewer scans, stops, checks one claim, moves on. A sentence that packs four facts into three clauses makes them hold all four to check any one. Split it.
 
@@ -248,9 +262,10 @@ Run both checks over the body you just wrote, before `gh pr create` or `gh pr ed
 
 Read only the title, the first line of Problem, and the first bullet of Changes. Cover the rest.
 
-1. Do you know what is different now, and for whom?
-2. Do you know what this PR does about it?
-3. Did you get there without a symbol, a file path, or a class name?
+1. Do you know who needs this change, and why?
+2. Would the first line of Problem stay true if the first bullet of Changes described a different solution?
+3. Do you know what this PR does about it?
+4. Did you get there without a symbol, a file path, or a class name?
 
 A "no" anywhere means the body is ordered for the writer, not the reader. Go back to pass 1. Nothing in the line check can rescue a body that fails here.
 

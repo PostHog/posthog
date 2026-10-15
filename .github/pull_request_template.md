@@ -3,7 +3,7 @@
 ## Problem
 
 <!-- Who are we building for, what are their needs, why is this important? -->
-<!-- First line: what is different for a person, and who they are. A fix says what breaks; a feature says what someone can now do; a chore says who is blocked. The problem stays true whichever solution you pick. The code path goes underneath. -->
+<!-- First line: who needs this change, and why. A fix says what breaks and for whom; a feature says who wants it and the goal it serves, often not the person who uses the new surface; a chore says who is blocked. Do not restate the solution. The line must stay true whichever solution you pick. The code path goes underneath. -->
 
 <!-- Does this fix an issue? Uncomment the line below with the issue ID to automatically close it when merged -->
 <!-- Closes #ISSUE_ID -->
@@ -94,5 +94,5 @@
 - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
 - Agent-authored PRs always require human review — do not self-merge or auto-approve.
 - Do NOT claim manual testing you haven't done.
-- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: lead with the effect a person sees rather than the code path behind it, make the body stand alone for a reader who opens no files, size it to the change, link evidence rather than asserting what CI already reports, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
+- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: open Problem with who needs the change and why rather than a restatement of the solution, open Changes with the effect a person sees rather than the code path behind it, make the body stand alone for a reader who opens no files, size it to the change, link evidence rather than asserting what CI already reports, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
 -->
