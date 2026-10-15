@@ -642,12 +642,16 @@ def _render_live_body(
     team_id: int, report: ReviewReport, review_mode: str, review_design: str, *, run_index: int, failed: bool
 ) -> str:
     state = _turn_state(team_id, report, run_index)
-    # A run that dies in the publish window renders its finished turn, which is not a live turn.
-    live_marker = (
-        live_turn_markers(team_id, [report], {(str(report.id), run_index): state.marker}).get(str(report.id))
-        if state.marker is not None and run_index > report.run_count
-        else None
-    )
+    # A run that dies in the publish window renders its finished turn, which is not a live turn. A
+    # failed turn renders its own marker, because `_fail_run` writes the failure note before this render.
+    if run_index <= report.run_count or state.marker is None:
+        live_marker = None
+    elif failed:
+        live_marker = state.marker
+    else:
+        live_marker = live_turn_markers(team_id, [report], {(str(report.id), run_index): state.marker}).get(
+            str(report.id)
+        )
     return render_in_progress_body(
         str(report.id),
         progress_payload(team_id, report, state.snapshot, state.turn, state.pairs, live_marker),
