@@ -6,6 +6,7 @@ from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
+from django.db import connection
 
 from temporalio.service import RPCError
 
@@ -171,11 +172,21 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
         EarlyAccessFeature.objects.create(
             team=team, name="Test flag", description="A fancy new flag.", stage="beta", feature_flag=flag
         )
+        # The retired briefing table has no model and no foreign key, so only the team deletion removes its rows.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO today_dailybriefing (id, team_id, user_id, local_day, timezone, trigger, status, facts, content, created_at)"
+                " VALUES (gen_random_uuid(), %s, %s, CURRENT_DATE, 'UTC', 'refresh', 'ready', '{}', '{}', now())",
+                [team.id, self.user.id],
+            )
 
         with execute_deletion_workflows_inline():
             response = self.client.delete(f"/api/environments/{team.id}")
         self.assertEqual(response.status_code, 204)
         self.assertFalse(Team.objects.filter(id=team.id).exists())
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT count(*) FROM today_dailybriefing WHERE team_id = %s", [team.id])
+            self.assertEqual(cursor.fetchone()[0], 0)
 
         # Verify personhog RPCs were called for persons-DB cleanup
         fake = get_active_fake()

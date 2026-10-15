@@ -13,14 +13,16 @@ from ..logic import (
     figure_sources,
     highlights,
     report_page as report_pages,
+    retired_briefings,
 )
 from ..logic.jev import GatewayJev
 from . import contracts
 
 
-def delete_highlights_for_teams(team_ids: list[int]) -> None:
-    """Remove every highlights row of the given teams. Called from team deletion, which no foreign key covers."""
+def delete_for_teams(team_ids: list[int]) -> None:
+    """Remove every highlights and briefing row of the given teams. Called from team deletion, which no foreign key covers."""
     highlights.delete_for_teams(team_ids)
+    retired_briefings.delete_for_teams(team_ids)
 
 
 def _jev(team: Team, user: User, model: str | None = None) -> GatewayJev:
