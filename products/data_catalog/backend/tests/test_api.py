@@ -87,17 +87,25 @@ class TestMetricAPI(APIBaseTest):
         assert response.json()["attr"] == "description"
         assert response.json()["detail"] == DESCRIPTION_TOO_LONG_MESSAGE
 
-    def test_create_is_upsert_on_name(self) -> None:
+    def test_create_with_taken_name_conflicts_until_overwrite(self) -> None:
         self.client.post(self.url, {"name": "mrr", "description": "v1"}, format="json")
-        response = self.client.post(self.url, {"name": "mrr", "description": "v2"}, format="json")
-        assert response.status_code == status.HTTP_201_CREATED
+
+        conflict = self.client.post(self.url, {"name": "mrr", "description": "v2"}, format="json")
+        assert conflict.status_code == status.HTTP_409_CONFLICT, conflict.json()
+        assert conflict.json()["code"] == "metric_name_taken"
+        assert conflict.json()["extra"] == {"existing_metric": {"name": "mrr", "status": MetricStatus.PROPOSED}}
+        assert self.client.get(f"{self.url}mrr/").json()["description"] == "v1"
+
+        response = self.client.post(self.url, {"name": "mrr", "description": "v2", "overwrite": True}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert "overwrite" not in response.json()
         assert Metric.objects.for_team(self.team.id).count() == 1
         assert self.client.get(f"{self.url}mrr/").json()["description"] == "v2"
 
     def test_refine_via_post_preserves_omitted_definition(self) -> None:
         definition = {"kind": "HogQLQuery", "query": "select count() from events"}
         self.client.post(self.url, {"name": "mrr", "description": "v1", "definition": definition}, format="json")
-        response = self.client.post(self.url, {"name": "mrr", "description": "v2"}, format="json")
+        response = self.client.post(self.url, {"name": "mrr", "description": "v2", "overwrite": True}, format="json")
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         body = self.client.get(f"{self.url}mrr/").json()
         assert body["description"] == "v2"
