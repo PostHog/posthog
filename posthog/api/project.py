@@ -34,7 +34,7 @@ from posthog.api.team.conversations_settings import (
     ConversationsSettingsField,
     merge_conversations_settings_locked,
     report_conversations_settings_changes,
-    strip_managed_conversations_settings,
+    validate_conversations_settings,
 )
 from posthog.api.team.integration_config import (
     TeamLogsConfigSerializer,
@@ -691,22 +691,14 @@ class ProjectBackwardCompatSerializer(
     def validate_conversations_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
-        strip_managed_conversations_settings(value)
-        # Filter out None values from widget_domains if present
-        if "widget_domains" in value and value["widget_domains"] is not None:
-            value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
-            validate_authorized_url_wildcards(value["widget_domains"])
-        from products.conversations.backend.api.ai_context import validate_ai_context_conversations_settings
-        from products.conversations.backend.api.ai_reply_playbook import validate_playbook_conversations_settings
-
         # conversations_settings lives on the passthrough Team, not on Project, so a partial
         # update that omits docs_source still normalizes against the saved source.
         existing = self.instance.passthrough_team.conversations_settings if self.instance is not None else None
-        validate_playbook_conversations_settings(value, existing=existing if isinstance(existing, dict) else None)
-        validate_ai_context_conversations_settings(
-            value, team_id=self.instance.passthrough_team.id if self.instance is not None else None
+        return validate_conversations_settings(
+            value,
+            existing=existing if isinstance(existing, dict) else None,
+            team_id=self.instance.passthrough_team.id if self.instance is not None else None,
         )
-        return value
 
     class Meta:
         model = Project
