@@ -6,15 +6,19 @@ A behavior change usually has to land in both, or the two arms diverge.
 
 ## Two surfaces
 
-One feature flag selects between them. A bug report that doesn't
-reproduce locally is almost always a surface mismatch. Confirm which
-surface the reporter is on first: every `taxonomic filter *` event
-carries `surface`.
+A feature flag and a per-user toggle select between them. The flag
+`TAXONOMIC_FILTER_MENU_REBUILD` makes the rebuild available. The user's
+saved choice in `taxonomicMenuPreferenceLogic.useNewMenu` (the "Switch to
+the classic filter" toggle) then decides which one renders. A bug report
+that doesn't reproduce locally is almost always a surface mismatch.
+Confirm which surface the reporter is on first: most `taxonomic filter *`
+events carry `surface` (see [telemetry-contract](telemetry-contract.md)
+for the exceptions).
 
-| Surface        | Flag                            | Value | What renders                                  |
-| -------------- | ------------------------------- | ----- | --------------------------------------------- |
-| `legacy-pill`  | `TAXONOMIC_FILTER_MENU_REBUILD` | off   | classic picker with a category dropdown       |
-| `rebuild-menu` | `TAXONOMIC_FILTER_MENU_REBUILD` | on    | ground-up rewrite in `menu/` over `headless/` |
+| Surface        | When it renders                           | What renders                                  |
+| -------------- | ----------------------------------------- | --------------------------------------------- |
+| `legacy-pill`  | flag off, or flag on and `useNewMenu` off | classic picker with a category dropdown       |
+| `rebuild-menu` | flag on and `useNewMenu` on               | ground-up rewrite in `menu/` over `headless/` |
 
 - **legacy-pill** is the classic picker (`taxonomicFilterLogic.tsx` +
   `InfiniteList`) with a suffix category dropdown. A person can pin the

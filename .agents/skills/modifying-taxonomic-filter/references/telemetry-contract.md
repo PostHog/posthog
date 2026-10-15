@@ -8,10 +8,14 @@ property shapes as a public API.
 - **Renaming or repurposing silently** is the worst case. Dashboards keep
   working and start lying.
 
-Every `taxonomic filter *` event carries `surface` (`legacy-pill` or
+Most `taxonomic filter *` events carry `surface` (`legacy-pill` or
 `rebuild-menu`). The legacy stamp comes from `legacyTaxonomicSurface()` in
 `taxonomicFilterSurface.ts`. The rebuild stamps `rebuild-menu` from
-`menu/TaxonomicFilterMenu.tsx`.
+`menu/TaxonomicFilterMenu.tsx`. These events have no `surface`:
+`category selected`, `category rail toggled`, `pin toggled` and
+`default pins seeded`. Older data also has `legacy-control` and empty
+values. A filter such as `surface = 'legacy-pill'` drops all of those
+rows.
 
 ## `groupType` vs `sourceGroupType`
 

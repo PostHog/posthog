@@ -161,8 +161,10 @@ Drives failure mode 1 in [failure-modes](failure-modes.md).
 
 ```sql
 WITH sessions AS (
-  -- groupArray does not keep row order, so sort (timestamp, event) pairs explicitly
-  SELECT $session_id AS sid, arrayMap(x -> tupleElement(x, 2), arraySort(groupArray((timestamp, event)))) AS steps
+  -- groupArray does not keep row order, so sort explicitly; on a timestamp tie the close sorts last
+  SELECT
+    $session_id AS sid,
+    arrayMap(x -> tupleElement(x, 3), arraySort(groupArray((timestamp, event = 'taxonomic filter closed', event)))) AS steps
   FROM events
   WHERE event IN ('taxonomic filter closed', 'taxonomic filter category selected',
                   'taxonomic filter empty result', 'taxonomic filter item selected')
