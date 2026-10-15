@@ -712,8 +712,9 @@ class PersonHogServiceServicer:
         raise NotImplementedError("Method not implemented!")
 
     def RaisePersonVersionFloors(self, request, context):
-        """Writes for the person consistency repair. Each claims lifecycle marks on the persons it
-        writes and only raises versions. Same routing caveat as DeletePersons above.
+        """Writes for the person consistency repair. Raises and mapping writes claim lifecycle marks on
+        the persons they write; restores only insert absent persons. Versions only go up. Same routing
+        caveat as DeletePersons above.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")

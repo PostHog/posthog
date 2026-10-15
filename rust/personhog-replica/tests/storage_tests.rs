@@ -4977,6 +4977,21 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
     ctx.add_distinct_id_to_person(q.id, "w_q_same")
         .await
         .unwrap();
+    ctx.add_distinct_id_to_person(q.id, "w_q_tomb")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(p.id, "w_p_gone")
+        .await
+        .unwrap();
+    sqlx::query("UPDATE posthog_persondistinctid SET is_deleted = true, version = 2 WHERE team_id = $1 AND distinct_id = 'w_p_gone'")
+        .bind(ctx.team_id)
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+    let ghost = common::TestPerson {
+        id: 0,
+        uuid: Uuid::new_v4(),
+    };
     let s = ctx.insert_person("w_s", None).await.unwrap();
     ctx.add_distinct_id_to_person(s.id, "w_stray")
         .await
@@ -5004,6 +5019,10 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
         write("w_q_owner", Raise, &p, 3, None),
         write("w_p_expect", Raise, &p, 3, Some(9)),
         write("w_stray", Tombstone, &s, 0, Some(0)),
+        write("w_on_missing", Insert, &ghost, 5, None),
+        write("w_s", Insert, &p, 5, None),
+        write("w_p_gone", Raise, &p, 5, None),
+        write("w_q_tomb", Tombstone, &q, 10, None),
     ];
 
     let results = ctx
@@ -5035,6 +5054,10 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
             ("w_q_owner", PreconditionFailed, Some((q.id, 0, false))),
             ("w_p_expect", PreconditionFailed, Some((p.id, 0, false))),
             ("w_stray", Applied, Some((s.id, 1, true))),
+            ("w_on_missing", PersonNotLive, None),
+            ("w_s", PreconditionFailed, Some((s.id, 1, true))),
+            ("w_p_gone", PreconditionFailed, Some((p.id, 2, true))),
+            ("w_q_tomb", Applied, Some((q.id, 10, true))),
         ]
     );
     let marks_left: i64 =
@@ -5048,32 +5071,51 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::write_distinct_ids(false)]
+#[case::raise_person_version_floors(true)]
 #[tokio::test]
-async fn test_write_distinct_ids_fails_when_another_operation_holds_the_person() {
+async fn test_repair_writes_fail_when_another_operation_holds_the_person(#[case] raise: bool) {
     let ctx = TestContext::new().await;
     let person = ctx.insert_person("w_marked", None).await.unwrap();
     let mut conn = ctx.pool.acquire().await.unwrap();
     let op_id = claim_merge_mark(&mut conn, ctx.team_id, &person).await;
 
-    let err = ctx
-        .storage
-        .write_distinct_ids(
-            ctx.team_id,
-            &[DistinctIdWrite {
-                distinct_id: "w_blocked".to_string(),
-                action: DistinctIdWriteAction::Insert,
-                person_uuid: person.uuid,
-                min_version: 1,
-                expected_version: None,
-            }],
-        )
-        .await
-        .expect_err("a held mark fails the call");
+    let result = if raise {
+        ctx.storage
+            .raise_person_version_floors(ctx.team_id, &[(person.uuid, 9)])
+            .await
+            .map(|_| ())
+    } else {
+        ctx.storage
+            .write_distinct_ids(
+                ctx.team_id,
+                &[DistinctIdWrite {
+                    distinct_id: "w_blocked".to_string(),
+                    action: DistinctIdWriteAction::Insert,
+                    person_uuid: person.uuid,
+                    min_version: 1,
+                    expected_version: None,
+                }],
+            )
+            .await
+            .map(|_| ())
+    };
+    let err = result.expect_err("a held mark fails the call");
     assert!(
         err.to_string()
             .contains("claimed by another lifecycle operation"),
         "{err}"
     );
+    let version: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(version, 0)::bigint FROM posthog_person WHERE team_id = $1 AND id = $2",
+    )
+    .bind(ctx.team_id)
+    .bind(person.id)
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(version, 0);
 
     let inserted: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = 'w_blocked'",

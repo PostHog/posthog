@@ -2809,7 +2809,7 @@ export enum DistinctIdWriteOutcome {
     PRECONDITION_FAILED = 3,
 
     /**
-     * The person does not exist or is tombstoned.
+     * The person does not exist, or is tombstoned for an insert or raise.
      *
      * @generated from enum value: DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE = 4;
      */

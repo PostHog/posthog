@@ -32,6 +32,10 @@ impl PersonRepair for PostgresStorage {
 
         let mut tx = begin_with_lock_timeout(self).await?;
         let uuids: Vec<Uuid> = floors.iter().map(|(uuid, _)| *uuid).collect();
+        // A lifecycle saga holds no row lock between its steps and later writes an absolute version,
+        // so a raise must take the person's mark, or the saga would lower the version it raised.
+        let (mark_op_id, _) =
+            claim_lifecycle_marks(&mut tx, team_id, &uuids, MarkKind::Restore).await?;
         let locked = lock_persons_by_uuids(&mut tx, team_id, &uuids).await?;
 
         let (raise_ids, raise_mins): (Vec<i64>, Vec<i64>) = floors
@@ -58,6 +62,9 @@ impl PersonRepair for PostgresStorage {
             )
             .execute(&mut *tx)
             .await?;
+        }
+        if let Some(op_id) = mark_op_id {
+            release_lifecycle_marks(&mut tx, team_id, op_id, MarkKind::Restore).await?;
         }
         tx.commit().await?;
 
@@ -202,8 +209,8 @@ impl PersonRepair for PostgresStorage {
         target_uuids.sort_unstable();
         target_uuids.dedup();
 
-        // Marks first, then person rows, then mapping rows: the order the tombstone RPC and
-        // ingestion take, so none of them can deadlock with this call.
+        // Marks first, then person rows by id, then mapping rows by id: the order the tombstone
+        // RPC, the drain and ingestion take, so none of them can deadlock with this call.
         let (mark_op_id, _) =
             claim_lifecycle_marks(&mut tx, team_id, &target_uuids, MarkKind::Restore).await?;
         let persons = lock_persons_by_uuids(&mut tx, team_id, &target_uuids).await?;
@@ -234,6 +241,8 @@ impl PersonRepair for PostgresStorage {
         }
 
         if !inserts.is_empty() {
+            // Insert in distinct id order, so two calls racing on the same ids cannot deadlock.
+            inserts.sort_unstable_by(|(a, _), (b, _)| a.distinct_id.cmp(&b.distinct_id));
             let inserted: HashSet<String> = sqlx::query_scalar!(
                 r#"
                 INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version, is_deleted)
@@ -374,7 +383,7 @@ async fn lock_distinct_id_rows(
                COALESCE(version, 0)::bigint as "version!", is_deleted as "is_deleted!"
         FROM posthog_persondistinctid
         WHERE team_id = $1 AND distinct_id = ANY($2)
-        ORDER BY distinct_id FOR UPDATE
+        ORDER BY id FOR UPDATE
         "#,
         team_id as i32,
         distinct_ids

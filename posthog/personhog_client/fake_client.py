@@ -22,6 +22,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 from unittest.mock import patch
 
@@ -1029,11 +1030,23 @@ class FakePersonHogClient:
     # ── Consistency repair writes ────────────────────────────────────
     # Mirror the replica's outcomes; the fake has no lifecycle marks or row locks.
 
+    def _check_repair_batch(self, keys: list[str], versions: list[int], *, uuid_keys: bool) -> None:
+        """Mirror the server's INVALID_ARGUMENT checks, which reject the whole request before any write."""
+        self._check_version_rpc_batch(keys)
+        if any(v < 0 for v in versions):
+            raise ValueError("versions must not be negative")
+        if uuid_keys:
+            parsed = [UUID(k) for k in keys]
+            if len(set(parsed)) != len(parsed):
+                raise ValueError("Duplicate key in request")
+
     def raise_person_version_floors(
         self, request: person_pb2.RaisePersonVersionFloorsRequest, timeout: float | None = None
     ) -> person_pb2.RaisePersonVersionFloorsResponse:
         self.calls.append(_Call("raise_person_version_floors", request))
-        self._check_version_rpc_batch([f.person_uuid for f in request.floors])
+        self._check_repair_batch(
+            [f.person_uuid for f in request.floors], [f.min_version for f in request.floors], uuid_keys=True
+        )
         response = person_pb2.RaisePersonVersionFloorsResponse()
         for floor in request.floors:
             person = self._persons_by_uuid.get((request.team_id, floor.person_uuid))
@@ -1053,12 +1066,14 @@ class FakePersonHogClient:
         self, request: person_pb2.RestorePersonsRequest, timeout: float | None = None
     ) -> person_pb2.RestorePersonsResponse:
         self.calls.append(_Call("restore_persons", request))
-        self._check_version_rpc_batch([p.person_uuid for p in request.persons])
+        self._check_repair_batch(
+            [p.person_uuid for p in request.persons], [p.version for p in request.persons], uuid_keys=True
+        )
+        parsed_properties = [json.loads(p.properties) for p in request.persons]
+        if not all(isinstance(props, dict) for props in parsed_properties):
+            raise ValueError("properties must be a JSON object")
         response = person_pb2.RestorePersonsResponse()
-        for restored in request.persons:
-            properties = json.loads(restored.properties)
-            if not isinstance(properties, dict):
-                raise ValueError("properties must be a JSON object")
+        for restored, properties in zip(request.persons, parsed_properties):
             existing = self._persons_by_uuid.get((request.team_id, restored.person_uuid))
             if existing is not None:
                 outcome = (
@@ -1110,16 +1125,20 @@ class FakePersonHogClient:
         self, request: person_pb2.WriteDistinctIdsRequest, timeout: float | None = None
     ) -> person_pb2.WriteDistinctIdsResponse:
         self.calls.append(_Call("write_distinct_ids", request))
-        self._check_version_rpc_batch([w.distinct_id for w in request.writes])
-        response = person_pb2.WriteDistinctIdsResponse()
-        team_id = request.team_id
+        self._check_repair_batch(
+            [w.distinct_id for w in request.writes], [w.min_version for w in request.writes], uuid_keys=False
+        )
         for write in request.writes:
+            UUID(write.person_uuid)
             if write.action not in (
                 person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT,
                 person_pb2.DISTINCT_ID_WRITE_ACTION_RAISE,
                 person_pb2.DISTINCT_ID_WRITE_ACTION_TOMBSTONE,
             ):
                 raise ValueError(f"Unknown action {write.action} for {write.distinct_id}")
+        response = person_pb2.WriteDistinctIdsResponse()
+        team_id = request.team_id
+        for write in request.writes:
             outcome = self._apply_distinct_id_write(team_id, write)
             result = response.results.add(distinct_id=write.distinct_id, outcome=outcome)
             row = self._mapping_row(team_id, write.distinct_id)

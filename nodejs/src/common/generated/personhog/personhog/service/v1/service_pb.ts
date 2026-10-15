@@ -611,8 +611,9 @@ export const PersonHogService: GenService<{
         output: typeof ListPersonsForTeamResponseSchema
     }
     /**
-     * Writes for the person consistency repair. Each claims lifecycle marks on the persons it
-     * writes and only raises versions. Same routing caveat as DeletePersons above.
+     * Writes for the person consistency repair. Raises and mapping writes claim lifecycle marks on
+     * the persons they write; restores only insert absent persons. Versions only go up. Same routing
+     * caveat as DeletePersons above.
      *
      * @generated from rpc personhog.service.v1.PersonHogService.RaisePersonVersionFloors
      */

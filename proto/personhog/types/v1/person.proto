@@ -768,7 +768,7 @@ enum DistinctIdWriteOutcome {
   DISTINCT_ID_WRITE_OUTCOME_UNCHANGED = 2;
   // The row is not in the state the write expects; it is left unchanged and reported.
   DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED = 3;
-  // The person does not exist or is tombstoned.
+  // The person does not exist, or is tombstoned for an insert or raise.
   DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE = 4;
 }
 
