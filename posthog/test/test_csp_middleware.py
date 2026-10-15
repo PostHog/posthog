@@ -180,16 +180,22 @@ class TestCSPMiddleware(APIBaseTest):
         assert "default-src 'self'" in response["Content-Security-Policy"]
         assert "Content-Security-Policy-Report-Only" not in response
 
-    def test_enforcement_reaches_an_app_page_but_not_an_embeddable_one(self):
+    def test_enforcement_reaches_app_and_shared_pages_but_not_the_exporter(self):
         # The wiring guard for app_csp_header_name. The matrix of paths lives in
         # TestAppCspHeaderName, which needs no database.
         enforced = self.client.get("/")
         assert "default-src 'self'" in enforced["Content-Security-Policy"]
         assert "Content-Security-Policy-Report-Only" not in enforced
 
-        embedded = self.client.get("/shared/notarealtoken")
-        assert "Content-Security-Policy" not in embedded
-        assert "frame-ancestors" not in embedded["Content-Security-Policy-Report-Only"]
+        for path in ("/shared/notarealtoken", "/exporter/notarealtoken"):
+            shared = self.client.get(path)
+            assert "default-src 'self'" in shared["Content-Security-Policy"], path
+            assert "frame-ancestors" not in shared["Content-Security-Policy"], path
+            assert "Content-Security-Policy-Report-Only" not in shared, path
+
+        exporter = self.client.get("/exporter")
+        assert "Content-Security-Policy" not in exporter
+        assert "frame-ancestors" not in exporter["Content-Security-Policy-Report-Only"]
 
     @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)  # As a self-hosted install
     def test_self_hosted_install_enforces_only_frame_ancestors(self) -> None:
@@ -389,9 +395,9 @@ class TestCSPMiddleware(APIBaseTest):
                 {"CLOUD_DEPLOYMENT": "US", "SITE_URL": "https://us.posthog.com", "JS_URL": _US_BUNDLE},
                 True,
             ),
-            # This document already sends the app policy report-only, so the shadows must join that header.
+            # This document enforces the app policy, and the shadows must stay in the report-only header.
             (
-                "report_only_embeddable_document",
+                "enforced_embeddable_document",
                 "/shared/notarealtoken",
                 {"CLOUD_DEPLOYMENT": "US", "SITE_URL": "https://us.posthog.com", "JS_URL": _US_BUNDLE},
                 True,
@@ -475,19 +481,56 @@ class TestCSPMiddleware(APIBaseTest):
 class TestAppCspHeaderName(SimpleTestCase):
     @parameterized.expand(
         [
-            ("shared_dashboard", "/shared_dashboard/abc123"),
-            ("shared", "/shared/abc123"),
-            ("embedded", "/embedded/abc123"),
-            ("exporter_with_token", "/exporter/abc123"),
-            ("exporter_render", "/exporter"),
-            ("render_query", "/render_query"),
-            ("external_survey", "/external_surveys/019efb7e-0672-0000-729b-e234586f6177"),
+            ("shared_dashboard", "/shared_dashboard/abc123", {}, True),
+            ("shared", "/shared/abc123", {}, True),
+            ("embedded", "/embedded/abc123", {}, True),
+            ("render_query", "/render_query", {}, True),
+            # A replay export can run an eval in a frame of this document, and an enforced policy refuses it.
+            ("exporter_render", "/exporter", {}, False),
+            # This route serves the shared page, so it enforces like /shared/.
+            ("exporter_with_token", "/exporter/abc123", {}, True),
+            # The survey view sets its own policy, so this is a response that the view did not build.
+            ("external_survey", "/external_surveys/019efb7e-0672-0000-729b-e234586f6177", {}, False),
+            # No route serves these, so the app catch-all answers them, and the app then runs in that
+            # document like on any other page.
+            ("unrouted_exporter_subpath", "/exporter/a/b", {}, True),
+            ("unrouted_survey_subpath", "/external_surveys/a/b", {}, True),
+            # A self-hosted install enforces nothing here, and that includes the frame-ancestors
+            # header that an app page gets on such an install.
+            ("shared_on_a_self_hosted_install", "/shared/abc123", {"CLOUD_DEPLOYMENT": None, "DEBUG": False}, False),
+            # Cloud sends other report-only policies in the same header, and they must not replace
+            # the app policy there.
+            (
+                "exporter_on_cloud",
+                "/exporter",
+                {
+                    "TEST": False,
+                    "DEBUG": False,
+                    "E2E_TESTING": False,
+                    "CLOUD_DEPLOYMENT": "US",
+                    "SITE_URL": "https://us.posthog.com",
+                    "JS_URL": _US_BUNDLE,
+                },
+                False,
+            ),
         ]
     )
-    def test_embeddable_document_stays_report_only(self, _name: str, path: str) -> None:
-        # A customer's site frames each of these. The app policy names only PostHog origins in
-        # frame-ancestors, so enforcing it here stops the document rendering on their page.
-        assert app_csp_header_name(path) == "Content-Security-Policy-Report-Only"
+    def test_embeddable_document_sends_the_app_policy_without_frame_ancestors(
+        self, _name: str, path: str, overrides: dict[str, str | bool | None], expects_enforced: bool
+    ) -> None:
+        def view(_request: HttpRequest) -> HttpResponse:
+            return HttpResponse("<html><body>shared</body></html>", content_type="text/html; charset=utf-8")
+
+        with override_settings(**overrides):
+            response = CSPMiddleware(view)(RequestFactory().get(path))
+
+        enforced = response.get("Content-Security-Policy", "")
+        reported = response.get("Content-Security-Policy-Report-Only", "")
+        assert ("default-src" in enforced, "default-src" in reported) == (expects_enforced, not expects_enforced)
+        # A customer's site frames each of these, and the app policy names only PostHog origins in
+        # frame-ancestors. Enforced, the directive stops the document rendering on their page.
+        # Reported, it sends a report for every embed.
+        assert "frame-ancestors" not in enforced + reported
 
     @parameterized.expand(
         [
