@@ -113,7 +113,7 @@ def muted_value(outcome: Outcome) -> str:
     return "" if muted == NotificationAction.NONE else muted.value
 
 
-def _not_breaching(grouping_key: str) -> GroupObservation:
+def not_breaching(grouping_key: str) -> GroupObservation:
     return GroupObservation(grouping_key=grouping_key, current_breached=False)
 
 
@@ -133,7 +133,7 @@ def decide_groups(
     policy: AlertPolicy,
     now: datetime,
     muted: bool = False,
-    absent: Callable[[str], GroupObservation | None] = _not_breaching,
+    absent: Callable[[str], GroupObservation | None] = not_breaching,
 ) -> GroupDecision:
     """Each observed group run through the machine against its own instance.
 

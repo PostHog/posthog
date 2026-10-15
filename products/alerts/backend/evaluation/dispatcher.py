@@ -252,7 +252,7 @@ def check_alert_per_series(alert: AlertConfiguration) -> PerSeriesEvaluation | A
     return PerSeriesEvaluation(
         series=tuple(
             SeriesEvaluation(
-                identity=series.identity if series.identity is not None else series.label,
+                identity=series.identity or series.label,
                 label=series.label,
                 result=describe_delayed_evaluation(
                     evaluate_threshold(_one_series(result, series), extracted.condition, extracted.threshold),

@@ -253,4 +253,6 @@ class TrendsExtractor:
 
 def _breakdown_identity(result: dict[str, Any]) -> str:
     """The series and the raw breakdown value, which the formatted label can merge across rows."""
-    return json.dumps([result.get("order"), result.get("breakdown_value")], separators=(",", ":"), default=str)
+    return json.dumps(
+        [result.get("order"), result.get("breakdown_value")], separators=(",", ":"), ensure_ascii=False, default=str
+    )

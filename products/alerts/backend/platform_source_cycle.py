@@ -51,7 +51,12 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.grouping import GroupObservation, bounded_grouping_key, decide_groups
+from products.alerts_platform.backend.facade.grouping import (
+    GroupObservation,
+    bounded_grouping_key,
+    decide_groups,
+    not_breaching,
+)
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
     AlertSnapshot,
@@ -229,12 +234,18 @@ def _legacy_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
     )
 
 
-def _snapshot(check: PlatformAlertCheckInput, instance: InstanceCheckState | None = None) -> AlertSnapshot:
+def _snapshot(
+    check: PlatformAlertCheckInput,
+    instance: InstanceCheckState | None = None,
+    *,
+    snooze_until: datetime | None = None,
+) -> AlertSnapshot:
     instance = instance or check.instance()
     return insight_snapshot(
         AlertState(instance.state),
         last_notified_at=instance.last_notified_at,
         firing_started_at=instance.firing_started_at,
+        snooze_until=snooze_until,
     )
 
 
@@ -397,10 +408,10 @@ def _decide_grouped(
             )
             for series in evaluated.series
         ],
-        snapshot_of=lambda instance, _prior: replace(_snapshot(check, instance), snooze_until=instance.snooze_until),
+        snapshot_of=lambda instance, _prior: _snapshot(check, instance, snooze_until=instance.snooze_until),
         policy=GROUPED_INSIGHT_ALERT_POLICY,
         now=now,
-        absent=lambda key: None if evaluated.truncated else GroupObservation(grouping_key=key, current_breached=False),
+        absent=(lambda _key: None) if evaluated.truncated else not_breaching,
     )
     for verdict in decision.verdicts:
         _record_metrics(verdict.outcome.notification, verdict.snapshot.state.value, verdict.group.new_state)
