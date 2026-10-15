@@ -5,7 +5,11 @@ import { Button, Card, CardContent, CardDescription, CardFooter, CardHeader, Car
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { WAREHOUSE_TOOL_CATEGORIES, WarehouseQuestion } from './warehouseQuestionsContent'
+import {
+    WAREHOUSE_QUESTION_PROMPT_SUFFIX,
+    WAREHOUSE_TOOL_CATEGORIES,
+    WarehouseQuestion,
+} from './warehouseQuestionsContent'
 
 // pinned: the data-attr values and analytics event names in this file feed autocapture and dashboards, so renaming them breaks both.
 
@@ -39,7 +43,11 @@ export function WarehouseQuestionCard({ question }: { question: WarehouseQuestio
                     size="sm"
                     variant="primary"
                     nativeButton={false}
-                    render={<LinkPrimitive to={urls.ai(undefined, question.question)} />}
+                    render={
+                        <LinkPrimitive
+                            to={urls.ai(undefined, `${question.aiPrompt} ${WAREHOUSE_QUESTION_PROMPT_SUFFIX}`)}
+                        />
+                    }
                     data-attr={`warehouse-question-ask-ai-${question.id}`}
                     onClick={() =>
                         posthog.capture('warehouse question clicked', { question: question.id, target: 'ask_ai' })
