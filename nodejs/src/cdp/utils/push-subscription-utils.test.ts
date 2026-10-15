@@ -4,6 +4,7 @@ import {
     deviceSubscriptionKey,
     getDevicePushSubscriptionToken,
     getDevicePushSubscriptions,
+    lookupDevicePushSubscriptions,
 } from './push-subscription-utils'
 
 describe('getDevicePushSubscriptionToken', () => {
@@ -130,9 +131,14 @@ describe('getDevicePushSubscriptions', () => {
             '$device_push_subscription_my-project:forged': 'not-encrypted-value',
         }
 
-        const tokens = getDevicePushSubscriptions(properties, 'my-project', encryptedFields).map((s) => s.token)
+        const { subscriptions, undecryptableCount } = lookupDevicePushSubscriptions(
+            properties,
+            'my-project',
+            encryptedFields
+        )
 
-        expect(tokens).toEqual(['good-token'])
+        expect(subscriptions.map((s) => s.token)).toEqual(['good-token'])
+        expect(undecryptableCount).toBe(1)
     })
 
     it('caps how many devices one person and app can fan out to', () => {

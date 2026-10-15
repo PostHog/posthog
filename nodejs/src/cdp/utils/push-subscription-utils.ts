@@ -15,6 +15,13 @@ export interface DeviceSubscription {
     token: string
 }
 
+export interface DevicePushSubscriptionLookup {
+    subscriptions: DeviceSubscription[]
+    /** Properties for this app that hold a value which does not decrypt. A send that finds only these
+     * must say so, because "no token" then points at the wrong cause. */
+    undecryptableCount: number
+}
+
 /** Person property key holding one device's push token. Mirrors `device_subscription_key` in
  * `push_subscriptions.py`; the two must agree or a registration lands on a key sends never read. */
 export function deviceSubscriptionKey(appIdentifier: string, token: string): string {
@@ -36,14 +43,24 @@ export function getDevicePushSubscriptions(
     appIdentifier: string,
     encryptedFields: EncryptedFields
 ): DeviceSubscription[] {
+    return lookupDevicePushSubscriptions(personProperties, appIdentifier, encryptedFields).subscriptions
+}
+
+/** Same as `getDevicePushSubscriptions`, and also counts the stored values that fail to decrypt. */
+export function lookupDevicePushSubscriptions(
+    personProperties: Record<string, any> | undefined,
+    appIdentifier: string,
+    encryptedFields: EncryptedFields
+): DevicePushSubscriptionLookup {
     if (!personProperties) {
-        return []
+        return { subscriptions: [], undecryptableCount: 0 }
     }
 
     const legacyKey = `${DEVICE_SUBSCRIPTION_PREFIX}${appIdentifier}`
     const devicePrefix = `${legacyKey}:`
     const subscriptions: DeviceSubscription[] = []
     const seen = new Map<string, DeviceSubscription>()
+    let undecryptableCount = 0
 
     // Sorted so a person over the cap keeps the same devices from one send to the next, rather than
     // a set that shifts with property insertion order.
@@ -63,9 +80,11 @@ export function getDevicePushSubscriptions(
         try {
             token = encryptedFields.decrypt(value) ?? null
         } catch {
+            undecryptableCount++
             continue
         }
         if (!token) {
+            undecryptableCount++
             continue
         }
         // One device can hold the same token under both shapes, so send once and carry both keys.
@@ -82,7 +101,7 @@ export function getDevicePushSubscriptions(
         }
     }
 
-    return subscriptions
+    return { subscriptions, undecryptableCount }
 }
 
 /**
