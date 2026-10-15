@@ -239,10 +239,7 @@ impl<S: PublishSink> Publisher<S> {
         let mut deferred: (Vec<i64>, Vec<String>) = Default::default();
         for (row, disposition) in &dispositions {
             match disposition {
-                Disposition::Finished => {
-                    finished.push(row.id);
-                    record_row(&row.kind, "published");
-                }
+                Disposition::Finished => finished.push(row.id),
                 Disposition::Advanced(cursor) => {
                     advanced.0.push(row.id);
                     advanced.1.push(cursor.person_id);
@@ -263,7 +260,6 @@ impl<S: PublishSink> Publisher<S> {
                     }
                     deferred.0.push(row.id);
                     deferred.1.push(reason.clone());
-                    record_row(&row.kind, "deferred");
                 }
             }
         }
@@ -271,6 +267,15 @@ impl<S: PublishSink> Publisher<S> {
             .await?;
         tx.commit().await?;
 
+        // Counted after the commit, so a pass that rolls back counts nothing.
+        for (row, disposition) in &dispositions {
+            let result = match disposition {
+                Disposition::Finished => "published",
+                Disposition::Deferred(_) => "deferred",
+                Disposition::Advanced(_) => continue,
+            };
+            record_row(&row.kind, result);
+        }
         common_metrics::histogram(
             PUBLISH_BATCH_DURATION_MS,
             &[],

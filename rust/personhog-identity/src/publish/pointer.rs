@@ -103,9 +103,10 @@ impl ResolvedRow {
 ///
 /// Nothing in this statement can raise on data. `distinct_id` is taken
 /// only from a JSON string, `version` only from a JSON number that is an
-/// integer of at most 18 digits (a decimal or an out-of-range number would
-/// fail the `bigint` cast), and persons before the cursor are not expanded
-/// at all, so a large op does not pay for its finished persons on every
+/// integer inside the `bigint` range (checked as `numeric`, which holds
+/// any JSON number, because a decimal or an out-of-range number would fail
+/// the `bigint` cast), and persons before the cursor are not expanded at
+/// all, so a large op does not pay for its finished persons on every
 /// chunk.
 pub async fn resolve_chunk(
     tx: &mut Tx<'_>,
@@ -124,7 +125,8 @@ pub async fn resolve_chunk(
                    CASE WHEN jsonb_typeof(e.value -> 'distinct_id') = 'string'
                         THEN e.value ->> 'distinct_id' END AS distinct_id,
                    CASE WHEN jsonb_typeof(e.value -> 'version') = 'number'
-                         AND (e.value ->> 'version') ~ '^-?[0-9]{{1,18}}$'
+                         AND (e.value ->> 'version')::numeric = trunc((e.value ->> 'version')::numeric)
+                         AND (e.value ->> 'version')::numeric BETWEEN -9223372036854775808 AND 9223372036854775807
                         THEN (e.value ->> 'version')::bigint END AS version,
                    e.ordinality AS mapping_ordinal
             FROM {lifecycle_op_person} lop

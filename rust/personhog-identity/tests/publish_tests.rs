@@ -224,6 +224,10 @@ async fn a_poisoned_pointer_is_deferred_while_the_rest_of_its_batch_publishes() 
     let (healthy, _) = ctx
         .insert_merge_pointer(target, Some(moved(&[("did-h", 3)])), true)
         .await;
+    // The largest version the mapping table can hold is healthy too.
+    let (largest, _) = ctx
+        .insert_merge_pointer(target, Some(moved(&[("did-max", i64::MAX)])), true)
+        .await;
     // Moved nothing: a source with no live distinct ids.
     let (empty, _) = ctx.insert_merge_pointer(target, None, true).await;
     let vanished = Uuid::now_v7();
@@ -294,8 +298,11 @@ async fn a_poisoned_pointer_is_deferred_while_the_rest_of_its_batch_publishes() 
     publisher.drain_once().await.expect("the pass commits");
     assert_eq!(
         sink.rows_for_team(ctx.team_id),
-        vec![ctx.row(target, "did-h", 3, 0)],
-        "only the healthy pointer publishes"
+        vec![
+            ctx.row(target, "did-h", 3, 0),
+            ctx.row(target, "did-max", i64::MAX, 0)
+        ],
+        "only the healthy pointers publish"
     );
     let snapshot = |rows: Vec<common::OutboxRow>| -> HashMap<Uuid, (bool, i32, String)> {
         rows.into_iter()
@@ -309,7 +316,7 @@ async fn a_poisoned_pointer_is_deferred_while_the_rest_of_its_batch_publishes() 
     };
     let left = snapshot(ctx.outbox_rows().await);
     assert!(
-        !left.contains_key(&healthy) && !left.contains_key(&empty),
+        !left.contains_key(&healthy) && !left.contains_key(&largest) && !left.contains_key(&empty),
         "healthy and empty pointers are deleted: {left:?}"
     );
     assert_eq!(left.len(), expected_errors.len(), "{left:?}");
@@ -327,7 +334,7 @@ async fn a_poisoned_pointer_is_deferred_while_the_rest_of_its_batch_publishes() 
         .drain_once()
         .await
         .expect("the second pass commits");
-    assert_eq!(sink.rows_for_team(ctx.team_id).len(), 1);
+    assert_eq!(sink.rows_for_team(ctx.team_id).len(), 2);
     for (op_id, (_, attempts, _)) in snapshot(ctx.outbox_rows().await) {
         assert_eq!(attempts, 2, "{op_id}: attempts after the second pass");
     }
@@ -350,6 +357,7 @@ async fn a_poisoned_pointer_is_deferred_while_the_rest_of_its_batch_publishes() 
         sink.rows_for_team(ctx.team_id),
         vec![
             ctx.row(target, "did-h", 3, 0),
+            ctx.row(target, "did-max", i64::MAX, 0),
             ctx.row(target, "did-fixed", 2, 0)
         ]
     );
