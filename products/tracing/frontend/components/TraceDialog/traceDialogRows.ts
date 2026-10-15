@@ -82,8 +82,9 @@ export function buildTraceDialogRows(
 
     type Pending = { node: SpanNode; depth: number; isLast: boolean; parentRow: TraceDialogRow | null }
     const rows: TraceDialogRow[] = []
-    // Spans inside a chain the person opened, which must not fold again from their own position.
-    const openedMembers = new Set<SpanNode>()
+    // Spans that must not start a fold: members of an opened chain, and spans at or above the pinned
+    // span in a run. Marking them keeps a deep pinned chain to one scan instead of one per member.
+    const noFold = new Set<SpanNode>()
     const stack: (Pending | TraceDialogRow)[] = []
     const pushChildren = (children: SpanNode[], owner: SpanNode, depth: number, parentRow: TraceDialogRow): void => {
         let shown = byStart(children)
@@ -117,8 +118,11 @@ export function buildTraceDialogRows(
         }
         const { node, depth, isLast, parentRow } = item
         const run =
-            node.parent?.children.length === 1 && !openedMembers.has(node) ? singleChildRun(node, collapsedSpanIds) : []
-        const foldable = run.length >= TRACE_DIALOG_MIN_CHAIN && !run.some((member) => pinnedPath.has(member))
+            node.parent?.children.length === 1 && !noFold.has(node) ? singleChildRun(node, collapsedSpanIds) : []
+        const pinnedAt = run.findLastIndex((member) => pinnedPath.has(member))
+        // Spans below the pinned one can still fold, so only the part down to it is ruled out.
+        run.slice(0, pinnedAt + 1).forEach((member) => noFold.add(member))
+        const foldable = run.length >= TRACE_DIALOG_MIN_CHAIN && pinnedAt < 0
         if (foldable && !openChainIds.has(node.span.span_id)) {
             const chainRow: TraceDialogRow = { kind: 'chain', nodes: run, depth, isLast, parentRow }
             rows.push(chainRow)
@@ -127,7 +131,7 @@ export function buildTraceDialogRows(
             continue
         }
         if (foldable) {
-            run.forEach((member) => openedMembers.add(member))
+            run.forEach((member) => noFold.add(member))
         }
         const row: TraceDialogRow = {
             kind: 'span',

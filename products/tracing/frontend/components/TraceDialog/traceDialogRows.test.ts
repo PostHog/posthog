@@ -137,6 +137,26 @@ describe('traceDialogRows', () => {
             expect(labels(build(openChainIds, pinnedId))).toEqual(expected)
         })
 
+        it('still folds the spans below the span a log came from', () => {
+            const long = buildSpanTree([
+                span('root', '', 0),
+                span('a', 'root', 1),
+                span('b', 'a', 2),
+                span('c', 'b', 3),
+                span('d', 'c', 4),
+                span('e', 'd', 5),
+                span('f', 'e', 6),
+            ])
+            const rows = buildTraceDialogRows(long, {
+                collapsedSpanIds: new Set(),
+                fullChildListSpanIds: new Set(),
+                openChainIds: new Set(),
+                pinned: find(long, 'a'),
+            })
+
+            expect(labels(rows)).toEqual(['root', 'a', '[b>c>d>e]', 'f'])
+        })
+
         it('places rows under a folded chain one level below it, with lines only where siblings follow', () => {
             const rows = build(new Set())
             const [, chainRow, d, e, f] = rows

@@ -57,7 +57,8 @@ export function TraceDialogSpanRow({
         ),
         0.3
     )
-    const isError = span.status_code === 2
+    // A folded chain shows an error when any span in it errored, not only its first.
+    const isError = (row.kind === 'chain' ? row.nodes : [node]).some((member) => member.span.status_code === 2)
     const serviceColor = getSeriesColor(serviceColorMap.get(span.service_name) ?? 0)
     const barColor = isError ? ERROR_COLOR : serviceColor
     const openedAtPct = openedAtUs != null ? Math.min(Math.max(percentOfTrace(openedAtUs, timeline), 0), 100) : null

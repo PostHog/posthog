@@ -161,7 +161,7 @@ export function TraceDialogSpanTree(): JSX.Element {
     // above, this leaves it alone.
     const selectedSpanId = missingParentSpanId ?? selectedSpan?.span_id ?? null
     useEffect(() => {
-        const index = spanRows.findIndex((row) => row.kind === 'span' && row.node.span.span_id === selectedSpanId)
+        const index = spanRows.findIndex((row) => rowSpanNode(row)?.span.span_id === selectedSpanId)
         if (index >= 0 && (selectedSpanId !== openedSpanId || revealedIndexRef.current !== null)) {
             listRef.current?.scrollToRow({ index, align: 'smart' })
         }
@@ -196,7 +196,11 @@ export function TraceDialogSpanTree(): JSX.Element {
                     data-attr="trace-dialog-pinned-ancestors"
                 >
                     <span className="shrink-0">Inside</span>
-                    {hiddenAncestorCount > 0 && <span className="shrink-0">{hiddenAncestorCount} more ›</span>}
+                    {hiddenAncestorCount > 0 && (
+                        <span className="shrink-0">
+                            <span translate="no">{hiddenAncestorCount}</span> more ›
+                        </span>
+                    )}
                     {pinnedAncestors.slice(hiddenAncestorCount).map((ancestor, i) => {
                         const node = rowSpanNode(ancestor)
                         return node ? (
