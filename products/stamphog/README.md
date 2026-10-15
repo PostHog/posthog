@@ -30,9 +30,11 @@ Every other verdict is posted once per run as a comment review on the same surfa
 A run that produced no verdict posts a short failure notice the same way, unless a newer run already holds the same head.
 The engine reports `APPROVED` and `REFUSED`, and the API exposes them lowercase as `approved` and `refused`.
 
-The trigger label only exists in label-triggered mode, and only a substantive non-approval removes it.
+The trigger label only exists in label-triggered mode, and of the verdicts only a substantive non-approval removes it.
 So the label can be re-applied once the feedback is addressed.
 A verdict that says nothing about the PR keeps the label, and the next push retries.
+A label can request at most one review per PR every 10 minutes.
+A label added inside that window starts nothing, so stamphog removes it again and says in its status comment when a relabel will work.
 `WAIT` means a reviewer bot still had a review in flight, or the `Migration risk` check had not reported yet.
 `ERROR` means the run failed before it could judge the PR, because the LLM backend was unreachable or the reviewer hit a non-retryable analysis failure such as its turn limit.
 A transient failure must not silently drop labels across every queued PR.

@@ -3,6 +3,7 @@ import contextlib
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -399,12 +400,20 @@ def test_labeled_rereview_cooldown_skips_rapid_retrigger(team, repo_config):
         repo_config.save()
 
     payload = _pr_payload(action="labeled", labels=["stamphog"], added_label="stamphog")
-    _run_task(payload, "delivery-label-1", team.id)
-    mock_execute = _run_task(payload, "delivery-label-2", team.id)
+    with time_machine.travel("2026-10-15T14:00:00Z", tick=False):
+        first = _run_task(payload, "delivery-label-1", team.id)
+    with time_machine.travel("2026-10-15T14:03:30Z", tick=False):
+        mock_execute = _run_task(payload, "delivery-label-2", team.id)
 
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 1
     mock_execute.assert_not_called()
+    first.github.remove_pr_label.assert_not_called()
+    # A rejected relabel must not leave the label sitting there as if a review had been requested,
+    # and must tell the author when a relabel will work again.
+    mock_execute.github.remove_pr_label.assert_called_once_with(REPO, 42, "stamphog")
+    _, _, body = mock_execute.github.upsert_sticky_comment.call_args.args
+    assert "14:10 UTC (in about 7 minutes)" in body
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
