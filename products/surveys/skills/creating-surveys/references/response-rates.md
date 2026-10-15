@@ -33,7 +33,7 @@ hold up once the other choices are held constant.
   surveys in other ways.
 - With partial responses off, a person counts only after finishing every question,
   so surveys with partial responses on look better partly because of how they
-  count. Leave it on to keep first answers, not to raise the rate.
+  count. Turn it on to keep first answers, not to raise the rate.
 - A centered modal interrupts the user more than a corner popover. Its higher
   response rate does not measure what the interruption costs. Suggest it only
   when the user wants the most responses from a short, important question.

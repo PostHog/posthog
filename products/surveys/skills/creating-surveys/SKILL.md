@@ -49,7 +49,9 @@ who receives the survey. The evidence and its limits are in
 - **Keep it short.** About 4 in 10 people who start a two- or three-question
   survey stop before the end. Prefer one to three questions unless the user
   requests more.
-- **Leave partial responses on** so the first answer is kept when someone stops.
+- **Turn partial responses on** with `enable_partial_responses: true`, so the
+  first answer is kept when someone stops. It defaults to off when a survey is
+  created through the API.
 - **Recommend a targeted audience.** Surveys shown to a person or cohort
   audience get more responses than surveys shown to everyone.
 - **Keep any popup delay under 15 seconds.** Longer delays go with fewer

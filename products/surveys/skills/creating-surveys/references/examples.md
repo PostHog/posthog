@@ -10,6 +10,7 @@ against the project before adding them.
 {
   "name": "Product recommendation feedback",
   "type": "popover",
+  "enable_partial_responses": true,
   "questions": [
     {
       "type": "rating",
@@ -35,6 +36,7 @@ and targeting before launch.
 {
   "name": "Export satisfaction",
   "type": "popover",
+  "enable_partial_responses": true,
   "questions": [
     {
       "type": "rating",
