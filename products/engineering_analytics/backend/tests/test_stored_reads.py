@@ -164,7 +164,6 @@ class TestStoredReads(BaseTest):
 
         with (
             patch(f"{_CI_PRECOMPUTE}.cache", LocMemCache(self.id(), {})),
-            patch(f"{_CURATED}.refresh_ci_precompute"),
             patch(f"{_CI_PRECOMPUTE}.history_start", return_value=now - timedelta(days=400)),
             patch(f"{_CI_PRECOMPUTE}.ensure_stored", side_effect=lookup),
         ):
