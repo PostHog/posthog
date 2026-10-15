@@ -14,6 +14,8 @@ class SchematicEndpointConfig:
     primary_keys: tuple[str, ...] = ("id",)
     # Billing customers, coupons and meters have no creation timestamp, so they stay unpartitioned.
     partition_key: str | None = "created_at"
+    # The endpoint lists only active records unless `is_active=false` is passed, so it is read twice.
+    include_inactive: bool = False
 
 
 # No list endpoint takes a server-side `updated_after` style filter, so every table is full refresh.
@@ -32,9 +34,9 @@ SCHEMATIC_ENDPOINTS: dict[str, SchematicEndpointConfig] = {
         name="billing_customers", path="/billing/customers", partition_key=None
     ),
     "billing_products": SchematicEndpointConfig(
-        name="billing_products", path="/billing/products", primary_keys=("product_id",)
+        name="billing_products", path="/billing/products", primary_keys=("product_id",), include_inactive=True
     ),
-    "billing_prices": SchematicEndpointConfig(name="billing_prices", path="/billing/price"),
+    "billing_prices": SchematicEndpointConfig(name="billing_prices", path="/billing/price", include_inactive=True),
     "billing_coupons": SchematicEndpointConfig(name="billing_coupons", path="/billing/coupons", partition_key=None),
     "billing_meters": SchematicEndpointConfig(name="billing_meters", path="/billing/meter", partition_key=None),
 }

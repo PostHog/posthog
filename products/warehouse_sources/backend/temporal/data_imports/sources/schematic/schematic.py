@@ -1,4 +1,6 @@
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -6,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -14,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.schematic.
     PAGE_SIZE,
     SCHEMATIC_BASE_URL,
     SCHEMATIC_ENDPOINTS,
+    SchematicEndpointConfig,
 )
 
 API_KEY_HEADER = "X-Schematic-Api-Key"
@@ -22,6 +26,8 @@ API_KEY_HEADER = "X-Schematic-Api-Key"
 @dataclass(frozen=True)
 class SchematicResumeConfig:
     offset: int
+    # Which `is_active` pass the offset belongs to, for endpoints read in an active and an inactive pass.
+    is_active: bool | None = None
 
 
 def _client_config(api_key: str) -> ClientConfig:
@@ -29,7 +35,69 @@ def _client_config(api_key: str) -> ClientConfig:
         "base_url": SCHEMATIC_BASE_URL,
         "headers": {"Accept": "application/json"},
         "auth": {"type": "api_key", "api_key": api_key, "name": API_KEY_HEADER, "location": "header"},
+        # `requests` keeps a custom header on a cross-origin redirect, so a redirect would replay the key.
+        "allow_redirects": False,
+        "allowed_hosts": [],
     }
+
+
+def _resource(
+    api_key: str,
+    config: SchematicEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[SchematicResumeConfig],
+    is_active: bool | None,
+    initial_offset: int | None,
+) -> Resource:
+    params: dict[str, Any] = {} if is_active is None else {"is_active": "true" if is_active else "false"}
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_key),
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": config.name,
+                "table_name": config.name,
+                "write_disposition": "replace",
+                "table_format": "delta",
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # The response carries no total, so the walk ends on the first short page.
+                    "data_selector": "data",
+                    "data_selector_required": True,
+                    "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": None},
+                },
+            }
+        ],
+    }
+
+    def save_checkpoint(state: dict[str, Any] | None) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(SchematicResumeConfig(offset=int(state["offset"]), is_active=is_active))
+
+    return rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value=None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=None if initial_offset is None else {"offset": initial_offset},
+    )
+
+
+def _active_then_inactive(
+    build: Callable[[bool, int | None], Resource],
+    resumable_source_manager: ResumableSourceManager[SchematicResumeConfig],
+    resume: SchematicResumeConfig | None,
+) -> Iterator[Any]:
+    if resume is None or resume.is_active is not False:
+        yield from build(True, resume.offset if resume is not None else None)
+        # Every active row is handed on, so a resume from here starts the inactive pass.
+        resumable_source_manager.save_state(SchematicResumeConfig(offset=0, is_active=False))
+        yield from build(False, None)
+    else:
+        yield from build(False, resume.offset)
 
 
 def schematic_source(
@@ -40,45 +108,28 @@ def schematic_source(
     resumable_source_manager: ResumableSourceManager[SchematicResumeConfig],
 ) -> SourceResponse:
     config = SCHEMATIC_ENDPOINTS[endpoint]
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    rest_config: RESTAPIConfig = {
-        "client": _client_config(api_key),
-        "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "table_name": endpoint,
-                "write_disposition": "replace",
-                "table_format": "delta",
-                "endpoint": {
-                    "path": config.path,
-                    # The response carries no total, so the walk ends on the first short page.
-                    "data_selector": "data",
-                    "data_selector_required": True,
-                    "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": None},
-                },
-            }
-        ],
-    }
-
-    initial_paginator_state: dict[str, Any] | None = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None:
-            initial_paginator_state = {"offset": resume.offset}
-
-    def save_checkpoint(state: dict[str, Any] | None) -> None:
-        if state is not None:
-            resumable_source_manager.save_state(SchematicResumeConfig(offset=int(state["offset"])))
-
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        db_incremental_field_last_value=None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+    if config.include_inactive:
+        build = partial(_resource, api_key, config, team_id, job_id, resumable_source_manager)
+        first = build(True, None)
+        # The chain hands each page on unchanged and holds no rows, so as a `Resource` it keeps the
+        # framework's checkpoints.
+        resource = Resource(
+            partial(_active_then_inactive, build, resumable_source_manager, resume),
+            name=endpoint,
+            hints=first._hints,
+        )
+    else:
+        resource = _resource(
+            api_key,
+            config,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            None,
+            resume.offset if resume is not None else None,
+        )
 
     return SourceResponse(
         name=endpoint,
