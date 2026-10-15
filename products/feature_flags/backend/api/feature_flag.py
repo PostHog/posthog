@@ -3909,7 +3909,7 @@ class FlagRolloutWriteRequest(FlagLifecycleWriteRequest):
 class CreateStaticCohortForFlagResponseSerializer(serializers.Serializer):
     cohort = CohortSerializer(
         read_only=True,
-        help_text="The new static cohort. It fills with the people the flag matches in the background, so it starts with is_calculating true.",
+        help_text="The new static cohort. It fills with the people the flag matches in the background, so is_calculating is usually still true in this response.",
     )
 
 

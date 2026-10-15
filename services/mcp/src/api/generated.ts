@@ -25955,7 +25955,7 @@ export namespace Schemas {
     }
 
     export interface CreateStaticCohortForFlagResponse {
-      /** The new static cohort. It fills with the people the flag matches in the background, so it starts with is_calculating true. */
+      /** The new static cohort. It fills with the people the flag matches in the background, so is_calculating is usually still true in this response. */
       readonly cohort: Cohort;
     }
 
