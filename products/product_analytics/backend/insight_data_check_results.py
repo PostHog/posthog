@@ -160,6 +160,8 @@ def evaluate_data_checks(checked: CheckedEvents) -> list[InsightDataCheck]:
 
 def status_of(checks: list[InsightDataCheck]) -> InsightDataChecksStatus:
     levels = {check.level for check in checks}
+    if levels == {InsightDataCheckLevel.SKIPPED}:
+        return InsightDataChecksStatus.INCONCLUSIVE
     if InsightDataCheckLevel.PROBLEM in levels:
         return InsightDataChecksStatus.PROBLEM
     if InsightDataCheckLevel.WARNING in levels:

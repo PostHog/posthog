@@ -52,3 +52,4 @@ class InsightDataChecksStatus(LabeledStrEnum):
     PROBLEM = "problem", "A check found a large issue"
     NO_EVENTS = "no_events", "No events to check"
     UNSUPPORTED = "unsupported", "This kind of insight cannot be checked"
+    INCONCLUSIVE = "inconclusive", "No check could run"

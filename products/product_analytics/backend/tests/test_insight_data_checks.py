@@ -32,6 +32,7 @@ from products.product_analytics.backend.insight_data_check_results import (
     SampledEvents,
     Skipped,
     evaluate_data_checks,
+    status_of,
 )
 
 PASSED = InsightDataCheckLevel.PASSED
@@ -48,6 +49,7 @@ SENT_ON_THE_FREE_PLAN = "invited teammate"
 BOT_USER_AGENT = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0"
 CRAWLER_IP = "66.249.84.5"
+ORDINARY_BROWSER_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AcmeBrowser/1.0"
 LOCAL_HOST = "localhost:8010"
 CHECKS_MODULE = "products.product_analytics.backend.insight_data_checks"
 RESULTS_MODULE = "products.product_analytics.backend.insight_data_check_results"
@@ -142,6 +144,16 @@ class TestEvaluateDataChecks(SimpleTestCase):
     ) -> None:
         skip_reasons = {check.key: check.skip_reason for check in evaluate_data_checks(checked_events)}
         assert skip_reasons[key] == reason
+
+    def test_status_is_inconclusive_when_every_check_is_skipped(self) -> None:
+        checks = evaluate_data_checks(
+            CheckedEvents(
+                local=Skipped(reason=InsightDataCheckSkipReason.TOO_MANY_EVENTS),
+                sample=Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT),
+            )
+        )
+
+        assert status_of(checks) == "inconclusive"
 
 
 class TestNewestDaysWithin(SimpleTestCase):
@@ -423,6 +435,26 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         assert (result.status, coverage.days_in_range, coverage.days_checked) == (status, 20, 7)
         assert coverage.events_checked == events_checked
 
+    def test_ignores_bot_rules_a_project_defines_itself(self) -> None:
+        self._events(20, properties={"$raw_user_agent": ORDINARY_BROWSER_USER_AGENT})
+        flush_persons_and_events()
+        self.team.modifiers = {
+            "customBotDefinitions": [
+                {
+                    "id": "acme",
+                    "name": "Acme",
+                    "combiner": "OR",
+                    "items": [{"id": "1", "key": "$raw_user_agent", "matcher": "contains", "pattern": "AcmeBrowser"}],
+                }
+            ]
+        }
+        self.team.save()
+
+        result = self._check(self._query())
+
+        bots = next(check for check in result.checks if check.key == BOTS)
+        assert bots.events == 60
+
     def test_counts_an_event_as_sent_twice_only_when_an_identical_one_came_under_100_ms_before(self) -> None:
         sent_twice_by_the_app = (timedelta(0), timedelta(milliseconds=20))
         clicked_twice_by_a_person = (timedelta(seconds=30), timedelta(seconds=30.3))
@@ -444,12 +476,16 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown_event", [{"kind": "EventsNode", "event": "never sent"}], "no_events"),
-            ("action_series", [{"kind": "ActionsNode", "id": 1}], "unsupported"),
+            ("unknown_event", [{"kind": "EventsNode", "event": "never sent"}], 1_000_000_000, "no_events"),
+            ("action_series", [{"kind": "ActionsNode", "id": 1}], 1_000_000_000, "unsupported"),
+            ("read_limit_reached_while_sizing", ONE_STEP, 1, "inconclusive"),
         ]
     )
-    def test_reports_why_nothing_was_checked(self, _name: str, series: list[dict[str, Any]], expected: str) -> None:
-        result = self._check(self._query(series))
+    def test_reports_why_nothing_was_checked(
+        self, _name: str, series: list[dict[str, Any]], max_bytes_read_per_shard: int, expected: str
+    ) -> None:
+        with patch(f"{CHECKS_MODULE}.MAX_BYTES_READ_PER_SHARD", max_bytes_read_per_shard):
+            result = self._check(self._query(series))
 
         assert result.status == expected
         assert {check.level for check in result.checks} == {"skipped"}

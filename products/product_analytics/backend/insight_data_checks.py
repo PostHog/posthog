@@ -56,8 +56,11 @@ SIZING_SAMPLE_ONE_IN = 1_000
 
 # A check that takes longer than this is skipped, so it never holds up the insight it sits next to.
 MAX_EXECUTION_SECONDS = 5
-# A backstop for a size estimate that is far too low. ClickHouse applies it to each shard separately.
+# Backstops for a size estimate that is far too low, such as for an event sent under a few distinct IDs.
+# ClickHouse applies them to each shard separately.
 MAX_BYTES_READ_PER_SHARD = 1_000_000_000
+# The sample reads wide columns and sorts them for the repeat window, so it gets a tighter limit.
+MAX_SAMPLE_BYTES_READ_PER_SHARD = 250_000_000
 
 LOCAL_HOST_PATTERN = r"(?i)^(localhost|[a-z0-9.-]+\.localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:[0-9]+)?$"
 # An event with no user agent has the type "Automation", and server-side SDKs send those, so it is not a crawler.
@@ -155,36 +158,40 @@ class _EventReader:
     # The database the chart's events were read with, so the checks do not build another.
     database: Database
 
-    def rows(self, query: ast.SelectQuery, *, query_type: str) -> list[list[Any]]:
-        response = execute_hogql_query(
-            query=query,
-            team=self.team,
-            user=self.user,
-            query_type=query_type,
-            modifiers=self.modifiers,
-            context=HogQLContext(team_id=self.team.pk, user=self.user, database=self.database),
-            settings=_query_settings(),
-        )
-        return [list(row) for row in response.results or []]
-
-    def first_row_within_limits(self, query: ast.SelectQuery, *, query_type: str) -> list[Any] | Skipped:
+    def rows_within_limits(
+        self, query: ast.SelectQuery, *, query_type: str, max_bytes_read_per_shard: int
+    ) -> list[list[Any]] | Skipped:
         try:
-            rows = self.rows(query, query_type=query_type)
+            response = execute_hogql_query(
+                query=query,
+                team=self.team,
+                user=self.user,
+                query_type=query_type,
+                modifiers=self.modifiers,
+                context=HogQLContext(team_id=self.team.pk, user=self.user, database=self.database),
+                settings=_query_settings(max_bytes_read_per_shard),
+            )
         except CHQueryErrorTooManyBytes:
             return Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT)
         except ClickHouseQueryTimeOut:
             return Skipped(reason=InsightDataCheckSkipReason.TIME_LIMIT)
-        return rows[0] if rows else []
+        return [list(row) for row in response.results or []]
 
 
-def _query_settings() -> HogQLGlobalSettings:
+def _query_settings(max_bytes_read_per_shard: int) -> HogQLGlobalSettings:
     # Without "throw", a query that reaches a limit can return the events it counted so far as the answer.
     return HogQLGlobalSettings(
         max_execution_time=MAX_EXECUTION_SECONDS,
         timeout_overflow_mode="throw",
-        max_bytes_to_read=MAX_BYTES_READ_PER_SHARD,
+        max_bytes_to_read=max_bytes_read_per_shard,
         read_overflow_mode="throw",
     )
+
+
+def _check_modifiers(chart_modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
+    # With `debug` on, a failed query returns an error and no rows, which would read as no events.
+    # The bot check uses PostHog's definition of a bot, so a project's own bot rules do not apply.
+    return chart_modifiers.model_copy(update={"debug": False, "customBotDefinitions": []})
 
 
 def _hidden_property_names(team: Team, user: User) -> set[str]:
@@ -229,22 +236,31 @@ def _top_three(values_by_key: tuple[list[str], list[int]] | None) -> list[str]:
 
 def _count_events_per_day(
     events: ChartEvents, reader: _EventReader, days: list[date], timezone: ZoneInfo
-) -> dict[date, int]:
+) -> dict[date, int] | Skipped:
     """Each day's events before the chart's filters, estimated from a sample of distinct IDs."""
     query = events.select(
         _EVENTS_PER_DAY_QUERY,
         where=ast.And(exprs=[events.sort_key_where, _between_days(events, days[0], days[-1], timezone)]),
         sample=_sample_of(1, SIZING_SAMPLE_ONE_IN),
     )
-    sampled = {day: int(count) for day, count in reader.rows(query, query_type="insight_data_checks_sizing")}
+    rows = reader.rows_within_limits(
+        query, query_type="insight_data_checks_sizing", max_bytes_read_per_shard=MAX_BYTES_READ_PER_SHARD
+    )
+    if isinstance(rows, Skipped):
+        return rows
+
+    sampled = {day: int(count) for day, count in rows}
     return {day: sampled.get(day, 0) * SIZING_SAMPLE_ONE_IN for day in days}
 
 
-def _choose_window(events: ChartEvents, reader: _EventReader, timezone: ZoneInfo) -> CheckWindow:
+def _choose_window(events: ChartEvents, reader: _EventReader, timezone: ZoneInfo) -> CheckWindow | Skipped:
     days_in_range = days_between(
         events.date_from.astimezone(timezone).date(), events.date_to.astimezone(timezone).date()
     )
     events_per_day = _count_events_per_day(events, reader, days_in_range[-MAX_CHECKED_DAYS:], timezone)
+    if isinstance(events_per_day, Skipped):
+        return events_per_day
+
     return CheckWindow(
         days_in_range=days_in_range,
         days_to_check=newest_days_within(events_per_day, EVENT_BUDGET),
@@ -264,11 +280,14 @@ def _count_local_events(
     else:
         # ClickHouse cannot run the function that hides a restricted property inside PREWHERE.
         query = events.select(_LOCAL_EVENTS_QUERY, where=ast.And(exprs=[where, is_local_host]))
-    row = reader.first_row_within_limits(query, query_type="insight_data_checks_local")
-    if isinstance(row, Skipped):
-        return row
+    rows = reader.rows_within_limits(
+        query, query_type="insight_data_checks_local", max_bytes_read_per_shard=MAX_BYTES_READ_PER_SHARD
+    )
+    if isinstance(rows, Skipped):
+        return rows
 
-    count, top_hosts, top_events = row or [0, [], []]
+    row: list[Any] = rows[0] if rows else [0, [], []]
+    count, top_hosts, top_events = row
     return LocalEvents(count=int(count or 0), top_hosts=list(top_hosts), top_events=list(top_events))
 
 
@@ -289,11 +308,16 @@ def _sample_events(
             "repeat_window_milliseconds": ast.Constant(value=REPEAT_WINDOW_MILLISECONDS),
         },
     )
-    row = reader.first_row_within_limits(cast(ast.SelectQuery, query), query_type="insight_data_checks_sample")
-    if isinstance(row, Skipped):
-        return row
+    rows = reader.rows_within_limits(
+        cast(ast.SelectQuery, query),
+        query_type="insight_data_checks_sample",
+        max_bytes_read_per_shard=MAX_SAMPLE_BYTES_READ_PER_SHARD,
+    )
+    if isinstance(rows, Skipped):
+        return rows
 
-    sampled, distinct_ids, bot_events, by_bot, bots_by_event, repeated_events, repeats_by_event = row or [0] * 7
+    row: list[Any] = rows[0] if rows else [0] * 7
+    sampled, distinct_ids, bot_events, by_bot, bots_by_event, repeated_events, repeats_by_event = row
     return SampledEvents(
         rate=min(1.0, SAMPLE_SIZE / events_before_filters) if events_before_filters else 1.0,
         events=int(sampled or 0),
@@ -342,9 +366,12 @@ def _coverage(events: ChartEvents, window: CheckWindow, sample: SampledEvents | 
 
 
 def _nothing_checked(
-    status: InsightDataChecksStatus, coverage: InsightDataChecksCoverage | None = None
+    status: InsightDataChecksStatus,
+    coverage: InsightDataChecksCoverage | None = None,
+    reason: InsightDataCheckSkipReason | None = None,
 ) -> InsightDataChecks:
-    return InsightDataChecks(status=status, checks=[not_checked(key) for key in InsightDataCheckKey], coverage=coverage)
+    checks = [not_checked(key, reason) for key in InsightDataCheckKey]
+    return InsightDataChecks(status=status, checks=checks, coverage=coverage)
 
 
 def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) -> InsightDataChecks:
@@ -359,12 +386,13 @@ def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) ->
         reader = _EventReader(
             team=team,
             user=user,
-            # With `debug` on, a failed query returns an error and no rows, which would read as no events.
-            modifiers=events.modifiers.model_copy(update={"debug": False}),
+            modifiers=_check_modifiers(events.modifiers),
             database=events.database,
         )
         timezone = ZoneInfo(team.timezone)
         window = _choose_window(events, reader, timezone)
+        if isinstance(window, Skipped):
+            return _nothing_checked(InsightDataChecksStatus.INCONCLUSIVE, reason=window.reason)
         checked = _read_checked_days(events, reader, window, timezone, hides_properties=bool(hidden_properties))
 
     coverage = _coverage(events, window, checked.sample)
