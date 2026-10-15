@@ -957,15 +957,34 @@ class TestSignalReportListAPI(APIBaseTest):
         self.user.is_staff = is_staff
         self.user.save()
         report = self._create_report()
-        artefact = self._ranking_score_artefact(report)
+        full_heads = [
+            {"head": "open", "readable": True, "refit_classification_threshold": 0.25, "holdout": {"auc": 0.7}},
+            {"head": "merged", "readable": False},
+        ]
+        artefact = self._ranking_score_artefact(report, heads=full_heads)
+        SignalReportArtefact.objects.create(
+            team=self.team, report=report, type=SignalReportArtefact.ArtefactType.NOTE, content=json.dumps({})
+        )
         url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
-        assert [row["type"] for row in response.json()["results"]] == expected_types
+        rows = response.json()["results"]
+        assert [row["type"] for row in rows] == ["note", *expected_types]
 
         detail = self.client.get(f"{url}{artefact.id}/")
         assert detail.status_code == (status.HTTP_200_OK if is_staff else status.HTTP_404_NOT_FOUND)
+        if is_staff:
+            served_key = "report_embeddings@2026-09-01"
+            listed = rows[1]["content"]["results"][served_key]
+            assert listed["scores"] == {"open": 0.5, "merged": 0.2}
+            assert listed["metadata"] == {
+                "heads": [
+                    {"head": "open", "readable": True, "refit_classification_threshold": 0.25},
+                    {"head": "merged", "readable": False},
+                ]
+            }
+            assert detail.json()["content"]["results"][served_key]["metadata"] == {"heads": full_heads}
 
     def test_filter_by_channel_id_narrows_to_that_space(self):
         channel = Channel.objects.create(team=self.team, name="Reports")
@@ -1375,14 +1394,17 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_off", {"return_value": None}),
-            ("control", {"return_value": "control"}),
-            ("unknown_variant", {"return_value": "test"}),
-            ("non_recommended_head", {"return_value": "discuss"}),
-            ("flag_error", {"side_effect": RuntimeError("flags down")}),
+            ("flag_off", {"return_value": None}, None),
+            ("control", {"return_value": "control"}, None),
+            ("unknown_variant", {"return_value": "test"}, None),
+            ("non_recommended_head", {"return_value": "discuss"}, None),
+            ("flag_error", {"side_effect": RuntimeError("flags down")}, None),
+            ("eu_instance", {"return_value": "fixed"}, "EU"),
         ]
     )
-    def test_recommended_sort_uses_priority_order_unless_the_flag_serves_a_head(self, _name, flag_result):
+    def test_recommended_sort_uses_priority_order_unless_the_flag_serves_a_head(
+        self, _name, flag_result, cloud_deployment
+    ):
         p2 = self._create_report(title="P2")
         p0 = self._create_report(title="P0")
         no_priority = self._create_report(title="No priority")
@@ -1390,9 +1412,16 @@ class TestSignalReportListAPI(APIBaseTest):
         self._priority_artefact(p0, priority="P0")
         self._ranking_score_artefact(p2, scores={"fixed": 0.9})
 
-        with patch("products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", **flag_result):
+        with (
+            self.settings(CLOUD_DEPLOYMENT=cloud_deployment),
+            patch(
+                "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", **flag_result
+            ) as get_flag,
+        ):
             response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
+        if cloud_deployment == "EU":
+            get_flag.assert_not_called()
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["ranker"] == "priority"

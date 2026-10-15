@@ -81,6 +81,7 @@ from products.cdp.backend.validation import (
     compile_hog,
     generate_template_bytecode,
     masked_secret_input_keys,
+    require_viewer_access_to_added_actions,
     reserved_functions_used,
 )
 
@@ -712,6 +713,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             raise PermissionDenied("Manage this destination through its MCP event subscription.")
         current_filters = instance.filters if isinstance(instance, HogFunction) else {}
         proposed_filters = attrs.get("filters", current_filters)
+        require_viewer_access_to_added_actions(
+            self.context,
+            {"filters": attrs.get("filters"), "mappings": attrs.get("mappings")},
+            {"filters": instance.filters, "mappings": instance.mappings} if isinstance(instance, HogFunction) else None,
+        )
 
         # `to_internal_value` injects the stored schema whenever the request omits it, so the field
         # itself cannot reject duplicate keys: a row saved before the rule could no longer be

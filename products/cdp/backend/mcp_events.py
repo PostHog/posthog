@@ -34,6 +34,7 @@ from products.cdp.backend.mcp_event_destination import MCPEventDestination
 from products.cdp.backend.mcp_event_envelope import MCPEventEnvelopeSerializer
 from products.cdp.backend.mcp_event_filters import MCPEventFilterAccessValidator
 from products.cdp.backend.mcp_event_properties import MCPEventPropertyAccess
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.mcp_event_subscription import MCPEventSubscription
 from products.cdp.backend.tasks.mcp_events import expire_mcp_event_subscriptions
 from products.cdp.backend.validation import HogFunctionFiltersSerializer
@@ -221,12 +222,11 @@ class MCPEventSubscriptions:
                 compiled_filters["mcp_property_dependencies"], team=self.team, user=self.user
             )
             subscription.save()
-            self._reload_after_commit(subscription)
         return subscription
 
     def unsubscribe(self, *, raw_filters: dict[str, JsonValue], url: str) -> None:
         parser = HogFunctionFiltersSerializer(context={"get_team": lambda: self.team, "function_type": "destination"})
-        filters = parser.to_internal_value(raw_filters)
+        filters = parser.canonicalize_event_filters(parser.to_internal_value(raw_filters))
         with transaction.atomic():
             subscription = (
                 MCPEventSubscription.objects.for_team(self.team.pk)
@@ -239,13 +239,15 @@ class MCPEventSubscriptions:
             subscription.active = False
             subscription.generation = uuid7()
             subscription.save(update_fields=["active", "generation", "updated_at"])
-            if subscription.hog_function is not None:
-                subscription.hog_function.enabled = False
-                subscription.hog_function.save(update_fields=["enabled", "updated_at"])
-                self._reload_after_commit(subscription)
+            self._disable_destination(subscription)
 
     @staticmethod
-    def _reload_after_commit(subscription: MCPEventSubscription) -> None:
+    def _disable_destination(subscription: MCPEventSubscription) -> None:
+        if subscription.hog_function_id is None:
+            return
+        HogFunction.objects.filter(team_id=subscription.team_id, id=subscription.hog_function_id).update(
+            enabled=False, updated_at=timezone.now()
+        )
         transaction.on_commit(
             partial(
                 reload_hog_functions_on_workers,
@@ -277,10 +279,7 @@ class MCPEventSubscriptions:
                 subscription.active = False
                 subscription.generation = uuid7()
                 subscription.save(update_fields=["active", "generation", "updated_at"])
-                if subscription.hog_function is not None:
-                    subscription.hog_function.enabled = False
-                    subscription.hog_function.save(update_fields=["enabled", "updated_at"])
-                    cls._reload_after_commit(subscription)
+                cls._disable_destination(subscription)
                 count += 1
         if len(candidates) == EXPIRY_BATCH_SIZE:
             expire_mcp_event_subscriptions.delay()
