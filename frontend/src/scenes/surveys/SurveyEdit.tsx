@@ -629,7 +629,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                         return null
                     })()}
                 </div>
-                <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
+                <div className="flex flex-col @min-[60rem]/main-content:grid @min-[60rem]/main-content:grid-cols-[1fr_400px] gap-x-4 gap-y-8 h-full">
                     <div className="flex flex-col gap-2 flex-1 SurveyForm">
                         <LemonCollapse
                             activeKey={selectedSection || undefined}
@@ -646,7 +646,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                             {({ onChange, value }) => {
                                                 return (
                                                     <div className="flex flex-col gap-2">
-                                                        <div className="grid grid-cols-2 2xl:grid-cols-4 gap-4">
+                                                        <div className="grid grid-cols-2 @min-[80rem]/main-content:grid-cols-4 gap-4">
                                                             <PresentationTypeCard
                                                                 active={value === SurveyType.Popover}
                                                                 onClick={() => {
