@@ -31106,6 +31106,7 @@ export namespace Schemas {
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -32493,6 +32494,7 @@ export namespace Schemas {
       CosmosDB: 'CosmosDB',
       PlanetScaleMySQL: 'PlanetScaleMySQL',
       PlanetScalePostgres: 'PlanetScalePostgres',
+      Scarf: 'Scarf',
       SapHana: 'SapHana',
       Rippling: 'Rippling',
       HiBob: 'HiBob',
@@ -33894,6 +33896,7 @@ export namespace Schemas {
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
+       * * `Scarf` - Scarf
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -36539,6 +36542,7 @@ export namespace Schemas {
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
+       * * `Scarf` - Scarf
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -48329,6 +48333,7 @@ export namespace Schemas {
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
+       * * `Scarf` - Scarf
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -49750,6 +49755,7 @@ export namespace Schemas {
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
+       * * `Scarf` - Scarf
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -103234,6 +103240,7 @@ export namespace Schemas {
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
+       * * `Scarf` - Scarf
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -104686,6 +104693,7 @@ export namespace Schemas {
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
+       * * `Scarf` - Scarf
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob
@@ -106105,6 +106113,7 @@ export namespace Schemas {
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
+       * * `Scarf` - Scarf
        * * `SapHana` - SapHana
        * * `Rippling` - Rippling
        * * `HiBob` - HiBob

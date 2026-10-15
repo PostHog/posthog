@@ -269,6 +269,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     COSMOSDB = "CosmosDB", "CosmosDB"
     PLANETSCALEMYSQL = "PlanetScaleMySQL", "PlanetScaleMySQL"
     PLANETSCALEPOSTGRES = "PlanetScalePostgres", "PlanetScalePostgres"
+    SCARF = "Scarf", "Scarf"
     SAPHANA = "SapHana", "SapHana"
     RIPPLING = "Rippling", "Rippling"
     HIBOB = "HiBob", "HiBob"
