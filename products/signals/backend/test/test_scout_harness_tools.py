@@ -88,6 +88,8 @@ from products.signals.backend.scout_harness.tools.runs import (
     MAX_FAILURE_REASON_LENGTH,
     MAX_RUN_SEARCH_LIMIT,
     MAX_SCOUTS_PER_RUNS_QUERY,
+    RunDetail,
+    RunSummary,
     recent_runs_per_scout,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import (
@@ -522,6 +524,7 @@ class TestRunReadsSkipTaskRunPayload(BaseTest):
         runs = [_create_run(self.team), _create_run(self.team, task_run_status=TaskRun.Status.FAILED)]
         TaskRun.objects.filter(id=runs[1].task_run_id).update(error_message="boom")
 
+        hits: list[RunSummary] | list[RunDetail]
         with CaptureQueriesContext(connection) as captured:
             if reader == "search_recent_runs":
                 hits = search_recent_runs(team_id=self.team.id)
