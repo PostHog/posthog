@@ -49,7 +49,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
     const { billing } = useValues(billingLogic)
     const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatusBadgeContent, statusPageUrl } =
         useValues(posthogStatusLogic)
-    const { unsnoozedCount, snoozedCount } = useValues(healthSummaryLogic)
+    const { healthSummary, unsnoozedCount, snoozedCount } = useValues(healthSummaryLogic)
 
     return (
         <Menu.Root open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen}>
@@ -183,17 +183,21 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             {...props}
                                             to={urls.health()}
                                             buttonProps={{ menuItem: true }}
-                                            tooltip={healthTooltip(unsnoozedCount, snoozedCount)}
+                                            tooltip={
+                                                healthSummary ? healthTooltip(unsnoozedCount, snoozedCount) : undefined
+                                            }
                                             tooltipPlacement="right"
                                             tooltipCloseDelayMs={0}
                                             data-attr="more-menu-health-button"
                                         >
                                             Health
-                                            <LemonBadge
-                                                size="small"
-                                                content={triggerBadgeContent}
-                                                status={triggerBadgeStatus}
-                                            />
+                                            {healthSummary && (
+                                                <LemonBadge
+                                                    size="small"
+                                                    content={triggerBadgeContent}
+                                                    status={triggerBadgeStatus}
+                                                />
+                                            )}
                                         </Link>
                                     )}
                                 />

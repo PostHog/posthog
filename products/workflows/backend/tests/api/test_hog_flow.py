@@ -1906,6 +1906,84 @@ class TestHogFlowAPI(APIBaseTest):
             assert new_adoption.status_code == 400, new_adoption.json()
             assert "Cohort membership can't be evaluated" in new_adoption.json()["detail"]
 
+    def _cohort_trigger_flow(self, config: dict) -> dict:
+        return {
+            "name": "Cohort trigger flow",
+            "status": "active",
+            "actions": [
+                {"id": "trigger_node", "name": "trigger_1", "type": "trigger", "config": {"type": "cohort", **config}}
+            ],
+        }
+
+    @parameterized.expand([("entered",), ("left",)])
+    @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_saves_cohort_trigger_on_realtime_cohort(self, transition, _mock_flag):
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._cohort_trigger_flow({"cohort_id": cohort.id, "transition": transition}),
+        )
+
+        assert response.status_code == 201, response.json()
+        assert response.json()["trigger"] == {"type": "cohort", "cohort_id": cohort.id, "transition": transition}
+
+    @parameterized.expand(
+        [
+            ("missing_cohort_id", "realtime", {"transition": "entered"}, True, "Choose a cohort"),
+            ("unknown_transition", "realtime", {"transition": "joined"}, True, "Must be 'entered' or 'left'"),
+            ("flag_off", "realtime", {"transition": "entered"}, False, "Cohort triggers aren't available"),
+            ("static_cohort", "static", {"transition": "entered"}, True, "is a static cohort"),
+            ("not_backfilled", "realtime_unbackfilled", {"transition": "entered"}, True, "isn't ready"),
+        ]
+    )
+    def test_hog_flow_rejects_invalid_cohort_trigger(self, _name, cohort_kind, config, flag_on, expected_error):
+        if cohort_kind == "static":
+            cohort = Cohort.objects.create(team=self.team, name="static-cohort", is_static=True)
+        else:
+            cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=cohort_kind == "realtime")
+        if _name != "missing_cohort_id":
+            config = {**config, "cohort_id": cohort.id}
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=flag_on
+        ):
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._cohort_trigger_flow(config))
+
+        assert response.status_code == 400, response.json()
+        assert expected_error in response.json()["detail"]
+
+    def test_hog_flow_grandfathers_stored_cohort_trigger_after_flag_dial_down(self):
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        other_cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True
+        ):
+            created = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows",
+                self._cohort_trigger_flow({"cohort_id": cohort.id, "transition": "entered"}),
+            )
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        stored_actions = created.json()["actions"]
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=False
+        ):
+            resave = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"name": "renamed", "actions": stored_actions},
+            )
+            assert resave.status_code == 200, resave.json()
+
+            edited_actions = deepcopy(stored_actions)
+            edited_actions[0]["config"]["cohort_id"] = other_cohort.id
+            new_adoption = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": edited_actions}
+            )
+            assert new_adoption.status_code == 400, new_adoption.json()
+            assert "Cohort triggers aren't available" in new_adoption.json()["detail"]
+
     @parameterized.expand(
         [
             ("expression_only", False),

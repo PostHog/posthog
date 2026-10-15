@@ -266,6 +266,11 @@ export interface stepDelayLogicActions {
                   max_delay_duration?: string | undefined
               }
             | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
+              }
+            | {
                   inputs: Record<
                       string,
                       {
@@ -527,6 +532,11 @@ export interface stepDelayLogicActions {
                       tag_names?: string[] | undefined
                   }
                   type: 'batch'
+              }
+            | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
               }
             | {
                   condition: {

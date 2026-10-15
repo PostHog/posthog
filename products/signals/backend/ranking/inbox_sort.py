@@ -1,15 +1,16 @@
 """Resolve the `recommended` inbox sort to a ranker, and give each row a coarse merge key.
 
-A multivariate flag keyed by the requesting user picks the ranker. `control`, an unknown variant, or a flag that is
-off or fails to evaluate gives the priority order. `test` orders by the served `fixed` head first.
+A multivariate flag keyed by the requesting user picks the ranker. The variants `open`, `action` and `fixed` order
+by the served head of the same name first. `control`, an unknown variant, or a flag that is off or fails to evaluate
+gives the priority order.
 
-The merge key lets a client merge rows from the two rankers without the raw score. It is the score
-decile then the priority rank, so it never says more about the score than one decimal place. The
-`fixed` ranker sorts by the same decile, so the row order does not say more either. Keep
+The merge key lets a client merge rows from different rankers without the raw score. It is the score
+decile then the priority rank, so it never says more about the score than one decimal place. Each
+head ranker sorts by the same decile, so the row order does not say more either. Keep
 `score_decile` and `inbox_merge_key` in step.
 """
 
-from typing import Literal
+from typing import Literal, get_args
 
 from django.db.models import Case, F, FloatField, Value, When
 from django.db.models.functions import Floor
@@ -26,12 +27,15 @@ logger = structlog.get_logger(__name__)
 
 RECOMMENDED_INBOX_SORT_FLAG = "signals-inbox-recommended-sort"
 
-InboxRanker = Literal["priority", "fixed"]
+InboxRanker = Literal["priority", "open", "action", "fixed"]
+HeadRanker = Literal["open", "action", "fixed"]
+
+HEAD_RANKERS: tuple[HeadRanker, ...] = get_args(HeadRanker)
 
 PRIORITY_ORDERING = "priority,status,-updated_at"
 RANKER_ORDERINGS: dict[InboxRanker, str] = {
     "priority": PRIORITY_ORDERING,
-    "fixed": "-ranking_fixed,priority,status,-updated_at",
+    **{head: f"-ranking_{head},{PRIORITY_ORDERING}" for head in HEAD_RANKERS},
 }
 
 _DECILES = 10
@@ -53,7 +57,10 @@ def resolve_recommended_ranker(team: Team, user: User) -> InboxRanker:
     except Exception:
         logger.exception("signals.inbox_sort.flag_failed", team_id=team.id, user_id=user.id)
         return "priority"
-    return "fixed" if variant == "test" else "priority"
+    for head in HEAD_RANKERS:
+        if variant == head:
+            return head
+    return "priority"
 
 
 def score_decile(field: str) -> Case:
