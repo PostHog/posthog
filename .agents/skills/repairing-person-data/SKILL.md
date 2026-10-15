@@ -42,17 +42,37 @@ The tools here find each disagreement, name its flavor, and repair it with a ver
 
 Run them in this order, because later verbs read state that earlier ones fix:
 
-1. `detach_stray` and `bury`: remove what Postgres deleted.
+1. `bury`: remove what Postgres deleted.
 2. `restore`: rebuild lost persons, so their distinct ids have an owner.
-3. `fold`, then `merge`: move distinct ids between persons.
-4. `merge_stale`, run twice: the first run sends properties to ingestion, and the second, after ingestion applied them, raises and republishes.
+3. `fold`, then `merge`: join persons that ClickHouse and Postgres split differently.
+4. `merge_stale`: sends a stale person's ClickHouse-only properties to ingestion.
 5. `republish`: last, so it publishes the final Postgres state.
 
 Rescan between steps when a team has many rows. A verb skips any key whose state changed since the scan (`skipped_changed`), so a fresh scan picks it up again.
 
+## Verbs that go through ingestion take two runs
+
+`fold`, `merge` and `merge_stale` send events, and ingestion applies them asynchronously.
+They never rewrite a diverged distinct id before ingestion has applied the event, so an unfinished group always shows up in the next scan.
+
+- `merge` sends `$merge_dangerously` (outcome `merge_sent`, ids `awaiting_merge`). After ingestion merged A into B, the next scan reports the shared ids for `republish`. If it reports `merge` again, the merge has not landed yet.
+- A **full** `fold` (the old person still has an id to merge from, and one of the two is identified) restores A with those ids, then sends `$merge_dangerously`. The next scan reports the group as `merge` until ingestion merged it, then `republish`.
+- A **light** `fold` (no id to merge from, or neither person identified) first sends A's ClickHouse-only properties to B (`properties_sent`). A later run that finds them on B tombstones A and moves the ids (`folded`, `moved`).
+- `merge_stale` first sends properties (`merge_queued`); a later run raises and republishes the person.
+
+Wait a few minutes between runs, then rescan and run the verb the new report names.
+The scan summary counts fold groups as `full` or `light`; the verb re-checks this at run time.
+
+## Ambiguous groups
+
+`ambiguous:X` means an old person's ids went to more than one person, or one person holds ids of several old persons.
+No verb runs on these by default. Inspect the keys, decide which person should survive, and run `fold` or `merge` with `--pair OLD_UUID>NEW_UUID`.
+Ids of the old person that went to other persons stay diverged; rescan and repair them afterwards.
+
 ## Inspecting single keys
 
 `python manage.py person_inspect --team-id N --person-uuid U --distinct-id D` prints the same evidence and flavor for explicit keys, with distinct ids hashed. Use it to explain one row, or to check one key after a repair.
+It also prints every ClickHouse row of the key (lightweight-deleted ones included), and for a person its activity log entries and its tombstone queue entry. These show when and how a person was deleted, merged or split.
 
 ## Unfinished deletions
 
@@ -65,7 +85,10 @@ Both are dry runs unless `--apply` is passed.
 - Every write to production needs explicit approval from the person you work for, verb by verb. A dry run and a canary come first, every time.
 - Never repair from a partial report (`complete: false`) without saying so. Missing chunks hide rows.
 - `bury` refuses to tombstone persons Postgres never had once they pass 5% of a team's live persons, because a team that lost its persons needs `restore` instead. Pass `--force` only when a person explicitly confirms that those persons should be deleted.
-- `fold` and `merge` send events to ingestion (`$set_once`, `$merge_dangerously`). These events land in the customer's events table and count toward usage. Canary first, and say so.
-- `fold` keeps the survivor's `created_at`. Only `merge`, through ingestion, moves it to the earlier person.
+- `fold`, `merge` and `merge_stale` send events to ingestion (`$set`, `$identify`, `$merge_dangerously`). These events land in the customer's events table and are billed like any other event. Canary first, and say so.
+- Every ingestion merge marks the survivor identified. That is why `fold` merges only when one of the two persons is identified.
+- A light `fold` keeps the survivor's `created_at`. A merge moves it to the earlier person.
+- A team with person processing turned off is skipped by `fold` and `merge`, because ingestion drops their events.
+- A `stray` (a live distinct id on a deleted person) is report-only: ingestion re-attaches the id on its next event.
 - Ghosts of deleted teams, and `historical` ghosts, are report-only.
 - Read [references/runbook.md](references/runbook.md) before running anything against production.

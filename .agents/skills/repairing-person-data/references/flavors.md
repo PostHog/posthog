@@ -31,29 +31,33 @@ Each row compares one key's Postgres state with its ClickHouse state.
 | `diverged` / `a_absent`   | Postgres names person B, ClickHouse names A, and A is absent from Postgres | `fold`                                        |
 | `diverged` / `a_live`     | Same, and A is live in Postgres                                            | `merge`                                       |
 | `diverged` / `a_deleted`  | Same, and A is tombstoned                                                  | `republish`                                   |
-| `diverged` / `ambiguous`  | B holds ids of several old persons, or A's ids went to several persons     | none                                          |
+| `diverged` / `ambiguous`  | B holds ids of several old persons, or A's ids went to several persons     | none; `fold` or `merge` with `--pair`         |
 | `stale`                   | Same owner, ClickHouse above Postgres                                      | `republish`                                   |
 | `hidden`                  | Live in Postgres, the ClickHouse winner is a tombstone                     | `republish`                                   |
 | `missing_in_ch`           | Live in Postgres, no ClickHouse row                                        | `republish`                                   |
-| `stray`                   | Live in Postgres on a tombstoned person                                    | `detach_stray`                                |
+| `stray`                   | Live in Postgres on a tombstoned person                                    | none; ingestion re-attaches it on next event  |
 
 ## Groups
 
 A group ties rows that must be repaired together:
 
 - `restore:A`: lost person A and its lost distinct ids.
-- `fold:A>B`: lost person A, whose ids live on B in Postgres. It holds A's person row, its diverged ids and its ghost ids.
+- `fold:A>B`: lost person A, whose ids live on B in Postgres. It holds A's person row, its diverged ids and its ghost ids. Its rows carry `fold_mode`: `full` when A still has a ghost id to merge from, else `light`.
 - `merge:A>B`: live A and live B share ids. B survives.
-- `ambiguous:X`: X takes part in more than one pair. Report it and leave it.
+- `ambiguous:X`: X takes part in more than one pair. Leave it, or repair one chosen pair with `--pair`.
 
 A pair is a group only when neither person takes part in another pair, so a group is always safe to repair as a unit.
 
 ## Outcomes
 
 - `would_repair`: a dry run found the key still broken.
-- `repaired`, `restored`, `moved`, `folded`, `buried`, `detached`, `tombstoned`, `republished`: the key was written.
+- `repaired`, `restored`, `moved`, `folded`, `buried`, `tombstoned`, `republished`: the key was written.
 - `already_*`: an earlier run wrote it, and this run published it again.
 - `merge_queued`: `merge_stale` sent properties to ingestion. Run the verb again later.
-- `merge_sent`: `merge` sent `$merge_dangerously`. Rescan after ingestion processes it.
+- `properties_sent`: a light `fold` sent the old person's properties to the survivor. Run `fold` again later.
+- `merge_sent` (person) and `awaiting_merge` (ids): `merge` or a full `fold` sent `$merge_dangerously`. Rescan after ingestion processed it.
+- `skipped_no_alias`: no distinct id of the old person, or of the survivor, could carry the merge event.
+- `stopped_no_alias`: a full `fold` restored the old person, but every id it meant to give back was claimed in the meantime. The person is live with no distinct id; report it.
+- `skipped_no_distinct_id`: `restore` left a person alone because none of its distinct ids is in the run.
 - `skipped_changed` and `skipped_not_divergent`: the state moved since the scan. Rescan.
 - Any other `skipped_*`: the verb refused on purpose. The name says why.
