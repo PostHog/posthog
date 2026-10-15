@@ -1576,6 +1576,7 @@ export interface ErrorTrackingAssigneeApi {
  * * `occurrences` - occurrences
  * * `users` - users
  * * `sessions` - sessions
+ * * `severity` - severity
  */
 export type ErrorTrackingIssueOrderByEnumApi =
     (typeof ErrorTrackingIssueOrderByEnumApi)[keyof typeof ErrorTrackingIssueOrderByEnumApi]
@@ -1586,6 +1587,7 @@ export const ErrorTrackingIssueOrderByEnumApi = {
     Occurrences: 'occurrences',
     Users: 'users',
     Sessions: 'sessions',
+    Severity: 'severity',
 } as const
 
 export interface ErrorTrackingIssuesListQueryRequestApi {
@@ -1617,7 +1619,8 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
      * * `first_seen` - first_seen
      * * `occurrences` - occurrences
      * * `users` - users
-     * * `sessions` - sessions */
+     * * `sessions` - sessions
+     * * `severity` - severity */
     orderBy?: ErrorTrackingIssueOrderByEnumApi
     /** Sort direction. Defaults to DESC.
      *
