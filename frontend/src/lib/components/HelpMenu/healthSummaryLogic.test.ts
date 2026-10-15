@@ -31,4 +31,19 @@ describe('healthSummaryLogic', () => {
         expect(getSpy).toHaveBeenCalledWith(expect.stringContaining('/health_issues/summary/'))
         expect(logic.values.unsnoozedCount).toBe(2)
     })
+
+    it('does not load the summary again when the tab is shown after the first load', async () => {
+        const setDocumentHidden = (hidden: boolean): void => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+        await jest.advanceTimersByTimeAsync(5000)
+        expect(getSpy).toHaveBeenCalledTimes(1)
+
+        setDocumentHidden(true)
+        setDocumentHidden(false)
+        await jest.advanceTimersByTimeAsync(5000)
+
+        expect(getSpy).toHaveBeenCalledTimes(1)
+    })
 })

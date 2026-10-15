@@ -103,6 +103,15 @@ export const healthSummaryLogic = kea<healthSummaryLogicType>([
     })),
     afterMount(({ actions, cache }) => {
         // Only the help menu reads this data, so wait for an idle browser and let the page's own requests go first.
-        cache.disposables.add(() => runWhenIdle(() => actions.loadHealthSummary()), 'idleLoad')
+        // Disposables re-run setup when the tab shows again, so drop this one once it fires.
+        // The refresh timer handles every load after the first.
+        cache.disposables.add(
+            () =>
+                runWhenIdle(() => {
+                    cache.disposables.dispose('idleLoad')
+                    actions.loadHealthSummary()
+                }),
+            'idleLoad'
+        )
     }),
 ])
