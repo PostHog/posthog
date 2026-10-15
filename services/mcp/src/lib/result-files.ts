@@ -4,7 +4,7 @@ import type { ResolvedState } from '@/hono/request-state-resolver'
 import type { ToolResultPayload } from '@/lib/build-tool-result'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
-export const RESULT_FILE_THRESHOLD_BYTES = 32 * 1024
+export const RESULT_FILE_THRESHOLD_CHARS = 40_000
 const RESULT_FILE_MAX_BYTES = 8 * 1024 * 1024
 const RESULT_FILE_PREVIEW_CHARS = 2000
 const RESULT_FILE_UPLOAD_TIMEOUT_MS = 5000
@@ -22,7 +22,7 @@ export async function offloadToolResult(response: ToolResultPayload, state: Reso
         const { _meta: _appMeta, __execBuiltPayload: _brand, ...fileResult } = response
         const content = JSON.stringify(fileResult)
         const sizeBytes = Buffer.byteLength(content, 'utf8')
-        if (sizeBytes <= RESULT_FILE_THRESHOLD_BYTES || sizeBytes > RESULT_FILE_MAX_BYTES) {
+        if (content.length <= RESULT_FILE_THRESHOLD_CHARS || sizeBytes > RESULT_FILE_MAX_BYTES) {
             return response
         }
         const projectId = await state.context.stateManager.getProjectId()

@@ -5,7 +5,7 @@ import { MCP_OPENAI_RESULT_FILES_FEATURE_FLAG } from '@/hono/constants'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { type ToolResultPayload, buildToolResultPayload, EXEC_BUILT_PAYLOAD } from '@/lib/build-tool-result'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { offloadToolResult, RESULT_FILE_THRESHOLD_BYTES } from '@/lib/result-files'
+import { offloadToolResult, RESULT_FILE_THRESHOLD_CHARS } from '@/lib/result-files'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 const storeResult = vi.fn()
@@ -23,7 +23,7 @@ function makeState(clientName: string, flag: boolean | string | undefined = true
 }
 
 function largeResult(): ToolResultPayload {
-    return { content: [{ type: 'text', text: 'x'.repeat(RESULT_FILE_THRESHOLD_BYTES) + 'hidden-result' }] }
+    return { content: [{ type: 'text', text: 'x'.repeat(RESULT_FILE_THRESHOLD_CHARS) + 'hidden-result' }] }
 }
 
 describe('result files', () => {
@@ -135,15 +135,32 @@ describe('result files', () => {
         { content: [{ type: 'text' as const, text: 'small result' }] },
         { ...largeResult(), isError: true },
         { content: [{ type: 'text' as const, text: 'x'.repeat(8 * 1024 * 1024) }] },
+        { content: [{ type: 'text' as const, text: '猫'.repeat(3 * 1024 * 1024) }] },
     ])('keeps small, failed, and oversized responses inline', async (response) => {
         expect(await offloadToolResult(response, makeState('openai-mcp'))).toBe(response)
         expect(storeResult).not.toHaveBeenCalled()
     })
 
-    it('uses UTF-8 bytes when deciding whether to offload', async () => {
-        const response: ToolResultPayload = { content: [{ type: 'text', text: '猫'.repeat(12000) }] }
-        await offloadToolResult(response, makeState('openai-mcp'))
-        expect(storeResult).toHaveBeenCalledOnce()
+    it.each([
+        ['x', 40_000],
+        ['x', 40_001],
+        ['猫', 40_000],
+        ['猫', 40_001],
+    ] as const)('offloads %s results only above 40,000 serialized characters: %i', async (character, length) => {
+        const response: ToolResultPayload = { content: [{ type: 'text', text: '' }] }
+        response.content[0]!.text = character.repeat(length - JSON.stringify(response).length)
+        const result = await offloadToolResult(response, makeState('openai-mcp'))
+
+        if (length === 40_000) {
+            expect(result).toBe(response)
+            expect(storeResult).not.toHaveBeenCalled()
+        } else {
+            const storedContent = storeResult.mock.calls[0]![0].body.content
+            expect(JSON.parse(result.content[0]!.text)).toMatchObject({
+                download_url: downloadUrl,
+                size_bytes: Buffer.byteLength(storedContent, 'utf8'),
+            })
+        }
     })
 
     it('uses the user agent when client metadata is missing', async () => {
