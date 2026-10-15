@@ -55,6 +55,11 @@ class Comment(UUIDTModel, RootTeamMixin):
                 fields=["team_id", "scope", "item_id", "deleted", "-created_at"],
                 name="posthog_comment_convo_idx",
             ),
+            # Serves list calls with no scope or item_id, which page by (-created_at, -id)
+            models.Index(
+                fields=["team_id", "deleted", "-created_at", "-id"],
+                name="posthog_comment_recent_idx",
+            ),
             # Trigram index for conversations ticket search on message content. On UPPER(...)
             # because icontains compiles to UPPER(col) LIKE UPPER(pattern) on Postgres.
             # Partial: the table is shared across products, and the search always filters
