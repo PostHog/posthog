@@ -216,6 +216,8 @@ jobs:
                       "property-defs-rs": 74,
                       "property-vals-rs": 70,
                       "replay-anonymizer-node": 5,
+                      "replay-core-v4": 10,
+                      "replay-recorder-v4": 15,
                       "serve-metrics": 5,
                       "usage-ingestion": 70,
                       "usage-ingestion-proto": 5,

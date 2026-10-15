@@ -252,7 +252,12 @@ fn leaf_service_only_affects_itself_and_dependents() {
     assert_eq!(result.directly_changed, vec!["capture"]);
     assert_eq!(
         result.images,
-        vec!["capture", "capture-apm-metrics", "capture-logs"]
+        vec![
+            "capture",
+            "capture-apm-metrics",
+            "capture-logs",
+            "replay-recorder-v4"
+        ]
     );
 }
 
