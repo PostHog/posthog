@@ -462,6 +462,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             "not_firing",
         )
 
+
 def _group(grouping_key: str) -> GroupOutcome:
     return GroupOutcome(grouping_key=grouping_key, kind=AlertEventKind.CHECK, new_state="not_firing", notified=False)
 

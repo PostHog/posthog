@@ -407,7 +407,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, query = self._run(configuration)
         self._record(evaluation)
 
-        assert [o.kind for o in evaluation.outcomes] == [AlertEventKind.CHECK]
+        assert [g.kind for o in evaluation.outcomes for g in o.groups] == [AlertEventKind.CHECK]
         assert query.called is still_runs
         with team_scope(self.team.id):
             (copy,) = list_configurations(
@@ -450,7 +450,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(unreadable, healthy)
 
-        states = {o.configuration_id: o.new_state for o in evaluation.outcomes}
+        states = {o.configuration_id: g.new_state for o in evaluation.outcomes for g in o.groups}
         assert states == {unreadable.id: "broken", healthy.id: "firing"}
 
     def test_a_check_whose_copy_cannot_be_updated_evaluates_the_stored_copy(self) -> None:
@@ -461,7 +461,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         with patch(f"{_MODULE}.refresh_settings", side_effect=RuntimeError("database blip")):
             evaluation, _ = self._run(configuration)
 
-        assert [o.new_state for o in evaluation.outcomes] == ["firing"]
+        assert [g.new_state for o in evaluation.outcomes for g in o.groups] == ["firing"]
 
     def test_the_logs_product_rows_are_never_written(self) -> None:
         legacy = LogsAlertConfiguration.objects.create(
