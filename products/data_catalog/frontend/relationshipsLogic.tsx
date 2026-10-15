@@ -391,6 +391,12 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
+        setFilters: ({ filters }) => {
+            const { table, ...search } = router.values.searchParams
+            if (typeof table === 'string' && filters.search !== undefined && filters.search !== table) {
+                router.actions.replace(urls.dataCatalog(), search, router.values.hashParams)
+            }
+        },
         closeProposal: () => {
             const { propose_table, ...search } = router.values.searchParams
             router.actions.replace(urls.dataCatalog(), search, router.values.hashParams)

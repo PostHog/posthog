@@ -143,6 +143,31 @@ describe('relationshipsLogic', () => {
         expect(logic.values.proposals).toEqual([])
     })
 
+    it.each(['', 'orders'])('removes the linked table scope when search changes to %j', async (search) => {
+        await mountWith([], [])
+        const eventsProposal = buildProposal({})
+        const ordersProposal = buildProposal({ id: 'orders-proposal', source_table_name: 'orders' })
+        ;(dataCatalogRelationshipProposalsList as jest.Mock).mockImplementation((_project, params) =>
+            Promise.resolve({
+                results: params?.table_name === 'events' ? [eventsProposal] : [eventsProposal, ordersProposal],
+            })
+        )
+        await expectLogic(logic, () =>
+            router.actions.push('/data-catalog', { tab: 'relationships', table: 'events' })
+        ).toFinishAllListeners()
+        logic.actions.setFilters({ status: 'pending' })
+        expect(router.values.searchParams.table).toBe('events')
+
+        await expectLogic(logic, () => logic.actions.setFilters({ search })).toFinishAllListeners()
+
+        expect(router.values.searchParams.table).toBeUndefined()
+        expect(logic.values.filters).toEqual({ search, status: 'pending' })
+        expect(dataCatalogRelationshipProposalsList).toHaveBeenLastCalledWith('1', undefined)
+        expect(logic.values.filteredRows.map((row) => row.proposalId)).toContain('orders-proposal')
+        await expectLogic(logic, () => logic.actions.loadProposals()).toFinishAllListeners()
+        expect(dataCatalogRelationshipProposalsList).toHaveBeenLastCalledWith('1', undefined)
+    })
+
     it('loads only the lightweight badge count on mount, not the full proposal payloads', async () => {
         ;(dataCatalogRelationshipProposalsList as jest.Mock).mockResolvedValue({ results: [], count: 3 })
         ;(warehouseViewLinksList as jest.Mock).mockResolvedValue({ results: [] })
