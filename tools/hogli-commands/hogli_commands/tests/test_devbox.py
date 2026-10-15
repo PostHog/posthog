@@ -27,6 +27,11 @@ from hogli_commands.devbox import (
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def agent_ready_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(devbox_cli, "wait_for_agent_ready", lambda name: None)
+
+
 @pytest.fixture
 def devbox_config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     config_path = tmp_path / "hogli_devbox.json"
@@ -1349,6 +1354,33 @@ class TestWorkspaceUpdate:
         assert "dotfiles_uri" in first and "git_name" in first
         assert "dotfiles_uri" not in retried
         assert retried["git_name"] == "PostHog Engineer"
+
+
+class TestWaitForAgentReady:
+    @pytest.mark.parametrize(
+        "lifecycle_states, expected",
+        [
+            (["starting", "starting", "ready"], None),
+            (["starting", "start_error"], "start_error"),
+            (["created", "start_timeout"], "start_timeout"),
+            (["starting"] * 10, "wait_timeout"),
+        ],
+        ids=["ready", "script-failed", "script-timed-out", "never-ready"],
+    )
+    def test_returns_when_startup_scripts_settle(
+        self, monkeypatch: pytest.MonkeyPatch, lifecycle_states: list[str], expected: str | None
+    ) -> None:
+        polls = iter(lifecycle_states)
+        clock = iter(range(0, 1000, 10))
+        monkeypatch.setattr(
+            coder,
+            "get_workspace",
+            lambda name: {"latest_build": {"resources": [{"agents": [{"lifecycle_state": next(polls)}]}]}},
+        )
+        monkeypatch.setattr(coder.time, "monotonic", lambda: next(clock))
+        monkeypatch.setattr(coder.time, "sleep", lambda seconds: None)
+
+        assert coder.wait_for_agent_ready("devbox-test-user", timeout=50) == expected
 
 
 class TestResolveWorkspaceName:
