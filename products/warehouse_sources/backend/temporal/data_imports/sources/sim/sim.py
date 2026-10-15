@@ -99,9 +99,15 @@ def get_resource(config: SimSourceConfig, name: str) -> EndpointResource:
     }
 
 
-def usage_window(inputs: SourceInputs, resume: SimResumeConfig | None) -> tuple[str, str]:
+@frozen
+class UsageWindow:
+    start: str
+    end: str
+
+
+def usage_window(inputs: SourceInputs, resume: SimResumeConfig | None) -> UsageWindow:
     if resume is not None and resume.start_date and resume.end_date:
-        return resume.start_date, resume.end_date
+        return UsageWindow(start=resume.start_date, end=resume.end_date)
     end = datetime.now(UTC).date()
     start = end - timedelta(days=USAGE_WINDOW_DAYS)
     last_value = parse_datetime_value(inputs.db_incremental_field_last_value)
@@ -113,7 +119,7 @@ def usage_window(inputs: SourceInputs, resume: SimResumeConfig | None) -> tuple[
                 window_start=start.isoformat(),
             )
         start = min(max(start, last_value.date()), end)
-    return start.isoformat(), end.isoformat()
+    return UsageWindow(start=start.isoformat(), end=end.isoformat())
 
 
 def _check_usage_access(client: RESTClient, endpoint: SimEndpoint, organizations: Any) -> tuple[bool, str | None]:
@@ -193,7 +199,7 @@ def sim_source(
 ) -> SourceResponse:
     endpoint = schema_for_resource(ENDPOINTS, inputs.schema_name)
     resume = manager.load_state() if manager.can_resume() else None
-    window: tuple[str, str] | None = None
+    window: UsageWindow | None = None
 
     resource: Iterable[Any]
     if endpoint.fanout is None:
@@ -218,14 +224,14 @@ def sim_source(
         child_params = endpoint_filters(config, endpoint)
         if endpoint.name == "usage_events":
             window = usage_window(inputs, resume)
-            child_params.update(preset="custom", startDate=window[0], endDate=window[1])
+            child_params.update(preset="custom", startDate=window.start, endDate=window.end)
 
         def save_fanout_checkpoint(state: dict[str, Any] | None) -> None:
             manager.save_state(
                 SimResumeConfig(
                     fanout_state=state,
-                    start_date=window[0] if window else None,
-                    end_date=window[1] if window else None,
+                    start_date=window.start if window else None,
+                    end_date=window.end if window else None,
                 )
             )
 
