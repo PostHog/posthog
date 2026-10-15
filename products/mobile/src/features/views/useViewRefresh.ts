@@ -52,8 +52,8 @@ export interface RefreshItem {
      */
     windowMode: 'force_cache' | 'blocking'
     /**
-     * False for a tile whose kind the phone cannot draw. It shows the web card whatever its result, so a dashboard pass
-     * never computes it. Missing means drawable.
+     * False for an insight whose kind the phone cannot draw. It shows the web card whatever its result, so no pass
+     * computes it. Before the first read the kind is unknown, so it is drawable. Missing means drawable.
      */
     drawable?: () => boolean
 }
@@ -304,7 +304,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 // only when it has no result or its `cache_target_age` has passed.
                 const wanted = current.container
                     ? drawable(item) && (!hasGoodValue(snapshot) || cacheTargetPassed(snapshot))
-                    : isDue(snapshot)
+                    : drawable(item) && isDue(snapshot)
                 if (wanted) {
                     send(counters, item.key, item.family, 'blocking', item.read)
                 }
@@ -341,7 +341,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 }
             } else {
                 for (const item of visible) {
-                    if (isDue(item.snapshot())) {
+                    if (drawable(item) && isDue(item.snapshot())) {
                         send(counters, item.key, item.family, 'blocking', item.read)
                     }
                 }
@@ -398,9 +398,12 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             let rest = false
             for (const item of visible) {
                 const snapshot = item.snapshot()
-                if (current.container && !drawable(item)) {
-                    // The cache-only dashboard read updates a web card without a compute.
-                    rest = true
+                if (!drawable(item)) {
+                    if (current.container) {
+                        rest = true
+                    } else if (cacheReadAllowed(snapshot?.readAt, current.bulkFloor)) {
+                        send(counters, item.key, item.family, item.windowMode, item.read)
+                    }
                 } else if (isEligible(snapshot, now)) {
                     forced = true
                     send(counters, item.key, item.family, 'force_blocking', item.read)
@@ -570,7 +573,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             return
         }
         for (const item of visibleOf(current)) {
-            if (!hasGoodValue(item.snapshot())) {
+            if (drawable(item) && !hasGoodValue(item.snapshot())) {
                 send(counters, item.key, item.family, 'blocking', item.read, true)
             }
         }

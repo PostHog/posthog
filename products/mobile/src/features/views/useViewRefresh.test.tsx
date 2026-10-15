@@ -1,4 +1,7 @@
+import { focusManager } from '@tanstack/react-query'
 import { act, renderHook } from '@testing-library/react-native'
+
+import type { Freshness } from '@/model/views'
 
 import type { ReadResult } from './refreshQueue'
 import { viewsQueue } from './refreshQueue'
@@ -122,6 +125,88 @@ describe('useViewRefresh on a dashboard', () => {
 
         expect(reads).toEqual(['7d-dashboard', '7d-tile-0', '7d-tile-0'])
         unmount()
+    })
+
+    // Written relative to now: an old read whose window has passed, so a drawable insight is due and may force.
+    function oldValue(): Freshness {
+        const longAgo = new Date(Date.now() - 3_600_000).toISOString()
+        return {
+            lastRefreshAt: longAgo,
+            cacheTargetAge: longAgo,
+            nextAllowedRefreshAt: longAgo,
+            readAt: Date.now() - 3_600_000,
+            refreshFailed: false,
+        }
+    }
+
+    test.each<[string, (() => Freshness) | null, boolean, string[]]>([
+        [
+            'an insight the phone cannot draw gets only cache reads from the button and pull',
+            oldValue,
+            false,
+            ['force_cache', 'force_cache'],
+        ],
+        [
+            'an old insight the phone draws',
+            oldValue,
+            true,
+            ['blocking', 'blocking', 'force_blocking', 'force_blocking'],
+        ],
+        [
+            'a cold open, whose kind is unknown, still reads with blocking',
+            null,
+            true,
+            ['blocking', 'blocking', 'blocking', 'blocking'],
+        ],
+    ])('on the insight screen, %s', async (_name, value, canDraw, modes) => {
+        jest.useFakeTimers()
+        try {
+            const sent: string[] = []
+            const item: RefreshItem = {
+                key: 'insight-abc',
+                family: 'insights',
+                windowMode: 'force_cache',
+                snapshot: value ? () => value() : () => undefined,
+                drawable: () => canDraw,
+                read: (mode) => {
+                    sent.push(mode)
+                    return Promise.resolve(OK)
+                },
+            }
+            const props: ViewRefreshOptions = {
+                screen: 'insight',
+                dataScope: 'https://us.example.com|1',
+                screenKey: 'insight:abc',
+                items: [item],
+                bulkFloor: false,
+                enabled: true,
+            }
+            const { result, unmount } = renderHook(() => useViewRefresh(props))
+            await flush()
+            // Past the queue's one-read-per-minute floor before each next pass.
+            const nextMinute = async (): Promise<void> => {
+                await act(async () => {
+                    jest.advanceTimersByTime(61_000)
+                })
+            }
+            await nextMinute()
+            act(() => focusManager.setFocused(false))
+            await nextMinute()
+            act(() => focusManager.setFocused(true))
+            await flush()
+            await nextMinute()
+            act(() => result.current.onButton())
+            await flush()
+            await nextMinute()
+            act(() => result.current.onPull())
+            await flush()
+
+            expect(sent).toEqual(modes)
+            unmount()
+        } finally {
+            focusManager.setFocused(undefined)
+            jest.useRealTimers()
+        }
     })
 
     test('"Try again" reads a dashboard that failed to load, inside its minute floor', async () => {

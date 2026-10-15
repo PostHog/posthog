@@ -200,7 +200,7 @@ Number and Chart pins in the list keep the saved range. Ranges last for the sess
 
 ## Kinds that still open the web
 
-These show the "This chart opens on the web." card, on tiles and on the insight screen. A dashboard pass never computes them: the item's `drawable()` is false, so open, focus, the button and pull send no `blocking` or `force_*` read for them, and the tile has no refresh button.
+These show the "This chart opens on the web." card, on tiles and on the insight screen. The phone never computes them once it knows the kind: the item's `drawable()` is false, so open, focus, the button, pull and "Try again" send no `blocking` or `force_*` read for them, on a dashboard and on the insight screen. The button and pull still send cache-only reads (the dashboard read, or `force_cache` on the insight screen), and the tile has no refresh button. A cold open of an insight with nothing cached reads once with `blocking`, because the kind is unknown until that read.
 
 - Paths (`PathsQuery`), stickiness (`StickinessQuery`: its x axis is "Day N", not dates) and lifecycle (`LifecycleQuery`: stacked bars with negative dormant values).
 - SQL insights (`HogQLQuery`, `DataVisualizationNode`) that are not a big number. The phone has no table renderer.
