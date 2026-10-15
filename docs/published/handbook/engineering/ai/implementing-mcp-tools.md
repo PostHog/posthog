@@ -226,6 +226,31 @@ Recruitment analytics use the existing PostHog SDK and the MCP server's analytic
 | `mcp interview booking link opened`  | The invitation's redirect URL receives its first GET request. Repeated opens do not add events.                       |
 | `mcp interview invitation responded` | A valid response is saved, with `response` equal to `accept`, `decline`, or `cancel`.                                 |
 
+Tool-call events also carry recruitment diagnostics through the existing SDK capture path, without
+an extra event per eligibility check:
+
+| Property                                                                             | Meaning                                                                                                                                                                |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `interview_recruitment_reason`                                                       | The first gate that skipped recruitment, or `continuation` when resuming an invitation.                                                                                |
+| `interview_recruitment_url_supported`, `interview_recruitment_form_supported`        | Whether this request explicitly advertises each elicitation mode. `null` means the request carries no capability metadata; it does not prove the client lacks support. |
+| `interview_recruitment_campaign_id`                                                  | Selected campaign, when a valid recruitment configuration exists.                                                                                                      |
+| `interview_recruitment_completed_calls`, `interview_recruitment_session_age_seconds` | Progress before the current call, when the warmup check was reached.                                                                                                   |
+
+Reasons distinguish `legacy_protocol`, `url_unsupported`, `surface_excluded`, `internal_run`,
+`task_bound`, `flag_disabled`, `flag_unavailable`, `invalid_configuration`, `configuration_unavailable`,
+`not_product_call`, `missing_conversation`, `request_state_present`, `insufficient_tool_calls`,
+`session_too_young`, `suppressed`, `reservation_conflict`, and `redis_error`.
+`flag_unavailable` includes evaluation failures; it is not proof that the flag was evaluated as disabled.
+Only the first failing gate is recorded. A call with `flag_disabled` can also lack URL support; use the
+capability booleans to compare clients independently of the selected reason.
+
+The existing `mcp interview invitation sent` event includes these diagnostics with reason `invited`.
+A paused invitation has not executed a tool, so do not expect a completed tool-call event until its
+continuation runs. Exec emits one tool-call event relabeled to the inner tool. Filter
+`$mcp_exec_verb = 'call'` to exclude exec discovery commands, and include direct-tool events
+separately. Private scout tools, impersonated requests, and analytics-suppressed calls do not expose
+these diagnostics. No raw capability objects, tool arguments, or invitation answers are added.
+
 Every event carries the authenticated user's distinct ID, `campaign_id`, `invitation_id`, and the `feature_flag`
 key. The campaign comes from the selected variant and is retained for link opens and responses. Count distinct people for reach and invitation IDs for attempts. Invitations without a response
 are unanswered, which can include abandonment, an open dialog, or a lost connection. An accepted

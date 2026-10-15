@@ -221,6 +221,8 @@ describe('MCP interview recruitment', () => {
                     distinctId: 'test-person',
                     properties: expect.objectContaining({
                         invitation_id: String(invitation.result?.requestState).slice('mcp-interview:'.length),
+                        interview_recruitment_reason: 'invited',
+                        interview_recruitment_url_supported: true,
                     }),
                 })
             )
@@ -257,6 +259,7 @@ describe('MCP interview recruitment', () => {
             )
             expect(storage.redis.set).not.toHaveBeenCalled()
             expect(storage.redis.eval).not.toHaveBeenCalled()
+            expect(state.interviewRecruitmentDiagnostics?.reason).toBe('suppressed')
             storage.entries.delete(key)
             expect((await call(reconnected)).result?.resultType).toBe('input_required')
         }
@@ -287,6 +290,15 @@ describe('MCP interview recruitment', () => {
         'skips clients without URL support: %j',
         async (capabilities) => {
             expect((await call(dispatcher, callParams(capabilities))).result).toMatchObject(toolResult)
+            expect(state.interviewRecruitmentDiagnostics).toMatchObject({
+                reason: 'url_unsupported',
+                urlSupported: false,
+                formSupported:
+                    'elicitation' in capabilities &&
+                    typeof capabilities.elicitation === 'object' &&
+                    capabilities.elicitation !== null &&
+                    'form' in capabilities.elicitation,
+            })
             expect(storage.entries.size).toBe(0)
         }
     )
@@ -336,11 +348,27 @@ describe('MCP interview recruitment', () => {
             booking_url: 'https://example.com/book',
         })
         expect((await call(dispatcher)).result).toMatchObject(toolResult)
+        expect(state.interviewRecruitmentDiagnostics).toMatchObject({
+            reason: 'insufficient_tool_calls',
+            completedCalls: 0,
+            sessionAgeSeconds: 0,
+        })
         expect((await call(dispatcher)).result).toMatchObject(toolResult)
+        expect((await call(dispatcher)).result).toMatchObject(toolResult)
+        expect((await call(dispatcher)).result).toMatchObject(toolResult)
+        expect(state.interviewRecruitmentDiagnostics).toMatchObject({
+            reason: 'session_too_young',
+            completedCalls: 3,
+            sessionAgeSeconds: 0,
+        })
         vi.advanceTimersByTime(120_000)
-        expect((await call(dispatcher)).result).toMatchObject(toolResult)
         expect((await call(dispatcher)).result?.resultType).toBe('input_required')
-        expect(executeTool).toHaveBeenCalledTimes(3)
+        expect(state.interviewRecruitmentDiagnostics).toMatchObject({
+            reason: 'invited',
+            completedCalls: 4,
+            sessionAgeSeconds: 120,
+        })
+        expect(executeTool).toHaveBeenCalledTimes(4)
     })
 
     it.each(['failed', 'search', 'learn', 'skill', 'docs'])(
@@ -447,6 +475,11 @@ describe('MCP interview recruitment', () => {
         const result = (await (await dispatcher.handleRequest(legacy, props)).json()) as { result: unknown }
         expect(result.result).toEqual(toolResult)
         expect(storage.entries.size).toBe(0)
+        expect(state.interviewRecruitmentDiagnostics).toMatchObject({
+            reason: 'legacy_protocol',
+            urlSupported: null,
+            formSupported: null,
+        })
     })
 
     it.each(['token', 'person', 'arguments', 'project', 'organization', 'expired', 'replayed', 'invalid-answer'])(
@@ -502,6 +535,7 @@ describe('MCP interview recruitment', () => {
     it('skips the invitation if Redis fails, but retries a response write before executing the tool', async () => {
         vi.mocked(storage.redis.eval).mockRejectedValueOnce(new Error('unavailable'))
         expect((await call(dispatcher)).result).toMatchObject(toolResult)
+        expect(state.interviewRecruitmentDiagnostics?.reason).toBe('redis_error')
         executeTool.mockClear()
         const invitation = await call(dispatcher)
         const resumed = continuation(invitation.result?.requestState, { action: 'decline' })

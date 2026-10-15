@@ -354,7 +354,7 @@ class McpDispatcher {
                 return await this.toolExecutor.handleToolCall(
                     params,
                     state!,
-                    stateless && params
+                    params
                         ? {
                               beforeExecute: (callState) =>
                                   this.interviewRecruitment.beforeToolCall(

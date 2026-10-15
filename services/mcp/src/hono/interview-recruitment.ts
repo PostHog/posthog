@@ -2,7 +2,11 @@ import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
 import { getPostHogClient } from '@/lib/posthog'
-import { META_CLIENT_CAPABILITIES } from '@/lib/stateless-protocol'
+import {
+    META_CLIENT_CAPABILITIES,
+    parseRequestProtocolMeta,
+    STATELESS_PROTOCOL_VERSION,
+} from '@/lib/stateless-protocol'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import { parseExecCallInnerToolName } from '@/tools/exec'
 
@@ -29,6 +33,52 @@ const interviewRecruitmentConfigSchema = z.object({
 })
 
 export type InterviewRecruitmentConfig = z.infer<typeof interviewRecruitmentConfigSchema> & { campaign_id: string }
+
+export type InterviewRecruitmentUnavailableReason =
+    | 'surface_excluded'
+    | 'internal_run'
+    | 'task_bound'
+    | 'flag_disabled'
+    | 'flag_unavailable'
+    | 'invalid_configuration'
+
+export interface InterviewRecruitmentDiagnostics {
+    reason:
+        | InterviewRecruitmentUnavailableReason
+        | 'legacy_protocol'
+        | 'continuation'
+        | 'request_state_present'
+        | 'configuration_unavailable'
+        | 'url_unsupported'
+        | 'not_product_call'
+        | 'missing_conversation'
+        | 'suppressed'
+        | 'insufficient_tool_calls'
+        | 'session_too_young'
+        | 'reservation_conflict'
+        | 'redis_error'
+        | 'invited'
+    urlSupported: boolean | null
+    formSupported: boolean | null
+    campaignId?: string
+    completedCalls?: number
+    sessionAgeSeconds?: number
+}
+
+export function interviewRecruitmentProperties(diagnostics: InterviewRecruitmentDiagnostics): Record<string, unknown> {
+    return {
+        interview_recruitment_reason: diagnostics.reason,
+        interview_recruitment_url_supported: diagnostics.urlSupported,
+        interview_recruitment_form_supported: diagnostics.formSupported,
+        ...(diagnostics.campaignId ? { interview_recruitment_campaign_id: diagnostics.campaignId } : {}),
+        ...(diagnostics.completedCalls !== undefined
+            ? { interview_recruitment_completed_calls: diagnostics.completedCalls }
+            : {}),
+        ...(diagnostics.sessionAgeSeconds !== undefined
+            ? { interview_recruitment_session_age_seconds: diagnostics.sessionAgeSeconds }
+            : {}),
+    }
+}
 
 export function resolveInterviewRecruitmentConfig(
     value: unknown,
@@ -107,7 +157,8 @@ export class InterviewRecruitment {
         distinctId: string,
         invitationId: string,
         campaignId: string,
-        response?: string
+        response?: string,
+        diagnostics?: InterviewRecruitmentDiagnostics
     ): void {
         try {
             getPostHogClient().capture({
@@ -118,6 +169,7 @@ export class InterviewRecruitment {
                     campaign_id: campaignId,
                     feature_flag: MCP_INTERVIEW_RECRUITMENT_FLAG,
                     ...(response ? { response } : {}),
+                    ...(diagnostics ? interviewRecruitmentProperties(diagnostics) : {}),
                 },
             })
         } catch {
@@ -177,12 +229,6 @@ export class InterviewRecruitment {
             .digest('hex')
     }
 
-    private supportsUrl(params: Record<string, unknown>): boolean {
-        return z
-            .object({ elicitation: z.object({ url: z.object({}) }) })
-            .safeParse((params._meta as Record<string, unknown> | undefined)?.[META_CLIENT_CAPABILITIES]).success
-    }
-
     private isProductCall(params: Record<string, unknown>, state: ResolvedState): boolean {
         const args = params.arguments as Record<string, unknown> | undefined
         const name =
@@ -203,21 +249,33 @@ export class InterviewRecruitment {
     private eligibleConversation(
         params: Record<string, unknown>,
         state: ResolvedState
-    ): { config: InterviewRecruitmentConfig; key: string } | undefined {
+    ): { config: InterviewRecruitmentConfig; key: string } | { reason: InterviewRecruitmentDiagnostics['reason'] } {
+        if (parseRequestProtocolMeta(params).protocolVersion !== STATELESS_PROTOCOL_VERSION) {
+            return { reason: 'legacy_protocol' }
+        }
+        if (params.requestState !== undefined) {
+            return { reason: 'request_state_present' }
+        }
         const config = state.interviewRecruitmentConfig
+        if (!config) {
+            return { reason: state.interviewRecruitmentUnavailableReason ?? 'configuration_unavailable' }
+        }
+        if (state.isImpersonated || state.suppressAnalytics) {
+            return { reason: 'suppressed' }
+        }
         if (
-            params.requestState !== undefined ||
-            !config ||
-            state.isImpersonated ||
-            state.suppressAnalytics ||
-            !this.supportsUrl(params) ||
-            !this.isProductCall(params, state)
+            !z
+                .object({ elicitation: z.object({ url: z.object({}) }) })
+                .safeParse((params._meta as Record<string, unknown> | undefined)?.[META_CLIENT_CAPABILITIES]).success
         ) {
-            return undefined
+            return { reason: 'url_unsupported' }
+        }
+        if (!this.isProductCall(params, state)) {
+            return { reason: 'not_product_call' }
         }
         const conversation = resolveSessionKey(state.requestContext)
         if (!conversation) {
-            return undefined
+            return { reason: 'missing_conversation' }
         }
         const client = state.requestContext
         const hash = createHash('sha256')
@@ -242,7 +300,7 @@ export class InterviewRecruitment {
             return
         }
         const conversation = this.eligibleConversation(params, state)
-        if (!conversation) {
+        if ('reason' in conversation) {
             return
         }
         try {
@@ -340,13 +398,31 @@ export class InterviewRecruitment {
         userHash: string,
         requestOrigin: string
     ): Promise<Record<string, unknown> | undefined> {
-        if (typeof params.requestState === 'string' && params.requestState.startsWith(STATE_PREFIX)) {
+        const capabilities = (params._meta as Record<string, unknown> | undefined)?.[META_CLIENT_CAPABILITIES]
+        const capabilitiesAvailable = z.record(z.string(), z.unknown()).safeParse(capabilities).success
+        const diagnostics: InterviewRecruitmentDiagnostics = {
+            reason: 'continuation',
+            urlSupported: capabilitiesAvailable
+                ? z.object({ elicitation: z.object({ url: z.object({}) }) }).safeParse(capabilities).success
+                : null,
+            formSupported: capabilitiesAvailable
+                ? z.object({ elicitation: z.object({ form: z.object({}) }) }).safeParse(capabilities).success
+                : null,
+            ...(state.interviewRecruitmentConfig ? { campaignId: state.interviewRecruitmentConfig.campaign_id } : {}),
+        }
+        state.interviewRecruitmentDiagnostics = diagnostics
+        if (
+            parseRequestProtocolMeta(params).protocolVersion === STATELESS_PROTOCOL_VERSION &&
+            typeof params.requestState === 'string' &&
+            params.requestState.startsWith(STATE_PREFIX)
+        ) {
             // A flag change must not discard a response to an invitation that was already displayed.
             await this.resume(params, state, userHash)
             return undefined
         }
         const conversation = this.eligibleConversation(params, state)
-        if (!conversation) {
+        if ('reason' in conversation) {
+            diagnostics.reason = conversation.reason
             return undefined
         }
         const { config, key: conversationKey } = conversation
@@ -357,6 +433,7 @@ export class InterviewRecruitment {
         const preferenceKey = this.preferenceKey(state)
         try {
             if ((await this.redis.get(preferenceKey)) !== null) {
+                diagnostics.reason = 'suppressed'
                 return undefined
             }
             const now = Date.now()
@@ -365,10 +442,14 @@ export class InterviewRecruitment {
                 .parse(
                     await this.redis.eval(OBSERVE_CONVERSATION, 1, conversationKey, now, CONVERSATION_IDLE_SECONDS, '')
                 )
-            if (
-                progress[0] < config.min_completed_tool_calls ||
-                now - progress[1] < config.min_session_age_seconds * 1000
-            ) {
+            diagnostics.completedCalls = progress[0]
+            diagnostics.sessionAgeSeconds = Math.max(0, Math.floor((now - progress[1]) / 1000))
+            if (progress[0] < config.min_completed_tool_calls) {
+                diagnostics.reason = 'insufficient_tool_calls'
+                return undefined
+            }
+            if (now - progress[1] < config.min_session_age_seconds * 1000) {
+                diagnostics.reason = 'session_too_young'
                 return undefined
             }
             const [organizationId, projectId] = await Promise.all([
@@ -406,15 +487,25 @@ export class InterviewRecruitment {
                 PENDING_SECONDS
             )
             if (reserved !== 1) {
+                diagnostics.reason = 'reservation_conflict'
                 await this.redis.del(linkKey)
                 return undefined
             }
         } catch {
             // If suppression cannot be checked atomically, skip recruitment and let the user's task proceed.
+            diagnostics.reason = 'redis_error'
             return undefined
         }
 
-        this.track('mcp interview invitation sent', state.distinctId, invitationId, config.campaign_id)
+        diagnostics.reason = 'invited'
+        this.track(
+            'mcp interview invitation sent',
+            state.distinctId,
+            invitationId,
+            config.campaign_id,
+            undefined,
+            diagnostics
+        )
         const bookingLink = new URL(`/interview/${invitationId}`, requestOrigin).toString()
         return {
             resultType: 'input_required',
