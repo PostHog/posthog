@@ -602,7 +602,7 @@ export interface projectTreeDataLogicMeta {
             homeFolder: FileSystemHomeFolderApi | null,
             viableItems: FileSystemEntry[]
         ) => FileSystemHomeFolderApi | null
-        savedItems: (folders: Record<string, FileSystemEntry[]>) => FileSystemEntry[]
+        savedItems: (folders: Record<string, FileSystemEntry[]>, featureFlags: FeatureFlagsSet) => FileSystemEntry[]
         shortcutEntryIdMap: (shortcutData: FileSystemEntry[]) => Map<string, string>
         savedItemsLoading: (folderStates: Record<string, FolderState>) => boolean
         viableItems: (savedItems: FileSystemEntry[], pendingActions: ProjectTreeAction[]) => FileSystemEntry[]

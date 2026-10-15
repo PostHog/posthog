@@ -476,7 +476,7 @@ export interface projectTreeLogicMeta {
             folderStates: Record<string, FolderState>,
             checkedItems: Record<string, boolean>,
             users: Record<string, UserBasicType>,
-            featureFlags: any
+            featureFlags: FeatureFlagsSet
         ) => TreeDataItem[]
         searchTreeItems: (
             searchResults: SearchResults,
@@ -486,7 +486,7 @@ export interface projectTreeLogicMeta {
             sortMethod: ProjectTreeSortMethod,
             onlyFolders: boolean,
             users: Record<string, UserBasicType>,
-            featureFlags: any
+            featureFlags: FeatureFlagsSet
         ) => TreeDataItem[]
         projectTreeItems: (
             searchTerm: string,
