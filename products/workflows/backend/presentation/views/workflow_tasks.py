@@ -154,8 +154,12 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
     inbox_report_id = serializers.UUIDField(
         required=False,
         help_text=(
-            "Inbox report that triggered the workflow. A task with a repository claims it, so the report "
-            "shows the task and its pull request. A report someone else already claimed keeps its claim."
+            "Inbox report that started the workflow. A task with a repository claims it, and the task's pull "
+            "request appears on the report. As with any claimed report, merging the pull request resolves the "
+            "report, and closing it without merging dismisses the report. A task that opens no pull request "
+            "gives the report back when it finishes. The task claims the report only when the workflow uses the "
+            "Inbox report trigger and its owner can read Inbox reports. If someone already claimed the report, "
+            "the task runs without linking it."
         ),
     )
     output_fields = serializers.DictField(

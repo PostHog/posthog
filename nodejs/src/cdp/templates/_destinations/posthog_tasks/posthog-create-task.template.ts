@@ -194,13 +194,13 @@ return task
         {
             key: 'link_inbox_report',
             type: 'boolean',
-            label: 'Link the task and its PR to the Inbox report',
+            label: 'Link the task and its pull request to the Inbox report',
             secret: false,
             required: false,
             default: false,
             templating: false,
             description:
-                'The task claims the Inbox report that started this workflow, and its pull request shows on the report. If the task opens no pull request, the claim is released when it finishes. Needs a repository. A report that is already claimed keeps its claim.',
+                'The task claims the Inbox report that started this workflow, and its pull request appears on the report. As with any claimed report, merging the pull request resolves the report, and closing it without merging dismisses the report. If the task opens no pull request, it gives the report back when it finishes. This needs a repository. If someone already claimed the report, the task runs without linking it.',
         },
         {
             // Allow 409 through to the template so it can surface the API's detailed limit
