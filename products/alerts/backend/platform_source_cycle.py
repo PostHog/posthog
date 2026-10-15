@@ -358,6 +358,11 @@ _FAILED_CHECKS: Final = frozenset({SkipReason.QUERY_FAILED, SkipReason.BROKEN_CO
 # The one label a grouped insight alert splits on: each breakdown value is a group.
 BREAKDOWN_GROUPING_KEY = "breakdown"
 
+# A breakdown value can be muted on its own, which production cannot express, so the platform's
+# mute applies: the value is still judged and only its announcement is held. A snooze of the
+# production alert never reaches here, because `_decide` records that check without a query.
+GROUPED_INSIGHT_ALERT_POLICY: Final = replace(INSIGHT_ALERT_POLICY, mute_gates_notification_only=True)
+
 
 def _decide_grouped(
     check: PlatformAlertCheckInput, snapshot: AlertSnapshot, alert: AlertConfiguration, *, now: datetime
@@ -392,8 +397,8 @@ def _decide_grouped(
             )
             for series in evaluated.series
         ],
-        snapshot_of=lambda instance, _prior: _snapshot(check, instance),
-        policy=INSIGHT_ALERT_POLICY,
+        snapshot_of=lambda instance, _prior: replace(_snapshot(check, instance), snooze_until=instance.snooze_until),
+        policy=GROUPED_INSIGHT_ALERT_POLICY,
         now=now,
         absent=lambda key: None if evaluated.truncated else GroupObservation(grouping_key=key, current_breached=False),
     )

@@ -120,6 +120,18 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         expected = {"Chrome": "firing"} | ({"Firefox": missing_state} if missing_state else {})
         assert {group.grouping_key: group.new_state for group in resolved.groups} == expected
 
+    def test_a_muted_breakdown_value_tracks_its_firing_without_announcing_it(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
+        configuration = self._copy(
+            self._alert(), grouping=grouping.to_stored(), snooze_until=CUTOFF + timedelta(hours=1)
+        )
+
+        outcome = self._evaluate_per_series(configuration, {"Chrome": 150.0})
+
+        assert [(group.kind, group.new_state, group.muted_notification) for group in outcome.groups] == [
+            (AlertEventKind.CHECK, "firing", "fire")
+        ]
+
     def _evaluate(
         self, configuration: PlatformConfigurationSnapshot, *, result: Any = None
     ) -> tuple[PlatformAlertOutcome | None, MagicMock]:
