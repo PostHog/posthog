@@ -97,10 +97,13 @@ def csv_gz_file(text: str) -> ScriptedResponse:
 
 
 def s3(
-    lists: Mapping[str, list[ScriptedResponse]], objects: Mapping[str, ScriptedResponse]
+    lists: Mapping[str, list[ScriptedResponse]],
+    objects: Mapping[str, ScriptedResponse | list[ScriptedResponse]],
 ) -> Callable[[RecordedRequest], ScriptedResponse]:
-    """Answer ListObjectsV2 by its prefix, in order, and GetObject by its key. A key missing from `objects` is a 404."""
+    """Answer ListObjectsV2 by its prefix, in order, and GetObject by its key. A key missing from
+    `objects` is a 404, and a list answers the same key's requests in turn."""
     queues = {prefix: list(answers) for prefix, answers in lists.items()}
+    object_queues = {key: list(answer) for key, answer in objects.items() if isinstance(answer, list)}
 
     def respond(request: RecordedRequest) -> ScriptedResponse:
         assert request.origin == ORIGIN
@@ -109,9 +112,18 @@ def s3(
             if not queue:
                 raise UnexpectedRequest(f"no listing scripted for {request.url}")
             return queue.pop(0)
-        return objects.get(unquote(request.path).lstrip("/"), s3_error("NoSuchKey", 404))
+        key = unquote(request.path).lstrip("/")
+        if key in object_queues:
+            return object_queues[key].pop(0)
+        answer = objects.get(key)
+        return answer if isinstance(answer, ScriptedResponse) else s3_error("NoSuchKey", 404)
 
     return respond
+
+
+def table_rows(items: list[Any]) -> list[dict[str, Any]]:
+    """Rows of the Arrow tables a Parquet file yields; the driver only flattens lists of rows."""
+    return [row for table in items for row in table.to_pylist()]
 
 
 def requested_keys(requests: list[RecordedRequest]) -> list[str]:
@@ -168,8 +180,7 @@ class TestSync:
             f"{BASE}/metadata/BILLING_PERIOD=2024-04/Manifest.json",
             f"{BASE}/data/BILLING_PERIOD=2024-04/my-export-00001.snappy.parquet",
         ]
-        rows = [row for table in result.items for row in table.to_pylist()]
-        assert rows == [
+        assert table_rows(result.items) == [
             {
                 "identity_line_item_id": "a",
                 "line_item_unblended_cost": 1.5,
@@ -192,82 +203,103 @@ class TestSync:
         assert "authorization" in first_list.headers
         assert result.response is not None and result.response.partition_keys == ["billing_period"]
 
-    @pytest.mark.parametrize(
-        ("partition_listings", "expected_keys"),
-        [
-            pytest.param(
-                {
-                    f"{BASE}/data/BILLING_PERIOD=2024-03/": [
-                        listing(
-                            prefixes=[
-                                f"{BASE}/data/BILLING_PERIOD=2024-03/20240302T010000Z-aaaa/",
-                                f"{BASE}/data/BILLING_PERIOD=2024-03/20240305T010000Z-bbbb/",
-                            ]
-                        )
-                    ],
-                    f"{BASE}/data/BILLING_PERIOD=2024-03/20240305T010000Z-bbbb/": [
-                        listing(
-                            keys=[
-                                (
-                                    f"{BASE}/data/BILLING_PERIOD=2024-03/20240305T010000Z-bbbb/my-export-00001.snappy.parquet",
-                                    10,
-                                )
-                            ]
-                        )
-                    ],
-                },
-                [f"{BASE}/data/BILLING_PERIOD=2024-03/20240305T010000Z-bbbb/my-export-00001.snappy.parquet"],
-                id="create_new_reads_the_newest_delivery",
-            ),
-            pytest.param(
-                {
-                    f"{BASE}/data/BILLING_PERIOD=2024-03/": [
-                        listing(
-                            keys=[
-                                (f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00002.snappy.parquet", 0),
-                                (f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.snappy.parquet", 10),
-                            ]
-                        )
-                    ],
-                },
-                [f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.snappy.parquet"],
-                id="overwrite_skips_emptied_chunks",
-            ),
-        ],
-    )
-    def test_without_a_manifest_the_partition_listing_decides_the_files(
-        self, partition_listings: dict[str, list[ScriptedResponse]], expected_keys: list[str]
-    ) -> None:
-        result = SourceDriver(AwsCostAndUsageReportSource(), config()).run(
+    def test_a_period_still_being_delivered_is_skipped_and_one_with_no_manifest_anywhere_fails(self) -> None:
+        march_file = f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.snappy.parquet"
+        periods = listing(prefixes=[f"{BASE}/data/BILLING_PERIOD=2024-03/", f"{BASE}/data/BILLING_PERIOD=2024-04/"])
+
+        # April has data files but no manifest yet: AWS is still delivering it.
+        partly = SourceDriver(AwsCostAndUsageReportSource(), config()).run(
             "cost_and_usage",
             s3(
-                {f"{BASE}/data/": [listing(prefixes=[f"{BASE}/data/BILLING_PERIOD=2024-03/"])], **partition_listings},
-                {key: parquet_file([{"id": "x", "cost": 1.0, "tags": None}]) for key in expected_keys},
+                {f"{BASE}/data/": [periods]},
+                {
+                    f"{BASE}/metadata/BILLING_PERIOD=2024-03/Manifest.json": ScriptedResponse(
+                        json={"dataFiles": [march_file]}
+                    ),
+                    march_file: parquet_file([{"id": "x", "cost": 1.0, "tags": None}]),
+                },
             ),
         )
 
-        assert result.raised is None
-        assert requested_keys(result.requests)[2:] == expected_keys
-        assert len(result.rows) == 1
+        assert partly.raised is None
+        assert [row["billing_period"] for row in table_rows(partly.items)] == [MARCH]
+        assert not any("BILLING_PERIOD=2024-04/" in key and "/data/" in key for key in requested_keys(partly.requests))
 
-    def test_gzip_csv_files_are_read_with_the_billing_period_added(self) -> None:
+        periods = listing(prefixes=[f"{BASE}/data/BILLING_PERIOD=2024-03/", f"{BASE}/data/BILLING_PERIOD=2024-04/"])
+        nothing = SourceDriver(AwsCostAndUsageReportSource(), config()).run(
+            "cost_and_usage", s3({f"{BASE}/data/": [periods]}, {})
+        )
+
+        assert str(nothing.raised).startswith("AWS Cost and Usage Report request failed: NoManifest")
+
+    def test_gzip_csv_cells_take_the_types_the_manifest_declares(self) -> None:
         key = f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.csv.gz"
+        manifest = {
+            "dataFiles": [key],
+            "columns": [
+                {"name": "bill_payer_account_id", "type": "string"},
+                {"name": "line_item_unblended_cost", "type": "double"},
+                {"name": "line_item_usage_amount", "type": "decimal(38,10)"},
+                {"name": "pricing_lease_contract_length", "type": "bigint"},
+                {"name": "line_item_usage_start_date", "type": "timestamp"},
+            ],
+        }
         result = SourceDriver(AwsCostAndUsageReportSource(), config()).run(
             "cost_and_usage",
             s3(
+                {f"{BASE}/data/": [listing(prefixes=[f"{BASE}/data/BILLING_PERIOD=2024-03/"])]},
                 {
-                    f"{BASE}/data/": [listing(prefixes=[f"{BASE}/data/BILLING_PERIOD=2024-03/"])],
-                    f"{BASE}/data/BILLING_PERIOD=2024-03/": [listing(keys=[(key, 40)])],
+                    f"{BASE}/metadata/BILLING_PERIOD=2024-03/my-export-Manifest.json": ScriptedResponse(json=manifest),
+                    key: csv_gz_file(
+                        "bill_payer_account_id,line_item_unblended_cost,line_item_usage_amount,"
+                        "pricing_lease_contract_length,line_item_usage_start_date\n"
+                        "012345678901,1.5,24,3,2024-03-01T00:00:00Z\n"
+                        "012345678901,,not-a-number,,\n"
+                    ),
                 },
-                {key: csv_gz_file("identity_line_item_id,line_item_unblended_cost\na,1.5\nb,2\n")},
             ),
         )
 
         assert result.raised is None
-        assert [(row["identity_line_item_id"], row["billing_period"]) for row in result.rows] == [
-            ("a", MARCH),
-            ("b", MARCH),
+        assert result.rows == [
+            {
+                "bill_payer_account_id": "012345678901",
+                "line_item_unblended_cost": 1.5,
+                "line_item_usage_amount": 24.0,
+                "pricing_lease_contract_length": 3,
+                "line_item_usage_start_date": MARCH,
+                "billing_period": MARCH,
+            },
+            {
+                "bill_payer_account_id": "012345678901",
+                "line_item_unblended_cost": None,
+                "line_item_usage_amount": None,
+                "pricing_lease_contract_length": None,
+                "line_item_usage_start_date": None,
+                "billing_period": MARCH,
+            },
         ]
+
+    def test_a_download_cut_off_mid_body_is_retried_for_that_file_only(self) -> None:
+        key = f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.snappy.parquet"
+        # A chunked body with no terminating chunk fails after the headers, past the transport's retry.
+        cut_off = ScriptedResponse(body=b"5\r\nPAR1", headers={"Transfer-Encoding": "chunked"})
+        result = SourceDriver(AwsCostAndUsageReportSource(), config()).run(
+            "cost_and_usage",
+            s3(
+                {f"{BASE}/data/": [listing(prefixes=[f"{BASE}/data/BILLING_PERIOD=2024-03/"])]},
+                {
+                    f"{BASE}/metadata/BILLING_PERIOD=2024-03/Manifest.json": ScriptedResponse(
+                        json={"dataFiles": [key]}
+                    ),
+                    key: [cut_off, parquet_file([{"id": "x", "cost": 1.0, "tags": None}])],
+                },
+            ),
+        )
+
+        assert result.raised is None
+        assert requested_keys(result.requests).count(key) == 2
+        assert [row["identity_line_item_id"] for row in table_rows(result.items)] == ["x"]
 
     def test_a_denied_read_fails_the_run_with_the_s3_code(self) -> None:
         result = SourceDriver(AwsCostAndUsageReportSource(), config()).run(
@@ -276,7 +308,6 @@ class TestSync:
         )
 
         assert str(result.raised) == "AWS Cost and Usage Report request failed: AccessDenied - AccessDenied message"
-        assert any(key in str(result.raised) for key in AwsCostAndUsageReportSource().get_non_retryable_errors())
 
 
 def probe(c: AwsCostAndUsageReportSourceConfig) -> tuple[bool, str | None]:

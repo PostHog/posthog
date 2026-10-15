@@ -3,7 +3,7 @@ import json
 import datetime as dt
 import tempfile
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from functools import cache
 from typing import IO, Any, Optional
 from urllib.parse import quote, urlencode
@@ -34,13 +34,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
     iter_file_rows,
+    normalize_column_name,
     resolve_file_format,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 REQUEST_TIMEOUT_SECONDS = 120
+# A dropped connection mid-body escapes the transport's retry, which only covers the response
+# headers. One file is retried on its own so a late failure does not restart the whole refresh.
+DOWNLOAD_ATTEMPTS = 3
+NO_MANIFEST = "NoManifest"
 BILLING_PERIOD_COLUMN = "billing_period"
 ERROR_PREFIX = "AWS Cost and Usage Report request failed"
 WRONG_REGION_CODES = frozenset(
@@ -66,6 +74,15 @@ class S3ListPage:
     objects: list[S3Object]
     prefixes: list[str]
     next_token: Optional[str]
+
+
+@dataclasses.dataclass(frozen=True)
+class Delivery:
+    """The latest complete delivery of one billing period, as its manifest describes it."""
+
+    keys: list[str]
+    # Column name -> the type the export declares for it, lowercased.
+    column_types: dict[str, str]
 
 
 @cache
@@ -201,9 +218,22 @@ class S3Client:
             raise
 
     def download(self, key: str, destination: IO[bytes]) -> None:
-        with self._get(self._download_session, self._url(key), stream=True) as response:
-            for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_BYTES):
-                destination.write(chunk)
+        for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+            destination.seek(0)
+            destination.truncate()
+            try:
+                with self._get(self._download_session, self._url(key), stream=True) as response:
+                    for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_BYTES):
+                        destination.write(chunk)
+                break
+            except (
+                requests.exceptions.ChunkedEncodingError,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+            ):
+                if attempt == DOWNLOAD_ATTEMPTS:
+                    raise
+                interruptible_wait(2**attempt)
         destination.flush()
         destination.seek(0)
 
@@ -247,12 +277,31 @@ def manifest_data_keys(manifest: Any, bucket: str) -> list[str]:
     return list(dict.fromkeys(keys))
 
 
-def data_file_keys(client: S3Client, bucket: str, base: str, export_name: str, period: dt.date) -> list[str]:
-    """The data files of the latest delivery of one billing period.
+def manifest_column_types(manifest: Any) -> dict[str, str]:
+    """The column types a manifest declares, from every object that carries a name and a type."""
+    types: dict[str, str] = {}
 
-    The manifest is written after every file of a delivery has landed, so it is read first. Without
-    one, the partition is listed: "create new" exports keep one directory per delivery, named so the
-    newest sorts last, and "overwrite" exports keep the files at the top.
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            fields = {str(key).lower(): item for key, item in value.items()}
+            name, kind = fields.get("name"), fields.get("type")
+            if isinstance(name, str) and isinstance(kind, str):
+                types[name] = kind.lower()
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(manifest)
+    return types
+
+
+def latest_delivery(client: S3Client, bucket: str, base: str, export_name: str, period: dt.date) -> Optional[Delivery]:
+    """The latest complete delivery of one billing period, or None while it has no manifest.
+
+    AWS writes the manifest only after every data file of a delivery has landed, so a partition
+    without one is still being delivered and its files would be incomplete.
     """
     partition = f"BILLING_PERIOD={period:%Y-%m}"
     for manifest_key in (
@@ -264,16 +313,13 @@ def data_file_keys(client: S3Client, bucket: str, base: str, export_name: str, p
         if body is None:
             continue
         try:
-            keys = manifest_data_keys(json.loads(body), bucket)
+            manifest = json.loads(body)
         except ValueError:
-            keys = []
+            continue
+        keys = manifest_data_keys(manifest, bucket)
         if keys:
-            return keys
-
-    listing = client.list_all(f"{base}/data/{partition}/")
-    if listing.prefixes:
-        listing = client.list_all(max(listing.prefixes))
-    return sorted(item.key for item in listing.objects if item.size > 0 and item.key.endswith(DATA_FILE_SUFFIXES))
+            return Delivery(keys=keys, column_types=manifest_column_types(manifest))
+    return None
 
 
 def _jsonable(value: Any, value_type: pa.DataType) -> Any:
@@ -315,7 +361,50 @@ def shape_table(table: pa.Table, period: dt.date) -> pa.Table:
     return table.append_column(BILLING_PERIOD_COLUMN, column)
 
 
-def iter_data_file(client: S3Client, key: str, period: dt.date) -> Iterator[pa.Table | list[dict[str, Any]]]:
+def _parse_timestamp(value: str) -> dt.datetime:
+    parsed = dt.datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=dt.UTC)
+
+
+def _parse_boolean(value: str) -> bool:
+    return value.strip().lower() == "true"
+
+
+def csv_converter(declared_type: str) -> Optional[Callable[[str], Any]]:
+    """How to read a CSV cell of a declared column type. None keeps the text."""
+    if declared_type in ("double", "float", "real") or declared_type.startswith("decimal"):
+        return float
+    if declared_type in ("bigint", "int", "integer", "smallint", "tinyint", "long"):
+        return int
+    if declared_type.startswith("timestamp") or declared_type == "datetime":
+        return _parse_timestamp
+    if declared_type == "date":
+        return dt.date.fromisoformat
+    if declared_type in ("boolean", "bool"):
+        return _parse_boolean
+    return None
+
+
+def convert_csv_rows(rows: list[dict[str, Any]], converters: dict[str, Callable[[str], Any]]) -> None:
+    """Give CSV cells the types the export declares. Every cell arrives as text, so without this a
+    cost column would land as a string. An empty or unreadable cell becomes null."""
+    for row in rows:
+        for column, convert in converters.items():
+            value = row.get(column)
+            if value is None:
+                continue
+            if value == "":
+                row[column] = None
+                continue
+            try:
+                row[column] = convert(value)
+            except (TypeError, ValueError):
+                row[column] = None
+
+
+def iter_data_file(
+    client: S3Client, key: str, period: dt.date, column_types: dict[str, str]
+) -> Iterator[pa.Table | list[dict[str, Any]]]:
     with tempfile.NamedTemporaryFile(suffix=".download") as destination:
         client.download(key, destination)
         if key.endswith(".parquet"):
@@ -327,7 +416,13 @@ def iter_data_file(client: S3Client, key: str, period: dt.date) -> Iterator[pa.T
             return
 
         period_start = dt.datetime(period.year, period.month, 1, tzinfo=dt.UTC)
+        converters = {
+            normalize_column_name(name): converter
+            for name, declared_type in column_types.items()
+            if (converter := csv_converter(declared_type)) is not None
+        }
         for rows in iter_file_rows(destination, resolve_file_format(key), key, chunk_size=ROWS_PER_BATCH):
+            convert_csv_rows(rows, converters)
             for row in rows:
                 row[BILLING_PERIOD_COLUMN] = period_start
             if rows:
@@ -352,11 +447,22 @@ def get_rows(
         logger.warning(f"No billing periods found under s3://{bucket.strip()}/{base}/data/")
         return
 
+    delivered = 0
     for period in periods:
-        keys = data_file_keys(client, bucket.strip(), base, export_name, period)
-        logger.debug(f"Reading AWS Cost and Usage Report billing period {period:%Y-%m} from {len(keys)} file(s)")
-        for key in keys:
-            yield from iter_data_file(client, key, period)
+        delivery = latest_delivery(client, bucket.strip(), base, export_name, period)
+        if delivery is None:
+            logger.warning(f"Skipping billing period {period:%Y-%m}: AWS has not finished delivering it")
+            continue
+        delivered += 1
+        logger.debug(f"Reading billing period {period:%Y-%m} from {len(delivery.keys)} file(s)")
+        for key in delivery.keys:
+            yield from iter_data_file(client, key, period, delivery.column_types)
+
+    if not delivered:
+        raise AwsCostAndUsageReportError(
+            f"{ERROR_PREFIX}: {NO_MANIFEST} - no billing period under s3://{bucket.strip()}/{base}/metadata/ has a manifest",
+            NO_MANIFEST,
+        )
 
 
 VALIDATION_ERROR_MESSAGES: dict[str, str] = {

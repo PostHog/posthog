@@ -57,6 +57,11 @@ class AwsCostAndUsageReportSource(SimpleSource[AwsCostAndUsageReportSourceConfig
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AWSCOSTANDUSAGEREPORT
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # The region and bucket decide where the signed requests, and so the stored key, are sent.
+        return ["aws_region", "bucket"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         errors: dict[str, str | None] = {
             f"{ERROR_PREFIX}: {code}": message for code, message in VALIDATION_ERROR_MESSAGES.items()
@@ -124,7 +129,7 @@ class AwsCostAndUsageReportSource(SimpleSource[AwsCostAndUsageReportSourceConfig
             label="AWS Cost and Usage Report",
             caption="""Sync the line items of an AWS Data Exports export (Cost and Usage Report 2.0 or FOCUS) from its S3 bucket into the PostHog Data warehouse.
 
-Create the export in the AWS Billing console under **Data Exports**, delivered to S3 as Parquet or gzip CSV. Then create an IAM user or role with `s3:ListBucket` on the bucket and `s3:GetObject` on the export's prefix, and paste its access key ID and secret access key.
+Create the export in the AWS Billing console under **Data Exports**, delivered to S3 as Parquet or gzip CSV. Parquet keeps the column types of the export; gzip CSV takes them from the export's manifest. Then create an IAM user or role with `s3:ListBucket` on the bucket and `s3:GetObject` on the export's prefix, and paste its access key ID and secret access key.
 
 AWS rewrites a whole billing period on each delivery and restates the previous month for up to two weeks after it ends, so every sync rebuilds the table from the latest delivery of each billing period. Set a first billing period to limit how many months each sync reads.""",
             iconPath="/static/services/aws_cost_and_usage_report.png",
