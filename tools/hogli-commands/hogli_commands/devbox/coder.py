@@ -11,6 +11,7 @@ import re
 import csv
 import sys
 import json
+import time
 import shlex
 import base64
 import shutil
@@ -1482,6 +1483,42 @@ def start_workspace(name: str, *, verbose: bool = False) -> None:
     result = _run_build(["coder", "start", name, "--yes"], verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
+
+
+# Must exceed the longest blocking startup script timeout in the posthog-linux
+# template, so that Coder reports `start_timeout` itself before this gives up.
+AGENT_READY_TIMEOUT = 960
+AGENT_READY_POLL_INTERVAL = 3
+_AGENT_START_FAILED_STATES = frozenset({"start_error", "start_timeout"})
+
+
+def _agent_lifecycle_states(workspace: dict[str, Any] | None) -> set[str]:
+    if workspace is None:
+        return set()
+    return {
+        str(agent.get("lifecycle_state", ""))
+        for resource in workspace.get("latest_build", {}).get("resources", [])
+        for agent in resource.get("agents") or []
+    }
+
+
+def wait_for_agent_ready(name: str, *, timeout: int = AGENT_READY_TIMEOUT) -> str | None:
+    """Block until the workspace's startup scripts finish, so "started" means usable.
+
+    Returns ``None`` once the agent is ready, or the state that ended the wait
+    (``start_error``, ``start_timeout``, ``wait_timeout``). The box keeps
+    running in every case, so callers warn rather than fail.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        states = _agent_lifecycle_states(get_workspace(name))
+        if states == {"ready"}:
+            return None
+        if failed := sorted(states & _AGENT_START_FAILED_STATES):
+            return failed[0]
+        if time.monotonic() >= deadline:
+            return "wait_timeout"
+        time.sleep(AGENT_READY_POLL_INTERVAL)
 
 
 def stop_workspace(name: str, *, verbose: bool = False) -> None:
