@@ -22,6 +22,20 @@ function backfill(overrides: Partial<EvaluationBackfillApi> = {}): EvaluationBac
 }
 
 describe('backfillConditions', () => {
+    it('counts finished outcomes without treating failed executions as covered', () => {
+        expect(
+            backfillCoveredCount(
+                backfill({
+                    completed_count: 2,
+                    evaluation_skipped_count: 1,
+                    skipped_count: 1,
+                    dispatched_count: 5,
+                    failed_count: 2,
+                    remaining_count: 2,
+                })
+            )
+        ).toBe(4)
+    })
     it.each([
         [undefined, '100% sampled'],
         [100, '100% sampled'],
