@@ -1,0 +1,17 @@
+[package]
+name = "replay-core-v4"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Core of the v4 AI research replay dataset: the AISR03 envelope, the v4 keys, the session gate and the byte-level scan"
+
+[lints]
+workspace = true
+
+[dependencies]
+aes-gcm = "0.10"
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+base64 = { workspace = true }
