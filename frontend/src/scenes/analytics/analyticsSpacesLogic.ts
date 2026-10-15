@@ -12,13 +12,14 @@ import {
     ANALYTICS_TYPES,
     AnalyticsType,
     UNFILED_FOLDER,
-    analyticsSpaceOfPath,
     fileSystemBaseType,
     fileSystemEntryName,
     isAnalyticsType,
 } from './analyticsUtils'
 
 // A space's contents are read in one page; a bigger space still shows its first rows' counts.
+// Marks the shortcuts this page makes, so other folder shortcuts (such as a home folder) stay off the list.
+const SPACE_SHORTCUT_REF = 'analytics-space'
 const SPACE_CONTENTS_LIMIT = 500
 
 /** A starred space: its shortcut row, so the star can be removed again. */
@@ -183,7 +184,7 @@ export const analyticsSpacesLogic = kea<analyticsSpacesLogicType>([
             (s) => [s.shortcuts],
             (shortcuts: FileSystemEntry[]): StarredSpace[] =>
                 shortcuts.flatMap((shortcut) =>
-                    shortcut.type === 'folder' && shortcut.id && analyticsSpaceOfPath(shortcut.path)
+                    shortcut.type === 'folder' && shortcut.ref === SPACE_SHORTCUT_REF && shortcut.id
                         ? [{ shortcutId: shortcut.id, path: shortcut.path, name: fileSystemEntryName(shortcut) }]
                         : []
                 ),
@@ -201,7 +202,7 @@ export const analyticsSpacesLogic = kea<analyticsSpacesLogicType>([
                     await api.fileSystemShortcuts.delete(starred.shortcutId)
                     lemonToast.success(`Removed ${space.name} from your sidebar`)
                 } else {
-                    await api.fileSystemShortcuts.create({ path: space.path, type: 'folder' })
+                    await api.fileSystemShortcuts.create({ path: space.path, type: 'folder', ref: SPACE_SHORTCUT_REF })
                     lemonToast.success(`Added ${space.name} to your sidebar`)
                 }
                 actions.loadShortcuts()
