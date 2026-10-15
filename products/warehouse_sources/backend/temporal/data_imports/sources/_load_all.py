@@ -110,6 +110,7 @@ from .aws_connect.source import AwsConnectSource
 from .aws_cost_and_usage_report.source import AwsCostAndUsageReportSource
 from .aws_cost_anomaly_detection.source import AwsCostAnomalyDetectionSource
 from .aws_cost_explorer.source import AwsCostExplorerSource
+from .aws_documentdb.source import AwsDocumentDBSource
 from .aws_glue_data_catalog.source import AwsGlueDataCatalogSource
 from .aws_guardduty.source import AwsGuarddutySource
 from .aws_health.source import AwsHealthSource

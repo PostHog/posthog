@@ -117,6 +117,7 @@ the row lists both.
 | aws_config                       | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_anomaly_detection       | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
+| aws_documentdb                   | DB protocol                 | pymongo (delegates to MongoDBSource)                            | ➖                          |
 | aws_glue_data_catalog            | HTTP                        | requests                                                        | ✅                          |
 | aws_guardduty                    | HTTP                        | requests                                                        | ✅                          |
 | aws_iam_access_analyzer          | HTTP                        | requests                                                        | ✅                          |
