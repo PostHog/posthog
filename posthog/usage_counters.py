@@ -160,6 +160,10 @@ _FLAG_REQUEST_DATE_ATTRIBUTION = (
     "Flag usage records use Rust flush time; legacy billing events use the later Celery export time. "
     "A cutover must reconcile these dates to avoid missing or double-counting requests."
 )
+_CDP_DATE_ATTRIBUTION = (
+    "CDP and workflow usage records and legacy app metrics use independent flush-time clocks. "
+    "A cutover must reconcile dispatches across those dates to avoid missing or double-counting them."
+)
 _LOCAL_EVALUATION_UNDERCOUNT = (
     "Django's feature-flag list endpoint counts older SDK requests in Redis but emits no usage records. "
     "Only the Rust definitions endpoint contributes to the record total."
@@ -169,10 +173,14 @@ RECORD_REALTIME_BLOCKERS = {
     UsageCounter.EVENTS: _EVENT_DATE_ATTRIBUTION,
     UsageCounter.ENHANCED_PERSON_EVENTS: _EVENT_DATE_ATTRIBUTION,
     UsageCounter.EXCEPTIONS: _EVENT_DATE_ATTRIBUTION,
+    UsageCounter.CDP_INVOCATIONS: _CDP_DATE_ATTRIBUTION,
     UsageCounter.RECORDINGS: _REPLAY_UNDERCOUNT,
     UsageCounter.MOBILE_RECORDINGS: _REPLAY_UNDERCOUNT,
     UsageCounter.MOBILE_BILLABLE_RECORDINGS: _REPLAY_UNDERCOUNT,
-    UsageCounter.WORKFLOW_INVOCATIONS: _WORKFLOW_PUSH_UNDERCOUNT,
+    UsageCounter.WORKFLOW_EMAILS: _CDP_DATE_ATTRIBUTION,
+    UsageCounter.WORKFLOW_PUSH: _CDP_DATE_ATTRIBUTION,
+    UsageCounter.WORKFLOW_SMS: _CDP_DATE_ATTRIBUTION,
+    UsageCounter.WORKFLOW_INVOCATIONS: f"{_WORKFLOW_PUSH_UNDERCOUNT} {_CDP_DATE_ATTRIBUTION}",
     UsageCounter.FEATURE_FLAG_REQUESTS: _FLAG_REQUEST_DATE_ATTRIBUTION,
     UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: _LOCAL_EVALUATION_UNDERCOUNT,
     UsageCounter.SURVEY_RESPONSES: "Survey usage records include product-tour responses that legacy billing exempts.",

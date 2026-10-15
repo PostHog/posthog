@@ -39,10 +39,14 @@ REALTIME_GUARDED_COUNTERS = {
     UsageCounter.EVENTS,
     UsageCounter.ENHANCED_PERSON_EVENTS,
     UsageCounter.EXCEPTIONS,
+    UsageCounter.CDP_INVOCATIONS,
     UsageCounter.RECORDINGS,
     UsageCounter.MOBILE_RECORDINGS,
     UsageCounter.MOBILE_BILLABLE_RECORDINGS,
     UsageCounter.WORKFLOW_INVOCATIONS,
+    UsageCounter.WORKFLOW_EMAILS,
+    UsageCounter.WORKFLOW_PUSH,
+    UsageCounter.WORKFLOW_SMS,
     UsageCounter.FEATURE_FLAG_REQUESTS,
     UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
     UsageCounter.SURVEY_RESPONSES,
@@ -348,7 +352,10 @@ class TestUsageCounterReport(SimpleTestCase):
                 flag.side_effect = flag_value
             plan = service.resolve_plan(period, caller="daily_report", complete=True)
             report = service.fetch_report(period, plan=plan)
-            assert report.counts[UsageCounter.WORKFLOW_EMAILS.value] == [(1, 9 if flag_value == "realtime" else 12)]
+            assert report.counts[UsageCounter.WORKFLOW_EMAILS.value] == [(1, 12)]
+            assert plan.modes[UsageCounter.WORKFLOW_EMAILS] == (
+                UsageCounterMode.BOTH if flag_value in ("both", "realtime") else UsageCounterMode.LEGACY
+            )
             assert (report.counter_comparisons is not None) == (flag_value in ("both", "realtime"))
             assert records_query.call_count == int(flag_value in ("both", "realtime"))
             assert flag.call_count == len(COUNTER_FLAG_NAMES)
@@ -369,7 +376,7 @@ class TestUsageCounterReport(SimpleTestCase):
         list(product(UsageCounterMode, ("daily_report", "usage_reports_v2", "quota_limiting"), (0, 1)))
     )
     @time_machine.travel("2026-05-04T12:00:00Z", tick=False)
-    def test_mode_selects_queries_for_every_caller_and_day(
+    def test_resolved_mode_selects_queries_for_every_caller_and_day(
         self, mode: UsageCounterMode, caller: UsageCounterCaller, days_ago: int
     ) -> None:
         start = datetime(2026, 5, 4, tzinfo=UTC) - timedelta(days=days_ago)
@@ -381,11 +388,12 @@ class TestUsageCounterReport(SimpleTestCase):
             totals=[UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="workflow_emails_sent", quantity=9)]
         )
         service = UsageCounterService()
-        with (
-            self.settings(USAGE_COUNTER_REALTIME_MODES=f"workflow-emails:{mode}"),
-            patch("posthoganalytics.get_feature_flag", return_value="legacy"),
-        ):
-            plan = service.resolve_plan(period, caller=caller, complete=days_ago > 0)
+        plan = UsageCounterPlan(
+            period=period,
+            caller=caller,
+            modes={**dict.fromkeys(UsageCounter, UsageCounterMode.LEGACY), UsageCounter.WORKFLOW_EMAILS: mode},
+            complete=days_ago > 0,
+        )
         report = service.fetch_report(period, plan=plan)
         assert set(report.counts) == {*UsageCounter, *SANDBOX_COMPUTE_RESOURCE_KEYS}
         assert report.counts[UsageCounter.WORKFLOW_EMAILS.value] == [
@@ -466,11 +474,15 @@ class TestUsageCounterReport(SimpleTestCase):
         )
         records.side_effect = RuntimeError("records unavailable") if failure == "records" else None
         service = UsageCounterService()
-        with (
-            self.settings(USAGE_COUNTER_REALTIME_MODES="cdp-invocations:both,workflow-emails:realtime"),
-            patch("posthoganalytics.get_feature_flag", return_value="legacy"),
-        ):
-            plan = service.resolve_plan(period, caller="daily_report", complete=True)
+        plan = UsageCounterPlan(
+            period=period,
+            caller="daily_report",
+            modes={
+                UsageCounter.CDP_INVOCATIONS: UsageCounterMode.BOTH,
+                UsageCounter.WORKFLOW_EMAILS: UsageCounterMode.REALTIME,
+            },
+            complete=True,
+        )
         if failure == "records":
             with self.assertRaisesRegex(RuntimeError, "records unavailable"):
                 service.fetch_report(period, plan=plan)
@@ -509,8 +521,12 @@ class TestUsageCounterReport(SimpleTestCase):
             UsageCounter.SURVEY_RESPONSES: ("survey_responses", 105),
             UsageCounter.AI_EVENTS: ("ai_events", 106),
             UsageCounter.EXCEPTIONS: ("exceptions", 107),
+            UsageCounter.CDP_INVOCATIONS: ("cdp_billable_invocations", 111),
             UsageCounter.FEATURE_FLAG_REQUESTS: ("feature_flag_requests", 108),
             UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: ("feature_flag_local_evaluation_requests", 109),
+            UsageCounter.WORKFLOW_EMAILS: ("workflow_emails_sent", 112),
+            UsageCounter.WORKFLOW_PUSH: ("workflow_push_sent", 113),
+            UsageCounter.WORKFLOW_SMS: ("workflow_sms_sent", 114),
             UsageCounter.WORKFLOW_INVOCATIONS: ("workflow_billable_invocations", 110),
         }
         flag_counters = {UsageCounter.FEATURE_FLAG_REQUESTS, UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS}
@@ -551,7 +567,7 @@ class TestUsageCounterReport(SimpleTestCase):
             assert report.counts["teams_with_web_exceptions_captured_in_period"] == [(1, 3)]
             assert report.counts["teams_with_js_lite_exceptions_captured_in_period"] == [(1, 5)]
         self.exceptions.assert_called_once_with(period.start, period.end)
-        self.legacy[UsageCounter.CDP_INVOCATIONS].assert_not_called()
+        self.legacy[UsageCounter.CDP_INVOCATIONS].assert_called_once_with(period.start, period.end)
         if mode == UsageCounterMode.LEGACY:
             self.records.assert_not_called()
             assert report.counter_comparisons is None

@@ -46,7 +46,7 @@ from posthog.temporal.usage_report.types import (
     RunQueryToS3Result,
     WorkflowContext,
 )
-from posthog.usage_counters import UsageCounter
+from posthog.usage_counters import RECORD_REALTIME_BLOCKERS, UsageCounter
 from posthog.utils import get_previous_day
 
 from products.tasks.backend.facade.billing import SandboxComputeUsageByTeam
@@ -198,11 +198,14 @@ def _decode_temporal_chunks(s3: dict[str, bytes], chunk_keys: list[str]) -> dict
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("mode", ["legacy", "both", "realtime"])
+@pytest.mark.parametrize(
+    ("mode", "guarded"), [("legacy", True), ("both", True), ("realtime", True), ("realtime", False)]
+)
 def test_end_to_end_parity_celery_task_vs_temporal_activity(
     activity_environment: Any,
     monkeypatch: pytest.MonkeyPatch,
     mode: str,
+    guarded: bool,
 ) -> None:
     """Both production paths must produce the same per-org bytes for the
     same `all_data` snapshot. Drift here is what billing's parity check
@@ -240,6 +243,9 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     monkeypatch.setattr("posthoganalytics.feature_enabled", lambda *a, **kw: False)
     monkeypatch.setattr("django.conf.settings.CLOUD_DEPLOYMENT", "US")
     monkeypatch.setattr("django.conf.settings.USAGE_COUNTER_REALTIME_MODES", f"workflow-emails:{mode}")
+    if not guarded:
+        monkeypatch.delitem(RECORD_REALTIME_BLOCKERS, UsageCounter.WORKFLOW_EMAILS, raising=False)
+    resolved_mode = "both" if mode == "realtime" and guarded else mode
     captures_on_event_loop: list[str] = []
 
     def check_capture_thread(*args: Any, **kwargs: Any) -> None:
@@ -446,15 +452,17 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert temporal_per_org[str(org_b.id)]["apm_tracing_bytes_in_period"] == 999_999
     assert temporal_per_org[str(org_b.id)]["apm_tracing_spans_in_period"] == 5
     assert temporal_per_org[str(org_b.id)]["apm_tracing_mb_in_period"] == 0
-    assert temporal_per_org[str(org_a.id)]["workflow_emails_sent_in_period"] == (16 if mode == "realtime" else 24)
+    assert temporal_per_org[str(org_a.id)]["workflow_emails_sent_in_period"] == (
+        16 if resolved_mode == "realtime" else 24
+    )
     assert temporal_per_org[str(org_a.id)]["posthog_code_credits_used_in_period"] == 321 + 9
     assert temporal_per_org[str(org_a.id)]["sandbox_compute_memory_mib_seconds_in_period"] == 2_000
     assert temporal_per_org[str(org_a.id)]["logs_retention_mb_days_in_period"] == 4
-    assert (str(idle_org.id) in temporal_per_org) == (mode == "realtime")
-    assert (str(idle_org.id) in celery_per_org) == (mode == "realtime")
+    assert (str(idle_org.id) in temporal_per_org) == (resolved_mode == "realtime")
+    assert (str(idle_org.id) in celery_per_org) == (resolved_mode == "realtime")
     assert scan.call_count == (0 if mode == "legacy" else 2)
     assert captures_on_event_loop == []
-    assert (str(legacy_only_org.id) in temporal_per_org) == (mode != "realtime")
+    assert (str(legacy_only_org.id) in temporal_per_org) == (resolved_mode != "realtime")
     if mode != "legacy":
         assert temporal_per_org[str(org_a.id)]["counter_comparisons"] == {
             "workflow_emails_sent_in_period": {"legacy": 24, "realtime": 16}
@@ -462,7 +470,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         assert temporal_per_org[str(org_b.id)]["counter_comparisons"] == {
             "workflow_emails_sent_in_period": {"legacy": 0, "realtime": 0}
         }
-        assert temporal_per_org[str(org_a.id)]["usage_sources"]["workflow_emails_sent_in_period"] == mode
+        assert temporal_per_org[str(org_a.id)]["usage_sources"]["workflow_emails_sent_in_period"] == resolved_mode
         missing_events = [
             call.kwargs
             for call in capture.call_args_list
@@ -471,7 +479,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         assert len(missing_events) == 2
         assert {event["properties"]["caller"] for event in missing_events} == {"daily_report", "usage_reports_v2"}
         expected_missing = {deleted_org_id: {"workflow_emails_sent_in_period": {"legacy": 0, "realtime": 6}}}
-        if mode == "both":
+        if resolved_mode == "both":
             expected_missing[str(idle_org.id)] = {"workflow_emails_sent_in_period": {"legacy": 0, "realtime": 4}}
         else:
             expected_missing[str(legacy_only_org.id)] = {"workflow_emails_sent_in_period": {"legacy": 5, "realtime": 0}}
