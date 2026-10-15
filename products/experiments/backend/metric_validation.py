@@ -263,9 +263,11 @@ def validate_metric_action_ids(
     # Synthetic principals (project secret API keys) and userless system writes bypass access control.
     if not isinstance(user, User):
         return
-    denied = UserAccessControl(user=user, team=team).denied_object_ids(actions, "viewer")
+    denied = UserAccessControl(user=user, team=team).denied_object_ids(
+        "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
+    )
     if denied:
         raise PermissionDenied(
-            f"You don't have viewer access to action(s) {', '.join(map(str, denied))}. "
+            f"You don't have viewer access to action(s) {', '.join(denied)}. "
             "Remove them from the metric, or ask for access."
         )

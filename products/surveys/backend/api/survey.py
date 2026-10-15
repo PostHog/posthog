@@ -1278,10 +1278,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         added_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
         if self.instance is not None:
             added_actions = added_actions.exclude(id__in=self.instance.actions.values("id"))
-        denied_ids = self.context["view"].user_access_control.denied_object_ids(added_actions, "viewer")
+        denied_ids = self.context["view"].user_access_control.denied_object_ids(
+            "action", [(str(action.id), action.team_id, action.created_by_id) for action in added_actions], "viewer"
+        )
         if denied_ids:
             raise serializers.ValidationError(
-                f"You don't have viewer access to action(s) {', '.join(map(str, denied_ids))}. "
+                f"You don't have viewer access to action(s) {', '.join(denied_ids)}. "
                 "Remove them from the survey conditions, or ask for access."
             )
 

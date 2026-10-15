@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from django.db.models import Q, QuerySet
 
@@ -190,10 +190,14 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
         return attrs
 
-    def _require_viewer_access(self, parent: Dashboard | Insight, field: str, label: str) -> None:
+    def _require_viewer_access(
+        self, parent: Dashboard | Insight, field: str, resource: Literal["dashboard", "insight"]
+    ) -> None:
         user_access_control = self.context["view"].user_access_control
-        if isinstance(self.context["request"].user, User) and user_access_control.denied_object_ids([parent], "viewer"):
-            raise serializers.ValidationError({field: f"You need viewer access to this {label} to annotate it."})
+        if isinstance(self.context["request"].user, User) and user_access_control.denied_object_ids(
+            resource, [(str(parent.pk), parent.team_id, parent.created_by_id)], "viewer"
+        ):
+            raise serializers.ValidationError({field: f"You need viewer access to this {resource} to annotate it."})
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]

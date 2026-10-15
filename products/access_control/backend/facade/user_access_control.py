@@ -883,16 +883,27 @@ class UserAccessControl:
         # If no access control exists
         return access_level_satisfied_for_resource(resource, access_level, required_level)
 
-    def denied_object_ids(self, objects: Iterable[Model], required_level: AccessControlLevel) -> list[Any]:
-        """Primary keys of the objects this user lacks `required_level` on, each checked with its own team's rules."""
-        team_objects = [(cast(Any, obj).team_id, obj) for obj in objects]
-        access_controls = self.for_team_ids({team_id for team_id, _ in team_objects})
-        return sorted(
-            obj.pk
-            for team_id, obj in team_objects
-            if team_id not in access_controls
-            or not access_controls[team_id].check_access_level_for_object(obj, required_level)
-        )
+    def denied_object_ids(
+        self,
+        resource: APIScopeObject,
+        objects: Iterable[tuple[str, int, Optional[int]]],
+        required_level: AccessControlLevel,
+    ) -> list[str]:
+        """Ids of the objects, given as (id, team_id, created_by_id), that this user lacks `required_level` on.
+
+        Each object is checked with its own team's rules, so an object from a sibling environment resolves correctly.
+        """
+        refs = [
+            ObjectAccessRef(resource=resource, id=object_id, team_id=team_id, created_by_id=created_by_id)
+            for object_id, team_id, created_by_id in objects
+        ]
+        access_controls = self.for_team_ids({ref.team_id for ref in refs})
+        return [
+            ref.id
+            for ref in refs
+            if ref.team_id not in access_controls
+            or not access_controls[ref.team_id].check_access_level_for_ref(ref, required_level)
+        ]
 
     def check_can_modify_access_levels_for_object(self, obj: Model) -> bool:
         """
