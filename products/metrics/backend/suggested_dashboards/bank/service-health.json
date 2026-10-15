@@ -78,15 +78,40 @@
                 "clauses": [
                     {
                         "name": "a",
+                        "metricName": "system.memory.usage",
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "system.memory.state",
+                                "op": "eq",
+                                "value": "used"
+                            }
+                        ],
                         "groupBy": [
                             {
                                 "key": "host.name"
                             }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.memory.usage",
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "system.memory.state",
+                                "op": "not_regex",
+                                "value": "slab_.*"
+                            }
                         ],
-                        "metricName": "app.system.memory.available.estimated",
-                        "aggregation": "min"
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
                     }
                 ],
+                "formula": "b - a",
                 "display": {
                     "type": "stat",
                     "unit": "By",
@@ -667,15 +692,40 @@
                 "clauses": [
                     {
                         "name": "a",
+                        "metricName": "system.memory.usage",
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "system.memory.state",
+                                "op": "eq",
+                                "value": "used"
+                            }
+                        ],
                         "groupBy": [
                             {
                                 "key": "host.name"
                             }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.memory.usage",
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "system.memory.state",
+                                "op": "not_regex",
+                                "value": "slab_.*"
+                            }
                         ],
-                        "metricName": "app.system.memory.available.estimated",
-                        "aggregation": "min"
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
                     }
                 ],
+                "formula": "b - a",
                 "display": {
                     "type": "line",
                     "unit": "By",
