@@ -396,31 +396,40 @@ _RESOLVE_INTENT_SQL = (
 # Today offers the reason right after the resolve, and the added reasons on the status stream arrive
 # well inside this window.
 HUMAN_RESOLVE_GRACE_HOURS = 24
+# A `reason_added` row with no reason is a note-only update. It names no actor, so without this
+# guard it reads as a PR-merge resolve and skips the grace window of the resolve it follows.
+_NOTE_ONLY_UPDATE_SQL = (
+    "coalesce(toString(properties.reason_added), '') = 'true'"
+    " AND coalesce(toString(properties.dismissal_reason), '') = ''"
+)
 # A transition that says the problem was real and is fixed: a resolve without a not-fixed reason by
 # the PR-merge webhook or with a reason, or a dismissal with a fixed reason. A human reason-less
-# resolve waits for its grace window instead (`_HUMAN_RESOLVE_FIXED_SQL`).
+# resolve waits for its grace window instead (`_HUMAN_RESOLVE_FIXED_TIMES_SQL`).
 _FIXED_TRANSITION_SQL = (
     "(toString(properties.status) = 'resolved' AND coalesce(toString(properties.dismissal_reason), '') NOT IN ("
     + _NOT_FIXED_RESOLUTION_REASONS_SQL
     + ") AND NOT ("
     + _HUMAN_REASONLESS_RESOLVE_SQL
+    + ") AND NOT ("
+    + _NOTE_ONLY_UPDATE_SQL
     + ")) OR (toString(properties.status) = 'suppressed' AND toString(properties.dismissal_reason) IN ("
     + _FIXED_DISMISSAL_REASONS_SQL
     + "))"
 )
 _LOW_VALUE_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in LOW_VALUE_DISMISSAL_REASONS)
-# A bucket's human reason-less resolve is fixed when its grace window closed before the snapshot with
-# no not-fixed reason added inside it. Every reason inside a closed window is already in the snapshot,
-# so a later reason cannot take the label back and the label stays monotonic.
-_HUMAN_RESOLVE_FIXED_SQL = f"""(
-        bucket_first_human_resolve_at IS NOT NULL
-        AND bucket_first_human_resolve_at + INTERVAL {HUMAN_RESOLVE_GRACE_HOURS} HOUR <= toDateTime({{snapshot_end}})
-        AND NOT arrayExists(
-            reason_at -> reason_at >= bucket_first_human_resolve_at
-                AND reason_at < bucket_first_human_resolve_at + INTERVAL {HUMAN_RESOLVE_GRACE_HOURS} HOUR,
-            not_fixed_reason_times
-        )
-    )"""
+# The bucket's human reason-less resolves that are fixed: the grace window closed before the snapshot
+# with no not-fixed reason added inside it. Each resolve is checked on its own, because a bucket can
+# hold a resolve, a reopen and a second resolve. Every reason inside a closed window is already in the
+# snapshot, so a later reason cannot take the label back and the label stays monotonic.
+_HUMAN_RESOLVE_FIXED_TIMES_SQL = f"""arrayFilter(
+            resolved_at -> resolved_at + INTERVAL {HUMAN_RESOLVE_GRACE_HOURS} HOUR <= toDateTime({{snapshot_end}})
+                AND NOT arrayExists(
+                    reason_at -> reason_at >= resolved_at
+                        AND reason_at < resolved_at + INTERVAL {HUMAN_RESOLVE_GRACE_HOURS} HOUR,
+                    not_fixed_reason_times
+                ),
+            bucket_human_resolve_times
+        )"""
 
 # The outcome a transition reaches, shared by the report-grain and user-grain status streams.
 _STATUS_OUTCOME_SQL = """multiIf(
@@ -536,15 +545,20 @@ SELECT
     -- with another reason cannot take the label back. A human reason-less resolve is dated from the
     -- resolve, not from the end of its grace window. The fixed head reads this column.
     countIf(
-        (bucket_fixed = 1 OR """
-    + _HUMAN_RESOLVE_FIXED_SQL
-    + """) AND event_team_id = latest_event_team_id
+        (bucket_fixed = 1 OR notEmpty("""
+    + _HUMAN_RESOLVE_FIXED_TIMES_SQL
+    + """)) AND event_team_id = latest_event_team_id
     ) AS fixed_count,
     minIf(
-        if("""
-    + _HUMAN_RESOLVE_FIXED_SQL
-    + """ AND (bucket_first_fixed_at IS NULL OR bucket_first_human_resolve_at < bucket_first_fixed_at),
-            bucket_first_human_resolve_at,
+        if(
+            notEmpty("""
+    + _HUMAN_RESOLVE_FIXED_TIMES_SQL
+    + """) AND (bucket_first_fixed_at IS NULL OR arrayMin("""
+    + _HUMAN_RESOLVE_FIXED_TIMES_SQL
+    + """) < bucket_first_fixed_at),
+            arrayMin("""
+    + _HUMAN_RESOLVE_FIXED_TIMES_SQL
+    + """),
             bucket_first_fixed_at
         ),
         event_team_id = latest_event_team_id
@@ -584,9 +598,9 @@ FROM (
         -- The not-fixed reasons added to this report, on every bucket row, so a human reason-less
         -- resolve can check its grace window. Partitioned by tenant, so a reason that names another
         -- team never takes a fixed label away.
-        groupArrayIf(
-            bucket_first_not_fixed_reason_at, bucket_first_not_fixed_reason_at IS NOT NULL
-        ) OVER (PARTITION BY report_id, event_team_id) AS not_fixed_reason_times
+        arrayFlatten(
+            groupArray(bucket_not_fixed_reason_times) OVER (PARTITION BY report_id, event_team_id)
+        ) AS not_fixed_reason_times
     FROM (
     SELECT
         min(events.timestamp) AS first_timestamp,
@@ -624,19 +638,18 @@ FROM (
         nullIf(minIf(events.timestamp, """
     + _RESOLVE_INTENT_SQL
     + """), fromUnixTimestamp(0)) AS bucket_first_resolve_intent_at,
-        nullIf(minIf(events.timestamp, """
+        groupArrayIf(events.timestamp, """
     + _HUMAN_REASONLESS_RESOLVE_SQL
-    + """), fromUnixTimestamp(0)) AS bucket_first_human_resolve_at,
-        nullIf(
-            minIf(
-                events.timestamp,
-                coalesce(toString(properties.reason_added), '') = 'true'
-                AND toString(properties.dismissal_reason) IN ("""
+    + """) AS bucket_human_resolve_times,
+        -- Only reasons added to a resolve: a reason added to a later dismissal says nothing about it.
+        groupArrayIf(
+            events.timestamp,
+            coalesce(toString(properties.reason_added), '') = 'true'
+            AND toString(properties.status) = 'resolved'
+            AND toString(properties.dismissal_reason) IN ("""
     + _NOT_FIXED_RESOLUTION_REASONS_SQL
     + """)
-            ),
-            fromUnixTimestamp(0)
-        ) AS bucket_first_not_fixed_reason_at,
+        ) AS bucket_not_fixed_reason_times,
         max("""
     + _FIXED_TRANSITION_SQL
     + """) AS bucket_fixed,

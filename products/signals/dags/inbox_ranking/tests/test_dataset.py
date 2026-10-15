@@ -916,6 +916,68 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         assert row["fixed_count"] == expected
         assert row["first_fixed_at"] == (resolved_at if expected else None)
 
+    @parameterized.expand(
+        [
+            (
+                "note_only_update_is_not_a_fixed_resolve",
+                [(2, "resolved", "resolved", None, True), (30, "resolved", "resolved", "analysis_wrong", True)],
+                0,
+                None,
+            ),
+            (
+                "dismissal_reason_does_not_block_a_resolve",
+                [
+                    (3, "resolved", "ready", None, False),
+                    (4, "ready", "suppressed", None, False),
+                    (5, "suppressed", "suppressed", "analysis_wrong", True),
+                ],
+                1,
+                0,
+            ),
+            (
+                "second_resolve_in_the_bucket_is_fixed",
+                [
+                    (1, "resolved", "resolved", "analysis_wrong", True),
+                    (2, "resolved", "ready", None, False),
+                    (4, "ready", "resolved", None, False),
+                ],
+                1,
+                4,
+            ),
+            (
+                "second_reason_in_the_bucket_blocks_it",
+                [
+                    (1, "resolved", "resolved", "analysis_wrong", True),
+                    (2, "resolved", "ready", None, False),
+                    (4, "ready", "resolved", None, False),
+                    (5, "resolved", "resolved", "wrong_repo", True),
+                ],
+                0,
+                None,
+            ),
+        ]
+    )
+    def test_human_resolve_grace_window_reads_every_event_in_a_bucket(self, _name, events, expected, fixed_minute):
+        # The resolves and reasons share ten-minute buckets, so a rule that keeps only a bucket's first
+        # resolve or first reason, or counts a note-only update as a resolve, gets these wrong.
+        resolved_at = SNAPSHOT_END - datetime.timedelta(hours=1)
+        self._transition(resolved_at, "ready", "resolved", actor_kind="user")
+        for minute, previous, status, reason, reason_added in events:
+            self._transition(
+                resolved_at + datetime.timedelta(minutes=minute),
+                previous,
+                status,
+                reason,
+                actor_kind=None if reason_added else "user",
+                reason_added=reason_added,
+            )
+
+        row = self._status_row(SNAPSHOT_END + datetime.timedelta(days=2))
+        assert row["fixed_count"] == expected
+        assert row["first_fixed_at"] == (
+            None if fixed_minute is None else resolved_at + datetime.timedelta(minutes=fixed_minute)
+        )
+
     def test_human_reasonless_resolve_fixed_label_only_grows_across_partitions(self):
         resolved_at = SNAPSHOT_END - datetime.timedelta(hours=6)
         self._transition(resolved_at, "ready", "resolved", actor_kind="agent")
