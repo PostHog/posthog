@@ -15,6 +15,7 @@ interface OpenDismissReportDialogParams {
     /** Whether the report has an implementation PR that is still open. Dismissing closes it, so the copy says so. */
     hasOpenPr?: boolean
     submitDataAttr?: string
+    onAfterClose?: () => void
     /** Show a digit keycap on each reason and let 1..9 pick it. On for triage mode, where the whole flow is keyboard-driven. */
     hotkeys?: boolean
     /** Preselect this reason. The context menu's "Something else…" opens the dialog with it set,
@@ -44,6 +45,7 @@ export function openDismissReportDialog({
     selectedCount,
     hasOpenPr = false,
     submitDataAttr,
+    onAfterClose,
     hotkeys = false,
     initialReason,
     copy,
@@ -69,6 +71,7 @@ export function openDismissReportDialog({
         'data-attr': submitDataAttr,
     }
     LemonDialog.openForm({
+        onAfterClose,
         title: copy?.title ?? title,
         description: copy?.description ?? description,
         maxWidth: '36rem',
