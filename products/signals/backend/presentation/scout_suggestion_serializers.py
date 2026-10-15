@@ -1,4 +1,17 @@
+from django.db import models
+
 from rest_framework import serializers
+
+
+class ScoutOrigin(models.TextChoices):
+    CANONICAL = "canonical", "canonical"
+    CUSTOM = "custom", "custom"
+
+
+class ScoutSuggestionConfidence(models.TextChoices):
+    LOW = "low", "low"
+    MEDIUM = "medium", "medium"
+    HIGH = "high", "high"
 
 
 class ScoutSuggestionProposedConfigSerializer(serializers.Serializer):
@@ -20,7 +33,7 @@ class ScoutSuggestionProposedConfigSerializer(serializers.Serializer):
 class ScoutSuggestionItemSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Stable id of this suggestion within the batch; use it to dismiss.")
     kind = serializers.ChoiceField(
-        choices=["canonical", "custom"],
+        choices=ScoutOrigin.choices,
         help_text="`canonical`: enable a PostHog-authored scout that exists but is off. `custom`: create a drafted scout.",
     )
     skill_name = serializers.CharField(
@@ -36,4 +49,6 @@ class ScoutSuggestionItemSerializer(serializers.Serializer):
     )
     proposed_config = ScoutSuggestionProposedConfigSerializer(help_text="Suggested schedule and emit posture.")
     gap = serializers.BooleanField(help_text="True when nothing in the current fleet covers this.")
-    confidence = serializers.ChoiceField(choices=["low", "medium", "high"], help_text="The producer's confidence.")
+    confidence = serializers.ChoiceField(
+        choices=ScoutSuggestionConfidence.choices, help_text="The producer's confidence."
+    )

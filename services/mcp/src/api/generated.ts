@@ -59702,45 +59702,6 @@ export namespace Schemas {
       working: ImpactWorking | null;
     }
 
-    export interface InboxSummaryPullRequest {
-      /** GitHub repository in owner/name format. */
-      repository: string;
-      /** GitHub pull request number. */
-      number: number;
-      /** URL of the GitHub pull request. */
-      url: string;
-    }
-
-    export interface InboxSummaryPerson {
-      /** Stable GitHub user ID. */
-      id: number;
-      /** Current GitHub login from the participant snapshot. */
-      login: string;
-    }
-
-    export interface InboxSummary {
-      /** Inclusive start of the rolling seven-day period. */
-      period_start: string;
-      /** Exclusive end of the rolling seven-day period. */
-      period_end: string;
-      /** Distinct verified Self-driving implementation PRs merged in the period. */
-      merged_pr_count: number;
-      /**
-         * Distinct human approvers and mergers, or null while incomplete.
-         * @nullable
-         */
-      people_count: number | null;
-      /** Whether every counted PR has a complete participant snapshot. */
-      participation_complete: boolean;
-      /** Verified Self-driving implementation PRs merged in the period. */
-      pull_requests: InboxSummaryPullRequest[];
-      /**
-         * Distinct human approvers and mergers, or null while participation is incomplete.
-         * @nullable
-         */
-      people: InboxSummaryPerson[] | null;
-    }
-
     /**
      * * `signals` - Signals
      * * `scouts` - Scouts
@@ -60116,6 +60077,45 @@ export namespace Schemas {
        * * `control` - Control
        * * `test` - Focused steps */
       variant: InboxOnboardingVariantEnum | null;
+    }
+
+    export interface InboxSummaryPullRequest {
+      /** GitHub repository in owner/name format. */
+      repository: string;
+      /** GitHub pull request number. */
+      number: number;
+      /** URL of the GitHub pull request. */
+      url: string;
+    }
+
+    export interface InboxSummaryPerson {
+      /** Stable GitHub user ID. */
+      id: number;
+      /** Current GitHub login from the participant snapshot. */
+      login: string;
+    }
+
+    export interface InboxSummary {
+      /** Inclusive start of the rolling seven-day period. */
+      period_start: string;
+      /** Exclusive end of the rolling seven-day period. */
+      period_end: string;
+      /** Distinct verified Self-driving implementation PRs merged in the period. */
+      merged_pr_count: number;
+      /**
+         * Distinct human approvers and mergers, or null while incomplete.
+         * @nullable
+         */
+      people_count: number | null;
+      /** Whether every counted PR has a complete participant snapshot. */
+      participation_complete: boolean;
+      /** Verified Self-driving implementation PRs merged in the period. */
+      pull_requests: InboxSummaryPullRequest[];
+      /**
+         * Distinct human approvers and mergers, or null while participation is incomplete.
+         * @nullable
+         */
+      people: InboxSummaryPerson[] | null;
     }
 
     /**

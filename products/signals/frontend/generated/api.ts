@@ -21,6 +21,9 @@ import type {
     FleetFindingsSummaryApi,
     ForgetRequestApi,
     ForgetResponseApi,
+    InboxOnboardingDraftApi,
+    InboxOnboardingExposureApi,
+    InboxOnboardingStateApi,
     InboxSummaryApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
@@ -227,6 +230,85 @@ export const signalsInboxSummaryList = async (projectId: string, options?: Reque
     return apiMutator<InboxSummaryApi>(getSignalsInboxSummaryListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsOnboardingListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/onboarding/`
+}
+
+export const signalsOnboardingList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<InboxOnboardingStateApi> => {
+    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsOnboardingCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/onboarding/`
+}
+
+export const signalsOnboardingCreate = async (
+    projectId: string,
+    inboxOnboardingDraftApi: InboxOnboardingDraftApi,
+    options?: RequestInit
+): Promise<InboxOnboardingStateApi> => {
+    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(inboxOnboardingDraftApi),
+    })
+}
+
+export const getSignalsOnboardingCompleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/onboarding/complete/`
+}
+
+export const signalsOnboardingCompleteCreate = async (
+    projectId: string,
+    inboxOnboardingDraftApi: InboxOnboardingDraftApi,
+    options?: RequestInit
+): Promise<InboxOnboardingStateApi> => {
+    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingCompleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(inboxOnboardingDraftApi),
+    })
+}
+
+export const getSignalsOnboardingExposeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/onboarding/expose/`
+}
+
+export const signalsOnboardingExposeCreate = async (
+    projectId: string,
+    inboxOnboardingExposureApi: InboxOnboardingExposureApi,
+    options?: RequestInit
+): Promise<InboxOnboardingStateApi> => {
+    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingExposeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(inboxOnboardingExposureApi),
+    })
+}
+
+export const getSignalsOnboardingReconcileCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/onboarding/reconcile/`
+}
+
+export const signalsOnboardingReconcileCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<InboxOnboardingStateApi> => {
+    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingReconcileCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -1923,7 +2005,7 @@ export const getSignalsScoutConfigSyncUrl = (projectId: string, params?: Signals
 }
 
 /**
- * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
+ * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately. With surface=onboarding, new configs stay disabled until explicitly activated.
  * @summary Sync scout configs
  */
 export const signalsScoutConfigSync = async (
