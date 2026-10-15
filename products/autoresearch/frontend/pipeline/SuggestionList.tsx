@@ -10,8 +10,6 @@ import {
     AutoresearchSuggestionPriorityEnumApi,
     AutoresearchSuggestionStatusEnumApi,
 } from '../generated/api.schemas'
-import { SectionCard } from './SectionCard'
-import { SuggestionForm } from './SuggestionForm'
 
 const SUGGESTION_STATUS: Record<
     AutoresearchSuggestionStatusEnumApi,
@@ -28,15 +26,12 @@ const SUGGESTION_PRIORITY: Record<AutoresearchSuggestionPriorityEnumApi, string>
     try_next: 'Try next',
 }
 
-export function SuggestionsTab(): JSX.Element {
+/** Past suggestions and the agent's response to each. */
+export function SuggestionList(): JSX.Element {
     const { suggestions, suggestionsLoading, suggestionsError } = useValues(autoresearchPipelineLogic)
     const { loadSuggestions } = useActions(autoresearchPipelineLogic)
     return (
-        <SectionCard
-            title="Steer the agent"
-            description="Inject a free-text hypothesis into the training loop. The agent reads queued suggestions at the start of each iteration batch and decides whether to act on, apply, or dismiss each one."
-        >
-            <SuggestionForm />
+        <>
             {suggestionsLoading ? (
                 <Spinner />
             ) : suggestionsError ? (
@@ -73,6 +68,6 @@ export function SuggestionsTab(): JSX.Element {
                     ))}
                 </div>
             )}
-        </SectionCard>
+        </>
     )
 }
