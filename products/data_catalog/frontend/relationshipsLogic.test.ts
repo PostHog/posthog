@@ -124,6 +124,25 @@ describe('relationshipsLogic', () => {
         expect(router.values.searchParams.propose_table).toBeUndefined()
     })
 
+    it('loads proposals with the linked table filter before pagination and clears it on general navigation', async () => {
+        await mountWith([], [])
+        ;(dataCatalogRelationshipProposalsList as jest.Mock).mockImplementation((_project, params) =>
+            Promise.resolve({ results: params?.table_name === 'events' ? [buildProposal({})] : [] })
+        )
+        await expectLogic(logic, () =>
+            router.actions.push('/data-catalog', { tab: 'relationships', table: 'events' })
+        ).toFinishAllListeners()
+        expect(dataCatalogRelationshipProposalsList).toHaveBeenLastCalledWith('1', { table_name: 'events' })
+        expect(logic.values.proposals).toHaveLength(1)
+        await expectLogic(logic, () => logic.actions.loadProposals()).toFinishAllListeners()
+        expect(dataCatalogRelationshipProposalsList).toHaveBeenLastCalledWith('1', { table_name: 'events' })
+        await expectLogic(logic, () =>
+            router.actions.push('/data-catalog', { tab: 'relationships' })
+        ).toFinishAllListeners()
+        expect(dataCatalogRelationshipProposalsList).toHaveBeenLastCalledWith('1', undefined)
+        expect(logic.values.proposals).toEqual([])
+    })
+
     it('loads only the lightweight badge count on mount, not the full proposal payloads', async () => {
         ;(dataCatalogRelationshipProposalsList as jest.Mock).mockResolvedValue({ results: [], count: 3 })
         ;(warehouseViewLinksList as jest.Mock).mockResolvedValue({ results: [] })

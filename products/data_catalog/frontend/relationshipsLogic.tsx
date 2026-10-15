@@ -233,8 +233,13 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
         proposals: [
             [] as DataCatalogRelationshipProposalApi[],
             {
-                loadProposals: async () => {
-                    const response = await dataCatalogRelationshipProposalsList(projectId())
+                loadProposals: async (_, breakpoint) => {
+                    const table = router.values.searchParams.table
+                    const response = await dataCatalogRelationshipProposalsList(
+                        projectId(),
+                        typeof table === 'string' ? { table_name: table } : undefined
+                    )
+                    breakpoint()
                     return response.results || []
                 },
             },
