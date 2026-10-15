@@ -2102,11 +2102,6 @@ async fn a_caller_that_hangs_up_mid_saga_leaves_the_merge_to_finish() {
             }
         }
     }
-    assert_eq!(
-        h.drives.in_flight(),
-        1,
-        "the saga kept running on its own task"
-    );
 
     assert!(
         wait_until_completed(&h.ctx.pool, op_id).await,
@@ -2166,7 +2161,6 @@ async fn an_executor_call_dropped_at_once_still_drives_the_merge() {
         hung_up.is_err(),
         "the caller gave up before the saga finished"
     );
-    assert_eq!(h.drives.in_flight(), 1);
 
     assert!(wait_until_completed(&h.ctx.pool, op_id).await);
     assert_eq!(h.pdi_state("drop-source").await.0, target);

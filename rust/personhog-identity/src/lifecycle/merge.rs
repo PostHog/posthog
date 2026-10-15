@@ -473,6 +473,11 @@ impl MergeOpExecutor {
                 engine
                     .execute(driver.as_ref(), op_id, team_id, &frozen)
                     .await
+                    .inspect_err(|err| {
+                        if matches!(err, SagaError::Db(_) | SagaError::CorruptState(_)) {
+                            tracing::error!(op_id = %op_id, error = %err, "MergePersons failed");
+                        }
+                    })
             })
             .await
             .map_err(|err| {
@@ -491,9 +496,6 @@ impl MergeOpExecutor {
                     return Status::unavailable(format!(
                         "another call is initializing op {op_id}; retry with the same op_id"
                     ));
-                }
-                if matches!(err, SagaError::Db(_) | SagaError::CorruptState(_)) {
-                    tracing::error!(op_id = %op_id, error = %err, "MergePersons failed");
                 }
                 Status::from(err)
             })
