@@ -639,6 +639,8 @@ SPECTACULAR_SETTINGS = {
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
+            # Workflow steps and workflow template steps both take a field named `type` with this set.
+            "HogFlowActionTypeEnum": "products.workflows.backend.models.hog_flow.hog_flow.SUPPORTED_ACTION_TYPES",
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.

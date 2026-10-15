@@ -1,22 +1,31 @@
-import dataclasses
+from collections.abc import Callable, Iterator
+from functools import partial
 from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
 from requests import Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.settings import SECUREFRAME_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.settings import (
+    SECUREFRAME_ENDPOINTS,
+    SecureframeEndpointConfig,
+)
 
 BASE_URLS = {
     "us": "https://api.secureframe.com",
@@ -28,9 +37,12 @@ PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
 
 
-@dataclasses.dataclass
+@frozen
 class SecureframeResumeConfig:
-    page: int
+    page: int = 1
+    # Fan-out endpoints only: the parent kind in progress and its fan-out state.
+    parent: Optional[str] = None
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _base_url(region: str) -> str:
@@ -130,6 +142,13 @@ class SecureframePaginator(PageNumberPaginator):
         super().update_state(response, rows)
 
 
+def _probe_paths(config: SecureframeEndpointConfig) -> list[str]:
+    # A fan-out child has no list of its own, so probe the parent lists that it reads.
+    if config.fanout_parents:
+        return [SECUREFRAME_ENDPOINTS[parent].path for parent in config.fanout_parents]
+    return [config.path]
+
+
 def _probe_endpoint(session: requests.Session, region: str, path: str) -> int:
     """Fetch a single row from an endpoint and return the HTTP status code."""
     params = {"page": 1, "per_page": 1}
@@ -148,7 +167,7 @@ def validate_credentials(api_key: str, api_secret: str, region: str, endpoint: s
     acceptable (users may only grant the scopes they intend to sync), so callers get both
     signals. Any other failure counts as unauthenticated.
     """
-    path = SECUREFRAME_ENDPOINTS[endpoint].path if endpoint else "/users"
+    path = _probe_paths(SECUREFRAME_ENDPOINTS[endpoint])[0] if endpoint else "/users"
     url = f"{_base_url(region)}{path}?{urlencode({'page': 1, 'per_page': 1})}"
     _ok, status = validate_via_probe(lambda: _make_session(api_key, api_secret), url, timeout=REQUEST_TIMEOUT_SECONDS)
 
@@ -167,20 +186,128 @@ def get_endpoint_permissions(api_key: str, api_secret: str, region: str, endpoin
         if config is None:
             permissions[endpoint] = None
             continue
-        try:
-            status = _probe_endpoint(session, region, config.path)
-        except Exception:
-            # A throttle, 5xx, or network blip is not a denial — report reachable.
-            permissions[endpoint] = None
-            continue
-        if status in (401, 403):
-            permissions[endpoint] = (
-                f"Your API key's role does not have permission to read {endpoint}. "
-                "Update the role's permissions in Secureframe, or deselect this table."
-            )
-        else:
-            permissions[endpoint] = None
+        permissions[endpoint] = None
+        for path in _probe_paths(config):
+            try:
+                status = _probe_endpoint(session, region, path)
+            except Exception:
+                # A throttle, 5xx, or network blip is not a denial — report reachable.
+                continue
+            if status in (401, 403):
+                permissions[endpoint] = (
+                    f"Your API key's role does not have permission to read {endpoint}. "
+                    "Update the role's permissions in Secureframe, or deselect this table."
+                )
+                break
     return permissions
+
+
+def _fanout_child_resource(
+    client_config: ClientConfig,
+    endpoint: str,
+    config: SecureframeEndpointConfig,
+    parent: str,
+    team_id: int,
+    job_id: str,
+    resume_hook: Callable[[Optional[dict[str, Any]]], None],
+    initial_state: Optional[dict[str, Any]],
+) -> Resource:
+    parent_path = SECUREFRAME_ENDPOINTS[parent].path
+    rest_config: RESTAPIConfig = {
+        "client": client_config,
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": parent,
+                "endpoint": {"path": parent_path, "params": {"per_page": PAGE_SIZE}},
+                "data_map": _map_row,
+            },
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": f"{parent_path}/{{parent_id}}{config.path}",
+                    "params": {"parent_id": {"type": "resolve", "resource": parent, "field": "id"}},
+                    # The per-asset list takes no page params and returns every row at once.
+                    "paginator": "single_page",
+                    # An asset deleted after the parent list was read has nothing left to sync.
+                    "response_actions": [{"status_code": 404, "action": "ignore"}],
+                },
+                "data_map": _map_row,
+            },
+        ],
+    }
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=resume_hook,
+        initial_paginator_state=initial_state,
+    )
+    return next(resource for resource in resources if resource.name == endpoint)
+
+
+def _iter_fanout_pages(
+    children: list[tuple[str, Resource]],
+    stage_parent: Callable[[str], None],
+) -> Iterator[list[dict[str, Any]]]:
+    for index, (parent, child) in enumerate(children):
+        if index > 0:
+            # Every row of the earlier parent kinds is already handed on, so a resume starts here.
+            stage_parent(parent)
+        yield from child
+
+
+def _fanout_source(
+    client_config: ClientConfig,
+    endpoint: str,
+    config: SecureframeEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[SecureframeResumeConfig],
+) -> SourceResponse:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    parents = config.fanout_parents
+    start = parents.index(resume.parent) if resume is not None and resume.parent in parents else 0
+
+    def stage_parent(parent: str, state: Optional[dict[str, Any]] = None) -> None:
+        resumable_source_manager.save_state(SecureframeResumeConfig(parent=parent, fanout_state=state))
+
+    children = [
+        (
+            parent,
+            _fanout_child_resource(
+                client_config,
+                endpoint,
+                config,
+                parent,
+                team_id,
+                job_id,
+                resume_hook=partial(stage_parent, parent),
+                initial_state=resume.fanout_state if resume is not None and index == start else None,
+            ),
+        )
+        for index, parent in enumerate(parents)
+        if index >= start
+    ]
+    # The wrapper hands each page on unchanged and holds no rows. As a `Resource` it keeps the
+    # framework's checkpoints and safe points.
+    resource = Resource(
+        partial(_iter_fanout_pages, children, stage_parent),
+        name=endpoint,
+        hints=children[0][1]._hints,
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=[config.primary_key],
+        partition_count=1 if config.partition_key else None,
+        partition_size=1 if config.partition_key else None,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+    )
 
 
 def secureframe_source(
@@ -193,15 +320,19 @@ def secureframe_source(
     resumable_source_manager: ResumableSourceManager[SecureframeResumeConfig],
 ) -> SourceResponse:
     config = SECUREFRAME_ENDPOINTS[endpoint]
+    client_config: ClientConfig = {
+        "base_url": _base_url(region),
+        # A capture=False, credential-redacting session (see _make_session); the auth header
+        # rides on it rather than the framework `auth` config.
+        "session": _make_session(api_key, api_secret),
+        "paginator": SecureframePaginator(base_page=1),
+    }
+
+    if config.fanout_parents:
+        return _fanout_source(client_config, endpoint, config, team_id, job_id, resumable_source_manager)
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": _base_url(region),
-            # A capture=False, credential-redacting session (see _make_session); the auth header
-            # rides on it rather than the framework `auth` config.
-            "session": _make_session(api_key, api_secret),
-            "paginator": SecureframePaginator(base_page=1),
-        },
+        "client": client_config,
         "resource_defaults": {},
         "resources": [
             {
