@@ -110,8 +110,9 @@ _WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com
 # The wildcard app policy and the admin policy report as v=2, through the default endpoint above. Reports
 # tagged v=3 came from a report-only shadow of the narrowed policy, so reusing 3 would mix the two in one query.
 NARROWED_APP_POLICY_REPORT_VERSION = "4"
-# Reports tagged v=5 come from a report-only policy that holds only img-src, without `https:`.
-IMG_SRC_SHADOW_REPORT_VERSION = "5"
+# Reports tagged v=7 come from a report-only policy that holds only img-src, without `https:` and with named
+# PostHog hosts. Reports tagged v=5 came from one that kept `https://*.posthog.com`, so reusing 5 would mix the two.
+IMG_SRC_SHADOW_REPORT_VERSION = "7"
 # Reports tagged v=6 come from a report-only policy that holds only style-src and font-src, with named PostHog hosts.
 STYLE_FONT_SHADOW_REPORT_VERSION = "6"
 
@@ -134,14 +135,25 @@ def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]
     return narrowed
 
 
-def img_src_shadow_policy(csp_parts: list[str]) -> list[str]:
-    """The app policy's img-src without its `https:` scheme source, to send as a report-only policy of its own.
+def app_bundle_origin() -> str:
+    js_url = urlsplit(settings.JS_URL)
+    return f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
 
-    `https:` admits an image from any host, so the named hosts beside it never decide a load. Without
-    it, each image from an unnamed host reports, which lists the hosts to name, and the images users
-    supply, before `https:` can go. The policy names no other directive, so it restricts nothing else.
+
+def img_src_shadow_policy(csp_parts: list[str]) -> list[str]:
+    """The app policy's img-src without its `https:` scheme source and with `https://*.posthog.com` swapped for
+    named PostHog hosts, to send as a report-only policy of its own.
+
+    `https:` admits an image from any host, and the wildcard admits one from any PostHog host, so the named hosts
+    beside them never decide a load. Without them, each image from an unnamed host reports, which lists the hosts
+    to name, and the images users supply, before either source can go. The policy names no other directive, so it
+    restricts nothing else.
     """
-    return [" ".join(s for s in part.split() if s != "https:") for part in csp_parts if part.split()[0] == "img-src"]
+    # The app's own images load from its bundle. posthog-js can load the toolbar on an app page, and the toolbar's
+    # files sit under /static/ on the posthog-js host.
+    named_hosts = [source for source in (app_bundle_origin(), f"{POSTHOG_JS_CLOUD_HOST}/static/") if source]
+    named = narrowed_app_policy(csp_parts, {"img-src": named_hosts})
+    return [" ".join(s for s in part.split() if s != "https:") for part in named if part.split()[0] == "img-src"]
 
 
 def style_font_shadow_policy(csp_parts: list[str], sources: list[str]) -> list[str]:
@@ -274,8 +286,7 @@ class CSPMiddleware:
             # cited in a task's Artifacts tab. It stays out of app_frame_ancestor_sources(), because
             # the canvas sandbox document on the user-content origin shares that list.
             frame_ancestors = f"frame-ancestors 'self' {' '.join(app_frame_ancestor_sources())}"
-            js_url = urlsplit(settings.JS_URL)
-            bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
+            bundle_origin = app_bundle_origin()
             if settings.DEBUG or settings.TEST:
                 # A devbox serves Vite from its Coder host, not localhost, so JS_URL names it.
                 resource_url = " ".join(dict.fromkeys(filter(None, ["http://localhost:8234", bundle_origin])))
@@ -356,8 +367,8 @@ class CSPMiddleware:
                 #
                 # The named origins below are the set we actually load images from, and `https:`
                 # makes them redundant. They stay so that removing `https:` is a one-line change
-                # rather than an archaeology exercise. On cloud, the v=5 report-only policy below
-                # reports each image that only `https:` admits.
+                # rather than an archaeology exercise. On cloud, the v=7 report-only policy below
+                # reports each image that only `https:` or the PostHog wildcard admits.
                 #
                 # Do not promote this to an enforced header as-is. An open `img-src` is an
                 # exfiltration channel: an attacker who injects markup but cannot run script still
