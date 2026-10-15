@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import AbstractContextManager
 from dataclasses import replace
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
@@ -23,11 +24,13 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
+from products.signals.backend.emission._prompts import TICKET_ACTIONABILITY_PROMPT
 from products.signals.backend.emission.pipeline import filter_actionable
 from products.signals.backend.emission.registry import SignalEmitterOutput
+from products.signals.backend.emission.steering import SourceSteering, apply_steering
 from products.signals.backend.system_one_decision import (
     JEV_TIMEOUT_SECONDS,
-    SHADOW_MODEL_FLAG,
+    SHADOW_PROMPT_FLAG,
     ModelMode,
     SignalsDecision,
     SignalsDecisionError,
@@ -38,11 +41,20 @@ from products.signals.backend.system_one_decision import (
 from products.signals.backend.system_one_prompts import (
     DEFAULT_SYSTEM_ONE_MODEL,
     JEEVES_MODEL,
-    JEVK_MODEL,
     SystemOnePrompt,
     bundled_prompt,
 )
-from products.signals.backend.temporal.safety_filter import SafetyFilterJudgeResponse, safety_filter
+from products.signals.backend.temporal.report_safety_judge import (
+    REPORT_SAFETY_SYSTEM_ONE_PROMPT,
+    SafetyJudgeResponse,
+    judge_report_safety,
+)
+from products.signals.backend.temporal.safety_filter import (
+    SIGNAL_SAFETY_SYSTEM_ONE_PROMPT,
+    SafetyFilterJudgeResponse,
+    safety_filter,
+)
+from products.signals.backend.temporal.types import SignalData
 
 
 @pytest.fixture(autouse=True)
@@ -200,7 +212,7 @@ async def test_shadow_disagreement_keeps_primary_result_and_records_usage() -> N
     assert properties["system_one_requested_model"] == JEEVES_MODEL
     assert properties["system_one_model"] == JEEVES_MODEL
     assert properties["system_one_prompt_source"] == "bundled"
-    assert properties["system_one_model_experiment_status"] == "not_enrolled"
+    assert properties["system_one_prompt_experiment_status"] == "not_enrolled"
     assert properties["system_one_estimated_cost_usd"] is None
     assert decide.call_count == 1
     assert decide.call_args.args[0].model == JEEVES_MODEL
@@ -214,16 +226,16 @@ async def test_shadow_disagreement_keeps_primary_result_and_records_usage() -> N
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stage", ["actionability", "signal_safety", "report_safety"])
-@pytest.mark.parametrize("variant", ["jevk", "jeeves"])
-async def test_shadow_model_split_calls_one_model_and_keeps_sonnet_deciding(stage: str, variant: str) -> None:
+@pytest.mark.parametrize("variant", ["control", "affirmative"])
+async def test_shadow_wording_split_calls_one_model_and_keeps_sonnet_deciding(stage: str, variant: str) -> None:
     prompt = replace(
         bundled_prompt("signals-actionability-issue", "policy", "question", 0.9),
-        model=JEVK_MODEL,
+        model=JEEVES_MODEL,
         source="managed",
         version=2,
     )
-    model = JEVK_MODEL if variant == "jevk" else JEEVES_MODEL
-    selected = replace(prompt, model=model, version=2 if variant == "jevk" else 3)
+    model = JEEVES_MODEL
+    selected = replace(prompt, policy="candidate policy", question="candidate question", model=model, version=3)
     result = DecisionResult(model=model, answers={"actionable": NoulAnswer(probability=0.99)}, input_tokens=100)
     if stage != "actionability":
         result = DecisionResult(
@@ -246,7 +258,7 @@ async def test_shadow_model_split_calls_one_model_and_keeps_sonnet_deciding(stag
         patch(
             "products.signals.backend.system_one_decision.posthoganalytics.evaluate_flags", return_value=flags
         ) as evaluate,
-        patch("products.signals.backend.system_one_decision.model_experiment_prompt", return_value=selected),
+        patch("products.signals.backend.system_one_decision.wording_experiment_prompt", return_value=selected),
         patch("products.signals.backend.system_one_decision.posthoganalytics.capture") as capture,
         patch(
             "products.signals.backend.system_one_decision.decision_api.decide_when_available", return_value=result
@@ -258,20 +270,22 @@ async def test_shadow_model_split_calls_one_model_and_keeps_sonnet_deciding(stag
     assert decide.call_args.args[0].model == model
     properties = capture.call_args.kwargs["properties"]
     assert properties["system_one_deciding_provider"] == "traditional"
-    assert properties["system_one_model_experiment_variant"] == variant
-    assert properties["system_one_model_experiment_status"] == "assigned"
+    assert properties["system_one_prompt_experiment_variant"] == variant
+    assert properties["system_one_prompt_experiment_status"] == "assigned"
+    question = "actionable" if stage == "actionability" else "safe"
+    assert decide.call_args.args[0].questions[question].instructions == selected.question
     assert properties["system_one_model"] == model
     assert properties["disagreement"] is True
     assert evaluate.call_args.args == (properties["signals_decision_id"],)
-    flags.get_flag.assert_called_once_with(SHADOW_MODEL_FLAG)
+    flags.get_flag.assert_called_once_with(SHADOW_PROMPT_FLAG)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("outcome", ["disabled", "invalid_payload", "prompt_unavailable", "flag_error"])
-async def test_unavailable_shadow_experiment_falls_back_to_one_jevk_call(outcome: str) -> None:
+async def test_unavailable_shadow_experiment_falls_back_to_one_jeeves_call(outcome: str) -> None:
     prompt = replace(
         bundled_prompt("signals-actionability-issue", "policy", "question", 0.9),
-        model=JEVK_MODEL,
+        model=JEEVES_MODEL,
         source="managed",
         version=2,
     )
@@ -290,7 +304,7 @@ async def test_unavailable_shadow_experiment_falls_back_to_one_jevk_call(outcome
             side_effect=RuntimeError("secret") if outcome == "flag_error" else None,
             return_value=flags,
         ),
-        patch("products.signals.backend.system_one_decision.model_experiment_prompt", return_value=None),
+        patch("products.signals.backend.system_one_decision.wording_experiment_prompt", return_value=None),
         patch("products.signals.backend.system_one_decision.posthoganalytics.capture") as capture,
         patch(
             "products.signals.backend.system_one_decision.decision_api.decide_when_available",
@@ -299,8 +313,106 @@ async def test_unavailable_shadow_experiment_falls_back_to_one_jevk_call(outcome
     ):
         assert await _run_actionability(prompt=prompt, traditional=AsyncMock(return_value=False)) is False
     assert decide.call_count == 1
-    assert decide.call_args.args[0].model == JEVK_MODEL
-    assert capture.call_args.kwargs["properties"]["system_one_model_experiment_status"] != "assigned"
+    assert decide.call_args.args[0].model == JEEVES_MODEL
+    assert capture.call_args.kwargs["properties"]["system_one_prompt_experiment_status"] != "assigned"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stage,oversized",
+    [("actionability", False), ("signal_safety", False), ("report_safety", False), ("report_safety", True)],
+)
+async def test_wording_trial_changes_only_the_single_jeeves_input(stage: str, oversized: bool) -> None:
+    modules = {
+        "actionability": "products.signals.backend.emission.pipeline",
+        "signal_safety": "products.signals.backend.temporal.safety_filter",
+        "report_safety": "products.signals.backend.temporal.report_safety_judge",
+    }
+    baseline = (
+        bundled_prompt("signals-actionability-ticket", TICKET_ACTIONABILITY_PROMPT, "question", 0.5)
+        if stage == "actionability"
+        else SIGNAL_SAFETY_SYSTEM_ONE_PROMPT
+        if stage == "signal_safety"
+        else REPORT_SAFETY_SYSTEM_ONE_PROMPT
+    )
+    control = replace(baseline, source="managed", version=2)
+    candidate = replace(control, policy=baseline.policy + "\nTrial wording.", question="Trial question?", version=3)
+    if oversized:
+        candidate = replace(candidate, policy=candidate.policy + "x" * 8192)
+    flags = MagicMock()
+    flags.get_flag.return_value = "affirmative"
+    flags.get_flag_payload.return_value = {"prompt_versions": {baseline.name: 3}}
+    response = DecisionResult(
+        model=JEEVES_MODEL,
+        answers={
+            "actionable" if stage == "actionability" else "safe": NoulAnswer(probability=0.99),
+            "category": ChoiceAnswer(choice="none", confidence=1.0, probabilities={"none": 1.0}),
+        },
+        input_tokens=100,
+    )
+    description = "The settings button crashes when saving a new theme."
+    sonnet = AsyncMock(
+        return_value=SafetyFilterJudgeResponse(
+            safe=False, threat_type="instruction_override", explanation="baseline verdict"
+        )
+        if stage == "signal_safety"
+        else SafetyJudgeResponse(choice=False, explanation="baseline verdict")
+    )
+    client = MagicMock()
+    client.messages.create = AsyncMock(return_value=MagicMock(content=[MagicMock(type="text", text="NOT_ACTIONABLE")]))
+    with (
+        patch(f"{modules[stage]}.current_prompt", return_value=control),
+        patch("products.signals.backend.system_one_decision.wording_experiment_prompt", return_value=candidate),
+        patch("products.signals.backend.system_one_decision.posthoganalytics.evaluate_flags", return_value=flags),
+        patch(
+            "products.signals.backend.system_one_decision.posthoganalytics.get_feature_flag",
+            return_value="system-one-shadow",
+        ),
+        patch("products.signals.backend.system_one_decision.posthoganalytics.capture") as capture,
+        patch(
+            "products.signals.backend.system_one_decision.decision_api.decide_when_available", return_value=response
+        ) as decide,
+        patch("products.signals.backend.emission.pipeline.build_async_anthropic_client", return_value=client),
+        patch("products.signals.backend.temporal.safety_filter.call_llm", new=sonnet),
+        patch("products.signals.backend.temporal.report_safety_judge.call_llm", new=sonnet),
+    ):
+        if stage == "actionability":
+            steering = SourceSteering(text="Keep theme bugs {including defaults}.")
+            output = SignalEmitterOutput("conversations", "ticket", "example-1", description, 1.0, {})
+            assert await filter_actionable(MagicMock(id=7), [output], baseline.policy, {}, steering=steering) == []
+            client.messages.create.assert_awaited_once()
+            baseline_input = client.messages.create.call_args.kwargs["messages"][0]["content"]
+            assert baseline_input == apply_steering(baseline.policy, steering).format(description=description)
+            assert decide.call_args.args[0].state["policy_and_record"] == apply_steering(
+                candidate.policy, steering
+            ).format(description=description)
+        elif stage == "signal_safety":
+            assert not (await safety_filter(7, description)).safe
+        else:
+            signal = SignalData(
+                signal_id="example-1",
+                content=description,
+                source_product="conversations",
+                source_type="ticket",
+                source_id="example-1",
+                weight=1.0,
+                timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+            assert not (await judge_report_safety(7, [signal])).choice
+        if stage != "actionability":
+            sonnet.assert_awaited_once()
+            assert sonnet.call_args.kwargs["system_prompt"] == baseline.policy
+            assert sonnet.call_args.kwargs["properties"]["system_one_prompt_source"] == "bundled"
+            if oversized:
+                decide.assert_not_called()
+                assert capture.call_args.kwargs["properties"]["system_one_status"] == "SignalsDecisionInputTooLarge"
+                return
+            assert decide.call_args.args[0].state["policy"] == candidate.policy
+        decide.assert_called_once()
+        question = "actionable" if stage == "actionability" else "safe"
+        assert decide.call_args.args[0].questions[question].instructions == candidate.question
+        assert decide.call_args.args[0].model == JEEVES_MODEL
+        assert capture.call_args.kwargs["properties"]["$ai_prompt_version"] == "3"
 
 
 @pytest.mark.asyncio

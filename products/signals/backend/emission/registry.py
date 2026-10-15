@@ -135,6 +135,10 @@ def get_signal_config(source_type: str, schema_name: str) -> SignalSourceTableCo
     return _SIGNAL_TABLE_CONFIGS.get(_registry_key(source_type, schema_name))
 
 
+def get_signal_source_configs() -> list[SignalSourceTableConfig]:
+    return list(_SIGNAL_TABLE_CONFIGS.values())
+
+
 def is_signal_emission_registered(source_type: str, schema_name: str) -> bool:
     return _registry_key(source_type, schema_name) in _SIGNAL_TABLE_CONFIGS
 

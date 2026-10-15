@@ -1,10 +1,11 @@
+import json
 import math
 import random
 import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from time import perf_counter
-from typing import TYPE_CHECKING, Generic, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Generic, Literal, TypeVar
 from uuid import uuid4
 
 from django.conf import settings
@@ -31,9 +32,9 @@ from products.ml_inference.backend.facade.contracts import (
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.signals.backend.system_one_prompts import (
     JEEVES_MODEL,
-    JEVK_MODEL,
+    REPORT_STATE_MAX_BYTES,
     SystemOnePrompt,
-    model_experiment_prompt,
+    wording_experiment_prompt,
 )
 
 if TYPE_CHECKING:
@@ -55,9 +56,8 @@ JEV_SHADOW_ADMISSION_TIMEOUT_SECONDS = 0.5
 JEV_REDIS_TIMEOUT_SECONDS = 0.1
 JEV_BUDGET = Budget(burst=2, per_hour=3600)
 JEV_TEAM_BUDGET = Budget(burst=1, per_hour=1800)
-SHADOW_MODEL_FLAG = "signals-system-one-shadow-model"
-SHADOW_MODEL_FLAG_TIMEOUT_SECONDS = 1.0
-SHADOW_MODELS = {"jevk": JEVK_MODEL, "jeeves": JEEVES_MODEL}
+SHADOW_PROMPT_FLAG = "signals-system-one-shadow-prompt"
+SHADOW_PROMPT_FLAG_TIMEOUT_SECONDS = 1.0
 
 SAFETY_CATEGORIES = {
     "none": "No matching safety category",
@@ -115,6 +115,10 @@ class SignalsDecisionError(RuntimeError):
     pass
 
 
+class SignalsDecisionInputTooLarge(SignalsDecisionError):
+    pass
+
+
 class _JevAdmissionError(SignalsDecisionError):
     def __init__(self, status: Literal["skipped_overload", "admission_unavailable", "admission_timeout"]) -> None:
         self.status = status
@@ -131,43 +135,42 @@ class SignalsDecision:
 
 
 @frozen
-class _ShadowModelExperiment:
+class _ShadowPromptExperiment:
     prompt: SystemOnePrompt
-    variant: Literal["jevk", "jeeves"] | None = None
+    variant: str | None = None
     status: str = "not_enrolled"
     flags: "FeatureFlagEvaluations | None" = None
 
 
-async def _shadow_model_experiment(team_id: int, trace_id: str, prompt: SystemOnePrompt) -> _ShadowModelExperiment:
-    if prompt.source != "managed" or prompt.model != JEVK_MODEL:
-        return _ShadowModelExperiment(prompt=prompt)
+async def _shadow_prompt_experiment(team_id: int, trace_id: str, prompt: SystemOnePrompt) -> _ShadowPromptExperiment:
+    if prompt.source != "managed" or prompt.model != JEEVES_MODEL:
+        return _ShadowPromptExperiment(prompt=prompt)
     try:
-        async with asyncio.timeout(SHADOW_MODEL_FLAG_TIMEOUT_SECONDS):
+        async with asyncio.timeout(SHADOW_PROMPT_FLAG_TIMEOUT_SECONDS):
             flags = await asyncio.to_thread(
                 posthoganalytics.evaluate_flags,
                 trace_id,
                 groups={"project": str(team_id)},
                 group_properties={"project": {"id": team_id}},
-                flag_keys=[SHADOW_MODEL_FLAG],
+                flag_keys=[SHADOW_PROMPT_FLAG],
             )
-        variant = flags.get_flag(SHADOW_MODEL_FLAG)
-        if not isinstance(variant, str) or variant not in SHADOW_MODELS:
-            return _ShadowModelExperiment(prompt=prompt, flags=flags)
-        variant = cast(Literal["jevk", "jeeves"], variant)
-        payload = flags.get_flag_payload(SHADOW_MODEL_FLAG)
+        variant = flags.get_flag(SHADOW_PROMPT_FLAG)
+        if not isinstance(variant, str) or not variant:
+            return _ShadowPromptExperiment(prompt=prompt, flags=flags)
+        payload = flags.get_flag_payload(SHADOW_PROMPT_FLAG)
         versions = payload.get("prompt_versions") if isinstance(payload, dict) else None
         version = versions.get(prompt.name) if isinstance(versions, dict) else None
         if isinstance(version, bool) or not isinstance(version, int) or version < 1:
-            return _ShadowModelExperiment(prompt=prompt, variant=variant, status="invalid_payload", flags=flags)
-        candidate = model_experiment_prompt(prompt, version, SHADOW_MODELS[variant])
+            return _ShadowPromptExperiment(prompt=prompt, variant=variant, status="invalid_payload", flags=flags)
+        candidate = wording_experiment_prompt(prompt, version)
         if candidate is None:
-            return _ShadowModelExperiment(
+            return _ShadowPromptExperiment(
                 prompt=prompt, variant=variant, status="prompt_unavailable_or_mismatched", flags=flags
             )
-        return _ShadowModelExperiment(prompt=candidate, variant=variant, status="assigned", flags=flags)
+        return _ShadowPromptExperiment(prompt=candidate, variant=variant, status="assigned", flags=flags)
     except Exception as error:
-        logger.warning("Shadow model flag check failed", stage="model_selection", error_type=type(error).__name__)
-        return _ShadowModelExperiment(prompt=prompt, status=type(error).__name__)
+        logger.warning("Shadow prompt flag check failed", stage="prompt_selection", error_type=type(error).__name__)
+        return _ShadowPromptExperiment(prompt=prompt, status=type(error).__name__)
 
 
 async def model_mode(team_id: int) -> ModelMode:
@@ -229,6 +232,8 @@ async def _query(
     source_product: str | None,
     mode: ModelMode,
 ) -> SignalsDecision:
+    if stage == "report_safety" and len(json.dumps(state, ensure_ascii=False).encode()) > REPORT_STATE_MAX_BYTES:
+        raise SignalsDecisionInputTooLarge("Report safety input exceeds the model's context budget")
     await _admit_jev(team_id, stage, mode)
     question_name = "actionable" if stage == "actionability" else "safe"
     questions = {
@@ -305,6 +310,7 @@ async def run_model_decision(
     traditional: Callable[[str | None], Awaitable[T]],
     verdict: Callable[[T], bool],
     system_one_result: Callable[[bool, str | None], T],
+    build_state: Callable[[SystemOnePrompt], dict[str, JsonValue]] | None = None,
     traditional_category: Callable[[T], str | None] | None = None,
     mode_override: ModelMode | None = None,
     on_deciding_provider: Callable[[str], None] | None = None,
@@ -316,7 +322,7 @@ async def run_model_decision(
         return await traditional(None)
 
     trace_id = str(uuid4())
-    experiment = _ShadowModelExperiment(prompt=prompt)
+    experiment = _ShadowPromptExperiment(prompt=prompt)
 
     async def run_traditional() -> _SignalsModelCallResult[T]:
         started = perf_counter()
@@ -334,9 +340,10 @@ async def run_model_decision(
         started = perf_counter()
         try:
             if mode == "system-one-shadow":
-                experiment = await _shadow_model_experiment(team_id, trace_id, prompt)
+                experiment = await _shadow_prompt_experiment(team_id, trace_id, prompt)
                 prompt = experiment.prompt
-            result = await _query(team_id, stage, state, prompt, trace_id, source_id, source_product, mode)
+            selected_state = build_state(prompt) if build_state is not None else state
+            result = await _query(team_id, stage, selected_state, prompt, trace_id, source_id, source_product, mode)
             return _SignalsModelCallResult(value=result, error=None, latency_seconds=perf_counter() - started)
         except _JevAdmissionError as error:
             _ADMISSIONS.labels(stage, error.status).inc()
@@ -437,8 +444,8 @@ async def run_model_decision(
             "$ai_prompt_name": prompt.name,
             "$ai_prompt_version": str(prompt.version) if prompt.version is not None else None,
             "system_one_prompt_source": prompt.source,
-            "system_one_model_experiment_variant": experiment.variant,
-            "system_one_model_experiment_status": experiment.status,
+            "system_one_prompt_experiment_variant": experiment.variant,
+            "system_one_prompt_experiment_status": experiment.status,
             "system_one_requested_model": prompt.model,
         }
         if system_one is not None:

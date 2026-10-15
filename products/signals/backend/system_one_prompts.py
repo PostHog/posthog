@@ -1,20 +1,22 @@
-import json
 import math
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
 
+from django.conf import settings
+
 import structlog
-import posthoganalytics
 from posthoganalytics.ai.prompts import PromptResult, Prompts
 
 from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
 
-PROMPT_LABEL = "production"
+# A separate label prevents activation from selecting older model/threshold settings.
+PROMPT_LABEL = "signals-production"
 PROMPT_REFRESH_SECONDS = 60
+REPORT_STATE_MAX_BYTES = 6 * 1024
 JEVK_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 JEEVES_MODEL = "posthog/hogference/jeeves-0.1"
 DEFAULT_SYSTEM_ONE_MODEL = JEEVES_MODEL
@@ -94,11 +96,7 @@ def _parse_prompt(result: PromptResult, fallback: SystemOnePrompt) -> SystemOneP
         or SAFETY_REDACTION_INSTRUCTION not in policy
     ):
         return None
-    if fallback.name == "signals-report-safety-system-one" and len(
-        json.dumps(policy, ensure_ascii=False).encode()
-    ) > len(json.dumps(fallback.policy, ensure_ascii=False).encode()):
-        return None
-    if not isinstance(result.version, int) or result.version < 1:
+    if isinstance(result.version, bool) or not isinstance(result.version, int) or result.version < 1:
         return None
     return SystemOnePrompt(
         name=fallback.name,
@@ -112,9 +110,13 @@ def _parse_prompt(result: PromptResult, fallback: SystemOnePrompt) -> SystemOneP
 
 
 def fetch_prompt(fallback: SystemOnePrompt, *, version: int | None = None) -> SystemOnePrompt | None:
-    if not posthoganalytics.personal_api_key:
+    if not settings.SIGNALS_PROMPT_PERSONAL_API_KEY or not settings.SIGNALS_PROMPT_PROJECT_API_KEY:
         return None
-    result = Prompts(posthoganalytics, capture_errors=True).get(
+    result = Prompts(
+        personal_api_key=settings.SIGNALS_PROMPT_PERSONAL_API_KEY,
+        project_api_key=settings.SIGNALS_PROMPT_PROJECT_API_KEY,
+        host=settings.SIGNALS_PROMPT_HOST,
+    ).get(
         fallback.name,
         with_metadata=True,
         label=PROMPT_LABEL if version is None else None,
@@ -122,6 +124,8 @@ def fetch_prompt(fallback: SystemOnePrompt, *, version: int | None = None) -> Sy
         fallback=fallback.policy,
     )
     prompt = _parse_prompt(result, fallback)
+    if prompt is not None and prompt.model != JEEVES_MODEL:
+        prompt = None
     if prompt is not None and version is not None and prompt.version != version:
         prompt = None
     if prompt is None:
@@ -174,18 +178,11 @@ def current_prompt(fallback: SystemOnePrompt, *, version: int | None = None) -> 
     return _CACHE.current(fallback, version=version)
 
 
-def model_experiment_prompt(primary: SystemOnePrompt, version: int, model: str) -> SystemOnePrompt | None:
-    if primary.source == "managed" and primary.version == version and primary.model == model:
+def wording_experiment_prompt(primary: SystemOnePrompt, version: int) -> SystemOnePrompt | None:
+    if primary.source == "managed" and primary.version == version and primary.model == JEEVES_MODEL:
         return primary
     fallback = bundled_prompt(primary.name, primary.policy, primary.question, primary.threshold)
     candidate = current_prompt(fallback, version=version)
-    if (
-        candidate.source != "managed"
-        or candidate.version != version
-        or candidate.model != model
-        or candidate.policy != primary.policy
-        or candidate.question != primary.question
-        or candidate.threshold != primary.threshold
-    ):
+    if candidate.source != "managed" or candidate.version != version or candidate.model != JEEVES_MODEL:
         return None
     return candidate

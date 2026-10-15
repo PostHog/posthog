@@ -90,12 +90,13 @@ async def test_safety_filter_keeps_forged_delimiters_inside_the_block() -> None:
 
 
 @pytest.mark.asyncio
-async def test_safe_verdict_cache_preserves_repeated_signals_across_dates() -> None:
+@pytest.mark.parametrize("mode", ["system-one-only", "system-one-shadow"])
+async def test_safe_verdict_cache_preserves_repeated_signals_across_dates(mode: str) -> None:
     redis = FakeAsyncRedis()
     judge = AsyncMock(return_value=SafetyFilterJudgeResponse(safe=True))
     with (
         patch(f"{MODULE_PATH}.get_async_client", return_value=redis),
-        patch(f"{MODULE_PATH}.model_mode", new=AsyncMock(return_value="system-one-shadow")),
+        patch(f"{MODULE_PATH}.model_mode", new=AsyncMock(return_value=mode)),
         patch(f"{MODULE_PATH}.run_model_decision", new=judge),
         patch(f"{MODULE_PATH}.metrics.increment_safety_cache_lookup") as cache_lookup,
     ):
@@ -106,15 +107,16 @@ async def test_safe_verdict_cache_preserves_repeated_signals_across_dates() -> N
                 )
             )
             keys = await redis.keys("signals:safety:safe:v1:7:*")
-            assert len(keys) == 1
-            assert await redis.ttl(keys[0]) == 24 * 60 * 60
+            assert len(keys) == (0 if mode == "system-one-shadow" else 1)
+            if keys:
+                assert await redis.ttl(keys[0]) == 24 * 60 * 60
         with time_machine.travel("2026-09-11 09:00:00+00:00", tick=False):
             second = await safety_filter_activity(
                 SafetyFilterInput(
                     team_id=7, description="A sample query is slow", source_product="pganalyze", source_id="issue-2"
                 )
             )
-            judge.assert_awaited_once()
+            assert judge.await_count == (2 if mode == "system-one-shadow" else 1)
         with time_machine.travel("2026-09-11 11:00:00+00:00", tick=False):
             third = await safety_filter_activity(
                 SafetyFilterInput(
@@ -123,8 +125,10 @@ async def test_safe_verdict_cache_preserves_repeated_signals_across_dates() -> N
             )
 
     assert first.safe and second.safe and third.safe
-    assert judge.await_count == 2
-    assert cache_lookup.call_args_list == [call("miss"), call("hit"), call("miss")]
+    assert judge.await_count == (3 if mode == "system-one-shadow" else 2)
+    assert cache_lookup.call_args_list == (
+        [] if mode == "system-one-shadow" else [call("miss"), call("hit"), call("miss")]
+    )
 
 
 @pytest.mark.asyncio
@@ -135,7 +139,7 @@ async def test_safe_verdict_cache_is_invalidated_by_a_new_managed_prompt_version
     second = replace(first, version=2, threshold=0.85)
     with (
         patch(f"{MODULE_PATH}.get_async_client", return_value=redis),
-        patch(f"{MODULE_PATH}.model_mode", new=AsyncMock(return_value="system-one-shadow")),
+        patch(f"{MODULE_PATH}.model_mode", new=AsyncMock(return_value="system-one-only")),
         patch(f"{MODULE_PATH}.current_prompt", side_effect=[first, second]),
         patch(f"{MODULE_PATH}.run_model_decision", new=judge),
     ):
@@ -234,7 +238,7 @@ async def test_redis_failure_still_runs_safety_judge() -> None:
     judge = AsyncMock(return_value=SafetyFilterJudgeResponse(safe=True))
     with (
         patch(f"{MODULE_PATH}.get_async_client", return_value=redis),
-        patch(f"{MODULE_PATH}.model_mode", new=AsyncMock(return_value="system-one-shadow")),
+        patch(f"{MODULE_PATH}.model_mode", new=AsyncMock(return_value="system-one-only")),
         patch(f"{MODULE_PATH}.run_model_decision", new=judge),
         patch(f"{MODULE_PATH}.metrics.increment_safety_cache_lookup") as cache_lookup,
         patch(f"{MODULE_PATH}.metrics.increment_safety_cache_write_error") as cache_write_error,
