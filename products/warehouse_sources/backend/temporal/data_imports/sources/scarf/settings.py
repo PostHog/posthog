@@ -8,6 +8,8 @@ LIST_PAGE_SIZE = 100
 DEFAULT_BACKFILL_DAYS = 31
 REQUEST_TIMEOUT = (10, 120)
 MAX_BACKFILL_DAYS = 3650
+# A day is handed over whole, so one export must fit in a worker's memory as an Arrow table.
+MAX_EXPORT_BYTES = 1024 * 1024 * 1024
 
 
 @frozen

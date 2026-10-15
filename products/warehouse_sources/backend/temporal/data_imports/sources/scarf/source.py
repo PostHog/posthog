@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scarf import ScarfSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.scarf.scarf import (
     BACKFILL_MESSAGE,
+    EXPORT_TOO_LARGE_MESSAGE,
     INVALID_TOKEN_MESSAGE,
     OWNER_MESSAGE,
     PLAN_MESSAGE,
@@ -115,6 +116,7 @@ Copy your API token from your [Scarf account settings](https://app.scarf.sh/acco
             "402 Client Error": RUNS_MESSAGE,
             "403 Client Error": PLAN_MESSAGE,
             "404 Client Error": OWNER_MESSAGE,
+            EXPORT_TOO_LARGE_MESSAGE: EXPORT_TOO_LARGE_MESSAGE,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.scarf.sett
     INTEGER_COLUMNS,
     LIST_PAGE_SIZE,
     MAX_BACKFILL_DAYS,
+    MAX_EXPORT_BYTES,
     REQUEST_TIMEOUT,
     TIMESTAMP_COLUMNS,
     ScarfEndpointConfig,
@@ -41,6 +42,9 @@ PLAN_MESSAGE = "Scarf refused the export. Exports need a Scarf Basic or Premium 
 RUNS_MESSAGE = "Your Scarf organization has no export runs left. Add runs in Scarf, then resync."
 OWNER_FORMAT_MESSAGE = "Enter the Scarf user or organization name only, without a URL or slashes."
 BACKFILL_MESSAGE = f"Enter between 0 and {MAX_BACKFILL_DAYS} days of event history."
+EXPORT_TOO_LARGE_MESSAGE = (
+    "One day of Scarf events is larger than PostHog can import in one piece. Contact PostHog support."
+)
 
 
 @frozen
@@ -126,6 +130,8 @@ def _read_export(session: Session, url: str, params: dict[str, str]) -> pa.Table
         response.raise_for_status()
         with tempfile.TemporaryFile() as spool:
             for chunk in response.iter_content(chunk_size=1 << 20):
+                if spool.tell() + len(chunk) > MAX_EXPORT_BYTES:
+                    raise ValueError(EXPORT_TOO_LARGE_MESSAGE)
                 spool.write(chunk)
             spool.seek(0)
             return csv_to_table(spool)

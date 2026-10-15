@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scarf import ScarfSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.scarf import scarf as scarf_transport
 from products.warehouse_sources.backend.temporal.data_imports.sources.scarf.scarf import (
     BACKFILL_MESSAGE,
     INVALID_TOKEN_MESSAGE,
@@ -201,6 +202,23 @@ def test_an_export_without_runs_left_fails_with_the_status_the_source_maps() -> 
 
     assert result.raised is not None
     assert "402 Client Error" in str(result.raised)
+
+
+def test_a_day_too_large_to_hand_over_whole_fails_with_a_clear_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(scarf_transport, "MAX_EXPORT_BYTES", 100)
+    rows = [f"e{i},binary-download,cli,1.2,2026-10-15T01:00:00Z,,,," for i in range(10)]
+
+    result = _driver().run(
+        "package_events",
+        events_by_day({"2026-10-15": rows}),
+        incremental_field="time",
+        db_incremental_field_last_value=datetime(2026, 10, 15, tzinfo=UTC),
+        source_cursor=cursor(),
+    )
+
+    assert isinstance(result.raised, ValueError)
+    assert str(result.raised) == scarf_transport.EXPORT_TOO_LARGE_MESSAGE
+    assert result.items == []
 
 
 @pytest.mark.parametrize(("status", "expected"), [(200, None), (401, INVALID_TOKEN_MESSAGE), (404, OWNER_MESSAGE)])
