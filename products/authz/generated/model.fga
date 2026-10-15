@@ -1,5 +1,5 @@
 # Generated from products/authz/model/ by products/authz/generate_model.sh. Do not edit.
-# Content digest: c413359d2f92d13b
+# Content digest: c59b3bd468d4b56b
 model
   schema 1.1
 
@@ -155,15 +155,8 @@ type dashboard
     define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from resource) but not has_rule))
     define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from resource) but not has_rule))
     define shared_viewer: [share_link]
-    # Legacy collaborator restrictions remain an independent write gate.
-    define restricted: [user:*] and access_control_enabled from project
-    # Members with a legacy collaborator privilege can edit a restricted dashboard.
-    define collaborator: [organization_member#user]
-    # The legacy rule: anyone in the project can edit, except on a restricted dashboard.
-    define legacy_editor: creator or admin from project or collaborator or ((member from project) but not restricted)
     define can_view: viewer or shared_viewer
-    # An edit must pass both the access rules and the legacy collaborator rule.
-    define can_edit: editor and legacy_editor
+    define can_edit: editor
     define can_delete: can_edit
     define can_manage_access: manager or can_manage_access from project
     define can_share: can_edit
@@ -179,15 +172,8 @@ type insight
     define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from resource) but not has_rule))
     define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from resource) but not has_rule))
     define shared_viewer: [share_link]
-    # An insight takes the legacy edit rule from the dashboards that show it.
-    define dashboard: [dashboard]
-    # This marker distinguishes an unattached insight from one with no editable dashboards.
-    define has_dashboard: [user:*]
-    # An attached insight follows the dashboard's full edit decision; an unattached insight follows project membership.
-    define dashboard_editor: can_edit from dashboard or ((member from project) but not has_dashboard)
     define can_view: viewer or shared_viewer
-    # An edit must pass both the insight access rules and its dashboard's edit decision.
-    define can_edit: editor and dashboard_editor
+    define can_edit: editor
     define can_delete: can_edit
     define can_manage_access: manager or can_manage_access from project
     define can_share: can_edit
