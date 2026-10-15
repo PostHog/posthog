@@ -38,7 +38,93 @@ const insightQueries = [
     ['query-lifecycle', { series: [{ kind: 'EventsNode', event: '$pageview' }] }],
 ] as const
 
+const FLAG_CALLS_TABLE = { id: 'posthog.flag_evaluations', table_name: 'posthog.flag_evaluations' }
+
+// Each saved shape is the series the insight editor builds when a user picks "Feature flag called".
+const flagCallsQueries = [
+    {
+        toolName: 'query-trends',
+        query: { series: [{ kind: 'DataWarehouseNode', table_name: 'posthog.flag_evaluations' }] },
+        node: (parsed: any) => parsed.series[0],
+        saved: {
+            kind: 'DataWarehouseNode',
+            ...FLAG_CALLS_TABLE,
+            name: 'Feature flag called',
+            id_field: 'uuid',
+            timestamp_field: 'timestamp',
+            distinct_id_field: 'distinct_id',
+        },
+    },
+    {
+        toolName: 'query-funnel',
+        query: {
+            series: [
+                { kind: 'FunnelsDataWarehouseNode', table_name: 'posthog.flag_evaluations' },
+                { kind: 'EventsNode', event: 'purchase' },
+            ],
+        },
+        node: (parsed: any) => parsed.series[0],
+        saved: {
+            kind: 'FunnelsDataWarehouseNode',
+            ...FLAG_CALLS_TABLE,
+            name: 'Feature flag called',
+            id_field: 'uuid',
+            timestamp_field: 'timestamp',
+            aggregation_target_field: 'person_id',
+            optionalInFunnel: false,
+        },
+    },
+    {
+        toolName: 'query-retention',
+        query: {
+            retentionFilter: {
+                targetEntity: { type: 'data_warehouse', table_name: 'posthog.flag_evaluations' },
+                returningEntity: { type: 'events', id: '$pageview' },
+            },
+        },
+        node: (parsed: any) => parsed.retentionFilter.targetEntity,
+        saved: {
+            type: 'data_warehouse',
+            ...FLAG_CALLS_TABLE,
+            name: 'Feature flag called',
+            timestamp_field: 'timestamp',
+            aggregation_target_field: 'person_id',
+        },
+    },
+    {
+        toolName: 'query-lifecycle',
+        query: { series: [{ kind: 'LifecycleDataWarehouseNode', table_name: 'posthog.flag_evaluations' }] },
+        node: (parsed: any) => parsed.series[0],
+        saved: {
+            kind: 'LifecycleDataWarehouseNode',
+            ...FLAG_CALLS_TABLE,
+            name: 'Feature flag called',
+            timestamp_field: 'timestamp',
+            aggregation_target_field: 'person_id',
+            created_at_field: 'timestamp',
+        },
+    },
+]
+
 describe('generated query wrappers', () => {
+    it.each(flagCallsQueries)(
+        'builds the saved flag calls series for $toolName',
+        ({ toolName, query, node, saved }) => {
+            const parsed = GENERATED_TOOLS[toolName]!().schema.safeParse(query)
+
+            expect(parsed.error?.issues ?? []).toEqual([])
+            expect(node(parsed.data)).toEqual(saved)
+        }
+    )
+
+    it('rejects a flag calls series on a table other than flag_evaluations', () => {
+        const tool = GENERATED_TOOLS['query-trends']!()
+
+        expect(
+            tool.schema.safeParse({ series: [{ kind: 'DataWarehouseNode', table_name: 'stripe_charges' }] }).success
+        ).toBe(false)
+    })
+
     it.each(insightQueries)('accepts behavioral filters for %s', (toolName, query) => {
         const tool = GENERATED_TOOLS[toolName]!()
 

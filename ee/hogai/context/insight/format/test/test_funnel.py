@@ -10,6 +10,7 @@ from posthog.schema import (
     AssistantDateRange,
     AssistantFunnelsEventsNode,
     AssistantFunnelsFilter,
+    AssistantFunnelsFlagCallsNode,
     AssistantFunnelsQuery,
     EventsNode,
     FunnelAggregateByHogQL,
@@ -334,7 +335,13 @@ class TestFunnelResultsFormatter(BaseTest):
         output = FunnelResultsFormatter(query, results, self.team, datetime.now()).format()
         self.assertIn("Average time to convert|User distribution\n10m|0%\n10m 1s|0%", output)
 
-    def test_funnel_trends(self):
+    @parameterized.expand(
+        [
+            ("events", AssistantFunnelsEventsNode(event="$pageview", custom_name="custom"), "$pageview (custom)"),
+            ("flag_calls", AssistantFunnelsFlagCallsNode(), "Feature flag called"),
+        ]
+    )
+    def test_funnel_trends(self, _name, first_step, first_step_label):
         results = [
             {
                 "count": 31,
@@ -344,16 +351,13 @@ class TestFunnelResultsFormatter(BaseTest):
             }
         ]
         query = AssistantFunnelsQuery(
-            series=[
-                AssistantFunnelsEventsNode(event="$pageview", custom_name="custom"),
-                AssistantFunnelsEventsNode(event="$ai_trace"),
-            ],
+            series=[first_step, AssistantFunnelsEventsNode(event="$ai_trace")],
             dateRange=AssistantDateRange(date_from="2025-01-08", date_to="2025-01-10"),
             funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
         )
         self.assertEqual(
             FunnelResultsFormatter(query, results, self.team, datetime.now()).format(),
-            "Date|$pageview (custom) -> $ai_trace conversion|$pageview (custom) -> $ai_trace drop-off\n2025-01-08|10%|90%\n2025-01-09|15.5%|84.5%\n2025-01-10|0%|100%",
+            f"Date|{first_step_label} -> $ai_trace conversion|{first_step_label} -> $ai_trace drop-off\n2025-01-08|10%|90%\n2025-01-09|15.5%|84.5%\n2025-01-10|0%|100%",
         )
 
     def test_funnel_trends_marks_partial_bucket(self):

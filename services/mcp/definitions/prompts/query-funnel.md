@@ -165,6 +165,27 @@ A 3-step funnel where the middle step matches either `$pageview` on Safari or `$
 }
 ```
 
+## Feature flag calls as a funnel step
+
+When the project's `flag_evaluations_mode` (from `project-get`) is not 0, PostHog reads feature flag calls from the `posthog.flag_evaluations` table, and an event series on `$feature_flag_called` stops returning them. Use a flag calls series instead. It is the series the insight editor builds when a user picks "Feature flag called" in that mode, so a saved insight opens the same way in the web app. When `flag_evaluations_mode` is 0, keep using the `$feature_flag_called` event.
+
+A flag calls step is `{ "kind": "FunnelsDataWarehouseNode", "table_name": "posthog.flag_evaluations" }`. The table fields fill in for you. Put flag filters on the flag calls series as `data_warehouse` filters on `flag_key` or `response`, or as `hogql` filters. Event, person, and session filters do not apply to it. The table keeps 90 days of rows. Set `aggregation_target_field` to match the funnel's aggregation: `person_id` (default), `$group_<index>` with `aggregation_group_type_index`, or `properties.$session_id` with `funnelAggregateByHogQL`. Funnel math is not supported on a flag calls step.
+
+```json
+{
+  "kind": "FunnelsQuery",
+  "series": [
+    {
+      "kind": "FunnelsDataWarehouseNode",
+      "table_name": "posthog.flag_evaluations",
+      "properties": [{ "key": "flag_key", "operator": "exact", "type": "data_warehouse", "value": ["new-checkout"] }]
+    },
+    { "kind": "EventsNode", "event": "purchase" }
+  ],
+  "dateRange": { "date_from": "-30d" }
+}
+```
+
 # Examples
 
 ## Conversion from first event ingested to insight saved for organizations over 6 months

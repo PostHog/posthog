@@ -207,6 +207,30 @@ Examples of using aggregation types:
 }
 ```
 
+## Feature flag calls
+
+When the project's `flag_evaluations_mode` (from `project-get`) is not 0, PostHog reads feature flag calls from the `posthog.flag_evaluations` table, and an event series on `$feature_flag_called` stops returning them. Use a flag calls series instead. It is the series the insight editor builds when a user picks "Feature flag called" in that mode, so a saved insight opens the same way in the web app. When `flag_evaluations_mode` is 0, keep using the `$feature_flag_called` event.
+
+A flag calls series is `{ "kind": "DataWarehouseNode", "table_name": "posthog.flag_evaluations" }`. The table fields fill in for you. It supports `math` of `total` (default), `dau`, or `hogql`. Put flag filters on the flag calls series as `data_warehouse` filters on `flag_key` or `response`, or as `hogql` filters. Event, person, and session filters do not apply to it. The table keeps 90 days of rows. To split the calls by flag or by response, break down with `{ "type": "data_warehouse", "property": "flag_key" }` or `"response"`, and do not mix that breakdown with event series.
+
+### Example: daily calls of one flag, split by response
+
+```json
+{
+  "kind": "TrendsQuery",
+  "series": [
+    {
+      "kind": "DataWarehouseNode",
+      "table_name": "posthog.flag_evaluations",
+      "properties": [{ "key": "flag_key", "operator": "exact", "type": "data_warehouse", "value": ["new-checkout"] }]
+    }
+  ],
+  "breakdownFilter": { "breakdowns": [{ "type": "data_warehouse", "property": "response" }] },
+  "dateRange": { "date_from": "-30d" },
+  "interval": "day"
+}
+```
+
 ## Math formulas
 
 If the math aggregation is more complex or not listed above, use custom formulas to perform mathematical operations like calculating percentages or metrics. If you use a formula, you should use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas.
