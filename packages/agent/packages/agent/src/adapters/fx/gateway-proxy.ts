@@ -91,7 +91,11 @@ export async function startFxGatewayProxy(
       sendError(res, 401, "Unauthorized");
       return;
     }
-    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    const url = URL.parse(req.url ?? "/", "http://127.0.0.1");
+    if (!url) {
+      sendError(res, 400, "Bad request");
+      return;
+    }
     const path = url.pathname.replace(/^\/v1(?=\/)/, "");
     if (!FORWARDED_PATHS.has(path)) {
       sendError(res, 404, "Not found");
@@ -149,15 +153,21 @@ export async function startFxGatewayProxy(
         res.end(text);
         return;
       }
-      reportCompletion(null);
       res.writeHead(response.status, responseHeaders);
       if (!response.body) {
+        reportCompletion(null);
         res.end();
         return;
       }
       res.flushHeaders();
       Readable.fromWeb(response.body as NodeWebReadableStream<Uint8Array>)
-        .on("error", () => res.destroy())
+        .on("error", () => {
+          if (!abort.signal.aborted) {
+            reportCompletion("API Error: Connection error");
+          }
+          res.destroy();
+        })
+        .on("end", () => reportCompletion(null))
         .pipe(res);
     } catch (error) {
       if (abort.signal.aborted) return;

@@ -23,6 +23,7 @@ export interface FxProcess {
 }
 
 const KILL_GRACE_MS = 5_000;
+const GROUP_POLL_MS = 50;
 
 const SCRUBBED_ENV = [
   "AI_GATEWAY_API_KEY",
@@ -67,16 +68,29 @@ function signalProcessGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   if (!hasExited(child)) child.kill(signal);
 }
 
+function isGroupAlive(child: ChildProcess): boolean {
+  if (process.platform === "win32" || !child.pid) return !hasExited(child);
+  try {
+    process.kill(-child.pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForGroupExit(child: ChildProcess): Promise<boolean> {
+  const deadline = Date.now() + KILL_GRACE_MS;
+  while (isGroupAlive(child)) {
+    if (Date.now() >= deadline) return false;
+    await delay(GROUP_POLL_MS, undefined, { ref: false });
+  }
+  return true;
+}
+
 async function terminate(child: ChildProcess): Promise<void> {
-  const exited = hasExited(child)
-    ? Promise.resolve()
-    : once(child, "exit").catch(() => undefined);
   for (const signal of ["SIGTERM", "SIGKILL"] as const) {
     signalProcessGroup(child, signal);
-    await Promise.race([
-      exited,
-      delay(KILL_GRACE_MS, undefined, { ref: false }),
-    ]);
+    if (await waitForGroupExit(child)) break;
   }
   child.stdin?.destroy();
   child.stdout?.destroy();

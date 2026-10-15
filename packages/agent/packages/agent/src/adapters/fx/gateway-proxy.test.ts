@@ -135,6 +135,30 @@ describe("startFxGatewayProxy", () => {
     },
   );
 
+  it("reports a stream that drops after the headers as a connection error", async () => {
+    const { baseUrl } = await startUpstream((res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write("data: one\n\n", () => res.destroy());
+    });
+    const results: (string | null)[] = [];
+    proxy = await startFxGatewayProxy({
+      upstreamBaseUrl: baseUrl,
+      upstreamApiKey: "gateway-token",
+      headers: {},
+      logger,
+      onCompletionResult: (failure) => results.push(failure),
+    });
+
+    const response = await fetch(`${proxy.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${proxy.apiKey}` },
+      body: "{}",
+    });
+    await response.text().catch(() => undefined);
+
+    expect(results).toEqual(["API Error: Connection error"]);
+  });
+
   it("sends response headers before the first event arrives", async () => {
     let finish = () => {};
     const { baseUrl } = await startUpstream((res) => {
@@ -163,31 +187,37 @@ describe("startFxGatewayProxy", () => {
   it.each([
     {
       name: "a missing local key",
-      path: "/chat/completions",
+      path: "/v1/chat/completions",
       authorization: undefined,
       status: 401,
     },
     {
       name: "a wrong local key",
-      path: "/chat/completions",
+      path: "/v1/chat/completions",
       authorization: "Bearer not-the-key",
       status: 401,
     },
     {
       name: "a path outside the model API",
-      path: "/../api/projects",
+      path: "/v1/../api/projects",
       authorization: "valid",
       status: 404,
     },
     {
       name: "an unlisted gateway path",
-      path: "/messages",
+      path: "/v1/messages",
       authorization: "valid",
       status: 404,
     },
     {
+      name: "a malformed request target",
+      path: "//[",
+      authorization: "valid",
+      status: 400,
+    },
+    {
       name: "a body over 16 MiB",
-      path: "/chat/completions",
+      path: "/v1/chat/completions",
       authorization: "valid",
       status: 413,
       body: "x".repeat(16 * 1024 * 1024 + 1),
@@ -209,7 +239,7 @@ describe("startFxGatewayProxy", () => {
         headers.authorization = authorization;
       }
 
-      const response = await fetch(`${proxy.baseUrl}${path}`, {
+      const response = await fetch(`${new URL(proxy.baseUrl).origin}${path}`, {
         method: "POST",
         headers,
         body,

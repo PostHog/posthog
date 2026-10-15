@@ -73,15 +73,15 @@ async function readSettings(path: string): Promise<JsonObject> {
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
-  } catch {
-    return {};
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw error;
   }
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return isJsonObject(parsed) ? parsed : {};
-  } catch {
-    return {};
+  const parsed: unknown = JSON.parse(raw);
+  if (!isJsonObject(parsed)) {
+    throw new Error(`fx settings at ${path} are not a JSON object`);
   }
+  return parsed;
 }
 
 export async function writeFxProviderSettings(
