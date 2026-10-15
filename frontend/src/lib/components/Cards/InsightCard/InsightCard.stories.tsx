@@ -286,6 +286,15 @@ export const ErrorStates: Story = {
                         placement="SavedInsightGrid"
                     />
                 ))}
+                <InsightCardComponent
+                    tile={defaultTile}
+                    insight={{ ...EXAMPLE_TRENDS, name: 'Timed out' } as unknown as InsightModel}
+                    timedOut
+                    refresh={() => {}}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement="SavedInsightGrid"
+                />
             </div>
         )
     },
