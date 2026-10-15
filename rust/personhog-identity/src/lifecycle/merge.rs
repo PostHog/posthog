@@ -50,6 +50,7 @@ use personhog_proto::personhog::types::v1::{
 
 use crate::config::IdentityTables;
 use crate::leader::LifecycleLeader;
+use crate::lifecycle::detach::DetachedDrives;
 use crate::lifecycle::engine::{
     advance_step_in_tx, complete_op_in_tx, Engine, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
     STEP_COMPLETED,
@@ -378,12 +379,17 @@ impl MergeDriver {
 /// put the wire.
 pub struct MergeOpExecutor {
     engine: Arc<Engine>,
-    driver: MergeDriver,
+    driver: Arc<MergeDriver>,
+    drives: DetachedDrives,
 }
 
 impl MergeOpExecutor {
-    pub fn new(engine: Arc<Engine>, driver: MergeDriver) -> Self {
-        Self { engine, driver }
+    pub fn new(engine: Arc<Engine>, driver: MergeDriver, drives: DetachedDrives) -> Self {
+        Self {
+            engine,
+            driver: Arc::new(driver),
+            drives,
+        }
     }
 
     /// The op row for this id, if one exists.
@@ -449,7 +455,8 @@ impl MergeOpExecutor {
     }
 
     /// Drive the op to terminal with the given frozen request (a resumed
-    /// row's own request, or a freshly frozen one) and return the row.
+    /// row's own request, or a freshly frozen one) and return the row. The
+    /// drive outlives a caller that hangs up: see [`DetachedDrives`].
     // See `find` for why result_large_err is allowed.
     #[allow(clippy::result_large_err)]
     pub async fn execute(
@@ -458,9 +465,20 @@ impl MergeOpExecutor {
         team_id: i64,
         frozen: &Value,
     ) -> Result<OpRow, Status> {
-        self.engine
-            .execute(&self.driver, op_id, team_id, frozen)
+        let engine = self.engine.clone();
+        let driver = self.driver.clone();
+        let frozen = frozen.clone();
+        self.drives
+            .run(async move {
+                engine
+                    .execute(driver.as_ref(), op_id, team_id, &frozen)
+                    .await
+            })
             .await
+            .map_err(|err| {
+                tracing::error!(op_id = %op_id, error = %err, "MergePersons drive task died");
+                Status::internal(format!("merge op {op_id} drive task died: {err}"))
+            })?
             .map_err(|err| {
                 // The entrance only reaches this create path after finding
                 // no op row, so an engine-level mismatch means the row
