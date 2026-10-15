@@ -746,7 +746,7 @@ def test_console_detail_does_not_remove_transcript_logs(
         None,
     )
     try:
-        raise ValueError("service unavailable")
+        raise ValueError("service unavailable\nconnection details")
     except ValueError:
         error = logging.LogRecord(
             "products.posthog_ai.eval_harness.example",
@@ -788,6 +788,8 @@ def test_console_detail_does_not_remove_transcript_logs(
     assert ("optional dependency detail" in output.err) is verbose
     assert "agent detail" in saved
     assert "ValueError: service unavailable" in saved
+    assert "ValueError: service unavailable" in output.err
+    assert ("connection details" in output.err) is verbose
     assert "case error" in output.err
     assert ("agent detail" in output.err) is verbose
     assert ("Traceback" in output.err) is verbose

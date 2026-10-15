@@ -81,8 +81,11 @@ class _TranscriptLogHandler(logging.Handler):
             elif record.levelno >= logging.WARNING and record.name.startswith("products.posthog_ai.eval_harness"):
                 message = str(
                     record.msg.get("event", record.msg) if isinstance(record.msg, dict) else record.getMessage()
-                ).splitlines()
-                terminal_text = f"{record.levelname}: {record.name}: {message[0][:240] if message else ''}\n"
+                )
+                if record.exc_info and (error := record.exc_info[1]) is not None:
+                    message = f"{message}: {type(error).__name__}: {error}"
+                lines = message.splitlines()
+                terminal_text = f"{record.levelname}: {record.name}: {lines[0][:240] if lines else ''}\n"
             self._sink.write(self._terminal, detail, terminal_text=terminal_text)
         except Exception:
             self.handleError(record)

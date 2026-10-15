@@ -321,7 +321,8 @@ A status line every 30 seconds shows execution totals, phase counts, elapsed tim
 `CASE DONE` and `EXPERIMENT DONE` mean the scores are ready.
 The `scoring` phase includes time waiting for all results in that experiment, so it is not an isolated scorer duration.
 Use `--verbose` to show detailed service and agent logs in the console. The transcript retains these logs in both modes.
-Warnings and errors use short console messages. Open the transcript for full tracebacks.
+Warnings and errors use short console messages, including the exception type and message when available.
+Open the transcript for full tracebacks.
 
 The final summary gives labeled suite and case totals, the score gate, total duration, and one block per experiment with scorer averages, PostHog and Braintrust URLs, and the agent-log directory.
 Each scorer line shows its score with a 95% confidence interval clustered by case. With `--trials N` a second line adds pass^N (every trial passed), pass@N (any trial passed) and the number of flaky cases, counting only cases scored on all N trials, so a noisy suite is distinguishable from a real score change.
