@@ -81,13 +81,24 @@ type QueryNode = {
     tags?: Record<string, unknown> | null
 }
 
-// Query tags live on the data node under any wrapper nodes, like SQL variables. The canvas
-// cannot override attribution, so its own tags lose to ours.
+// The backend schemas of these kinds have no `tags` field and forbid extra fields, so a tag fails validation.
+const UNTAGGABLE_QUERY_KINDS = new Set<string>([
+    NodeKind.InsightVizNode,
+    NodeKind.DataVisualizationNode,
+    NodeKind.BIVisualizationNode,
+    NodeKind.InsightActorsQueryOptions,
+    NodeKind.FunnelCorrelationQuery,
+    NodeKind.WebAnalyticsExternalSummaryQuery,
+])
+
+// Tag every node in the source chain, because a runner like InsightActorsQuery reads its own tags
+// and does not run its source. The canvas cannot override attribution, so its own tags lose to ours.
 function withCanvasQueryTags<T extends QueryNode>(node: T): T {
-    if (node.source?.kind) {
-        return { ...node, source: withCanvasQueryTags(node.source) }
-    }
-    return { ...node, tags: { ...node.tags, ...CANVAS_QUERY_TAGS } }
+    const tagged =
+        node.kind && UNTAGGABLE_QUERY_KINDS.has(node.kind)
+            ? node
+            : { ...node, tags: { ...node.tags, ...CANVAS_QUERY_TAGS } }
+    return tagged.source?.kind ? { ...tagged, source: withCanvasQueryTags(tagged.source) } : tagged
 }
 
 function refreshSeconds(value: unknown): number | undefined {
