@@ -44,8 +44,8 @@ const INBOX_SETUP_EMPTY_STATE: ProductEmptyStateConfig = {
     hedgehogPlacement: 'beside',
     text: {
         'needs-setup': {
-            headline: 'Understand what’s happening in your product',
-            lead: 'AI investigates your data to find what needs your attention. Get reports with evidence and next steps. Ship fixes with your agent of choice, or let PostHog do it for you.',
+            headline: 'Let PostHog find what needs your attention',
+            lead: 'AI does the research for you. Get reports with evidence and next steps. Ship fixes with your agent of choice, or let PostHog do it for you.',
         },
     },
     PrimaryAction: SetUpSelfDrivingAction,
