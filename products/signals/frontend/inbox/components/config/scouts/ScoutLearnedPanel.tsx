@@ -49,21 +49,18 @@ export function ScoutLearnedPanel({ skillName }: { skillName: string }): JSX.Ele
                     Nothing yet. Scouts write here when they settle on a baseline or rule something out.
                 </div>
             ) : (
-                <>
+                <div className="flex flex-col rounded border border-primary bg-surface-primary">
                     {visible.map((entry) => (
                         <ScratchpadEntryCard key={entry.key} entry={entry} titled />
                     ))}
                     {entries.length > visible.length && (
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            className="self-start"
-                            onClick={() => setShowAll(true)}
-                        >
-                            Show all {pluralize(entries.length, 'entry', 'entries')}
-                        </LemonButton>
+                        <div className="px-3 py-2">
+                            <LemonButton size="xsmall" type="tertiary" onClick={() => setShowAll(true)}>
+                                Show all {pluralize(entries.length, 'entry', 'entries')}
+                            </LemonButton>
+                        </div>
                     )}
-                </>
+                </div>
             )}
             <LemonButton size="xsmall" type="tertiary" className="self-start" onClick={() => setScratchpadOpen(true)}>
                 All scouts
