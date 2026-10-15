@@ -181,10 +181,14 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> Repo
 
 
 def try_claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> bool:
-    try:
-        claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
-    except (ReportClaimConflict, SignalReport.DoesNotExist):
-        return False
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
+        if report is None or report.effective_status not in CLAIMABLE_REPORT_STATUSES:
+            return False
+        try:
+            claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
+        except ReportClaimConflict:
+            return False
     return True
 
 

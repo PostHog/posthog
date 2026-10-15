@@ -694,6 +694,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
         run = TaskRun.objects.get(id=response.json()["run_id"])
         assert run.state["inbox_report_claim"] == {"report_id": str(report.id), "claimed": False, "reason": reason}
 
+    @parameterized.expand(
+        [
+            ("resolved", SignalReport.Status.RESOLVED),
+            ("suppressed", SignalReport.Status.SUPPRESSED),
+            ("deleted", SignalReport.Status.DELETED),
+        ]
+    )
+    def test_does_not_claim_a_report_that_is_no_longer_open(self, _name: str, report_status: str) -> None:
+        self._start_from_inbox_reports()
+        report = SignalReport.objects.create(team=self.team, status=report_status, signal_count=1, total_weight=1.0)
+
+        response = self._post_for_inbox_report(report)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is None
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state["inbox_report_claim"]["claimed"] is False
+
     def test_runs_without_a_claim_when_signals_already_holds_the_report(self) -> None:
         self._start_from_inbox_reports()
         report = SignalReport.objects.create(
