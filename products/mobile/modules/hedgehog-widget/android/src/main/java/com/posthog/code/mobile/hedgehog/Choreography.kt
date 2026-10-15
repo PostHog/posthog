@@ -6,6 +6,7 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.math.abs
 
 enum class Facing { LEFT, RIGHT }
 
@@ -45,6 +46,7 @@ data class Choreography(
 
     companion object {
         const val MAX_TICKS = 120
+        private const val MIN_TRAVEL = 0.001f
         private const val MS_PER_MINUTE = 60_000L
         private const val TAG = "HedgehogWidget"
         private val POSES = setOf("idle", "walk", "jump", "wave", "action", "fall")
@@ -87,21 +89,33 @@ data class Choreography(
             )
         }
 
-        private fun parseTicks(array: JSONArray): List<Tick> =
-            (0 until minOf(array.length(), MAX_TICKS)).mapNotNull { index ->
+        /** A tick without `facing` faces the way it walks, or keeps the previous tick's facing. */
+        private fun parseTicks(array: JSONArray): List<Tick> {
+            var facing = Facing.RIGHT
+            var previousX: Float? = null
+            return (0 until minOf(array.length(), MAX_TICKS)).mapNotNull { index ->
                 val tick = array.optJSONObject(index) ?: return@mapNotNull null
                 val pose = tick.optString("pose")
                 if (pose !in POSES) return@mapNotNull null
+                val x = unit(tick.optDouble("x", 0.5))
+                val walked = previousX?.let { x - it }?.takeIf { pose == "walk" && abs(it) > MIN_TRAVEL }
+                facing = when (tick.optString("facing")) {
+                    "left" -> Facing.LEFT
+                    "right" -> Facing.RIGHT
+                    else -> walked?.let { if (it < 0) Facing.LEFT else Facing.RIGHT } ?: facing
+                }
+                previousX = x
                 Tick(
                     pose = pose,
                     frame = tick.optInt("frame", 0).coerceAtLeast(0),
-                    x = unit(tick.optDouble("x", 0.5)),
+                    x = x,
                     y = unit(tick.optDouble("y", 0.0)),
-                    facing = if (tick.optString("facing") == "left") Facing.LEFT else Facing.RIGHT,
+                    facing = facing,
                     hoggie = tick.optString("hoggie").takeIf { it.isNotEmpty() },
                     bubble = tick.optString("bubble").takeIf { it.isNotEmpty() }?.take(24),
                 )
             }
+        }
 
         private fun unit(value: Double): Float = if (value.isNaN()) 0f else value.toFloat().coerceIn(0f, 1f)
 

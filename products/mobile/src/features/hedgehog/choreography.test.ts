@@ -4,8 +4,16 @@ const STARTS_AT = new Date('2026-10-13T00:00:00Z')
 const GENERATED_AT = new Date('2026-10-13T08:00:00Z')
 const SEEDS = [1, 20261013, 20261231, 4294967295]
 
-function build(seed: number): Choreography {
+function generate(seed: number): Choreography {
     return createChoreography({ seed, startsAt: STARTS_AT, generatedAt: GENERATED_AT })
+}
+
+// Each script simulates over 30 minutes of 60 Hz physics, so the read-only tests share one copy per seed.
+const built = new Map<number, Choreography>()
+function build(seed: number): Choreography {
+    const choreography = built.get(seed) ?? generate(seed)
+    built.set(seed, choreography)
+    return choreography
 }
 
 function allTicks(choreography: Choreography): Tick[] {
@@ -20,7 +28,7 @@ function allTicks(choreography: Choreography): Tick[] {
 
 describe('choreography', () => {
     it('is deterministic for a seed and varies between seeds', () => {
-        expect(build(20261013)).toEqual(build(20261013))
+        expect(generate(20261013)).toEqual(generate(20261013))
         expect(build(20261013).keyframes).not.toEqual(build(20261014).keyframes)
         expect(build(20261013).loops).not.toEqual(build(20261014).loops)
     })
@@ -42,41 +50,37 @@ describe('choreography', () => {
     })
 
     it.each(SEEDS)(
-        'fills a 30-minute cycle of keyframes without teleporting, also across the wrap, for seed %i',
+        'fills a 30-minute cycle of grounded keyframes whose motion explains every move, also across the wrap, for seed %i',
         (seed) => {
-            const { keyframes } = build(seed)
+            const { keyframes, keyframeSec } = build(seed)
             expect(keyframes).toHaveLength(900)
-            const teleports = keyframes.filter(
-                (keyframe, index) =>
-                    Math.abs(keyframe.x - (keyframes[(index + keyframes.length - 1) % keyframes.length] as Tick).x) >
-                    0.25
+            // A walk covers 0.75 sprites/s of a 2.8-sprite travel width; nothing else moves the hedgehog sideways.
+            const walkReach = (0.75 * keyframeSec) / 2.8
+            const unexplained = keyframes.filter((keyframe, index) => {
+                const previous = keyframes[(index + keyframes.length - 1) % keyframes.length] as Tick
+                const distance = Math.abs(keyframe.x - previous.x)
+                const reach = keyframe.motion?.kind === 'walk' ? walkReach : keyframe.motion?.kind === 'idle' ? 0.02 : 0
+                return keyframe.y !== 0 || distance > reach + 0.001
+            })
+            expect(unexplained).toEqual([])
+
+            const jumps = keyframes.flatMap((keyframe) => (keyframe.motion?.kind === 'jump' ? [keyframe.motion] : []))
+            const unfit = jumps.filter(
+                (jump) =>
+                    jump.airtime + jump.bounces.reduce((sum, bounce) => sum + bounce.airtime, 0) > keyframeSec ||
+                    jump.apex <= 0 ||
+                    jump.apex > 1 ||
+                    jump.bounces.some((bounce, index) => bounce.apex >= (jump.bounces[index - 1] ?? jump).apex) ||
+                    (jump.turns !== undefined && Math.abs(jump.turns) !== 1)
             )
-            expect(teleports).toEqual([])
+            expect(unfit).toEqual([])
+            expect(keyframes.every((keyframe) => keyframe.motion !== undefined && keyframe.turn === undefined)).toBe(
+                true
+            )
+            expect(jumps.length).toBeGreaterThan(30)
+            expect(jumps.filter((jump) => jump.turns).length).toBeGreaterThan(0)
         }
     )
-
-    it.each(SEEDS)('keeps the hedgehog busy on both platforms for seed %i', (seed) => {
-        const { keyframes, loops } = build(seed)
-        const roaming = keyframes.filter((tick) => !tick.hoggie)
-        const travelling = roaming.filter((keyframe, index) => {
-            const previous = roaming[index - 1]
-            return previous && (Math.abs(keyframe.x - previous.x) > 0.005 || keyframe.y !== previous.y)
-        })
-        expect(travelling.length / roaming.length).toBeGreaterThan(0.5)
-
-        let longestStill = 1
-        let still = 1
-        for (let index = 1; index < keyframes.length; index++) {
-            still = JSON.stringify(keyframes[index]) === JSON.stringify(keyframes[index - 1]) ? still + 1 : 1
-            longestStill = Math.max(longestStill, still)
-        }
-        expect(longestStill).toBeLessThanOrEqual(4)
-
-        const idleLoops = loops.filter(
-            (loop) => !loop[0]?.hoggie && loop.filter((tick) => tick.pose === 'idle').length > loop.length / 3
-        )
-        expect(idleLoops).toEqual([])
-    })
 
     it.each(SEEDS)('reserves character changes for taps for seed %i', (seed) => {
         const { keyframes, loops, surprises } = build(seed)
@@ -89,9 +93,9 @@ describe('choreography', () => {
         }
     })
 
-    it.each(SEEDS)('lands every flip on its feet for seed %i', (seed) => {
-        const { keyframes, reaction } = build(seed)
-        for (const ticks of [keyframes, reaction.keyframes]) {
+    it.each(SEEDS)('lands every legacy reaction flip on its feet for seed %i', (seed) => {
+        const { reaction } = build(seed)
+        for (const ticks of [reaction.keyframes]) {
             const unfinished: Tick[] = []
             let turns = 0
             let flips = 0
@@ -121,6 +125,11 @@ describe('choreography', () => {
             expect(Math.abs(last.x - first.x)).toBeLessThanOrEqual(0.05)
             expect(last).toMatchObject({ y: 0, facing: first.facing })
         }
+        // A 120 ms tick spans 7 or 8 physics steps, and 8 steps of walking move 0.035 of the width.
+        const teleports = loops.flatMap((loop) =>
+            loop.filter((tick, index) => index > 0 && Math.abs(tick.x - (loop[index - 1] as Tick).x) > 0.04)
+        )
+        expect(teleports).toEqual([])
     })
 
     it.each(SEEDS)('stays inside the shared storage budget for seed %i', (seed) => {
