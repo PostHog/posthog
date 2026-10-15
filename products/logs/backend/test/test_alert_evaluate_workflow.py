@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 from collections.abc import AsyncIterator
 
 import pytest
@@ -73,6 +74,7 @@ async def test_a_batch_waits_for_a_pool_slot_on_a_timer_before_it_evaluates(
             ),
             id=f"test-{uuid.uuid4()}",
             task_queue=QUEUE,
+            execution_timeout=dt.timedelta(minutes=5),
         )
 
     # Every try names one member, so a retried try finds the slot an earlier one took.
