@@ -8,7 +8,11 @@ from uuid import UUID
 from posthog.models.integration import Integration
 from posthog.models.scoping import with_team_scope
 
-from products.workflows.backend.facade.contracts import TransactionalEmailContent, TransactionalEmailSenderUnavailable
+from products.workflows.backend.facade.contracts import (
+    TransactionalEmailContent,
+    TransactionalEmailSenderUnavailable,
+    WorkflowNotFound,
+)
 from products.workflows.backend.facade.enums import HogFlowOriginProduct
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.services.hog_flow_writes import create_workflow, update_workflow
@@ -130,7 +134,9 @@ def create_transactional_email_workflow(
 def update_transactional_email_workflow(
     *, team_id: int, user_id: Optional[int], hog_flow_id: UUID, content: TransactionalEmailContent
 ) -> None:
-    flow = HogFlow.objects.only("status", "actions").get(team_id=team_id, pk=hog_flow_id)
+    flow = HogFlow.objects.only("status", "actions").filter(team_id=team_id, pk=hog_flow_id).first()
+    if flow is None:
+        raise WorkflowNotFound()
     from_integration_id = content.from_integration_id or _current_sender(flow)
     update_workflow(
         team_id=team_id,

@@ -11,7 +11,11 @@ from posthog.models.integration import Integration
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
-from products.workflows.backend.facade.contracts import TransactionalEmailContent, TransactionalEmailSenderUnavailable
+from products.workflows.backend.facade.contracts import (
+    TransactionalEmailContent,
+    TransactionalEmailSenderUnavailable,
+    WorkflowNotFound,
+)
 from products.workflows.backend.facade.transactional_emails import (
     create_transactional_email_workflow,
     update_transactional_email_workflow,
@@ -104,3 +108,12 @@ class TestTransactionalEmailWorkflows(BaseTest):
             )
 
         assert not HogFlow.objects.filter(team_id=self.team.id).exists()
+
+    def test_updating_a_deleted_transactional_email_says_it_is_gone(self):
+        flow_id = create_transactional_email_workflow(team_id=self.team.id, user_id=self.user.id, content=_content())
+        HogFlow.objects.filter(id=flow_id).delete()
+
+        with self.assertRaises(WorkflowNotFound):
+            update_transactional_email_workflow(
+                team_id=self.team.id, user_id=self.user.id, hog_flow_id=flow_id, content=_content()
+            )
