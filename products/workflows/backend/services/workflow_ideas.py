@@ -98,8 +98,12 @@ def accept_idea(*, team_id: int, idea_id: str, hog_flow_id: str, user_id: int) -
     """Records the draft a person created from the idea. The draft itself goes through the workflow API."""
     with transaction.atomic():
         row = _lock_open(team_id, idea_id)
-        hog_flow = HogFlow.objects.filter(team_id=team_id, id=hog_flow_id, status=HogFlow.State.DRAFT).first()
-        # A draft can stand for one idea only, so an idea cannot claim a draft another idea already took.
+        # Locked so two ideas accepted at once cannot both claim the same draft.
+        hog_flow = (
+            HogFlow.objects.select_for_update()
+            .filter(team_id=team_id, id=hog_flow_id, status=HogFlow.State.DRAFT)
+            .first()
+        )
         if hog_flow is None or WorkflowIdea.objects.for_team(team_id).filter(hog_flow=hog_flow).exists():
             raise WorkflowIdeaWorkflowMismatch()
         row.status = WorkflowIdea.Status.ACCEPTED
