@@ -57,7 +57,7 @@ A pair is a group only when neither person takes part in another pair, so a grou
 - `properties_sent`: a light `fold` sent the old person's properties to the survivor. Run `fold` again later.
 - `merge_sent` (person) and `awaiting_merge` (ids): `merge` or a full `fold` sent `$merge_dangerously`. Rescan after ingestion processed it.
 - `skipped_no_alias`: no distinct id of the old person, or of the survivor, could carry the merge event.
-- `stopped_no_alias`: a full `fold` restored the old person, but every id it meant to give back was claimed in the meantime. The person is live with no distinct id; report it.
-- `skipped_no_distinct_id`: `restore` left a person alone because none of its distinct ids is in the run.
+- `skipped_no_distinct_id`: `restore` or a full `fold` left a person out, because none of its lost distinct ids is in the run or all of them were claimed since the scan. Rescan.
+- `identified_not_carried` (in an action's detail): a light `fold` could not mark the survivor identified, because it has only one distinct id.
 - `skipped_changed` and `skipped_not_divergent`: the state moved since the scan. Rescan.
 - Any other `skipped_*`: the verb refused on purpose. The name says why.
