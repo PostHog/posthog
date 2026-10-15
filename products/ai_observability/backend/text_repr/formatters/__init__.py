@@ -21,6 +21,7 @@ from .message_formatter import (
     add_line_numbers,
     reduce_by_uniform_sampling,
     sanitize_surrogates,
+    truncate_by_line_sampling,
 )
 from .trace_formatter import format_trace_text_repr, llm_trace_to_formatter_format
 
@@ -34,4 +35,5 @@ __all__ = [
     "llm_trace_to_formatter_format",
     "reduce_by_uniform_sampling",
     "sanitize_surrogates",
+    "truncate_by_line_sampling",
 ]

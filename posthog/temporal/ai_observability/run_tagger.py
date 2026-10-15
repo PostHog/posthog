@@ -41,7 +41,7 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
-from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
+from products.ai_observability.backend.text_repr.formatters import truncate_by_line_sampling
 
 logger = structlog.get_logger(__name__)
 
@@ -290,12 +290,7 @@ def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
     user_prompt = f"""Input: {input_data}
 
 Output: {output_data}"""
-    if len(user_prompt) > TAGGER_EVENT_MAX_CHARS:
-        # Line-number first so the sampler's "gaps indicate omitted content" header is truthful,
-        # then hard-truncate to guarantee the cap for low-newline payloads the sampler leaves whole.
-        user_prompt = add_line_numbers(user_prompt)
-        user_prompt, _ = reduce_by_uniform_sampling(user_prompt, TAGGER_EVENT_MAX_CHARS)
-        user_prompt = user_prompt[:TAGGER_EVENT_MAX_CHARS]
+    user_prompt = truncate_by_line_sampling(user_prompt, TAGGER_EVENT_MAX_CHARS)
 
     config = None
 
