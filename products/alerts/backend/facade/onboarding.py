@@ -13,7 +13,6 @@ from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import feature_enabled_or_false
 
-from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
 from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.product_analytics.backend.facade.models import Insight
 
@@ -88,31 +87,38 @@ def _create_default_ingestion_alert(team: Team, user: User) -> UUID | None:
     )
     first_check_date = team.created_at.astimezone(ZoneInfo(team.timezone)).date() + timedelta(days=17)
     first_check_at = datetime.combine(first_check_date, time(1), tzinfo=ZoneInfo(team.timezone)).astimezone(UTC)
-    alert = AlertConfiguration(
+    from products.alerts.backend.presentation.views.alert import (
+        AlertSerializer,  # noqa: PLC0415 — keeps API dependencies off team creation startup
+    )
+
+    alert = AlertSerializer.create_for_user(
         team=team,
-        insight=insight,
-        created_by=user,
-        name="Event ingestion changes",
-        calculation_interval="daily",
-        condition={"type": "absolute_value"},
-        config={
-            "type": "HogQLAlertConfig",
-            "evaluation": "last_row",
-            "column": "significant_change_percent",
-            "label_column": "day",
+        user=user,
+        data={
+            "insight": insight.id,
+            "name": "Event ingestion changes",
+            "calculation_interval": "daily",
+            "condition": {"type": "absolute_value"},
+            "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
+            "config": {
+                "type": "HogQLAlertConfig",
+                "evaluation": "last_row",
+                "column": "significant_change_percent",
+                "label_column": "day",
+            },
+            "detector_config": INGESTION_DETECTOR_CONFIG,
+            "enabled": is_email_available(),
+            "skip_weekend": True,
+            "subscribed_users": [user.id],
         },
-        detector_config=INGESTION_DETECTOR_CONFIG,
-        enabled=is_email_available(),
-        skip_weekend=True,
     )
     alert.next_check_at = first_check_at + alert_check_offset(CalendarInterval.DAILY, alert.id)
     alert.save()
-    AlertSubscription.objects.create(alert_configuration=alert, user=user, created_by=user)
     return alert.id
 
 
 def create_default_ingestion_alert(team: Team, user: User | None) -> UUID | None:
-    if user is None or not user.is_active or team.is_demo:
+    if user is None or not user.is_active or user.distinct_id is None or team.is_demo:
         return None
     if not feature_enabled_or_false(
         "default-ingestion-alert",

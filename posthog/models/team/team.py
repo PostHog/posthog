@@ -180,7 +180,7 @@ class TeamManager(models.Manager):
             create_default_ingestion_alert,
         )
 
-        create_default_ingestion_alert(team, initiating_user)
+        transaction.on_commit(lambda: create_default_ingestion_alert(team, initiating_user))
 
         return team
 

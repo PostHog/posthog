@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.schema import HogQLQuery
 
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.models import User
 from posthog.models.team import Team
 from posthog.tasks.alerts.detectors import get_detector
 
@@ -49,12 +50,13 @@ class TestDefaultIngestionAlert(BaseTest):
     ) -> None:
         mock_flag.return_value = flag_enabled
         mock_email.return_value = email_available
-        team = Team.objects.create_with_data(
-            organization=self.organization,
-            initiating_user=self.user if has_creator else None,
-            timezone="Pacific/Auckland",
-            is_demo=is_demo,
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            team = Team.objects.create_with_data(
+                organization=self.organization,
+                initiating_user=self.user if has_creator else None,
+                timezone="Pacific/Auckland",
+                is_demo=is_demo,
+            )
 
         alerts = AlertConfiguration.objects.filter(team_id=team.id)
         assert alerts.count() == int(expect_alert)
@@ -70,6 +72,7 @@ class TestDefaultIngestionAlert(BaseTest):
         assert alert.next_check_at == datetime(2026, 10, 18, 12, tzinfo=UTC) + alert_check_offset(
             CalendarInterval.DAILY, alert.id
         )
+        assert alert.insight.query is not None
         validate_alert_config(
             alert.insight.query,
             alert.condition,
@@ -83,18 +86,62 @@ class TestDefaultIngestionAlert(BaseTest):
         assert create_default_ingestion_alert(team, self.user) is None
         assert not alerts.exists()
 
+    @parameterized.expand(
+        [
+            (
+                "subscription_failure",
+                "products.alerts.backend.presentation.views.alert.AlertSubscription.objects.create",
+                {"side_effect": RuntimeError},
+            ),
+            (
+                "account_limit",
+                "products.alerts.backend.models.alert.AlertConfiguration.check_alert_limit",
+                {"return_value": "Alert limit reached"},
+            ),
+            (
+                "invalid_detector",
+                "products.alerts.backend.facade.onboarding.INGESTION_DETECTOR_CONFIG",
+                {"new": {"type": "zscore", "window": 1}},
+            ),
+        ]
+    )
     @patch("products.alerts.backend.facade.onboarding.capture_exception")
     @patch("products.alerts.backend.facade.onboarding.feature_enabled_or_false", return_value=True)
     @patch("products.alerts.backend.facade.onboarding.is_email_available", return_value=True)
-    @patch("products.alerts.backend.facade.onboarding.AlertSubscription.objects.create", side_effect=RuntimeError)
     def test_alert_failure_does_not_block_project_creation(
-        self, _mock_subscription: MagicMock, _mock_email: MagicMock, _mock_flag: MagicMock, _mock_capture: MagicMock
+        self,
+        _name: str,
+        target: str,
+        options: dict,
+        _mock_email: MagicMock,
+        _mock_flag: MagicMock,
+        _mock_capture: MagicMock,
     ) -> None:
-        team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
+        with patch(target, **options), self.captureOnCommitCallbacks(execute=True):
+            team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
 
         assert Team.objects.filter(id=team.id).exists()
         assert not AlertConfiguration.objects.filter(team_id=team.id).exists()
         assert not Insight.objects.filter(team_id=team.id, filters__default_ingestion_alert=True).exists()
+        _mock_capture.assert_called_once()
+
+    @patch("products.alerts.backend.facade.onboarding.feature_enabled_or_false", return_value=True)
+    @patch("products.alerts.backend.facade.onboarding.is_email_available", return_value=True)
+    def test_new_account_subscribes_creator_after_membership_exists(
+        self, _mock_email: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            organization, team, user = User.objects.bootstrap(
+                organization_name="Example organization",
+                email="new-account@example.com",
+                password=None,
+            )
+            assert not AlertConfiguration.objects.filter(team_id=team.id).exists()
+
+        alert = AlertConfiguration.objects.get(team_id=team.id)
+        assert user.organization_memberships.filter(organization=organization).exists()
+        assert alert.created_by == user
+        assert alert.get_subscribed_users_emails() == [user.email]
 
 
 class TestIngestionComparison(ClickhouseTestMixin, BaseTest):
@@ -139,6 +186,7 @@ class TestIngestionComparison(ClickhouseTestMixin, BaseTest):
                     created_at=ingested_at,
                 )
 
+        assert alert.insight.query is not None
         query = HogQLQuery.model_validate(alert.insight.query["source"])
         query.query = query.query.replace("now()", "toDateTime({evaluation_time})")
         query.values = {"evaluation_time": datetime.now(UTC).isoformat()}
@@ -149,6 +197,7 @@ class TestIngestionComparison(ClickhouseTestMixin, BaseTest):
         assert tuple(latest[1:3]) == (current_count, previous_count)
         assert latest[5] == expected_change
 
+        assert alert.detector_config is not None
         detector = get_detector(alert.detector_config)
         values = np.array([row[5] for row in result.results])
         assert detector.detect(values).is_anomaly == expected_anomaly
