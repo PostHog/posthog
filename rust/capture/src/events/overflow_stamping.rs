@@ -24,7 +24,8 @@ use std::sync::Arc;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use metrics::counter;
 
-use crate::v0_request::{OverflowBudget, OverflowReason, ProcessedEvent};
+use crate::kind::OverflowBudget;
+use crate::v0_request::{OverflowReason, ProcessedEvent};
 
 /// Stamp `ProcessedEventMetadata::overflow_reason` on every overflowing-lane
 /// event in `events`, consulting the lane's limiter and the pre-existing
