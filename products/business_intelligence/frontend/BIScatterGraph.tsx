@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
@@ -33,7 +33,7 @@ export function BIScatterGraph({
             chartKey,
             query.source,
             chartProps.xData?.column.name,
-            chartProps.yData.map(({ column }) => column.name),
+            chartProps.yData.map(({ column, settings }) => [column.name, settings?.formatting?.style === 'percent']),
             query.chartSettings?.scatter?.xScale,
             query.chartSettings?.leftYAxisSettings?.scale,
         ]),
@@ -69,18 +69,16 @@ export function BIScatterGraph({
             .map((row) => Object.fromEntries(columns.map((column, index) => [column, row[index]])))
     }, [query.config, columns, rows, selectedKeys, visibleKeys, overBudget])
     const selectionConfig = keepBIScatterRows(query.config, selectedRecords)
-    const highlighted = useMemo(
-        () =>
-            selected.length
-                ? series.map((series) => ({
-                      ...series,
-                      points: series.points.map((point) => ({
-                          ...point,
-                          radius: point.meta?.rowKey !== undefined && selectedKeys.has(point.meta.rowKey) ? 7 : 3,
-                      })),
-                  }))
-                : series,
-        [series, selectedKeys, selected.length]
+    const isPointHighlighted = useCallback<NonNullable<SqlScatterGraphProps['isPointHighlighted']>>(
+        (point) => point.meta?.rowKey !== undefined && selectedKeys.has(point.meta.rowKey),
+        [selectedKeys]
+    )
+    const chartSettings = useMemo(
+        () => ({
+            ...chartProps.chartSettings,
+            showLegend: chartProps.chartSettings.showLegend ?? !!query.config.colorBy,
+        }),
+        [chartProps.chartSettings, query.config.colorBy]
     )
     if (overBudget) {
         return (
@@ -149,17 +147,15 @@ export function BIScatterGraph({
             )}
             <SqlScatterGraph
                 {...chartProps}
-                series={highlighted}
+                series={series}
+                isPointHighlighted={isPointHighlighted}
                 viewport={viewport}
                 legendVisibility={{
                     hiddenKeys: hiddenSeries,
                     onToggleSeries: toggleSeries,
                     onSetHiddenSeries: setHiddenSeries,
                 }}
-                chartSettings={{
-                    ...chartProps.chartSettings,
-                    showLegend: chartProps.chartSettings.showLegend ?? !!query.config.colorBy,
-                }}
+                chartSettings={chartSettings}
                 onPointClick={
                     onKeepOnly
                         ? (point) => {

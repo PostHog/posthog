@@ -59,7 +59,9 @@ afterEach(cleanup)
 it('selects only visible points after legend toggles and resets zoom when axes change', () => {
     const onKeepOnly = jest.fn()
     const view = render(<BIScatterGraph {...props} onKeepOnly={onKeepOnly} />)
+    const originalSeries = mockChartProps.series
     act(() => mockChartProps.onAreaSelect!(area))
+    expect(mockChartProps.series).toBe(originalSeries)
     expect(screen.getByTestId('bi-scatter-selection-count')).toHaveTextContent('2 selected')
     const hidden = mockChartProps.series!.find(({ label }) => label === 'B')!.key
     act(() => mockChartProps.legendVisibility!.onSetHiddenSeries!([hidden]))
@@ -67,8 +69,20 @@ it('selects only visible points after legend toggles and resets zoom when axes c
     act(() => mockChartProps.onAreaSelect!(area))
     fireEvent.click(screen.getByText('Keep only'))
     expect(onKeepOnly).toHaveBeenCalledWith([{ category: 'A', x: 10, y: 20 }])
-    fireEvent.click(screen.getByText('Select points'))
-    fireEvent.click(screen.getByText('Zoom area'))
+    fireEvent.click(screen.getByRole('button', { name: 'Select points' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Zoom area' }))
+    act(() => mockChartProps.onAreaSelect!(area))
+    expect(mockChartProps.viewport).toEqual(area)
+    view.rerender(
+        <BIScatterGraph
+            {...props}
+            yData={[{ ...props.yData[0], settings: { formatting: { style: 'percent' } } }]}
+            onKeepOnly={onKeepOnly}
+        />
+    )
+    expect(mockChartProps.viewport).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Select points' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Zoom area' }))
     act(() => mockChartProps.onAreaSelect!(area))
     expect(mockChartProps.viewport).toEqual(area)
     view.rerender(
@@ -139,5 +153,5 @@ it('handles a large selection without truncating the selected count', () => {
     )
     act(() => mockChartProps.onAreaSelect!({ x: [0, 5000], y: [0, 5000] }))
     expect(screen.getByTestId('bi-scatter-selection-count')).toHaveTextContent('5000 selected')
-    expect(mockChartProps.series![0].points.every(({ radius }) => radius === 7)).toBe(true)
+    expect(mockChartProps.series![0].points.every((point) => mockChartProps.isPointHighlighted!(point))).toBe(true)
 })

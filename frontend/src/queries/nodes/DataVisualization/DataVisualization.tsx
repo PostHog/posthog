@@ -282,6 +282,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         [showYearLabels, chartSettings.xAxisLabel]
     )
 
+    const columnNames = useMemo(() => columns.map((column) => column.name), [columns])
+
     const controlSize = query.kind === NodeKind.BIVisualizationNode ? 'xsmall' : 'small'
 
     const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
@@ -499,7 +501,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             query.kind === NodeKind.BIVisualizationNode ? (
                 <BIScatterGraph
                     query={query}
-                    columns={columns.map((column) => column.name)}
+                    columns={columnNames}
                     rows={'results' in response && Array.isArray(response.results) ? response.results : []}
                     chartKey={dataVisualizationProps.key}
                     onKeepOnly={props.editMode && !props.inSharedMode ? props.context?.onKeepBISelection : undefined}

@@ -30,6 +30,7 @@ export interface SqlScatterGraphProps {
     series?: SqlScatterSeries[]
     legendVisibility?: Pick<ChartLegendConfig, 'hiddenKeys' | 'onToggleSeries' | 'onSetHiddenSeries'>
     viewport?: ScatterAreaSelection | null
+    isPointHighlighted?: ScatterChartConfig<SqlScatterPointMeta>['isPointHighlighted']
     onPointClick?: (point: ScatterPointDatum<SqlScatterPointMeta>) => void
     onAreaSelect?: (selection: ScatterAreaSelection) => void
 }
@@ -47,20 +48,24 @@ export const SqlScatterGraph = ({
     legendVisibility,
     onPointClick,
     onAreaSelect,
+    isPointHighlighted,
 }: SqlScatterGraphProps): JSX.Element => {
     const theme = useChartTheme()
 
     const series = useMemo(() => suppliedSeries ?? buildScatterSeries(xData, yData), [suppliedSeries, xData, yData])
+    const baseConfig = useMemo(
+        () => (xData ? buildScatterConfig({ xData, yData, chartSettings }) : undefined),
+        [xData, yData, chartSettings]
+    )
     const config = useChartConfig((): ScatterChartConfig<SqlScatterPointMeta> | undefined => {
-        if (!xData) {
+        if (!baseConfig) {
             return undefined
         }
-        const base = buildScatterConfig({ xData, yData, chartSettings })
-        base.legend = { ...base.legend, ...legendVisibility }
+        const base = { ...baseConfig, legend: { ...baseConfig.legend, ...legendVisibility }, isPointHighlighted }
         return viewport
             ? { ...base, xAxis: { ...base.xAxis, domain: viewport.x }, yAxis: { ...base.yAxis, domain: viewport.y } }
             : base
-    }, [xData, yData, chartSettings, viewport, legendVisibility])
+    }, [baseConfig, viewport, legendVisibility, isPointHighlighted])
 
     const hasPoints = series.some((s) => s.points.length > 0)
 
