@@ -3,16 +3,16 @@ import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import { Container } from "inversify";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   FEATURE_FLAGS,
   type FeatureFlags,
 } from "../../../feature-flags/identifiers";
 import { UserMessage } from "./UserMessage";
 
-function renderWithFlags(node: ReactNode, bluebirdEnabled: boolean) {
+function renderMessage(node: ReactNode) {
   const flags: FeatureFlags = {
-    isEnabled: () => bluebirdEnabled,
+    isEnabled: () => false,
     getPayload: () => undefined,
     getVariant: () => undefined,
     onFlagsLoaded: () => () => {},
@@ -47,14 +47,8 @@ const PROMPT_FROM_PEER_AGENT =
   "schema changed, see peers.py";
 
 describe("UserMessage", () => {
-  // useFeatureFlag falls back to import.meta.env.DEV, which is true under
-  // vitest. Pin DEV off in the flag-gating cases so they exercise the flag
-  // itself, not the dev default.
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
   it("renders attachment chips for cloud prompts", () => {
-    renderWithFlags(
+    renderMessage(
       <UserMessage
         content="read this file"
         attachments={[
@@ -62,7 +56,6 @@ describe("UserMessage", () => {
           { id: "attachment://notes.md", label: "notes.md" },
         ]}
       />,
-      true,
     );
 
     expect(screen.getByText("read this file")).toBeInTheDocument();
@@ -73,7 +66,7 @@ describe("UserMessage", () => {
   it("renders a peer agent message as the body plus a provenance chip, never the raw envelope", () => {
     // Regression: the envelope boilerplate rendering inline made a peer message
     // indistinguishable from something this run's user typed.
-    renderWithFlags(<UserMessage content={PROMPT_FROM_PEER_AGENT} />, false);
+    renderMessage(<UserMessage content={PROMPT_FROM_PEER_AGENT} />);
 
     expect(
       screen.getByText("schema changed, see peers.py"),
@@ -87,41 +80,25 @@ describe("UserMessage", () => {
     expect(screen.queryByText(/peer message content/)).not.toBeInTheDocument();
   });
 
-  it("shows the channel CONTEXT.md tag when project-bluebird is enabled", () => {
-    vi.stubEnv("DEV", false);
-    renderWithFlags(
+  it("shows the channel CONTEXT.md tag and strips the raw block", () => {
+    renderMessage(
       <UserMessage content={PROMPT_WITH_CONTEXT} taskId="task-1" />,
-      true,
     );
 
     expect(screen.getByText("do the thing")).toBeInTheDocument();
     expect(screen.getByText("#billing CONTEXT.md")).toBeInTheDocument();
-  });
-
-  it("hides the tag but still strips the block when project-bluebird is off", () => {
-    vi.stubEnv("DEV", false);
-    renderWithFlags(
-      <UserMessage content={PROMPT_WITH_CONTEXT} taskId="task-1" />,
-      false,
-    );
-
-    // Prompt still renders, the channel-context tag does not.
-    expect(screen.getByText("do the thing")).toBeInTheDocument();
-    expect(screen.queryByText("#billing CONTEXT.md")).not.toBeInTheDocument();
-    // The raw <channel_context> XML must never leak to flag-off viewers.
+    // The raw <channel_context> XML must never leak into the rendered message.
     expect(screen.queryByText(/channel_context/)).not.toBeInTheDocument();
   });
 
   it("replaces a whole-message onboarding brief with a chip", () => {
-    vi.stubEnv("DEV", false);
-    renderWithFlags(
+    renderMessage(
       <UserMessage
         content={
           "<onboarding_brief>\nWrite the first message.\n</onboarding_brief>"
         }
         taskId="task-1"
       />,
-      false,
     );
 
     expect(
@@ -135,64 +112,36 @@ describe("UserMessage", () => {
   });
 
   it("renders Pi skill invocations as a command chip", () => {
-    renderWithFlags(<UserMessage content={PROMPT_WITH_PI_SKILL} />, true);
+    renderMessage(<UserMessage content={PROMPT_WITH_PI_SKILL} />);
 
     expect(screen.getByText("/code-review")).toBeInTheDocument();
     expect(screen.getByText("Review this pull request.")).toBeInTheDocument();
     expect(screen.queryByText("Inspect the diff.")).not.toBeInTheDocument();
   });
 
-  it("shows the canvas-instructions tag when project-bluebird is enabled", () => {
-    vi.stubEnv("DEV", false);
-    renderWithFlags(
+  it("shows the canvas-instructions tag and strips the raw block", () => {
+    renderMessage(
       <UserMessage content={PROMPT_WITH_CANVAS_INSTRUCTIONS} taskId="task-1" />,
-      true,
     );
 
     expect(screen.getByText("add a retention chart")).toBeInTheDocument();
     expect(screen.getByText("Canvas instructions")).toBeInTheDocument();
     // The contract body is collapsed into the tag, not rendered inline.
     expect(screen.queryByText("authoring contract")).not.toBeInTheDocument();
-  });
-
-  it("hides the canvas-instructions tag but still strips the block when off", () => {
-    vi.stubEnv("DEV", false);
-    renderWithFlags(
-      <UserMessage content={PROMPT_WITH_CANVAS_INSTRUCTIONS} taskId="task-1" />,
-      false,
-    );
-
-    expect(screen.getByText("add a retention chart")).toBeInTheDocument();
-    expect(screen.queryByText("Canvas instructions")).not.toBeInTheDocument();
     expect(
       screen.queryByText(/canvas_generation_instructions/),
     ).not.toBeInTheDocument();
   });
 
-  it.each([
-    {
-      name: "shows the PostHog context tag when project-bluebird is enabled",
-      bluebirdEnabled: true,
-    },
-    {
-      name: "hides the PostHog context tag but still strips the blocks when off",
-      bluebirdEnabled: false,
-    },
-  ])("$name", ({ bluebirdEnabled }) => {
-    vi.stubEnv("DEV", false);
-    renderWithFlags(
+  it("shows the PostHog context tag and strips the raw blocks", () => {
+    renderMessage(
       <UserMessage content={PROMPT_WITH_POSTHOG_CONTEXT} taskId="task-1" />,
-      bluebirdEnabled,
     );
 
     expect(
       screen.getByText("How many monthly active users do we have"),
     ).toBeInTheDocument();
-    if (bluebirdEnabled) {
-      expect(screen.getByText("PostHog context")).toBeInTheDocument();
-    } else {
-      expect(screen.queryByText("PostHog context")).not.toBeInTheDocument();
-    }
+    expect(screen.getByText("PostHog context")).toBeInTheDocument();
     expect(
       screen.queryByText(/posthog_trusted_context/),
     ).not.toBeInTheDocument();

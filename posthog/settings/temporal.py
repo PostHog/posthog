@@ -346,6 +346,8 @@ TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS = get_from_env(
 STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
+# Keep aggregation separate even when local development combines the other queues.
+USAGE_REPORT_AGGREGATION_TASK_QUEUE = f"{BILLING_TASK_QUEUE}-usage-report-aggregation"
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 # Keep the smoke fleets separate in local development as well as deployed environments.
@@ -360,6 +362,15 @@ ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(
 if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
+    )
+# The platform's parallel logs batches allowed to run at once, across every team. A batch runs its
+# cohort queries one after another, so this bounds the parallel run's concurrent logs queries.
+ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES: int = get_from_env(
+    "ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES", 5, type_cast=int
+)
+if ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform logs check starts"
     )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)

@@ -59,7 +59,7 @@ describe('SettingsTab', () => {
                     },
                 },
             }),
-            [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO]
+            [FEATURE_FLAGS.MANAGED_TRINO_QUERY]
         )
 
         expect(await screen.findByText('Catalog')).toBeInTheDocument()

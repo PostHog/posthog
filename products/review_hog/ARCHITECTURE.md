@@ -316,9 +316,9 @@ DevEx-owned prompts.
 Each session persists as one `perspective_result` under a reserved pass (`SINGLE_AGENT_PASS_NUMBER` 2000, lenses 2001
 and 2002) and its part. On a follow-up turn, a finding more than `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` (3) lines
 from any code that changed since `completed_head_sha` drops as `old_code` first (`ChangedSinceReview`). An automatic turn
-after run `FLASH_WHOLE_PR_TURNS` (2) drops every P2 and P3 finding there, so a fix only draws findings about the fix:
-one run finds only part of what is there, so the first two runs review the whole pull request, and later ones review
-the push. Earlier runs and requested turns drop only P3 findings there. The
+after run `FLASH_WHOLE_PR_TURNS` (1) drops every P2 and P3 finding there, so a fix only draws findings about the fix:
+the first run reviews the whole pull request with the larger first-review cap, and every later automatic run reviews
+the push. Requested turns (`@posthog review`, the label, the UI) drop only P3 findings there. The
 two heads' PR snapshots are compared by line content per file, so lines a base merge only moved stay old. Must-fix
 findings, files whose patch GitHub left out, a first review, and a re-run at the reviewed head skip the check. Step 7 then runs as two dedup calls in parallel (`dedupe_flash_findings`,
 `tools/single_agent_review.py`), both one-shot OpenAI calls on `FLASH_DEDUP_MODEL` (`gpt-6-luna` @ medium,
@@ -488,6 +488,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     When a publishing turn ends, after publish or after the failure is recorded, `nudge_stamphog_activity` calls stamphog's `request_rereview_after_external_review` (behind the `reviewhog-nudge-stamphog-2026-10` patch, fail-open). Stamphog decides whether a WAIT at that head runs again.
     **Standard turns post no status comment** (the same patch): the 👀 shows the turn runs, and the outcome is the review, a 👍 on the PR when nothing is publishable, or one failure comment per head (`post_failure_comment`, hidden `reviewhog:failed` marker) posted by `fail_status_comment_activity`.
     A later publish with findings, in either mode, first removes the app's own 👍 (`remove_own_pr_reactions`, matched with `is_app_bot_author`). The 👍 does not come back: a clean turn adds it only while no turn of the PR published findings (`published_head_sha` unset).
+    A clean Standard turn that a person asked for (`REQUESTED_TRIGGERS`: the label, a comment, the UI, or the CLI) also posts a one-line review that says it found nothing, because the 👍 is easy to miss next to other bots' reactions. It has a hidden `reviewhog:clean-reply:<report>:<head>` marker, so each head gets one reply, also when a workflow retry starts a new turn. A second request on the same head reuses the findings stored for that head (`load_perspective_results`), runs no sandbox and posts nothing new, because the first reply already answers it. Automatic and inbox turns keep only the 👍.
     Status comments that earlier turns left on the PR stay as they are, and a Standard turn never refreshes them.
     On the publish path of a **Deep** turn a live **status comment**
     (`reviewer/status_comment.py`) is posted at kickoff as one table with a row per step of the turn's review design,
@@ -593,6 +594,9 @@ The agent returns JSON at the end of each turn; the caller validates it and ends
    failure `start` ends its own session and raises, so the helper logs and returns **`None`**. There is no
    `output_path` / `_error.txt` and no manual JSON extraction — persistence is the caller's job. The runner
    persists the full agent log at `task_run.log_url` (S3 / Tasks UI), so the executor never copies it locally.
+   Each task also gets an `origin_key` of `{random}:{workflow_id_prefix}` (the prefix holds `owner/repo:pr_number`),
+   which lands on `$ai_generation` as `task_origin_key` so review cost can be summed per PR.
+   The key caps at 128 characters: only the step text is cut, and an owner/repo too long to fit becomes a stable digest, so the PR number always survives.
 
 The perspective review (the blind-spot sweep rides the same activity) runs on a different model family than the
 rest — **OpenAI Codex `gpt-6.1-sol`**, with `initial_permission_mode="full-access"`, at an effort set by the

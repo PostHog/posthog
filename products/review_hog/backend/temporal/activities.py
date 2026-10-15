@@ -117,7 +117,9 @@ from products.review_hog.backend.reviewer.progress import (
     RUN_OUTCOME_SKIPPED,
     RUN_STAGE_REVIEW,
     in_publish_window,
+    live_turn_markers,
     record_run_outcome,
+    turn_markers,
 )
 from products.review_hog.backend.reviewer.push_gate import (
     SYSTEM_ONE_SKIP_BELOW,
@@ -211,7 +213,12 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     reconcile_chunks,
 )
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
-from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
+from products.review_hog.backend.temporal.types import (
+    REQUESTED_TRIGGERS,
+    TRIGGER_AUTOMATIC,
+    TRIGGER_LABEL,
+    TRIGGER_MANUAL,
+)
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
 from products.signals.backend.enums import ReportPriority
@@ -1799,7 +1806,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 fall_back_on_any_error=_is_final_attempt(),
                 changed_since=changed_since,
                 budget_left=budget_left,
-                # Requested reviews and the first whole-PR turns still look at code the push did not change.
+                # Requested reviews and the first review still look at code the push did not change.
                 changed_code_only=input.trigger_source == TRIGGER_AUTOMATIC and input.run_index > FLASH_WHOLE_PR_TURNS,
                 first_review=input.run_index == 1,
             )
@@ -2085,6 +2092,7 @@ def _publish(input: PublishInput) -> PublishResult:
         capped_lens_parts=input.capped_lens_parts,
         footer=footer,
         draft_notice=draft_notice,
+        answers_request=input.trigger_source in REQUESTED_TRIGGERS,
         comment_commands_on=comment_commands_on,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
@@ -2565,7 +2573,8 @@ def _fail_run(
         return
     if run_index is None:
         # A run that dies in the publish window already counts its turn in `run_count`.
-        run_index = report.run_count if in_publish_window(report) else report.run_count + 1
+        live_marker = live_turn_markers(team_id, [report], turn_markers(team_id, [report_id])).get(report_id)
+        run_index = report.run_count if in_publish_window(report, live_marker) else report.run_count + 1
     record_run_outcome(
         team_id,
         report_id,

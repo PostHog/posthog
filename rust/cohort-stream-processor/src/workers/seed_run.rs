@@ -364,8 +364,8 @@ mod tests {
     use std::num::NonZeroU32;
 
     use cohort_core::seed::{
-        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, RunId, SChunkMs,
-        ScannedAtMs,
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, RunBoundaryMs, RunId,
+        SChunkMs, ScannedAtMs,
     };
     use serde_json::{json, Value};
     use uuid::Uuid;
@@ -435,6 +435,7 @@ mod tests {
             CohortId(1),
             ReconcileScope::Behavioral(BehavioralShapeHash::parse(BEHAVIORAL).unwrap()),
             RunId(Uuid::nil()),
+            RunBoundaryMs(0),
         )
     }
 

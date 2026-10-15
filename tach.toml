@@ -952,6 +952,12 @@ depends_on = [
     "products.tasks", "products.access_control",
     # Slack triggers emit internal events through products.cdp.backend.internal_events.
     "products.cdp",
+    # Mentions that name a pull request and a command run through the commands facade.
+    "products.commands",
+    # Link unfurls render insight charts through the exports facade.
+    "products.exports",
+    # Mention workflows check billing quota limits before they start a task.
+    "ee",
 ]
 layer = "modules"
 
@@ -1454,6 +1460,7 @@ layer = "modules"
 
 [[interfaces]]
 expose = [
+    "backend\\.logic\\.event_property_purge.*",
     "backend\\.logic\\.placeholder.*",
     "backend\\.models.*",
     "backend\\.property_type.*",
@@ -1633,6 +1640,8 @@ path = "products.today"
 depends_on = [
     "ee",
     "posthog",
+    "products.access_control",
+    "products.conversations",
     "products.signals",
     "products.tasks",
 ]
@@ -1640,7 +1649,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.alerts_platform"
-depends_on = ["posthog", "products.access_control"]
+depends_on = ["posthog", "products.access_control", "products.notifications"]
 layer = "modules"
 
 [[interfaces]]
@@ -1734,7 +1743,7 @@ from = [
 ]
 
 [[modules]]
-path = "products.github_commands"
+path = "products.commands"
 # Facade-only (enforced by each product's [[interfaces]] block): pull request comment commands
 # dispatch into these products.
 depends_on = ["posthog", "products.review_hog", "products.security", "products.stamphog", "products.tasks"]
@@ -1745,7 +1754,7 @@ expose = [
     "backend\\.facade.*",
 ]
 from = [
-    "products.github_commands",
+    "products.commands",
 ]
 
 [[modules]]

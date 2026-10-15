@@ -429,7 +429,7 @@ describe('Tool Filtering - API Scopes', () => {
 
     it('should expose managed warehouse Trino monitoring only with its read scope and feature flag', async () => {
         const trinoTools = ['managed-warehouse-trino-monitoring-get', 'managed-warehouse-trino-metric-history-get']
-        const enabledOptions = { featureFlags: { 'data-warehouse-scene-trino': true } }
+        const enabledOptions = { featureFlags: { 'managed-warehouse-trino-query': true } }
 
         const authorizedTools = await getToolsFromContext(createMockContext(['warehouse_view:read']), enabledOptions)
         const wrongScopeTools = await getToolsFromContext(createMockContext(['query:read']), enabledOptions)
@@ -1088,7 +1088,8 @@ describe('Tool Filtering - Feature Flags', () => {
             'scouts-tool-access',
             'replay-vision-scanner-dashboard',
             'metrics-dashboard-import',
-            'data-warehouse-scene-trino',
+            'managed-warehouse-trino-query',
+            'llm-analytics-tags',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1132,9 +1133,9 @@ describe('Tool Filtering - Feature Flags', () => {
                 'context-layer',
                 'warehouse-multi-destination',
                 'autoresearch',
-                'today-rail-nav',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
+                'workflows-data-suggestions',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')

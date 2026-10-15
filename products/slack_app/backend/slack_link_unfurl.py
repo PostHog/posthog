@@ -32,11 +32,6 @@ from posthog.models.user_integration import UserIntegration
 from posthog.object_tags.kinds import OBJECT_URL_TEMPLATES, ObjectRef, object_ref_for_url
 from posthog.redis import get_client
 from posthog.slack.formatting import escape_slack_mrkdwn
-from posthog.temporal.ai.slack_app.slack_app_unfurl_charts import (
-    SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT,
-    SlackAppUnfurlChartsWorkflow,
-)
-from posthog.temporal.ai.slack_app.types import SlackAppUnfurlChartsWorkflowInputs, SlackUnfurlChartRequest
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import get_instance_region
 
@@ -59,10 +54,14 @@ from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_access import may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_insight_unfurl_charts_enabled
 from products.slack_app.backend.logic.link_unfurl_charts import chat_unfurl_kwargs
 from products.slack_app.backend.services.followup_invite import build_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
+from products.slack_app.backend.temporal.slack_app_unfurl_charts import (
+    SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT,
+    SlackAppUnfurlChartsWorkflow,
+)
+from products.slack_app.backend.temporal.types import SlackAppUnfurlChartsWorkflowInputs, SlackUnfurlChartRequest
 from products.surveys.backend.models import Survey
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
@@ -1028,8 +1027,6 @@ def start_unfurl_charts(
     sharing gets no charts.
     """
     if not integration.team.organization.allow_publicly_shared_resources:
-        return
-    if not is_slack_app_insight_unfurl_charts_enabled(integration, distinct_id=str(user.distinct_id)):
         return
     channel = event["channel"]
     message_ts = event["message_ts"]

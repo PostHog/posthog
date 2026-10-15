@@ -22,6 +22,7 @@ from products.batch_exports.backend.presentation.views.batch_export.exports impo
     BatchExportSerializer,
     parse_events_hogql_query,
 )
+from products.batch_exports.backend.presentation.views.utils import HogQLModifiersField
 
 
 class TestBatchExportModelValidation(SimpleTestCase):
@@ -47,6 +48,23 @@ class TestBatchExportModelValidation(SimpleTestCase):
 
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data == {"name": "Renamed"}
+
+    @parameterized.expand(
+        [
+            ("unset", {}, {}),
+            ("false", {"useNewEventsCluster": False}, {"useNewEventsCluster": False}),
+            ("true", {"useNewEventsCluster": True}, None),
+        ]
+    )
+    def test_cluster_opt_ins_are_not_supported_by_exports(
+        self, _name: str, modifiers: dict, expected: dict | None
+    ) -> None:
+        field = HogQLModifiersField()
+        if expected is None:
+            with self.assertRaisesMessage(serializers.ValidationError, "synchronous query API"):
+                field.run_validation(modifiers)
+        else:
+            assert field.run_validation(modifiers) == expected
 
 
 def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
