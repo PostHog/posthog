@@ -5,10 +5,11 @@ import { useSafeAreaFrame } from 'react-native-safe-area-context'
 import type { InboxItem } from '@/model/types'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
-import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { ClockIcon } from '@/ui/icons/ClockIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { GitBranchIcon } from '@/ui/icons/GitBranchIcon'
+import { MailOpenIcon } from '@/ui/icons/MailOpenIcon'
+import { MailUnreadIcon } from '@/ui/icons/MailUnreadIcon'
 import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { ReassignIcon } from '@/ui/icons/ReassignIcon'
 import type { IconProps } from '@/ui/icons/types'
@@ -45,6 +46,7 @@ interface ReportContextMenuProps {
     onSnooze: () => void
     onChat: () => void
     onMarkRead: () => void
+    onMarkUnread: () => void
 }
 
 interface ContextMenuRowProps {
@@ -107,6 +109,7 @@ export function ReportContextMenu({
     onSnooze,
     onChat,
     onMarkRead,
+    onMarkUnread,
 }: ReportContextMenuProps): ReactElement {
     const insets = useScreenInsets()
     const { width: windowWidth } = useWindowDimensions()
@@ -208,11 +211,19 @@ export function ReportContextMenu({
                     onPress={onChat}
                     testID="inbox-row-menu-chat"
                 />
-                {item.read ? null : (
+                {item.read ? (
+                    <ContextMenuRow
+                        label="Mark as unread"
+                        disabled={handoffPending}
+                        Icon={MailUnreadIcon}
+                        onPress={onMarkUnread}
+                        testID="inbox-row-menu-mark-unread"
+                    />
+                ) : (
                     <ContextMenuRow
                         label="Mark as read"
                         disabled={handoffPending}
-                        Icon={CheckIcon}
+                        Icon={MailOpenIcon}
                         onPress={onMarkRead}
                         testID="inbox-row-menu-mark-read"
                     />

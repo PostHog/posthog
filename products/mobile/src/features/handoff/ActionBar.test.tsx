@@ -59,6 +59,7 @@ function props(state: ActionBarState): ComponentProps<typeof ActionBar> {
         setReviewers: jest.fn(async () => undefined),
         setPriority: jest.fn(async () => undefined),
         markRead: jest.fn(async () => undefined),
+        markUnread: jest.fn(async () => undefined),
         pending: { handOff: false, answer: false, snooze: false, reviewers: false, priority: false },
     }
     return {

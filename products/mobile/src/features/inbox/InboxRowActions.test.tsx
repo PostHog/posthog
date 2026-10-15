@@ -50,7 +50,8 @@ beforeEach(() => {
         snooze: jest.fn(),
         setReviewers: jest.fn(),
         setPriority: jest.fn(),
-        markRead: jest.fn(),
+        markRead: jest.fn(async () => undefined),
+        markUnread: jest.fn(async () => undefined),
         pending: { handOff: false, answer: false, snooze: false, reviewers: false, priority: false },
     }
     jest.mocked(useReport).mockReturnValue(successQuery(REPORT))
@@ -153,4 +154,18 @@ test.each<Partial<ReportView>>([
     render(<InboxRowActions target={TARGET} onClose={jest.fn()} />, { wrapper: OverlayHost })
     expect(screen.queryByTestId('inbox-row-menu-handoff')).toBeNull()
     expect(screen.getByTestId('inbox-row-menu-chat')).toBeEnabled()
+})
+
+test.each([
+    ['an unread report as read', false, 'inbox-row-menu-mark-read', 'inbox-row-menu-mark-unread', 'markRead'],
+    ['a read report as unread', true, 'inbox-row-menu-mark-unread', 'inbox-row-menu-mark-read', 'markUnread'],
+] as const)('marks %s and closes the menu', (_name, read, shown, hidden, action) => {
+    const close = jest.fn()
+    render(<InboxRowActions target={{ ...TARGET, item: { ...TARGET.item, read } }} onClose={close} />, {
+        wrapper: OverlayHost,
+    })
+    expect(screen.queryByTestId(hidden)).toBeNull()
+    fireEvent.press(screen.getByTestId(shown))
+    expect(actions[action]).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledTimes(1)
 })

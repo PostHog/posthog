@@ -40,6 +40,12 @@ export const colors = {
 
 export type ColorToken = keyof typeof colors
 
+export const swipeColors = {
+    read: colors.blue,
+    unread: colors.ink,
+    onAction: colors.white,
+} as const
+
 export const avatarPalette = ['#1D4AFF', '#F54E00', '#2F8F5B', '#7A4DD6', '#C2410C', '#0E7490', '#1F1F1C'] as const
 
 export const accentColor: Record<Accent, string> = {

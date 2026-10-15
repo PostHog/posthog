@@ -5,9 +5,10 @@ import { AppState, type AppStateStatus } from 'react-native'
 import { setAuthProvider } from '@/api/client'
 import { INBOX_PAGE_SIZE, postReadStates, reportKeys } from '@/api/reports'
 import { useAuthStore } from '@/auth/authStore'
+import { type DataMode, useDemoMode } from '@/demo/demoMode'
 import { reportFixture } from '@/model/adapters/testFixtures'
 
-import { useInboxItems, useMarkReadOnOpen } from './hooks'
+import { useInboxItems, useMarkReadOnOpen, useSetReportRead } from './hooks'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -17,10 +18,15 @@ jest.mock('@/auth/useProjectScope', () => {
     const scope = { host: 'https://app.example.com', projectId: 2 }
     return { useProjectScope: () => scope }
 })
+let mockDataMode: DataMode = 'live'
 jest.mock('@/demo/demoMode', () => ({
     ...jest.requireActual('@/demo/demoMode'),
-    useDataMode: () => 'live',
+    useDataMode: () => mockDataMode,
 }))
+
+function scopeOf(): { host: string; projectId: number } {
+    return { host: 'https://app.example.com', projectId: 2 }
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
     return {
@@ -81,28 +87,134 @@ describe('inbox hooks', () => {
         expect(posted).toEqual([])
     })
 
-    test('restores unread state after a failed mark and permits a retry', async () => {
-        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
-        const scope = { host: 'https://app.example.com', projectId: 2 }
-        const key = reportKeys.readStates(scope, ['report-1'])
-        queryClient.setQueryData(key, { 'report-1': false })
-        let rejectWrite: (error: Error) => void = () => undefined
-        globalThis.fetch = jest.fn(
-            () =>
-                new Promise<Response>((_resolve, reject) => {
+    test.each([true, false])(
+        'restores the previous state after a failed write to %s and permits a retry',
+        async (read) => {
+            const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+            const scope = { host: 'https://app.example.com', projectId: 2 }
+            const key = reportKeys.readStates(scope, ['report-1'])
+            queryClient.setQueryData(key, { 'report-1': !read })
+            let rejectWrite: (error: Error) => void = () => undefined
+            globalThis.fetch = jest.fn((_url: string, init: RequestInit) => {
+                posted.push(JSON.parse(String(init.body)))
+                return new Promise<Response>((_resolve, reject) => {
                     rejectWrite = reject
                 })
-        ) as typeof fetch
+            }) as unknown as typeof fetch
+            const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+                <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+            )
+            const { result } = renderHook(() => useSetReportRead(), { wrapper })
+            const failed = result.current('report-1', read).catch((error: Error) => error)
+            await waitFor(() => expect(queryClient.getQueryData(key)).toEqual({ 'report-1': read }))
+            await act(async () => rejectWrite(new Error('offline')))
+            await expect(failed).resolves.toBeInstanceOf(Error)
+            expect(queryClient.getQueryData(key)).toEqual({ 'report-1': !read })
+            void result.current('report-1', read).catch(() => undefined)
+            await waitFor(() => expect(posted).toHaveLength(2))
+            expect(posted).toEqual([
+                { report_ids: ['report-1'], read },
+                { report_ids: ['report-1'], read },
+            ])
+        }
+    )
+
+    test('shows a report unread at once while the unread write is in flight', async () => {
+        globalThis.fetch = jest.fn(async (url: string, init?: RequestInit) => {
+            if (new URL(url).pathname.endsWith('/read_state/')) {
+                const body = JSON.parse(String(init?.body))
+                if ('read' in body) {
+                    posted.push(body)
+                    return new Promise<Response>(() => undefined)
+                }
+                return jsonResponse({ states: { r1: true } })
+            }
+            return jsonResponse({ count: 1, next: null, results: [reportFixture({ id: 'r1' })] })
+        }) as typeof fetch
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
         const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
             <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
         )
-        const first = renderHook(() => useMarkReadOnOpen('report-1'), { wrapper })
-        await waitFor(() => expect(queryClient.getQueryData(key)).toEqual({ 'report-1': true }))
-        await act(async () => rejectWrite(new Error('offline')))
-        await waitFor(() => expect(queryClient.getQueryData(key)).toEqual({ 'report-1': false }))
-        first.unmount()
-        renderHook(() => useMarkReadOnOpen('report-1'), { wrapper })
-        await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+        const screen = renderHook(() => ({ inbox: useInboxItems(), setRead: useSetReportRead() }), { wrapper })
+        try {
+            await waitFor(() => expect(screen.result.current.inbox.data?.[0]?.read).toBe(true))
+            void screen.result.current.setRead('r1', false).catch(() => undefined)
+            await waitFor(() => expect(screen.result.current.inbox.data?.[0]?.read).toBe(false))
+            expect(posted).toEqual([{ report_ids: ['r1'], read: false }])
+            await act(async () => {
+                await queryClient.refetchQueries({ queryKey: reportKeys.readStatesAll(scopeOf()) })
+            })
+            expect(screen.result.current.inbox.data?.[0]?.read).toBe(false)
+        } finally {
+            screen.unmount()
+            queryClient.clear()
+        }
+    })
+
+    test.each([
+        { first: 'succeeds', second: 'succeeds', shown: false },
+        { first: 'succeeds', second: 'fails', shown: true },
+        { first: 'fails', second: 'fails', shown: false },
+    ] as const)(
+        'sends read then unread in order when the first $first and the second $second',
+        async ({ first, second, shown }) => {
+            const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+            const key = reportKeys.readStates(scopeOf(), ['report-1'])
+            queryClient.setQueryData(key, { 'report-1': false })
+            const writes: { resolve: (response: Response) => void; reject: (error: Error) => void }[] = []
+            globalThis.fetch = jest.fn((_url: string, init: RequestInit) => {
+                posted.push(JSON.parse(String(init.body)))
+                return new Promise<Response>((resolve, reject) => {
+                    writes.push({ resolve, reject })
+                })
+            }) as unknown as typeof fetch
+            const finish = (index: number, outcome: 'succeeds' | 'fails'): void => {
+                if (outcome === 'succeeds') writes[index]?.resolve(jsonResponse({ states: {} }))
+                else writes[index]?.reject(new Error('offline'))
+            }
+            const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+                <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+            )
+            const { result } = renderHook(() => useSetReportRead(), { wrapper })
+            const markedRead = result.current('report-1', true).catch(() => undefined)
+            const markedUnread = result.current('report-1', false).catch(() => undefined)
+            await waitFor(() => expect(posted).toHaveLength(1))
+            await waitFor(() => expect(queryClient.getQueryData(key)).toEqual({ 'report-1': false }))
+            await act(async () => finish(0, first))
+            await waitFor(() => expect(posted).toHaveLength(2))
+            expect(queryClient.getQueryData(key)).toEqual({ 'report-1': false })
+            await act(async () => {
+                finish(1, second)
+                await Promise.all([markedRead, markedUnread])
+            })
+            expect(posted).toEqual([
+                { report_ids: ['report-1'], read: true },
+                { report_ids: ['report-1'], read: false },
+            ])
+            expect(queryClient.getQueryData(key)).toEqual({ 'report-1': shown })
+        }
+    )
+
+    test('marks a demo report unread after it was read', async () => {
+        mockDataMode = 'demo'
+        useDemoMode.getState().setEnabled(true)
+        const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        )
+        const screen = renderHook(() => ({ inbox: useInboxItems(), setRead: useSetReportRead() }), { wrapper })
+        try {
+            const reportId = screen.result.current.inbox.data?.[0]?.reportId as string
+            await act(() => screen.result.current.setRead(reportId, true))
+            expect(screen.result.current.inbox.data?.[0]?.read).toBe(true)
+            await act(() => screen.result.current.setRead(reportId, false))
+            expect(screen.result.current.inbox.data?.[0]?.read).toBe(false)
+            expect(posted).toEqual([])
+        } finally {
+            screen.unmount()
+            useDemoMode.getState().setEnabled(false)
+            mockDataMode = 'live'
+        }
     })
 
     test('shows unread only after a fresh successful answer and hides it after a failed refresh', async () => {

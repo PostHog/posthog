@@ -25,7 +25,7 @@ export interface RowMenuTarget {
     anchor: RowAnchor
 }
 
-type RowMenuAction = 'reassign' | 'snooze' | 'chat' | 'mark_read' | 'hand_off' | 'view_pr'
+type RowMenuAction = 'reassign' | 'snooze' | 'chat' | 'mark_read' | 'mark_unread' | 'hand_off' | 'view_pr'
 
 type Step = 'menu' | 'assignee' | 'snooze'
 
@@ -152,10 +152,15 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
         close()
         router.push({ pathname: '/chat', params: { reportId } })
     }
-    // The row turns read at once; a failed post reloads the read states, so the row shows unread again without a message.
+    // The row changes at once; a failed post reloads the read states, so the row flips back without a message.
     const markRead = (): void => {
         choose('mark_read')
         actions.markRead().catch(() => undefined)
+        close()
+    }
+    const markUnread = (): void => {
+        choose('mark_unread')
+        actions.markUnread().catch(() => undefined)
         close()
     }
     const snooze = async (choice: SnoozeChoice): Promise<void> => {
@@ -188,6 +193,7 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
                 onSnooze={openSnooze}
                 onChat={chat}
                 onMarkRead={markRead}
+                onMarkUnread={markUnread}
             />
             <SnoozeSheet
                 visible={overlay === 'snooze'}

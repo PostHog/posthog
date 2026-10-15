@@ -337,6 +337,7 @@ export interface ReportActions {
     setReviewers: (uuids: string[]) => Promise<void>
     setPriority: (priority: ReportPriority) => Promise<void>
     markRead: () => Promise<void>
+    markUnread: () => Promise<void>
     pending: ReportActionsPending
 }
 

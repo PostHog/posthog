@@ -1,6 +1,7 @@
 import {
     type InfiniteData,
     type QueryClient,
+    type QueryKey,
     type UseQueryResult,
     useInfiniteQuery,
     useQueries,
@@ -68,7 +69,15 @@ useAuthStore.subscribe((state, previous) => {
     }
 })
 
-const pendingReads = new WeakMap<QueryClient, Map<string, Promise<void>>>()
+type ReadSnapshot = [QueryKey, Record<string, boolean> | undefined][]
+
+interface PendingRead {
+    read: boolean
+    promise: Promise<void>
+    rollback: ReadSnapshot
+}
+
+const pendingReads = new WeakMap<QueryClient, Map<string, PendingRead>>()
 
 function readKey(scope: ProjectScope | null, reportId: string): string {
     return JSON.stringify([accountGeneration, scope, reportId])
@@ -135,7 +144,8 @@ function useLiveInboxItems(enabled: boolean, refreshWhileVisible: boolean): Inbo
             queryFn: async ({ signal }: { signal: AbortSignal }) => {
                 const states = await fetchReadStates(ids, signal)
                 for (const id of ids) {
-                    if (pendingReads.get(queryClient)?.has(readKey(scope, id))) states[id] = true
+                    const pending = pendingReads.get(queryClient)?.get(readKey(scope, id))
+                    if (pending) states[id] = pending.read
                 }
                 return states
             },
@@ -251,69 +261,101 @@ function setCachedRead(
     )
 }
 
-function markReportRead(queryClient: QueryClient, scope: ProjectScope, reportId: string): Promise<void> {
+function restoreRead(queryClient: QueryClient, reportId: string, snapshot: ReadSnapshot): void {
+    for (const [queryKey, states] of snapshot) {
+        queryClient.setQueryData<Record<string, boolean>>(queryKey, (current) => {
+            if (!current) return current
+            const restored = { ...current }
+            if (states && reportId in states) restored[reportId] = states[reportId] as boolean
+            else delete restored[reportId]
+            return restored
+        })
+    }
+}
+
+// A write to the opposite value waits for the one in flight, so the server ends with the last value the user chose.
+function setReportRead(queryClient: QueryClient, scope: ProjectScope, reportId: string, read: boolean): Promise<void> {
     let pending = pendingReads.get(queryClient)
     if (!pending) {
         pending = new Map()
         pendingReads.set(queryClient, pending)
     }
+    const writes = pending
     const generation = accountGeneration
     const key = readKey(scope, reportId)
+    const existing = writes.get(key)
+    if (existing?.read === read) return existing.promise
     const controller = new AbortController()
-    const existing = pending.get(key)
-    if (existing) return existing
     readWrites.add(controller)
-    const operation = (async (): Promise<void> => {
+    const entry: PendingRead = { read, promise: Promise.resolve(), rollback: [] }
+    // A superseded write leaves the cache to the newer write, which shows the newer value.
+    const isLatest = (): boolean => writes.get(key) === entry
+    entry.promise = (async (): Promise<void> => {
         const filters = { queryKey: reportKeys.readStatesAll(scope) }
         await queryClient.cancelQueries(filters)
         if (generation !== accountGeneration) return
-        const previous = queryClient.getQueriesData<Record<string, boolean>>(filters)
-        setCachedRead(queryClient, scope, reportId, true)
+        entry.rollback = queryClient.getQueriesData<Record<string, boolean>>(filters)
+        setCachedRead(queryClient, scope, reportId, read)
+        if (existing) {
+            const previousSucceeded = await existing.promise.then(
+                () => true,
+                () => false
+            )
+            if (generation !== accountGeneration) return
+            // The older write did not reach the server, so a failure here goes back to the value before it.
+            if (!previousSucceeded) entry.rollback = existing.rollback
+        }
         try {
-            await postReadStates([reportId], true, controller.signal)
+            await postReadStates([reportId], read, controller.signal)
             if (generation !== accountGeneration) return
+            track(read ? 'mobile_report_marked_read' : 'mobile_report_marked_unread', { report_id: reportId })
+            if (!isLatest()) return
             await queryClient.cancelQueries(filters)
-            if (generation !== accountGeneration) return
-            setCachedRead(queryClient, scope, reportId, true)
-            track('mobile_report_marked_read', { report_id: reportId })
+            if (generation !== accountGeneration || !isLatest()) return
+            setCachedRead(queryClient, scope, reportId, read)
         } catch (error) {
             if (generation !== accountGeneration) return
-            await queryClient.cancelQueries(filters)
-            if (generation !== accountGeneration) return
-            for (const [queryKey, states] of previous) {
-                queryClient.setQueryData<Record<string, boolean>>(queryKey, (current) => {
-                    if (!current) return current
-                    const restored = { ...current }
-                    if (states && reportId in states) restored[reportId] = states[reportId] as boolean
-                    else delete restored[reportId]
-                    return restored
-                })
+            if (isLatest()) {
+                await queryClient.cancelQueries(filters)
+                if (generation !== accountGeneration) return
+                if (isLatest()) restoreRead(queryClient, reportId, entry.rollback)
             }
             throw error
         }
     })().finally(() => {
-        pending?.delete(key)
+        if (isLatest()) writes.delete(key)
         readWrites.delete(controller)
     })
-    pending.set(key, operation)
-    return operation
+    writes.set(key, entry)
+    return entry.promise
 }
 
-export function useMarkReadAction(reportId: string): AsyncAction<[]> {
+/** Sets a report's read state for the current user. Not guarded, so swipes on different rows never drop each other. */
+export function useSetReportRead(): (reportId: string, read: boolean) => Promise<void> {
     const demo = useDemoMode((state) => state.enabled)
     const demoMarkRead = useDemoMode((state) => state.markRead)
+    const demoMarkUnread = useDemoMode((state) => state.markUnread)
     const scope = useProjectScope()
     const queryClient = useQueryClient()
-    return useAsyncAction(async () => {
-        if (demo) {
-            demoMarkRead(reportId)
-            return
-        }
-        if (!scope) {
-            throw new NotSignedInError()
-        }
-        await markReportRead(queryClient, scope, reportId)
-    })
+    return useCallback(
+        async (reportId: string, read: boolean): Promise<void> => {
+            if (demo) {
+                if (read) demoMarkRead(reportId)
+                else demoMarkUnread(reportId)
+                return
+            }
+            if (!scope) {
+                throw new NotSignedInError()
+            }
+            await setReportRead(queryClient, scope, reportId, read)
+        },
+        [demo, demoMarkRead, demoMarkUnread, scope, queryClient]
+    )
+}
+
+export function useSetReadAction(reportId: string, read: boolean): AsyncAction<[]> {
+    const setRead = useSetReportRead()
+    return useAsyncAction(() => setRead(reportId, read))
 }
 
 // Posts without `useAsyncAction`, whose in-flight guard would drop the next report's post on a fast Prev/Next.
@@ -331,7 +373,7 @@ export function useMarkReadOnOpen(reportId: string | undefined): void {
         if (!scope) {
             return
         }
-        markReportRead(queryClient, scope, reportId).catch(() => undefined)
+        setReportRead(queryClient, scope, reportId, true).catch(() => undefined)
         wakeSnooze(scope, reportId).catch(() => undefined)
     }, [reportId, demo, demoMarkRead, scope, queryClient])
 }

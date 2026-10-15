@@ -25,7 +25,8 @@ export interface DemoMutableState {
     handed: Record<string, string>
     decisions: Record<string, DecisionAnswer>
     snoozed: Record<string, string>
-    read: Record<string, true>
+    /** An explicit value overrides the fixture's read state. */
+    read: Record<string, boolean>
     reviewers: Record<string, string[]>
     priorities: Record<string, ReportPriority>
     log: Record<string, DemoLogEntry[]>
@@ -49,6 +50,7 @@ export interface DemoModeState extends DemoMutableState {
     setReviewers: (reportId: string, uuids: string[]) => void
     setPriority: (reportId: string, priority: ReportPriority) => void
     markRead: (reportId: string) => void
+    markUnread: (reportId: string) => void
 }
 
 function freshState(): DemoMutableState {
@@ -154,6 +156,10 @@ export const useDemoMode = create<DemoModeState>()(
                 })),
             markRead: (reportId) =>
                 set((state) => (state.read[reportId] ? state : { read: { ...state.read, [reportId]: true } })),
+            markUnread: (reportId) =>
+                set((state) =>
+                    state.read[reportId] === false ? state : { read: { ...state.read, [reportId]: false } }
+                ),
         }),
         {
             name: 'posthog-mobile-demo',

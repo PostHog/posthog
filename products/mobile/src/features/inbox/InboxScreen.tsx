@@ -15,7 +15,7 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { useExitDemo, useSignOutAction } from '../settings/useSignOut'
 import type { RowAnchor } from './contextMenuPlacement'
-import { useInboxItems } from './hooks'
+import { useInboxItems, useSetReportRead } from './hooks'
 import { INBOX_HEADER_BOTTOM, InboxHeader } from './InboxHeader'
 import { InboxListFooter } from './InboxListFooter'
 import { InboxRow } from './InboxRow'
@@ -60,6 +60,14 @@ export function InboxScreen(): ReactElement {
 
     const openReport = useCallback((reportId: string) => router.push(`/report/${reportId}`), [router])
     const openRowMenu = useCallback((item: InboxItem, anchor: RowAnchor) => setRowMenu({ item, anchor }), [])
+    const setReportRead = useSetReportRead()
+    // The row changes at once; a failed post reloads the read states, so the row flips back without a message.
+    const setRead = useCallback(
+        (reportId: string, read: boolean) => {
+            setReportRead(reportId, read).catch(() => undefined)
+        },
+        [setReportRead]
+    )
     const refresh = (): void => {
         void query.refetch()
     }
@@ -89,9 +97,9 @@ export function InboxScreen(): ReactElement {
 
     const renderItem = useCallback(
         ({ item }: { item: InboxItem }) => (
-            <InboxRow item={item} now={now} onOpen={openReport} onLongPress={openRowMenu} />
+            <InboxRow item={item} now={now} onOpen={openReport} onLongPress={openRowMenu} onSetRead={setRead} />
         ),
-        [now, openReport, openRowMenu]
+        [now, openReport, openRowMenu, setRead]
     )
 
     const empty = query.isLoading ? (

@@ -97,7 +97,10 @@ Sizing a glyph does not change its button's tap target, which stays at least 44p
   opens a new chat sheet. Products opens the project's product library in the web app, and is
   dimmed in demo mode or when the session has no project. A long press on a row (or the screen
   reader's "Show report actions") opens a menu with Hand off to the saved agent (PostHog,
-  Claude Code or Codex), Reassign, Snooze, Chat and, for an unread report, Mark as read.
+  Claude Code or Codex), Reassign, Snooze, Chat and Mark as read (for an unread report) or Mark as unread.
+  A full swipe on a row changes its read state: swipe right past 40% of the row marks an unread report read
+  (blue), swipe left marks a read report unread (ink). The other direction has no action, and screen readers get
+  the same change as a "Mark as read" or "Mark as unread" row action.
   Hand off uses the same eligibility rules and saved destination as the report's hand-off button;
   it waits for report details, blocks repeat taps while pending and keeps failures in the menu for retry.
   A report with a pull request shows View PR (with an external-link mark, it opens the browser) in

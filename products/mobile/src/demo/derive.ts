@@ -54,7 +54,7 @@ export function deriveDemoReport(view: DemoView, fixture: DemoFixture): ReportVi
 export function deriveDemoInbox(view: DemoView, fixtures: DemoFixtures): InboxItem[] {
     return fixtures.list.map(({ item, briefing }) => {
         const id = item.reportId
-        const next: InboxItem = { ...item, read: Boolean(view.read[id]) }
+        const next: InboxItem = { ...item, read: view.read[id] ?? item.read }
         const decision = view.decisions[id]
         if (decision) {
             next.needsInput = false
