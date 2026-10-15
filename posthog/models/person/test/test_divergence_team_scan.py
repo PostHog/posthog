@@ -103,12 +103,13 @@ class TestTeamScan(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
             "x2": ("diverged", "ambiguous", None, f"ambiguous:{keys['holder']}", ()),
             keys["unseen"]: ("missing_in_ch", None, "republish", None, ()),
             "unseen-1": ("missing_in_ch", None, "republish", None, ()),
-            "stray-1": ("stray", None, "detach_stray", None, ()),
+            "stray-1": ("stray", None, None, None, ()),
             keys["lonely"]: ("no_live_mappings", None, None, None, ()),
         }
         summary = json.loads((scan_dir / team_scan.SUMMARY_FILE).read_text())
         assert summary["complete"] is True
         assert summary["verbs"]["fold"] == {"person_rows": 1, "mapping_rows": 2, "groups": 1}
+        assert summary["groups"]["fold_modes"] == {"full": 1}
         assert summary["classified"]["person/ok/-"] == 4
         # Distinct ids stay in the report file; the command output names no key.
         for distinct_id in ("moved", "lost", "x1", "unseen-1", "stray-1"):
@@ -196,18 +197,25 @@ class TestRegroup(SimpleTestCase):
             (
                 "old_owner_split",
                 [_mapping("a", "b1"), _mapping("a", "b2")],
-                {"a-b1": (None, "ambiguous:a"), "a-b2": (None, "ambiguous:a")},
+                {"a-b1": (None, "ambiguous:a", None), "a-b2": (None, "ambiguous:a", None)},
             ),
-            ("live_pair_merges", [_mapping("a", "b", sub="a_live")], {"a-b": ("merge", "merge:a>b")}),
+            ("live_pair_merges", [_mapping("a", "b", sub="a_live")], {"a-b": ("merge", "merge:a>b", None)}),
+            # Every id of A moved to B, so no ghost id is left to merge from.
+            ("absent_pair_without_ghost_ids_folds_light", [_mapping("a", "b")], {"a-b": ("fold", "fold:a>b", "light")}),
+            (
+                "absent_pair_with_a_ghost_id_folds_full",
+                [_mapping("a", "b"), _ghost_mapping("a")],
+                {"a-b": ("fold", "fold:a>b", "full"), "ghost-a": ("fold", "fold:a>b", "full")},
+            ),
             (
                 "ghost_mapping_restores_with_its_owner",
                 [_ghost_person("a", "restore"), _ghost_mapping("a")],
-                {"a": ("restore", "restore:a"), "ghost-a": ("restore", "restore:a")},
+                {"a": ("restore", "restore:a", None), "ghost-a": ("restore", "restore:a", None)},
             ),
             (
                 "ghost_mapping_stays_with_an_unrepaired_owner",
                 [_ghost_person("a", None), _ghost_mapping("a")],
-                {"a": (None, None), "ghost-a": (None, None)},
+                {"a": (None, None, None), "ghost-a": (None, None, None)},
             ),
         ]
     )
@@ -228,7 +236,7 @@ class TestRegroup(SimpleTestCase):
 
         final = [team_scan._regroup(dict(row), groups, plan) for row in rows]
 
-        assert {r["key"]: (r["verb"], r["group"]) for r in final if r is not None} == expected
+        assert {r["key"]: (r["verb"], r["group"], r.get("fold_mode")) for r in final if r is not None} == expected
 
     def test_ghost_mappings_of_a_deleted_team_get_no_verb(self):
         plan = team_scan.ScanPlan(
