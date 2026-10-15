@@ -300,10 +300,11 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             await breakpoint(300)
             actions.loadCohorts()
         },
-        requestDeleteCohort: async ({ cohort }) => {
+        requestDeleteCohort: async ({ cohort }, breakpoint) => {
             // Workflows that rely on the cohort block the delete. Listing them up front is clearer than the API error.
             const workflows =
                 typeof cohort.id === 'number' ? await loadBlockingWorkflows(values.currentProjectId, cohort.id) : null
+            breakpoint()
             if (workflows) {
                 actions.openBlockingWorkflowsModal({ action: 'delete', workflows })
                 return

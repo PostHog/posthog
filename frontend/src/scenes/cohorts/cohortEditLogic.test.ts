@@ -456,6 +456,36 @@ describe('cohortEditLogic', () => {
             })
         })
 
+        it('does not delete the cohort when the editor closes during the workflow check', async () => {
+            let releaseLookup: () => void = () => {}
+            const lookupHeld = new Promise<void>((resolve) => {
+                releaseLookup = resolve
+            })
+            let lookupAnswered: () => void = () => {}
+            const answered = new Promise<void>((resolve) => {
+                lookupAnswered = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/blocking_workflows/': async () => {
+                        await lookupHeld
+                        lookupAnswered()
+                        return [200, { results: [], total: 0, hidden: 0, has_more: false }]
+                    },
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            const deleteSpy = jest.spyOn(cohortsModel.actions, 'deleteCohort')
+
+            logic.actions.deleteCohort()
+            logic.unmount()
+            releaseLookup()
+            await answered
+            await expectLogic(cohortsModel).toFinishAllListeners()
+
+            expect(deleteSpy).not.toHaveBeenCalled()
+        })
+
         it('lists the blocking workflows when the API refuses an edit that stops realtime updates', async () => {
             await initCohortLogic({ id: 1 })
 
