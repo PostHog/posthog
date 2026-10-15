@@ -14,13 +14,13 @@ describe('Encrypted fields', () => {
         const empty = new EncryptedFields('')
         expect(() => empty.encrypt('test')).toThrow('Encryption keys are not set')
         expect(() => empty.decrypt('test')).toThrow('Encryption keys are not set')
-        expect(() => empty.signatures('purpose', 'test')).toThrow('Encryption keys are not set')
+        expect(() => empty.sign('purpose', 'test')).toThrow('Encryption keys are not set')
     })
 
     it('signs a value the same way every time, and differently under another key or purpose', () => {
-        const [signature] = encryptedFields.signatures('purpose', 'value')
+        const signature = encryptedFields.sign('purpose', 'value')
 
-        expect(encryptedFields.signatures('purpose', 'value')).toEqual([signature])
+        expect(encryptedFields.sign('purpose', 'value')).toEqual(signature)
         expect(new EncryptedFields('f'.repeat(32)).signatures('purpose', 'value')).not.toContain(signature)
         expect(encryptedFields.signatures('other-purpose', 'value')).not.toContain(signature)
     })
@@ -73,7 +73,7 @@ describe('Encrypted fields', () => {
             ])('%s: coexisting apps decrypt and verify each others writes', (_name, coexisting) => {
                 for (const writerKeys of coexisting) {
                     const token = app(writerKeys).encrypt(PLAINTEXT)
-                    const [signature] = app(writerKeys).signatures('purpose', PLAINTEXT)
+                    const signature = app(writerKeys).sign('purpose', PLAINTEXT)
                     for (const readerKeys of coexisting) {
                         expect(app(readerKeys).decrypt(token)).toEqual(PLAINTEXT)
                         expect(app(readerKeys).signatures('purpose', PLAINTEXT)).toContain(signature)

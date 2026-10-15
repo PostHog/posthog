@@ -11,8 +11,13 @@ export class EncryptedFields {
         this.signingKeys = saltKeys
     }
 
-    // One signature per configured key, primary key first, so that a value signed before a key rotation still
-    // verifies. The purpose keeps a signature made for one use from being valid for another.
+    // The purpose keeps a signature made for one use from being valid for another.
+    sign(purpose: string, value: string): string {
+        const [primarySignature] = this.signatures(purpose, value)
+        return primarySignature
+    }
+
+    // One signature per configured key, so that a value signed before a key rotation still verifies.
     signatures(purpose: string, value: string): string[] {
         if (!this.signingKeys.length) {
             throw new Error('Encryption keys are not set')

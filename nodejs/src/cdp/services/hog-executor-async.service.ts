@@ -354,7 +354,7 @@ export class HogExecutorAsyncService {
                 return []
             }
             return this.deps.hogInputsService
-                .accessTokenPlaceholders(value.$integration_id)
+                .acceptedAccessTokenPlaceholders(value.$integration_id)
                 .map((placeholder) => [placeholder, value.access_token_raw])
         })
     }

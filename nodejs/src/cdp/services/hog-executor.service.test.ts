@@ -67,15 +67,11 @@ describe('Hog Executor', () => {
     let executor: HogExecutorAsyncService
     let hub: Hub
 
-    beforeEach(async () => {
-        const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
-        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
-
-        hub = await createHub()
+    const createExecutor = (encryptedFields: EncryptedFields): HogExecutorAsyncService => {
         const hogInputsService = new HogInputsService(
             hub.integrationManager,
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
-            hub.encryptedFields
+            encryptedFields
         )
         const emailService = new EmailService(
             {
@@ -95,7 +91,7 @@ describe('Hog Executor', () => {
             new RecipientsManagerService(hub.postgres)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        executor = new HogExecutorAsyncService(
+        return new HogExecutorAsyncService(
             new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
             {
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
@@ -122,6 +118,14 @@ describe('Hog Executor', () => {
                 pushNotificationService: undefined as any,
             }
         )
+    }
+
+    beforeEach(async () => {
+        const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
+        hub = await createHub()
+        executor = createExecutor(hub.encryptedFields)
     })
 
     afterEach(async () => {
@@ -2077,12 +2081,7 @@ describe('Hog Executor', () => {
                 body: JSON.stringify({ token: inputs.crm.access_token, title: lookAlike }),
             } as any
 
-            executor['deps'].hogInputsService = new HogInputsService(
-                hub.integrationManager,
-                undefined,
-                new EncryptedFields(rotate(hub.ENCRYPTION_SALT_KEYS))
-            )
-            await executor.executeFetch(invocation)
+            await createExecutor(new EncryptedFields(rotate(hub.ENCRYPTION_SALT_KEYS))).executeFetch(invocation)
 
             const [url, options] = jest.mocked(fetch).mock.calls[0] as any
             expect([url, options.headers, parseJSON(options.body)]).toEqual([
