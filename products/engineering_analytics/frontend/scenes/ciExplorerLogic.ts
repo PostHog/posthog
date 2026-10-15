@@ -328,7 +328,7 @@ export interface ciExplorerLogicActions {
         location: CIExplorerLocation
     }
     setView: (view: CIExplorerView) => {
-        view: CIExplorerView
+        view: 'activity' | 'overview' | 'timeline'
     }
     toggleJobTime: () => {
         value: true
@@ -352,7 +352,7 @@ export interface ciExplorerLogicMeta {
             currentHeadSha: string | null
         ) => PrCommitRuns | null
         onOlderCommit: (selectedHeadSha: string | null, currentHeadSha: string | null) => boolean
-        currentView: (view: CIExplorerView, onOlderCommit: boolean) => CIExplorerView
+        currentView: (view: 'activity' | 'overview' | 'timeline', onOlderCommit: boolean) => CIExplorerView
         workflowRunUrl: (
             repoOwner: string,
             repoName: string,
