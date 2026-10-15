@@ -50,7 +50,7 @@ from products.experiments.backend.health.context import ConditionSetTraffic, Hea
 from products.experiments.backend.health.exposure_gate import UNKNOWN, cache_failed_scan
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT,
+    exposure_event_name_filter,
     get_entity_key,
     multivariate_flag_response_expr,
 )
@@ -113,7 +113,7 @@ def query_condition_set_traffic(
                 count() AS calls,
                 countIf(isNotNull(toFloat(properties.$feature_flag_version))) AS remotely_evaluated_calls
             FROM events
-            WHERE event IN {flag_call_events}
+            WHERE {flag_calls}
                 AND timestamp >= {window_start} AND timestamp < {window_end}
                 AND properties.$feature_flag = {flag_key}
                 AND {returned_variant}
@@ -123,7 +123,9 @@ def query_condition_set_traffic(
         LIMIT {max_rows}
         """,
         placeholders={
-            "flag_call_events": ast.Constant(value=_flag_call_events(team.organization_id)),
+            "flag_calls": exposure_event_name_filter(
+                DEFAULT_EXPOSURE_EVENT, read_copies=_reads_exposure_copies(team.organization_id)
+            ),
             "entity": ast.Field(chain=[get_entity_key(flag.aggregation_group_type_index)]),
             "matched_reason": ast.Constant(value=_MATCHED_REASON),
             "flag_version": ast.Constant(value=flag.version),
@@ -162,12 +164,10 @@ def query_condition_set_traffic(
     )
 
 
-def _flag_call_events(organization_id: UUID) -> list[str]:
-    if get_organization_flag_evaluations_mode(organization_id) != FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
-        return [DEFAULT_EXPOSURE_EVENT]
+def _reads_exposure_copies(organization_id: UUID) -> bool:
     # Ingestion holds the allowlist, so a team of the organization can still write the call, the copy or both. A
     # call and its copy are two rows of one person, and each person counts once under their latest set.
-    return [DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT]
+    return get_organization_flag_evaluations_mode(organization_id) == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
 
 
 def _load_condition_set_traffic(experiment: Experiment, ctx: HealthContext) -> ConditionSetTraffic | None:
