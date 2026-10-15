@@ -11,11 +11,16 @@ from typing import Any
 from django.db import models
 
 import anthropic
+import structlog
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
+from posthog.token_bucket import BucketUnavailable, Budget, consume, refund
+
+logger = structlog.get_logger(__name__)
 
 EXTRACTION_MODEL = "claude-haiku-5-5"
+EXTRACTION_BUDGET = Budget(burst=100, per_hour=500)
 # The CDP worker waits inline for the answer. Keep it below EXTRACT_TIMEOUT_MS in
 # nodejs/src/cdp/async-functions/extract.ts so the worker receives the 503.
 EXTRACTION_TIMEOUT_SECONDS = 8.0
@@ -55,6 +60,12 @@ class ExtractionModelRefusedError(Exception):
         self.status_code = status_code
 
 
+class ExtractionBudgetExceededError(Exception):
+    def __init__(self, retry_after: int) -> None:
+        super().__init__(f"team extraction budget spent, retry after {retry_after}s")
+        self.retry_after = retry_after
+
+
 class ExtractionUnusableError(Exception):
     """The model answered, but not with a value of the declared type for every field. The message says which."""
 
@@ -73,6 +84,8 @@ _SYSTEM_PROMPT = "\n".join(
 def extract_fields(
     team_id: int, hog_flow_id: str, context: Any, fields: list[ExtractionField]
 ) -> dict[str, ExtractedValue]:
+    budget_key = f"workflows_extract:{team_id}"
+    _charge_team_budget(budget_key, team_id)
     try:
         client = build_ai_gateway_anthropic_client(
             ai_product="workflows",
@@ -81,6 +94,7 @@ def extract_fields(
             distinct_id=team_distinct_id(team_id),
         )
     except ValueError as error:
+        refund(budget_key, EXTRACTION_BUDGET)
         raise ExtractionUnavailableError() from error
 
     with client:
@@ -104,6 +118,14 @@ def extract_fields(
             raise ExtractionModelBusyError() from error
 
     return _read_values(response, fields)
+
+
+def _charge_team_budget(budget_key: str, team_id: int) -> None:
+    decision = consume(budget_key, EXTRACTION_BUDGET)
+    if isinstance(decision, BucketUnavailable):
+        logger.warning("workflow_extraction_budget_unavailable", team_id=team_id)
+    elif not decision.allowed:
+        raise ExtractionBudgetExceededError(decision.retry_after)
 
 
 def _record_fields_tool(fields: list[ExtractionField]) -> dict[str, Any]:

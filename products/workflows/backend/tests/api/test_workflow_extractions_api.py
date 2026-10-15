@@ -14,7 +14,9 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.redis import TEST_clear_clients
 from posthog.test.authentication_checks import covers_authentication
+from posthog.token_bucket import Budget, TEST_reset_scripts
 
 from products.workflows.backend.presentation.views.workflow_extractions import (
     WorkflowExtractionRequestSerializer,
@@ -23,6 +25,7 @@ from products.workflows.backend.presentation.views.workflow_extractions import (
 
 SECRET = "test-workflow-extract-jwt"
 _BUILD_CLIENT = "products.workflows.backend.services.ai_extraction.build_ai_gateway_anthropic_client"
+_BUDGET = "products.workflows.backend.services.ai_extraction.EXTRACTION_BUDGET"
 _READ_TASK_REPORT = (
     "products.workflows.backend.presentation.views.workflow_extractions.get_workflow_task_run_final_message"
 )
@@ -71,6 +74,8 @@ class TestWorkflowExtractionsAPI(APIBaseTest):
         flag_patch = patch("posthoganalytics.feature_enabled", return_value=True)
         self.feature_flag = flag_patch.start()
         self.addCleanup(flag_patch.stop)
+        TEST_clear_clients()
+        TEST_reset_scripts()
 
     def _post(self, body: dict | None = None, token: str | None = None) -> Any:
         return self.client.post(
@@ -146,6 +151,27 @@ class TestWorkflowExtractionsAPI(APIBaseTest):
             response = self._post()
 
         assert response.status_code == expected
+
+    @parameterized.expand(
+        [
+            ("spent_by_a_model_call", "model call", status.HTTP_429_TOO_MANY_REQUESTS, 1),
+            ("refunded_when_no_gateway_ran", "no gateway", status.HTTP_200_OK, 2),
+        ]
+    )
+    def test_charges_the_team_budget_only_for_model_calls(
+        self, _name: str, first_attempt: str, second_status: int, model_clients_built: int
+    ) -> None:
+        reply = _tool_reply({"pr_url": None, "files_changed": 3, "needs_review": True})
+        first = _fake_client(reply) if first_attempt == "model call" else ValueError("AI_GATEWAY_URL is not set")
+        with (
+            patch(_BUDGET, Budget(burst=1, per_hour=1)),
+            patch(_BUILD_CLIENT, side_effect=[first, _fake_client(reply)]) as build_client,
+        ):
+            self._post()
+            response = self._post()
+
+        assert response.status_code == second_status, response.json()
+        assert build_client.call_count == model_clients_built
 
     def test_reports_a_deployment_without_a_gateway(self) -> None:
         with patch(_BUILD_CLIENT, side_effect=ValueError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")):

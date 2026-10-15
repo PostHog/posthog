@@ -21,7 +21,9 @@ from products.workflows.backend.presentation.views.workflow_classifications impo
     validate_workflow_context,
 )
 from products.workflows.backend.services.ai_extraction import (
+    EXTRACTION_BUDGET,
     MAX_TEXT_VALUE_CHARS,
+    ExtractionBudgetExceededError,
     ExtractionField,
     ExtractionFieldType,
     ExtractionModelBusyError,
@@ -130,6 +132,10 @@ class WorkflowExtractionViewSet(viewsets.GenericViewSet):
                 response=WorkflowExtractionErrorSerializer,
                 description="The feature is disabled or the organization has not approved AI data processing",
             ),
+            429: OpenApiResponse(
+                response=WorkflowExtractionErrorSerializer,
+                description="The project spent its hourly budget of model calls. Retry after the Retry-After seconds",
+            ),
             501: OpenApiResponse(
                 response=WorkflowExtractionErrorSerializer,
                 description="This deployment has no AI gateway configured",
@@ -183,6 +189,15 @@ class WorkflowExtractionViewSet(viewsets.GenericViewSet):
                 context=context,
                 fields=fields,
             )
+        except ExtractionBudgetExceededError as error:
+            logger.info("workflow_extraction_budget_spent", team_id=team.id)
+            response = _error(
+                f"Extract with AI reached this project's limit of {EXTRACTION_BUDGET.per_hour} model calls an hour. "
+                f"Try again in {error.retry_after} seconds.",
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            response["Retry-After"] = str(error.retry_after)
+            return response
         except ExtractionUnavailableError:
             return _error("The model is not available on this PostHog deployment.", status.HTTP_501_NOT_IMPLEMENTED)
         except ExtractionModelBusyError:
