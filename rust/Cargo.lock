@@ -9121,6 +9121,7 @@ dependencies = [
  "rustls 0.23.37",
  "serde_json",
  "sqlx",
+ "tempfile",
  "tokio",
  "tonic 0.12.3",
  "tracing",

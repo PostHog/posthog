@@ -66,6 +66,35 @@ pub struct ExpectedMerges {
     pub ids: HashMap<Uuid, i64>,
 }
 
+/// Pending outbox rows the stack's publishers would claim: every team's,
+/// because the claim is not scoped, minus `except_team` when a run owns
+/// one. Publishers started over someone else's rows drain them onto the
+/// run's own topics and delete them with the teardown.
+pub async fn pending_outbox_rows(
+    pool: &PgPool,
+    outbox_table: &str,
+    except_team: Option<i32>,
+) -> Result<i64> {
+    let count = match except_team {
+        Some(team) => {
+            sqlx::query_scalar(&format!(
+                "SELECT count(*) FROM {outbox_table} WHERE given_up_at IS NULL AND team_id <> $1"
+            ))
+            .bind(team)
+            .fetch_one(pool)
+            .await
+        }
+        None => {
+            sqlx::query_scalar(&format!(
+                "SELECT count(*) FROM {outbox_table} WHERE given_up_at IS NULL"
+            ))
+            .fetch_one(pool)
+            .await
+        }
+    };
+    count.context("counting pending outbox rows")
+}
+
 /// Poll until no row of the team is pending in the outbox, or the deadline
 /// passes. A parked row (`given_up_at`) is a violation: only an operator
 /// sets it, so a spawned stack must have none. A row the publisher could

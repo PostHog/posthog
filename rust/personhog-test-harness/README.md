@@ -272,6 +272,19 @@ A leader refuses requests it cannot safely serve — a write against a fenced pa
 The router should absorb them instead: detect the not-owned refusal in the raw-proxy response (a typed header from the leader, not status-code matching), and re-stash the request if a handoff is in flight for the partition, else re-resolve the owner and retry once.
 Most of the gate's residual failed writes during handoff scenarios are these refusals; with the redirect in place those counts become hard zero-failure invariants.
 
+## `stack` — hold a stack for another test runner
+
+`stack` brings up the same isolated stack the gate uses, with the identity service and, under `--publish`, the publishers and their per-run topics, then holds it until SIGTERM or Ctrl-C and tears it down.
+It is the fixture behind tests in other languages that need the real stack without re-implementing its orchestration: the Node service e2e test `nodejs/tests/service-e2e/personhog-kafka-parity.serial.test.ts` spawns it and compares the Kafka feeds the Postgres and personhog backends produce.
+
+```bash
+target/debug/personhog-test-harness stack --publish --ready-file /tmp/personhog-stack.json
+```
+
+Once the stack is up it prints one line, `PERSONHOG_STACK_READY {…}`, and writes the same JSON to `--ready-file` when given: the router and identity addresses as `host:port`, the persons database URL and table set, the changelog topic and the two publish topics, and the log directory.
+A parent process should wait for the file rather than parse stdout, which the logs share.
+A spawned service that exits ends the command with that service's last log lines, so a fixture never stays up over a dead stack.
+
 ## `seed` / `cleanup` — manage traffic targets
 
 ```bash
