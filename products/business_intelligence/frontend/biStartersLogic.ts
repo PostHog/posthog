@@ -57,29 +57,17 @@ export const biStartersLogic = kea<biStartersLogicType>([
             [] as DataCatalogMetricApi[],
             {
                 loadMetrics: async (): Promise<DataCatalogMetricApi[]> => {
-                    const metrics: DataCatalogMetricApi[] = []
                     try {
-                        for (let offset = 0; metrics.length < 3; offset += 50) {
-                            const response = await dataCatalogMetricsList(String(teamLogic.values.currentTeamId), {
-                                limit: 50,
-                                offset,
-                            })
-                            metrics.push(
-                                ...response.results.filter(
-                                    (metric) =>
-                                        metric.status === 'approved' &&
-                                        !metric.is_drifted &&
-                                        metric.definition_kind === 'HogQLQuery'
-                                )
-                            )
-                            if (!response.next) {
-                                break
-                            }
-                        }
+                        const response = await dataCatalogMetricsList(String(teamLogic.values.currentTeamId), {
+                            status: 'approved',
+                            definition_kind: 'HogQLQuery',
+                            limit: 3,
+                        })
+                        return response.results.filter((metric) => !metric.is_drifted)
                     } catch {
                         // Optional starters must not block the worksheet library when the catalog is unavailable.
+                        return []
                     }
-                    return metrics.slice(0, 3)
                 },
             },
         ],
@@ -87,25 +75,16 @@ export const biStartersLogic = kea<biStartersLogicType>([
             [] as DataCatalogCertificationApi[],
             {
                 loadSources: async (): Promise<DataCatalogCertificationApi[]> => {
-                    const sources: DataCatalogCertificationApi[] = []
                     try {
-                        for (let offset = 0; sources.length < 3; offset += 50) {
-                            const response = await dataCatalogCertificationsList(
-                                String(teamLogic.values.currentTeamId),
-                                {
-                                    limit: 50,
-                                    offset,
-                                }
-                            )
-                            sources.push(...response.results.filter((source) => source.status === 'certified'))
-                            if (!response.next) {
-                                break
-                            }
-                        }
+                        const response = await dataCatalogCertificationsList(String(teamLogic.values.currentTeamId), {
+                            status: 'certified',
+                            limit: 3,
+                        })
+                        return response.results
                     } catch {
                         // Catalog suggestions are optional; the library remains usable without them.
+                        return []
                     }
-                    return sources.slice(0, 3)
                 },
             },
         ],

@@ -124,6 +124,79 @@ describe('biSceneLogic', () => {
     })
     afterEach(() => logic.unmount())
 
+    it('reconciles an assistant rename without overwriting unsaved query edits', async () => {
+        await expectLogic(logic, () =>
+            router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+        ).toFinishAllListeners()
+        logic.actions.restoreWorksheet(worksheet({ ...config, limit: 25 }))
+        stored = { ...stored, name: 'Assistant name' }
+
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+
+        expect(logic.values.name).toBe('Assistant name')
+        expect(logic.values.worksheet.config.limit).toBe(25)
+        expect(logic.values.agentUpdateState).toBeNull()
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(stored.name).toBe('Assistant name')
+        expect(stored.query.config.limit).toBe(25)
+    })
+
+    it('applies assistant query edits while preserving a local rename and ignores other worksheets', async () => {
+        await expectLogic(logic, () =>
+            router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+        ).toFinishAllListeners()
+        logic.actions.setName('Local name')
+        stored = { ...stored, query: worksheet({ ...config, limit: 30 }) }
+        await expectLogic(logic, () =>
+            logic.actions.refreshInsightFromAgent('another-worksheet')
+        ).toFinishAllListeners()
+        expect(logic.values.worksheet.config.limit).toBe(1000)
+
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.short_id)).toFinishAllListeners()
+
+        expect(logic.values.name).toBe('Local name')
+        expect(logic.values.worksheet.config.limit).toBe(30)
+        expect(logic.values.agentUpdateState).toBeNull()
+    })
+
+    it('preserves conflicting drafts and blocks overwriting the assistant until changes are discarded', async () => {
+        await expectLogic(logic, () =>
+            router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+        ).toFinishAllListeners()
+        logic.actions.restoreWorksheet(worksheet({ ...config, limit: 25 }))
+        stored = { ...stored, query: worksheet({ ...config, limit: 30 }) }
+
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+        expect(logic.values.agentUpdateState).toBe('conflict')
+        expect(logic.values.worksheet.config.limit).toBe(25)
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(save).not.toHaveBeenCalled()
+        // A later assistant completion must not silently clear an unresolved conflict.
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+        expect(logic.values.agentUpdateState).toBe('conflict')
+
+        logic.actions.discardChanges()
+        expect(logic.values.worksheet.config.limit).toBe(30)
+        expect(logic.values.agentUpdateState).toBeNull()
+    })
+
+    it('blocks stale saves after an assistant refresh fails and allows a retry', async () => {
+        await expectLogic(logic, () =>
+            router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+        ).toFinishAllListeners()
+        useMocks({ get: { '/api/projects/:team_id/insights/': [503, { detail: 'Unavailable' }] } })
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+        expect(logic.values.agentUpdateState).toBe('error')
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(save).not.toHaveBeenCalled()
+
+        stored = { ...stored, name: 'Assistant name' }
+        useMocks({ get: { '/api/projects/:team_id/insights/': () => [200, { results: [stored] }] } })
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+        expect(logic.values.name).toBe('Assistant name')
+        expect(logic.values.agentUpdateState).toBeNull()
+    })
+
     it('opens catalog definitions as fixed snapshots and waits for Run', async () => {
         const runQuery = jest.fn(() => [200, { columns: ['revenue'], results: [[42]] }])
         useMocks({

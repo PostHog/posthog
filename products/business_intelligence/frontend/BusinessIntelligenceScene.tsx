@@ -18,6 +18,8 @@ import { Query } from '~/queries/Query/Query'
 import { isDataVisualizationNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
+
 import { buildBIAgentContext } from './biAgentContext'
 import { BIChartAxis } from './BIChartAxisControls'
 import { BIChartAxisModal } from './BIChartAxisModal'
@@ -63,6 +65,8 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         insight,
         displayedQueryIsCurrent,
         generatedQuery,
+        currentTeamId,
+        agentUpdateState,
     } = useValues(logic)
     const {
         setName,
@@ -78,6 +82,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         redo,
         navigateHierarchy,
         setSqlPreviewOpen,
+        refreshInsightFromAgent,
     } = useActions(logic)
 
     const hierarchyParent = getBIHierarchyParent(worksheet)
@@ -92,6 +97,12 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         active: !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         autoOpen: false,
         headlines: ['Build a worksheet from a catalog metric', 'What would you like to explore?'],
+    })
+    useMcpToolApplyBack({
+        tools: ['insight-update'],
+        targetKey: `bi-worksheet:${currentTeamId}:${insight?.id ?? 'unsaved'}`,
+        active: !!insight && !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+        onApply: (_event, { innerInput }) => refreshInsightFromAgent(innerInput?.id),
     })
 
     useKeyboardHotkeys({
@@ -206,6 +217,20 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                         Save insight
                     </LemonButton>
                 </header>
+                {agentUpdateState === 'conflict' && (
+                    <LemonBanner type="warning">
+                        The assistant changed fields you also edited. Your draft is preserved. Discard changes to use
+                        the saved version, or save your draft as a copy.
+                    </LemonBanner>
+                )}
+                {agentUpdateState === 'error' && (
+                    <LemonBanner type="warning">
+                        Could not refresh assistant changes. Retry before saving.
+                        <LemonButton size="small" onClick={() => refreshInsightFromAgent(insight?.id)}>
+                            Retry
+                        </LemonButton>
+                    </LemonBanner>
+                )}
                 {loadError ? (
                     <LemonBanner type="error">{loadError}</LemonBanner>
                 ) : insightLoading && !lastRunQuery ? (
