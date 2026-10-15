@@ -1028,8 +1028,8 @@ export interface sqlEditorLogicActions {
         name: string
         queryOverride: string | undefined
     }
-    saveAsMetric: () => {
-        value: true
+    saveAsMetric: (queryOverride?: string) => {
+        queryOverride: string | undefined
     }
     saveAsMetricSubmit: (
         fields: SaveAsMetricFields,
@@ -1416,7 +1416,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             description,
             queryOverride,
         }),
-        saveAsMetric: true,
+        saveAsMetric: (queryOverride?: string) => ({ queryOverride }),
         saveAsMetricSubmit: (fields: SaveAsMetricFields, queryOverride?: string, overwrite: boolean = false) => ({
             fields,
             queryOverride,
@@ -2981,8 +2981,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     lemonToast.error(error.detail || 'Failed to create endpoint')
                 }
             },
-            saveAsMetric: async () => {
-                const candidates = resolveSaveCandidates()
+            saveAsMetric: async ({ queryOverride }) => {
+                const resolved = resolveSaveCandidates()
+                // Reopening after a name conflict keeps the statement the user picked, not the cursor default.
+                const restoredIndex = queryOverride === undefined ? -1 : resolved.queries.indexOf(queryOverride)
+                const candidates = restoredIndex >= 0 ? { ...resolved, initialIndex: restoredIndex } : resolved
                 const selectedRef = { current: candidates.queries[candidates.initialIndex] }
                 const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
                 LemonDialog.openForm({
@@ -3077,7 +3080,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             // The save form closed on submit, so reopen it with the typed values to pick another name.
                             onCancel: () => {
                                 actions.setMetricPrefill(fields)
-                                actions.saveAsMetric()
+                                actions.saveAsMetric(queryOverride)
                             },
                         })
                     } else {

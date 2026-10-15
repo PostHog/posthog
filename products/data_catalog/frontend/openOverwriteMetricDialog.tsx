@@ -11,6 +11,8 @@ export function openOverwriteMetricDialog({
     onOverwrite: () => void
     onCancel?: () => void
 }): void {
+    // Escape, the close icon, and an outside click skip the buttons, so every close that is not an overwrite counts as a cancel.
+    let overwriting = false
     LemonDialog.open({
         title: 'Overwrite the existing metric?',
         content: (
@@ -30,9 +32,17 @@ export function openOverwriteMetricDialog({
         primaryButton: {
             children: 'Overwrite',
             status: 'danger',
-            onClick: onOverwrite,
+            onClick: () => {
+                overwriting = true
+                onOverwrite()
+            },
             'data-attr': 'data-catalog-overwrite-metric-confirm',
         },
-        secondaryButton: { children: 'Cancel', onClick: onCancel },
+        secondaryButton: { children: 'Cancel' },
+        onAfterClose: () => {
+            if (!overwriting) {
+                onCancel?.()
+            }
+        },
     })
 }
