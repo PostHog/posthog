@@ -2785,18 +2785,18 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("still_snoozed", [(60, LogsAlertEvent.Kind.SNOOZE)], -60, [(None, "not_firing"), (60, "snoozed")]),
+            ("still_snoozed", [(60, LogsAlertEvent.Kind.SNOOZE)], -60, [(60, "snoozed")]),
             (
                 "unsnoozed",
                 [(90, LogsAlertEvent.Kind.SNOOZE), (30, LogsAlertEvent.Kind.UNSNOOZE)],
                 None,
-                [(None, "not_firing"), (90, "snoozed"), (30, "not_firing")],
+                [(90, "snoozed"), (30, "not_firing")],
             ),
             (
                 "expired",
                 [(90, LogsAlertEvent.Kind.SNOOZE)],
                 30,
-                [(None, "not_firing"), (90, "snoozed"), (30, "not_firing")],
+                [(90, "snoozed"), (30, "not_firing")],
             ),
         ]
     )
@@ -2805,7 +2805,7 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
         _name: str,
         snoozes: list[tuple[int, str]],
         snooze_until_minutes_ago: int | None,
-        expected: list[tuple[int | None, str]],
+        expected: list[tuple[int, str]],
     ) -> None:
         def iso(minutes_ago: int) -> str:
             return (self.now - timedelta(minutes=minutes_ago)).isoformat().replace("+00:00", "Z")
@@ -2822,9 +2822,9 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
         [row] = self._rows("retrieve")
 
         assert [(i["start"], i["state"]) for i in row["state_timeline"]][1:] == [
-            (iso(minutes_ago), state) for minutes_ago, state in expected[1:]
+            (iso(minutes_ago), state) for minutes_ago, state in expected
         ]
-        assert row["state_timeline"][0]["state"] == expected[0][1]
+        assert row["state_timeline"][0]["state"] == "not_firing"
 
     def test_falls_back_to_the_logs_row_when_clickhouse_fails(self) -> None:
         with patch(
