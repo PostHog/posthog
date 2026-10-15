@@ -813,7 +813,7 @@ class TestFakePersonHogClientRepairWrites:
 
     def _write(
         self, *writes: tuple[str, person_pb2.DistinctIdWriteAction, str, int]
-    ) -> list[tuple[str, int, tuple | None]]:
+    ) -> list[person_pb2.DistinctIdWriteResult]:
         response = self.client.write_distinct_ids(
             person_pb2.WriteDistinctIdsRequest(
                 team_id=self.TEAM_ID,
@@ -823,14 +823,7 @@ class TestFakePersonHogClientRepairWrites:
                 ],
             )
         )
-        return [
-            (
-                r.distinct_id,
-                r.outcome,
-                (r.row.person_id, r.row.version, r.row.is_deleted) if r.HasField("row") else None,
-            )
-            for r in response.results
-        ]
+        return list(response.results)
 
     def test_raise_person_floors_raises_only_live_persons(self):
         response = self.client.raise_person_version_floors(
@@ -874,14 +867,22 @@ class TestFakePersonHogClientRepairWrites:
         failed = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
         not_live = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE
 
-        assert self._write(
+        results = self._write(
             ("new-did", insert, self.LIVE, 5),
             ("other-did", insert, self.LIVE, 5),
             ("dead-did", insert, self.TOMB, 5),
             ("live-did", raise_, self.LIVE, 3),
             ("other-did-2", raise_, self.LIVE, 3),
             ("stray-did", tombstone, self.TOMB, 0),
-        ) == [
+        )
+        assert [
+            (
+                r.distinct_id,
+                r.outcome,
+                (r.row.person_id, r.row.version, r.row.is_deleted) if r.HasField("row") else None,
+            )
+            for r in results
+        ] == [
             ("new-did", applied, (1, 5, False)),
             ("other-did", failed, (2, 0, False)),
             ("dead-did", not_live, None),
