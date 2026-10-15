@@ -20,6 +20,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS,
         METRIC_FAILURE_BACKSTOP_ACTIVITY_TIMEOUT_SECONDS,
         METRIC_FAILURE_BACKSTOP_MAX_ATTEMPTS,
+        METRIC_FAILURE_BACKSTOP_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS,
         METRICS_RECALCULATION_WORKFLOW_NAME,
         RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS,
         RECALCULATION_PROGRESS_MAX_ATTEMPTS,
@@ -239,6 +240,9 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                         metric_type=metric.metric_type,
                     ),
                     start_to_close_timeout=timedelta(seconds=METRIC_FAILURE_BACKSTOP_ACTIVITY_TIMEOUT_SECONDS),
+                    schedule_to_close_timeout=timedelta(
+                        seconds=METRIC_FAILURE_BACKSTOP_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS
+                    ),
                     retry_policy=RetryPolicy(maximum_attempts=METRIC_FAILURE_BACKSTOP_MAX_ATTEMPTS),
                 )
                 for metric in metrics

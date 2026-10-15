@@ -83,9 +83,10 @@ RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS = 90
 RECALCULATION_PROGRESS_MAX_ATTEMPTS = 3
 
 # The failure backstop does only Postgres writes and one capture. Its worst case adds to the IN_PROGRESS phase,
-# so it stays short.
+# so it stays short. The schedule_to_close bound also covers queue wait, which start_to_close does not.
 METRIC_FAILURE_BACKSTOP_ACTIVITY_TIMEOUT_SECONDS = 30
 METRIC_FAILURE_BACKSTOP_MAX_ATTEMPTS = 3
+METRIC_FAILURE_BACKSTOP_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS = 120
 
 
 @dataclasses.dataclass

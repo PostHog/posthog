@@ -882,14 +882,29 @@ class TestCalculateActivity(BaseTest):
         assert recalc.metric_retries == {}
         assert "m1" in recalc.metric_errors
 
-    @parameterized.expand([("not_persisted_by_any_attempt", False), ("persisted_by_final_attempt", True)])
-    def test_out_of_time_failure_persists_once(self, name: str, final_attempt_persisted: bool):
+    @parameterized.expand(
+        [
+            ("not_persisted_by_any_attempt", RuntimeError("transient blip"), False),
+            ("persisted_by_final_attempt", RuntimeError("transient blip"), True),
+            # The last attempt wrote its result but died before it reported success.
+            ("completed_by_last_attempt", None, False),
+        ]
+    )
+    def test_out_of_time_failure_persists_once(
+        self, name: str, last_attempt_error: Exception | None, final_attempt_persisted: bool
+    ):
         exp = self._experiment(flag_key=f"calc-out-of-time-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
         with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
-            mock_runner.return_value.run.side_effect = RuntimeError("transient blip")
-            with pytest.raises(RuntimeError):
-                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=final_attempt_persisted, attempt=2)
+            if last_attempt_error is None:
+                mock_runner.return_value.run.return_value.model_dump.return_value = {}
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
+            else:
+                mock_runner.return_value.run.side_effect = last_attempt_error
+                with pytest.raises(RuntimeError):
+                    _calculate(
+                        exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=final_attempt_persisted, attempt=2
+                    )
         recalc.refresh_from_db()
         errors_before = dict(recalc.metric_errors)
 
@@ -902,13 +917,18 @@ class TestCalculateActivity(BaseTest):
 
         recalc.refresh_from_db()
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
-        assert row.status == ExperimentMetricResult.Status.FAILED
         assert row.fingerprint == _recalc_fingerprint(_calculation_key(exp, "m1"))
         assert recalc.metric_retries == {}
-        if final_attempt_persisted:
+        if last_attempt_error is None:
+            assert row.status == ExperimentMetricResult.Status.COMPLETED
+            assert recalc.metric_errors == {}
+            assert captured == []
+        elif final_attempt_persisted:
+            assert row.status == ExperimentMetricResult.Status.FAILED
             assert recalc.metric_errors == errors_before
             assert captured == []
         else:
+            assert row.status == ExperimentMetricResult.Status.FAILED
             assert recalc.metric_errors["m1"]["error_type"] == "timeout"
             assert recalc.metric_errors["m1"]["retriable"] is True
             assert [c["event"] for c in captured] == ["experiment metric error"]

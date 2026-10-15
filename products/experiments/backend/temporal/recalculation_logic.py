@@ -947,7 +947,13 @@ def _record_metric_out_of_time_failure_sync(failure: MetricOutOfTimeFailure) -> 
             )
             return
 
-        MetricResultStore(experiment_id=experiment.id).record_run_failure(
+        results = MetricResultStore(experiment_id=experiment.id)
+        # The last attempt can write its result and die before it reports success, which Temporal sees as a timeout.
+        if results.has_completed(calculation_config, window=state.query_to):
+            _clear_retry(failure.recalculation_id, failure.metric_uuid)
+            return
+
+        results.record_run_failure(
             failure.recalculation_id,
             calculation_config,
             window=state.query_to,
