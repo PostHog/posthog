@@ -2403,26 +2403,24 @@ mod tests {
         );
     }
 
-    struct AiValveCase {
+    struct AiLimiterCase {
         ai_limiter_present: bool,
         expected_reason: Option<OverflowReason>,
     }
 
-    /// End-to-end gate for the AI overflow valve: a diverted AI event
-    /// is overflow-stamped only when the AI limiter is wired (setup builds
-    /// it exactly when `AI_EVENTS_OVERFLOW_ENABLED` is
-    /// configured), and keeps its AI lane either way.
+    /// A diverted AI event gets a limiter overflow stamp only when the AI
+    /// limiter is wired, and keeps its AI lane either way.
     #[rstest]
-    #[case::limiter_present(AiValveCase {
+    #[case::limiter_present(AiLimiterCase {
         ai_limiter_present: true,
         expected_reason: Some(OverflowReason::ForceLimited),
     })]
-    #[case::limiter_absent(AiValveCase {
+    #[case::limiter_absent(AiLimiterCase {
         ai_limiter_present: false,
         expected_reason: None,
     })]
     #[tokio::test]
-    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(#[case] case: AiValveCase) {
+    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(#[case] case: AiLimiterCase) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);

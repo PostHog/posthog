@@ -288,7 +288,7 @@ pub async fn build_components(
         !config.outputs.ai_main_topic.is_empty(),
         "invalid configuration: CAPTURE_OUTPUT_AI_MAIN_TOPIC must not be empty",
     );
-    let ai_events_overflow_enabled = ai_events_overflow_valve(&config);
+    let ai_events_overflow_enabled = ai_events_overflow_limiter_enabled(&config);
     info!(
         ai_main_topic = %config.outputs.ai_main_topic,
         ai_overflow_topic = %config.outputs.ai_overflow_topic,
@@ -377,7 +377,6 @@ pub async fn build_components(
         replay_overflow_limiter,
         config.capture_v1_scatter_gather_min_batch,
         config.ai_gateway_signing_secret.clone(),
-        ai_events_overflow_enabled,
         ingestion_warning_emitter,
     );
 
@@ -395,17 +394,13 @@ pub async fn build_components(
     }
 }
 
-/// The AI overflow valve. Import mode refuses an armed valve at boot: non-AI
-/// import events can't overflow because historical rerouting takes precedence,
-/// but nothing structural protects AI imports, so an armed valve would break
-/// the imports-never-overflow guarantee.
-fn ai_events_overflow_valve(config: &Config) -> bool {
-    let armed = config.ai_events_overflow_enabled;
+fn ai_events_overflow_limiter_enabled(config: &Config) -> bool {
+    let enabled = config.ai_events_overflow_enabled;
     assert!(
-        !(armed && matches!(config.capture_mode, CaptureMode::Import)),
+        !(enabled && matches!(config.capture_mode, CaptureMode::Import)),
         "invalid configuration: AI_EVENTS_OVERFLOW_ENABLED must be false in import mode; imports must never overflow"
     );
-    armed
+    enabled
 }
 
 /// The AI byte budget this deployment enforces, or `0` to skip building the
@@ -492,7 +487,7 @@ async fn create_output(
 
     // Runs before any producer connects, so a blank topic refuses boot
     // immediately instead of after a broker connect attempt.
-    let outputs = OutputTable::new(&config.outputs, config.ai_events_overflow_enabled);
+    let outputs = OutputTable::new(&config.outputs, config.capture_mode.has_ai_overflow_lane());
     if config.outputs_completeness_check_enabled {
         outputs.check_complete()?;
     } else {
@@ -853,13 +848,13 @@ mod tests {
             .expect("runtime")
     }
 
-    struct AiValveInput {
+    struct AiLimiterInput {
         capture_mode: &'static str,
         enabled: Option<&'static str>,
         overflow_topic: Option<&'static str>,
     }
 
-    fn ai_valve_config(input: &AiValveInput) -> Config {
+    fn ai_limiter_config(input: &AiLimiterInput) -> Config {
         let mut cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", input.capture_mode),
@@ -888,7 +883,7 @@ mod tests {
 
     #[rstest]
     #[case::events_enabled(
-        AiValveInput {
+        AiLimiterInput {
             capture_mode: "events",
             enabled: Some("true"),
             overflow_topic: None,
@@ -896,7 +891,7 @@ mod tests {
         true
     )]
     #[case::events_topic_without_flag(
-        AiValveInput {
+        AiLimiterInput {
             capture_mode: "events",
             enabled: None,
             overflow_topic: Some("events_plugin_ingestion_ai_overflow"),
@@ -904,20 +899,20 @@ mod tests {
         false
     )]
     #[case::import_disabled(
-        AiValveInput {
+        AiLimiterInput {
             capture_mode: "import",
             enabled: Some("false"),
             overflow_topic: Some("events_plugin_ingestion_ai_overflow"),
         },
         false
     )]
-    fn ai_events_overflow_valve_arms_only_on_the_flag(
-        #[case] input: AiValveInput,
-        #[case] expected_armed: bool,
+    fn ai_events_overflow_limiter_follows_only_the_flag(
+        #[case] input: AiLimiterInput,
+        #[case] expected_enabled: bool,
     ) {
         assert_eq!(
-            ai_events_overflow_valve(&ai_valve_config(&input)),
-            expected_armed
+            ai_events_overflow_limiter_enabled(&ai_limiter_config(&input)),
+            expected_enabled
         );
     }
 
@@ -1002,8 +997,8 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "imports must never overflow")]
-    fn ai_events_overflow_valve_rejects_armed_valve_in_import_mode() {
-        ai_events_overflow_valve(&ai_valve_config(&AiValveInput {
+    fn ai_events_overflow_limiter_is_refused_in_import_mode() {
+        ai_events_overflow_limiter_enabled(&ai_limiter_config(&AiLimiterInput {
             capture_mode: "import",
             enabled: Some("true"),
             overflow_topic: None,

@@ -224,7 +224,7 @@ async fn it_routes_diverted_ai_events_to_the_ai_topic() -> Result<()> {
 }
 
 #[tokio::test]
-async fn it_routes_forced_ai_events_to_ai_overflow_when_the_valve_is_armed() -> Result<()> {
+async fn it_routes_limiter_overflowed_ai_events_to_ai_overflow() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
     let distinct_id = random_string("id", 16);
