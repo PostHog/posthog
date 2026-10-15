@@ -444,6 +444,32 @@ def give_back_ownership(
         return handback
 
 
+def reset_broken(*, team_id: int, legacy_configuration_id: UUID, at: datetime) -> int | None:
+    """Clears a broken alert the platform owns so the next tick checks it again.
+
+    Returns the failure count it cleared, or None when the alert is not broken. Discovery skips a
+    broken alert, so without this it never runs again. The caller holds the source's row lock.
+    """
+    with transaction.atomic():
+        configuration = (
+            PlatformAlertConfiguration.objects.for_team(team_id)
+            .select_for_update()
+            .get(legacy_configuration_id=legacy_configuration_id)
+        )
+        if configuration.owner != PlatformAlertOwner.PLATFORM:
+            raise ValueError("the platform does not own this alert, so its source resets it")
+        alert = _existing_alerts(team_id, [configuration]).get(str(configuration.id))
+        if alert is None or alert.state != PlatformAlertState.BROKEN:
+            return None
+        cleared = configuration.consecutive_failures
+        configuration.consecutive_failures = 0
+        configuration.next_check_at = at
+        configuration.save(update_fields=["consecutive_failures", "next_check_at"])
+        alert.state = PlatformAlertState.NOT_FIRING
+        alert.save(update_fields=["state"])
+    return cleared
+
+
 def disable_configurations(source_kind: str, *, team_id: int | None = None) -> int:
     """Switches off a source's copies, or one team's, and returns how many it switched off.
 

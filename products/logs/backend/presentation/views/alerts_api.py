@@ -42,7 +42,7 @@ from products.alerts.backend.facade.destinations import (
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
-from products.alerts_platform.backend.facade.api import runtime_by_legacy_id
+from products.alerts_platform.backend.facade.api import reset_broken, runtime_by_legacy_id
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -1222,15 +1222,27 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["POST"], url_path="reset", required_scopes=["logs:write"])
     def reset(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
-        previous_failures = alert.consecutive_failures
-        try:
-            outcome = apply_user_reset(alert.to_snapshot())
-        except InvalidTransition:
-            raise ValidationError({"state": "Only broken alerts can be reset."})
         with transaction.atomic():
-            update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
-            update_fields.extend(alert.clear_next_check())
-            alert.save(update_fields=update_fields)
+            previous_failures = alert.consecutive_failures
+            if alert.platform_owned:
+                # The platform skips a broken alert, so the reset has to reach its copy. Its state
+                # decides, because the logs row stops moving once the shadow ends.
+                platform_failures = reset_broken(
+                    team_id=alert.team_id, legacy_configuration_id=alert.id, at=timezone.now()
+                )
+                if platform_failures is None:
+                    raise ValidationError({"state": "Only broken alerts can be reset."})
+                previous_failures = platform_failures
+            try:
+                outcome = apply_user_reset(alert.to_snapshot())
+            except InvalidTransition:
+                if not alert.platform_owned:
+                    raise ValidationError({"state": "Only broken alerts can be reset."})
+                outcome = None
+            if outcome is not None:
+                update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
+                update_fields.extend(alert.clear_next_check())
+                alert.save(update_fields=update_fields)
             # The model's auto-signal skips these fields (signal_exclusions silences
             # engine-driven churn) so we log the user-initiated reset explicitly.
             log_activity(

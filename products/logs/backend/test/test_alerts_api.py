@@ -1517,6 +1517,41 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Only broken alerts can be reset." in str(response.json())
 
+    @parameterized.expand(
+        [
+            ("both_broken_inside_the_shadow", "broken", "broken", status.HTTP_200_OK),
+            ("platform_broke_after_the_shadow", "broken", "not_firing", status.HTTP_200_OK),
+            ("only_the_frozen_logs_row_is_broken", "not_firing", "broken", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_reset_of_a_platform_owned_alert_clears_the_platform_copy(
+        self, _name: str, state_at_cutover: str, logs_state_after: str, expected_status: int
+    ) -> None:
+        now = datetime.now(UTC)
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="Errors",
+            filters={"severityLevels": ["error"]},
+            state=state_at_cutover,
+            consecutive_failures=5 if state_at_cutover == "broken" else 0,
+            next_check_at=now + timedelta(minutes=3),
+        )
+        cut_over_team(self.team.id, now=now)
+        LogsAlertConfiguration.objects.filter(pk=alert.id).update(state=logs_state_after)
+
+        response = self.client.post(self._reset_url(str(alert.id)))
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status != status.HTTP_200_OK:
+            return
+        assert (response.json()["state"], response.json()["consecutive_failures"]) == ("not_firing", 0)
+        with team_scope(self.team.id):
+            copy = platform_testing.copy_of(alert.id)
+            platform_alert = platform_testing.alert_for(copy.id)
+        assert platform_alert is not None
+        assert (platform_alert.state, copy.consecutive_failures) == ("not_firing", 0)
+        assert self.client.post(self._reset_url(str(alert.id))).status_code == status.HTTP_400_BAD_REQUEST
+
     def test_reset_other_teams_alert_returns_404(self):
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other_alert = LogsAlertConfiguration.objects.create(

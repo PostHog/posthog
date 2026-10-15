@@ -62,6 +62,11 @@ def give_back_ownership(
     )
 
 
+def reset_broken(*, team_id: int, legacy_configuration_id: UUID, at: datetime) -> int | None:
+    """Clears a broken alert the platform owns. Returns the failure count it cleared, or None when not broken."""
+    return platform_lifecycle.reset_broken(team_id=team_id, legacy_configuration_id=legacy_configuration_id, at=at)
+
+
 def disable_configurations(source_kind: SourceKind, *, team_id: int | None = None) -> int:
     """Switch off a source's copies, or one team's. Returns how many it switched off."""
     return platform_lifecycle.disable_configurations(source_kind.value, team_id=team_id)
