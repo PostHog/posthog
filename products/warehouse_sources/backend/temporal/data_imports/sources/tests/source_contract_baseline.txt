@@ -79,6 +79,7 @@ AwsWaf fail:stall-budget
 AzureApplicationInsights fail:stall-budget
 AzureCostManagement not-checkable:no-request
 AzureDevOps fail:rate-limit-budget,stall-budget
+AzureLogAnalytics not-checkable:schemas
 Babelforce fail:stall-budget
 BackMarket fail:stall-budget
 BambooHR fail:stall-budget
