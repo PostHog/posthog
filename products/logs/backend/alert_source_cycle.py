@@ -681,16 +681,25 @@ def _as_configured_now(
 def _stopped(check: PlatformAlertCheckInput, *, now: datetime) -> Decision:
     """A check whose logs alert no longer runs. It leaves the state alone and disables the copy."""
     state = check.instance().state
-    unchanged = ControlPlaneOutcome(new_state=AlertState(state), consecutive_failures=check.consecutive_failures)
-    recorded = _recorded(
-        check,
-        outcome=unchanged,
-        evaluation_key=_evaluation_key(check, now),
-        kind=AlertEventKind.CHECK,
-        notified=False,
-        now=now,
-        disable=True,
-    )
+    if check.grouping.mode == GroupingMode.SINGLE:
+        unchanged = ControlPlaneOutcome(new_state=AlertState(state), consecutive_failures=check.consecutive_failures)
+        recorded = _recorded(
+            check,
+            outcome=unchanged,
+            evaluation_key=_evaluation_key(check, now),
+            kind=AlertEventKind.CHECK,
+            notified=False,
+            now=now,
+            disable=True,
+        )
+    else:
+        # No group was checked, so each instance keeps its state and no row is created.
+        recorded = PlatformAlertOutcome(
+            configuration_id=check.id,
+            evaluation_key=_evaluation_key(check, now),
+            consecutive_failures=check.consecutive_failures,
+            disable=True,
+        )
     _record_check_metrics(
         check, new_state=state, notification=NotificationAction.NONE, skip=SkipReason.SOURCE_RULE, now=now
     )

@@ -47,6 +47,7 @@ from products.logs.backend.alert_source_cycle import (
     INFLIGHT_KEY,
     MAX_QUERY_SECONDS,
     evaluate_logs_batch,
+    grouping_key_of,
 )
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import backfill_platform_alert_configurations
@@ -392,6 +393,30 @@ class TestLogsAlertEvaluation(APIBaseTest):
             "worker": AlertEventKind.RESOLVED,
         }
 
+    def test_a_grouped_alert_switched_off_in_logs_keeps_its_open_groups(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",))
+        configuration = self._configuration(grouping=grouping.to_stored())
+        self._record(self._run_grouped(configuration, {"api": 500}))
+        LogsAlertConfiguration.objects.filter(id=self._legacy_ids[configuration.id]).update(enabled=False)
+
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
+        stopped = self._run_grouped(configuration, {})
+        self._record(stopped)
+
+        (outcome,) = stopped.outcomes
+        with team_scope(self.team.id):
+            (copy,) = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+            ).configurations
+            open_group = platform_testing.alert_for(
+                configuration.id, grouping_key=grouping_key_of({"service_name": "api"})
+            )
+            ungrouped = platform_testing.alert_for(configuration.id)
+        assert (outcome.groups, outcome.disable, copy.enabled) == ((), True, False)
+        assert open_group is not None and open_group.state == "firing"
+        assert ungrouped is None
+
     @parameterized.expand(
         [
             ("filter_group", {"condition": CONDITION, "filterGroup": {"type": "nonsense"}}),
@@ -519,7 +544,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(unreadable, healthy)
 
-        states = {o.configuration_id: g.new_state for o in evaluation.outcomes for g in o.groups}
+        states = {o.configuration_id: (o.failure or o.groups[0]).new_state for o in evaluation.outcomes}
         assert states == {unreadable.id: "broken", healthy.id: "firing"}
 
     def test_a_check_whose_copy_cannot_be_updated_evaluates_the_stored_copy(self) -> None:
