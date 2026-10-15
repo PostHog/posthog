@@ -31,7 +31,9 @@
 
     .quill-callout__close {
         flex-shrink: 0;
-        margin-inline-start: auto;
+
+        /* The ghost box is invisible at rest, so the negative end margin aligns the glyph, not the box, with the action buttons' edge */
+        margin-inline: auto -0.3125rem;
     }
 
     /* Keep the close button vertically centred on the first text line */
