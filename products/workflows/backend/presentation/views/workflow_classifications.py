@@ -76,6 +76,15 @@ def _nesting_exceeds(value: Any, limit: int) -> bool:
     return False
 
 
+def validate_workflow_context(value: Any) -> Any:
+    """The size limits every AI step puts on the workflow data it sends to a model."""
+    if _nesting_exceeds(value, MAX_CONTEXT_DEPTH):
+        raise serializers.ValidationError(f"Keep the context to {MAX_CONTEXT_DEPTH} levels of nesting or fewer.")
+    if len(json.dumps(value, ensure_ascii=False, separators=(",", ":"))) > MAX_CONTEXT_CHARS:
+        raise serializers.ValidationError(f"Keep the context to {MAX_CONTEXT_CHARS} characters of JSON or fewer.")
+    return value
+
+
 class WorkflowClassifyJWTAuthentication(ScopedServiceJWTAuthentication):
     purpose = WORKFLOW_CLASSIFY_PURPOSE
 
@@ -105,11 +114,7 @@ class WorkflowClassificationRequestSerializer(serializers.Serializer):
     )
 
     def validate_context(self, value: Any) -> Any:
-        if _nesting_exceeds(value, MAX_CONTEXT_DEPTH):
-            raise serializers.ValidationError(f"Keep the context to {MAX_CONTEXT_DEPTH} levels of nesting or fewer.")
-        if len(json.dumps(value, ensure_ascii=False, separators=(",", ":"))) > MAX_CONTEXT_CHARS:
-            raise serializers.ValidationError(f"Keep the context to {MAX_CONTEXT_CHARS} characters of JSON or fewer.")
-        return value
+        return validate_workflow_context(value)
 
     def validate_categories(self, value: dict[str, str]) -> dict[str, str]:
         if not 2 <= len(value) <= MAX_CATEGORIES:

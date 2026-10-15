@@ -11,6 +11,7 @@ from products.workflows.backend.presentation.views import (
     hog_flow_template,
     people_imports,
     workflow_classifications,
+    workflow_extractions,
     workflow_scout_runs,
     workflow_tasks,
 )
@@ -46,6 +47,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"workflow_classifications",
         workflow_classifications.WorkflowClassificationViewSet,
         "project_workflow_classifications",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_extractions",
+        workflow_extractions.WorkflowExtractionViewSet,
+        "project_workflow_extractions",
         ["team_id"],
     )
     routers.projects.register(

@@ -22,3 +22,9 @@ WORKFLOW_CLASSIFY_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.WORKFLOW_CLASSIFY,
     settings_name="WORKFLOW_CLASSIFY_JWT_SECRETS",
 )
+
+# Its own key for the same narrowest-scope reason as WORKFLOW_SCOUT_RUN_PURPOSE.
+WORKFLOW_EXTRACT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOW_EXTRACT,
+    settings_name="WORKFLOW_EXTRACT_JWT_SECRETS",
+)

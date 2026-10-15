@@ -39,6 +39,7 @@ import { template as posthogUpdateAccountTemplate } from './_destinations/postho
 import { template as posthogRunScoutTemplate } from './_destinations/posthog_signals/posthog-run-scout.template'
 import { template as posthogCreateTaskTemplate } from './_destinations/posthog_tasks/posthog-create-task.template'
 import { template as posthogClassifyTemplate } from './_destinations/posthog_workflows/posthog-classify.template'
+import { template as posthogExtractTemplate } from './_destinations/posthog_workflows/posthog-extract.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
 import { template as pushTemplate } from './_destinations/push/push.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
@@ -113,6 +114,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogCreateTaskTemplate,
     posthogRunScoutTemplate,
     posthogClassifyTemplate,
+    posthogExtractTemplate,
     posthogCreateAccountTemplate,
     posthogCreateCustomerTaskTemplate,
     posthogGetAccountTemplate,

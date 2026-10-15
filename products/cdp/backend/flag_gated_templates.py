@@ -16,6 +16,7 @@ FLAG_GATED_TEMPLATE_IDS = {
     "template-posthog-create-task": "workflow-ai-task-action",
     "template-posthog-run-scout": "workflow-run-scout-action",
     "template-posthog-classify": "workflow-classify-action",
+    "template-posthog-extract": "workflow-extract-action",
 }
 
 
