@@ -2689,6 +2689,8 @@ export namespace Schemas {
       /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
       typeAwareCastSimplification?: boolean | null;
       useMaterializedViews?: boolean | null;
+      /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
+      useNewEventsCluster?: boolean | null;
       /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
       useNewEventsSchema?: boolean | null;
       usePreaggregatedIntermediateResults?: boolean | null;
@@ -97346,7 +97348,7 @@ export namespace Schemas {
          * @nullable
          */
       source_perspective: string | null;
-      /** Why the turn did not post the finding. `old_code`: a follow-up turn's P3 finding on code that did not change since the last reviewed head (turns before reviewhog-flash-2-3 dropped P2 findings this way too). `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
+      /** Why the turn did not post the finding. `old_code`: a follow-up turn's finding on code that did not change since the last reviewed head. An automatic follow-up (run 2 and later) drops P2 and P3 findings this way, a requested review drops only P3, and a first review drops none. `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
        *
        * * `old_code` - On unchanged code
        * * `dedup_prior` - Repeat of an earlier review
@@ -130576,6 +130578,10 @@ export namespace Schemas {
      */
     search?: string;
     /**
+     * Only tasks from any of these sources. Repeat the parameter for each source, or send one comma-joined value or a JSON array. 'posthog_desktop', 'posthog_mobile' and 'posthog_web' match user-created tasks by the client that created them, and a user-created task from no other known client counts as desktop. 'posthog_web' also matches PostHog AI tasks. Any other value matches the task's origin product.
+     */
+    sources?: TasksListSourcesItem[];
+    /**
      * Filter by task run stage
      * @minLength 1
      */
@@ -130679,6 +130685,64 @@ export namespace Schemas {
       Draft: 'draft',
       Merged: 'merged',
       Closed: 'closed',
+    } as const;
+
+    /**
+     * * `autoresearch` - autoresearch
+     * * `error_tracking` - error_tracking
+     * * `eval_clusters` - eval_clusters
+     * * `experiments` - experiments
+     * * `hogdesk` - hogdesk
+     * * `image_builder` - image_builder
+     * * `loop` - loop
+     * * `mcp_analytics` - mcp_analytics
+     * * `onboarding` - onboarding
+     * * `posthog_ai` - posthog_ai
+     * * `posthog_desktop` - posthog_desktop
+     * * `posthog_mobile` - posthog_mobile
+     * * `posthog_web` - posthog_web
+     * * `review_hog` - review_hog
+     * * `scout_suggestions` - scout_suggestions
+     * * `session_summaries` - session_summaries
+     * * `signal_report` - signal_report
+     * * `signals_chat` - signals_chat
+     * * `signals_scout` - signals_scout
+     * * `slack` - slack
+     * * `space_setup` - space_setup
+     * * `support_queue` - support_queue
+     * * `support_reply` - support_reply
+     * * `task_analysis` - task_analysis
+     * * `workflow` - workflow
+     */
+    export type TasksListSourcesItem = typeof TasksListSourcesItem[keyof typeof TasksListSourcesItem];
+
+
+    export const TasksListSourcesItem = {
+      Autoresearch: 'autoresearch',
+      ErrorTracking: 'error_tracking',
+      EvalClusters: 'eval_clusters',
+      Experiments: 'experiments',
+      Hogdesk: 'hogdesk',
+      ImageBuilder: 'image_builder',
+      Loop: 'loop',
+      McpAnalytics: 'mcp_analytics',
+      Onboarding: 'onboarding',
+      PosthogAi: 'posthog_ai',
+      PosthogDesktop: 'posthog_desktop',
+      PosthogMobile: 'posthog_mobile',
+      PosthogWeb: 'posthog_web',
+      ReviewHog: 'review_hog',
+      ScoutSuggestions: 'scout_suggestions',
+      SessionSummaries: 'session_summaries',
+      SignalReport: 'signal_report',
+      SignalsChat: 'signals_chat',
+      SignalsScout: 'signals_scout',
+      Slack: 'slack',
+      SpaceSetup: 'space_setup',
+      SupportQueue: 'support_queue',
+      SupportReply: 'support_reply',
+      TaskAnalysis: 'task_analysis',
+      Workflow: 'workflow',
     } as const;
 
     export type TasksListStatus = typeof TasksListStatus[keyof typeof TasksListStatus];

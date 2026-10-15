@@ -195,4 +195,42 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "When the pickup was last updated.",
         },
     },
+    "carrier_types": {
+        "description": "A carrier account type available to the account, with the credential fields needed to create a carrier account of that type.",
+        "docs_url": "https://docs.easypost.com/docs/carrier-types",
+        "columns": {
+            "type": 'The carrier account type (e.g. "UpsAccount").',
+            "readable": "The human-readable name of the carrier type.",
+            "logo": "Logo of the carrier type.",
+            "fields": "The attributes needed to create a carrier account of this type: auto_link, custom_workflow, credentials and test_credentials, each with a label and visibility.",
+        },
+    },
+    "child_users": {
+        "description": "A child user: a sub-account whose billing flows through the parent user, used by platforms to separate customers.",
+        "docs_url": "https://docs.easypost.com/docs/users/child-users",
+        "columns": {
+            "id": 'Unique identifier for the user, begins with "user_".',
+            "parent_id": "The id of the parent user.",
+            "name": "The name of the child user.",
+            "phone_number": "The phone number of the user.",
+            "verified": "Whether the user is verified.",
+            "created_at": "When the child user was created.",
+        },
+    },
+    "reports": {
+        "description": "A generated CSV report that logs the objects of one type created in a date range. All report types are synced into this table.",
+        "docs_url": "https://docs.easypost.com/docs/reports",
+        "columns": {
+            "id": 'Unique identifier for the report. The prefix shows the type (e.g. "shprep_" for a shipment report, "plrep_" for a payment log report).',
+            "object": 'The report type (e.g. "ShipmentReport", "PaymentLogReport", "RefundReport").',
+            "mode": 'Whether the report was created in "test" or "production" mode.',
+            "status": "Status of the report: new, available, failed, or empty.",
+            "start_date": "First date (YYYY-MM-DD) the report covers.",
+            "end_date": "Last date (YYYY-MM-DD) the report covers.",
+            "include_children": "Whether the report includes objects created by child users.",
+            "url_expires_at": "When the download link of the report expires.",
+            "created_at": "When the report was created.",
+            "updated_at": "When the report was last updated.",
+        },
+    },
 }

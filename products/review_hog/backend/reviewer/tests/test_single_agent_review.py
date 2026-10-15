@@ -601,13 +601,13 @@ class TestDedupeFlashFindings:
     @pytest.mark.parametrize(
         "line,priority,changed_code_only,posts",
         [
-            pytest.param(30, IssuePriority.SHOULD_FIX, True, False, id="late_automatic_p2_on_unchanged_code"),
-            pytest.param(30, IssuePriority.SHOULD_FIX, False, True, id="whole_pr_p2_on_unchanged_code"),
-            pytest.param(11, IssuePriority.SHOULD_FIX, True, True, id="late_automatic_p2_on_the_fix"),
-            pytest.param(30, IssuePriority.MUST_FIX, True, True, id="late_automatic_p1_on_unchanged_code"),
+            pytest.param(30, IssuePriority.SHOULD_FIX, True, False, id="automatic_follow_up_p2_on_unchanged_code"),
+            pytest.param(30, IssuePriority.SHOULD_FIX, False, True, id="requested_review_p2_on_unchanged_code"),
+            pytest.param(11, IssuePriority.SHOULD_FIX, True, True, id="automatic_follow_up_p2_on_the_fix"),
+            pytest.param(30, IssuePriority.MUST_FIX, True, True, id="automatic_follow_up_p1_on_unchanged_code"),
         ],
     )
-    async def test_a_late_automatic_follow_up_only_comments_on_what_the_push_changed(
+    async def test_an_automatic_follow_up_only_comments_on_what_the_push_changed(
         self, pr_metadata: PRMetadata, line: int, priority: IssuePriority, changed_code_only: bool, posts: bool
     ) -> None:
         # Each fix drew a new P2 on code it never touched, and an open finding keeps stamphog from approving,

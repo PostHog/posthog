@@ -228,6 +228,7 @@ export namespace Schemas {
         timings: boolean | null;
         typeAwareCastSimplification: boolean | null;
         useMaterializedViews: boolean | null;
+        useNewEventsCluster: boolean | null;
         useNewEventsSchema: boolean | null;
         usePreaggregatedIntermediateResults: boolean | null;
         usePreaggregatedTableTransforms: boolean | null;
@@ -22864,6 +22865,33 @@ export namespace Endpoints {
                 pr_state: "open" | "draft" | "merged" | "closed";
                 repository: string;
                 search: string;
+                sources: Array<
+                    | "autoresearch"
+                    | "error_tracking"
+                    | "eval_clusters"
+                    | "experiments"
+                    | "hogdesk"
+                    | "image_builder"
+                    | "loop"
+                    | "mcp_analytics"
+                    | "onboarding"
+                    | "posthog_ai"
+                    | "posthog_desktop"
+                    | "posthog_mobile"
+                    | "posthog_web"
+                    | "review_hog"
+                    | "scout_suggestions"
+                    | "session_summaries"
+                    | "signal_report"
+                    | "signals_chat"
+                    | "signals_scout"
+                    | "slack"
+                    | "space_setup"
+                    | "support_queue"
+                    | "support_reply"
+                    | "task_analysis"
+                    | "workflow"
+                >;
                 stage: string;
                 status:
                     | "not_started"
