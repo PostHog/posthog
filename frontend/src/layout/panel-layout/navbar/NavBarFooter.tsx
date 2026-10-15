@@ -14,7 +14,6 @@ import { urls } from 'scenes/urls'
 
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 
-import { InstallationStatusNavButton } from '../InstallationStatusNavButton'
 import { PostHogTeamCohortBanner } from './PostHogTeamCohortBanner'
 
 export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: boolean }): JSX.Element {
@@ -42,7 +41,6 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                 {isNotificationsEnabled && isSidebarItemShown('notifications') && (
                     <NotificationsMenu iconOnly={isLayoutNavCollapsed} />
                 )}
-                <InstallationStatusNavButton iconOnly={isLayoutNavCollapsed} />
                 <Link
                     to={urls.settings('project')}
                     buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
