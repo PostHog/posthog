@@ -1,10 +1,12 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
 import { searchListsLogic } from './searchListsLogic'
+import { filterSearchItems } from './utils'
 
 describe('searchListsLogic', () => {
     let logic: ReturnType<typeof searchListsLogic.build>
@@ -31,6 +33,12 @@ describe('searchListsLogic', () => {
         })
 
         expect(logic.values.productsItems.some((item) => item.id === 'product-Data warehouse')).toBe(visible)
+    })
+
+    it.each(['support', 'tickets', 'contact support', 'help'])('finds Your tickets when searching "%s"', (query) => {
+        const matches = filterSearchItems(logic.values.miscItems, query)
+
+        expect(matches.find((item) => item.id === 'misc-my-tickets')?.href).toBe(urls.myTickets())
     })
 
     it.each([false, true])('gates the command-menu terminal toggle when enabled=%s', (enabled) => {

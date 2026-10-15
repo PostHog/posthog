@@ -1198,7 +1198,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/vapi/vapi.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/veeqo/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/veeqo/veeqo.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/vellum/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/vellum/vellum.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/veracode/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/veracode/veracode.py
@@ -1212,7 +1211,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/webflow/webflow.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/weights_and_biases/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/weights_and_biases/weights_and_biases.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/whop/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/whop/whop.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wikipedia_pageviews/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wikipedia_pageviews/wikipedia_pageviews.py

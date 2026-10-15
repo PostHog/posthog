@@ -430,25 +430,27 @@ Exit criterion: partial acks resolve and their remainders redeliver in order, ze
 
 ### 14. Add partial settlement and the request time budget (implement)
 
-**Task:** Teach the transport the `PARTIAL` ack and the scheduler a partial settlement. Ship with no budget set: absent means unlimited, today's behavior.
+**Task:** Teach the transport the `PARTIAL` ack and the batcher state machine a partial settlement. Ship with no budget set: absent means unlimited, today's behavior.
 
 **Goal:** Partial redelivery exists as one settlement arm, not a new path.
 
-- The stream runner parses `PARTIAL` and resolves the send with the `unfinished` message list, instead of fencing it as busy.
-- The scheduler's partial arm is the failure arm plus completions: complete every message not in `unfinished` as group completions, return the unfinished messages to the front of their keys' queues in offset order, and keep the key blocked until the redelivery settles.
-- Send the remainder with `replay` set. The worker's feed-order sentinel saw its offsets in the first send, so an unmarked redelivery counts as a key-order violation.
-- The prototype against the old machinery ([#91480](https://github.com/PostHog/posthog/pull/91480)) showed the cost of doing this earlier: concurrent polls and per-batch accounting push partial handling through the deferral paths. Behind the key table it is one `on_settled` arm.
-- Stamp `soft_budget_ms` on each request from config. Unset sends no budget.
+- The transport parses `PARTIAL` and resolves the send with the accepted count and the `unfinished` messages, named by partition and offset, instead of fencing it as busy. An ack that does not match the request fails the stream.
+- `BatcherStateMachine::on_request_partial` completes exactly the accepted set and returns each key's unfinished messages to the front of its queue, sent again at once as replay. The unfinished messages need not be the last of their key, because the worker groups by distinct id inside one Kafka key.
+- The order sentinel's ACK mark stops below a run's lowest unfinished offset, so the resend is legal. The consumer refuses to commit a poll offset that no completion covered (`commit_violations_total{kind="uncredited"}`).
+- A key resends without a budget once `INGESTION_REQUEST_BUDGET_ATTEMPTS` settles left its messages unfinished since it last finished a run, or at once when its request finished nothing, so a message that never fits the budget still lands. That request carries only such keys and goes ahead of budgeted replays.
+- The prototype against the old machinery ([#91480](https://github.com/PostHog/posthog/pull/91480)) showed the cost of doing this earlier: concurrent polls and per-batch accounting push partial handling through the deferral paths. Behind the key table it is one settlement arm.
+- Stamp `soft_budget_ms` from config on each key-table request that fits one frame. Unset sends no budget, and `pin_stash` rejects one.
 
 **Interfaces:**
 
-- Modify the ack handling in `grpc_transport.rs`: parse `PARTIAL`; resolve with the unfinished partitions and offsets.
-- Modify the settlement types and `KeyTableScheduler::on_settled`: add the partial arm.
-- Modify `Config`: add the soft budget per request, default unset.
+- Modify the ack handling in `grpc_transport.rs`: parse `PARTIAL`; resolve with the accepted count and the unfinished messages.
+- Modify `BatcherStateMachine` and `KeyQueues`: add the partial arm and the per-key escalation count.
+- Modify `Config`: add `INGESTION_REQUEST_SOFT_BUDGET_MS` (default unset) and `INGESTION_REQUEST_BUDGET_ATTEMPTS` (default 3), bounded at startup against the ack and stall timeouts.
 
 **Metrics:**
 
 - Add `ingestion_consumer_request_budget_partials_total` (counter) and `ingestion_consumer_request_budget_unfinished_messages_total` (counter). The names match the wire: a `PARTIAL` ack with an `unfinished` message list.
+- Add `ingestion_consumer_request_budget_escalations_total` (counter), one per key that resends without a budget. A charts warning alert fires on a sustained rate per lane.
 
 ### 15. Set the request time budgets (switchover)
 
@@ -457,7 +459,7 @@ Exit criterion: partial acks resolve and their remainders redeliver in order, ze
 **Goal:** A slow request costs a partial redelivery, not a fenced stream and a full replay.
 
 - A charts values PR sets the budget lane by lane. The generous stage is the cycle's verify.
-- Watch the partial and unfinished counters, the key-order sentinel, and stream teardowns.
+- Watch the partial, unfinished and escalation counters, the key-order sentinel, and stream teardowns.
 - Rollback is unsetting the values.
 
 **Interfaces:**

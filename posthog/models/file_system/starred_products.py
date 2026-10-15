@@ -63,6 +63,7 @@ def star_products(user: User, team: "Team", product_paths: list[str]) -> int:
         # Concurrent writes for the same user would otherwise both miss the star and add it twice.
         lock_user_shortcuts(team.pk, user.pk)
         # The sidebar lists the stars of every environment in the project, so check them all.
+        # nosemgrep: environment-model-scoped-by-project -- the shortcut API lists a user's own stars project-wide
         user_shortcuts = FileSystemShortcut.objects.filter(
             surface_q(DEFAULT_SURFACE), team__project_id=team.project_id, user=user
         )

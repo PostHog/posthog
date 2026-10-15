@@ -15,7 +15,6 @@ import { objectClean } from 'lib/utils/objects'
 import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { isExpiredQueryStatusError, parseErrorMessage, pollForResults } from '~/queries/query'
 import { DashboardFilter, HogQLVariable, QueryStatus, TileFilters } from '~/queries/schema/schema-general'
 import {
@@ -382,8 +381,7 @@ export async function getInsightWithRetry(
             })}`
             // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-            const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
-            const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
+            const result: InsightModel | null = await getJSONOrNull(insightResponse)
 
             if (
                 result?.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
@@ -421,13 +419,13 @@ export async function getInsightWithRetry(
                                     cacheUrl,
                                     methodOptions
                                 )
-                                const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
-                                if (legacyInsight) {
-                                    const queryBasedInsight = getQueryBasedInsightModel(legacyInsight)
+                                const refreshedInsight: InsightModel | null =
+                                    await getJSONOrNull(refreshedInsightResponse)
+                                if (refreshedInsight) {
                                     return {
-                                        ...queryBasedInsight,
-                                        query_status: queryBasedInsight.query_status?.error
-                                            ? queryBasedInsight.query_status
+                                        ...refreshedInsight,
+                                        query_status: refreshedInsight.query_status?.error
+                                            ? refreshedInsight.query_status
                                             : finalStatus,
                                     }
                                 }
@@ -453,7 +451,7 @@ export async function getInsightWithRetry(
                                     // nosemgrep: prefer-codegen-api -- Preserve the existing dynamic insight request and its filter overrides.
                                     const rerunResponse = await api.get(asyncApiUrl('async'), methodOptions)
                                     if (rerunResponse?.result != null && !rerunResponse.query_status?.error) {
-                                        return getQueryBasedInsightModel(rerunResponse)
+                                        return rerunResponse
                                     }
                                     if (
                                         rerunResponse?.result == null &&
@@ -467,7 +465,7 @@ export async function getInsightWithRetry(
                                     if (rerunResponse?.result == null) {
                                         throw new Error('The rerun returned no result')
                                     }
-                                    return getQueryBasedInsightModel(rerunResponse)
+                                    return rerunResponse
                                 })
                                 if (!rerun) {
                                     throw new Error('The rerun returned no result')
