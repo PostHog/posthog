@@ -2031,8 +2031,8 @@ export interface AssistantDataVisualizationNode {
     tableSettings?: AssistantDataVisualizationTableSettings
 }
 
-// `MCPInsightSerializer.validate_query` wraps these shapes server-side before it saves the
-// insight, so a query straight out of a `query-*` tool can be passed through unchanged. Each carries
+// `MCPInsightSerializer.validate_query` wraps these two shapes server-side before it saves the
+// insight, so a query straight out of a `query-*` tool can be passed through unchanged. Both carry
 // an index signature because zod strips every key the schema does not declare, which would send
 // `{ kind }` alone to the endpoint and save an empty insight.
 export interface AssistantBareInsightQuery {
