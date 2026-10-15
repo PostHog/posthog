@@ -78,6 +78,7 @@ from products.logs.backend.alert_state_machine import (
 from products.logs.backend.facade.api import (
     close_incident_before_delete,
     close_incident_on_commit,
+    follow_logs_alert,
     next_allowed_check_at,
 )
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
@@ -619,7 +620,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 else:
                     instance.clear_next_check()
 
-            return super().update(instance, validated_data)
+            updated = super().update(instance, validated_data)
+            if enabled_change is True:
+                transaction.on_commit(
+                    lambda: follow_logs_alert(team_id=updated.team_id, alert_id=updated.id), robust=True
+                )
+            return updated
 
     def create(self, validated_data: dict) -> LogsAlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
@@ -646,7 +652,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     team_timezone=team.timezone,
                     schedule_restriction=schedule_restriction,
                 )
-            return super().create(validated_data)
+            created = super().create(validated_data)
+            if created.enabled:
+                transaction.on_commit(
+                    lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
+                )
+            return created
 
 
 def _validate_filters(filters: dict) -> None:
