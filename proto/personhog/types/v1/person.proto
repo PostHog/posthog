@@ -743,17 +743,15 @@ enum DistinctIdWriteAction {
   DISTINCT_ID_WRITE_ACTION_INSERT = 1;
   // Raise a live row on the person to at least min_version.
   DISTINCT_ID_WRITE_ACTION_RAISE = 2;
-  // Tombstone a live row on the person, at least to min_version.
-  DISTINCT_ID_WRITE_ACTION_TOMBSTONE = 3;
 }
 
 message DistinctIdWrite {
   string distinct_id = 1;
   DistinctIdWriteAction action = 2;
-  // The person the row must point at: the insert target, or the current owner for raise and tombstone.
+  // The person the row must point at: the insert target, or the current owner for raise.
   string person_uuid = 3;
   int64 min_version = 4;
-  // When set, raise and tombstone apply only while the row holds exactly this version.
+  // When set, raise applies only while the row holds exactly this version.
   optional int64 expected_version = 5;
 }
 
@@ -770,7 +768,7 @@ enum DistinctIdWriteOutcome {
   DISTINCT_ID_WRITE_OUTCOME_UNCHANGED = 2;
   // The row is not in the state the write expects; it is left unchanged and reported.
   DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED = 3;
-  // The person does not exist, or is tombstoned for an insert or raise.
+  // The person does not exist or is tombstoned.
   DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE = 4;
 }
 

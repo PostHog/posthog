@@ -317,9 +317,8 @@ struct LockedRow {
     is_deleted: bool,
 }
 
-/// Decide one mapping write from the locked person and mapping rows. Raise and tombstone act
-/// only on a live row of the named person (holding `expected_version` when given); insert only
-/// where no row exists. Tombstone accepts a tombstoned owner: that is the stray it removes.
+/// Decide one mapping write from the locked person and mapping rows. Raise acts only on a live row
+/// of the named live person (holding `expected_version` when given); insert only where no row exists.
 fn plan_write(
     write: &DistinctIdWrite,
     person: Option<&LockedPerson>,
@@ -328,7 +327,7 @@ fn plan_write(
     let Some(person) = person else {
         return Planned::Done(DistinctIdWriteOutcome::PersonNotLive);
     };
-    if person.is_deleted && write.action != DistinctIdWriteAction::Tombstone {
+    if person.is_deleted {
         return Planned::Done(DistinctIdWriteOutcome::PersonNotLive);
     }
     match (write.action, row) {
@@ -337,24 +336,18 @@ fn plan_write(
             Planned::Done(DistinctIdWriteOutcome::PreconditionFailed)
         }
         (_, None) => Planned::Done(DistinctIdWriteOutcome::PreconditionFailed),
-        (action, Some(row)) => {
+        (DistinctIdWriteAction::Raise, Some(row)) => {
             let expected_ok = write.expected_version.is_none_or(|v| v == row.version);
             if row.is_deleted || row.person_id != person.id || !expected_ok {
                 return Planned::Done(DistinctIdWriteOutcome::PreconditionFailed);
             }
-            match action {
-                DistinctIdWriteAction::Raise if row.version >= write.min_version => {
-                    Planned::Done(DistinctIdWriteOutcome::Unchanged)
-                }
-                DistinctIdWriteAction::Raise => Planned::Update {
+            if row.version >= write.min_version {
+                Planned::Done(DistinctIdWriteOutcome::Unchanged)
+            } else {
+                Planned::Update {
                     version: write.min_version,
                     is_deleted: false,
-                },
-                DistinctIdWriteAction::Tombstone => Planned::Update {
-                    version: (row.version + 1).max(write.min_version),
-                    is_deleted: true,
-                },
-                DistinctIdWriteAction::Insert => unreachable!("insert handled above"),
+                }
             }
         }
     }
@@ -367,6 +360,11 @@ async fn begin_with_lock_timeout(
     // A held row means a merge, revival or delete in flight: fail fast and let the
     // caller retry instead of queueing behind it.
     sqlx::query("SET LOCAL lock_timeout = '2s'")
+        .execute(&mut *tx)
+        .await?;
+    // Ingestion waits on these rows with no lock timeout of its own, so no statement may hold
+    // them longer than this. It stays under the router's 5 s deadline and above lock_timeout.
+    sqlx::query("SET LOCAL statement_timeout = '4s'")
         .execute(&mut *tx)
         .await?;
     Ok(tx)

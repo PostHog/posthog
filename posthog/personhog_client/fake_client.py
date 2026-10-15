@@ -1135,7 +1135,6 @@ class FakePersonHogClient:
             if write.action not in (
                 person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT,
                 person_pb2.DISTINCT_ID_WRITE_ACTION_RAISE,
-                person_pb2.DISTINCT_ID_WRITE_ACTION_TOMBSTONE,
             ):
                 raise ValueError(f"Unknown action {write.action} for {write.distinct_id}")
         response = person_pb2.WriteDistinctIdsResponse()
@@ -1152,8 +1151,7 @@ class FakePersonHogClient:
         self, team_id: int, write: person_pb2.DistinctIdWrite
     ) -> person_pb2.DistinctIdWriteOutcome:
         person = self._persons_by_uuid.get((team_id, write.person_uuid))
-        tombstone = write.action == person_pb2.DISTINCT_ID_WRITE_ACTION_TOMBSTONE
-        if person is None or (person.is_deleted and not tombstone):
+        if person is None or person.is_deleted:
             return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE
         row = self._mapping_row(team_id, write.distinct_id)
         exists = row is not None or (team_id, write.distinct_id) in self._tombstoned_distinct_ids
@@ -1171,10 +1169,6 @@ class FakePersonHogClient:
         if row is None or row.is_deleted or row.person_id != person.id or not expected_ok:
             return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
         mapping = next(m for m in self._distinct_ids[(team_id, person.id)] if m.distinct_id == write.distinct_id)
-        if tombstone:
-            mapping.version = max((mapping.version or 0) + 1, write.min_version)
-            self._tombstoned_distinct_ids.add((team_id, write.distinct_id))
-            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
         if (mapping.version or 0) >= write.min_version:
             return person_pb2.DISTINCT_ID_WRITE_OUTCOME_UNCHANGED
         mapping.version = write.min_version

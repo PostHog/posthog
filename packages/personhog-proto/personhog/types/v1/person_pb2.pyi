@@ -67,7 +67,6 @@ class DistinctIdWriteAction(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     DISTINCT_ID_WRITE_ACTION_UNSPECIFIED: _ClassVar[DistinctIdWriteAction]
     DISTINCT_ID_WRITE_ACTION_INSERT: _ClassVar[DistinctIdWriteAction]
     DISTINCT_ID_WRITE_ACTION_RAISE: _ClassVar[DistinctIdWriteAction]
-    DISTINCT_ID_WRITE_ACTION_TOMBSTONE: _ClassVar[DistinctIdWriteAction]
 
 class DistinctIdWriteOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -103,7 +102,6 @@ RESTORE_OUTCOME_EXISTS_TOMBSTONED: RestoreOutcome
 DISTINCT_ID_WRITE_ACTION_UNSPECIFIED: DistinctIdWriteAction
 DISTINCT_ID_WRITE_ACTION_INSERT: DistinctIdWriteAction
 DISTINCT_ID_WRITE_ACTION_RAISE: DistinctIdWriteAction
-DISTINCT_ID_WRITE_ACTION_TOMBSTONE: DistinctIdWriteAction
 DISTINCT_ID_WRITE_OUTCOME_UNSPECIFIED: DistinctIdWriteOutcome
 DISTINCT_ID_WRITE_OUTCOME_APPLIED: DistinctIdWriteOutcome
 DISTINCT_ID_WRITE_OUTCOME_UNCHANGED: DistinctIdWriteOutcome

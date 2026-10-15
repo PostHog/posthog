@@ -21,20 +21,9 @@ from posthog.models.person.deletion import (
     tombstone_orphaned_ch_persons,
 )
 from posthog.models.person.util import create_person_distinct_id, get_distinct_id_rows, get_persons_by_uuids
-from posthog.personhog_client.client import personhog_call, require_personhog_client
-from posthog.personhog_client.proto import (
-    DISTINCT_ID_WRITE_ACTION_TOMBSTONE,
-    DISTINCT_ID_WRITE_OUTCOME_APPLIED,
-    DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE,
-    DistinctIdRow,
-    DistinctIdWrite,
-    WriteDistinctIdsRequest,
-)
+from posthog.personhog_client.proto import DistinctIdRow
 
 from . import datatypes, lookups, observe, repairs, restore_verbs, team_scan
-
-# The most rows a personhog repair write takes in one call.
-WRITE_BATCH_SIZE = 250
 
 # A key whose last recorded outcome is one of these needs nothing more, so a resumed run skips it.
 DONE_OUTCOMES = frozenset(
@@ -43,10 +32,10 @@ DONE_OUTCOMES = frozenset(
         "tombstoned",
         "republished",
         "buried",
-        "detached",
-        "already_detached",
         "restored",
         "already_restored",
+        "moved",
+        "already_moved",
         "folded",
     }
 )
@@ -118,17 +107,31 @@ def load_rows(
     keys: Sequence[str] = (),
     limit: int | None = None,
     skip: Iterable[RowKey] = (),
+    pairs: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
-    """The report rows that name `verb`, optionally only those in `groups` or with `keys`, at most `limit`."""
+    """The report rows that name `verb`, optionally only those in `groups` or with `keys`, at most `limit`.
+
+    Each of `pairs` ("A>B") names an old person A and the live person B to fold or merge it into, which the scan
+    leaves ambiguous when A's distinct ids went to more than one person. It selects A's person row, A's ghost
+    mappings and the mappings that moved from A to B, whatever their verb, as one group of `verb`.
+    """
     path = scan_dir / team_scan.REPORT_FILE
     if not path.exists():
         raise VerbError(f"{path} does not exist; finalize the scan first")
     wanted_groups, wanted_keys, skipped = set(groups), set(keys), set(skip)
+    chosen = _parse_pairs(verb, pairs)
     rows: list[dict[str, Any]] = []
     with path.open() as handle:
         for line in handle:
             row = json.loads(line)
-            if row["verb"] != verb or RowKey(kind=row["kind"], key=row["key"]) in skipped:
+            if RowKey(kind=row["kind"], key=row["key"]) in skipped:
+                continue
+            if chosen:
+                group = _pair_group(row, chosen, verb)
+                if group is None:
+                    continue
+                row = {**row, "verb": verb, "group": group}
+            elif row["verb"] != verb:
                 continue
             if wanted_groups and row["group"] not in wanted_groups:
                 continue
@@ -138,6 +141,31 @@ def load_rows(
             if limit is not None and len(rows) >= limit:
                 break
     return rows
+
+
+def _parse_pairs(verb: str, pairs: Sequence[str]) -> dict[str, str]:
+    if pairs and verb not in ("fold", "merge"):
+        raise VerbError("--pair applies to fold and merge only")
+    chosen: dict[str, str] = {}
+    for pair in pairs:
+        old, sep, new = pair.partition(">")
+        if not sep or not old or not new or old == new:
+            raise VerbError(f"--pair {pair!r} must be OLD_UUID>NEW_UUID")
+        if old in chosen:
+            raise VerbError(f"--pair names {old} twice; fold or merge a person into one survivor")
+        chosen[old] = new
+    return chosen
+
+
+def _pair_group(row: dict[str, Any], chosen: dict[str, str], verb: str) -> str | None:
+    if row["kind"] == "person":
+        old = row["key"] if row["key"] in chosen else None
+    else:
+        ch_owner = ((row.get("evidence") or {}).get("ch") or {}).get("winner_person_uuid")
+        pg_owner = ((row.get("evidence") or {}).get("pg") or {}).get("person_uuid")
+        moved = row["flavor"] == "diverged" and ch_owner in chosen and pg_owner == chosen[ch_owner]
+        old = ch_owner if moved or (row["flavor"] == "ghost" and ch_owner in chosen) else None
+    return None if old is None else f"{verb}:{old}>{chosen[old]}"
 
 
 def done_keys(actions_path: Path) -> set[RowKey]:
@@ -163,6 +191,7 @@ def run_verb(
     limit: int | None = None,
     max_calls_per_second: float | None = None,
     force: bool = False,
+    pairs: Sequence[str] = (),
     log: Callable[[str], None] = lambda _: None,
 ) -> Counter[str]:
     """Run one verb over the scan's report rows and append one action per key to `actions_path`.
@@ -176,7 +205,7 @@ def run_verb(
     plan = team_scan.load_plan(scan_dir)
     if not plan.team_exists:
         raise VerbError(f"team {plan.team_id} does not exist; there is nothing to repair")
-    rows = load_rows(scan_dir, verb, groups=groups, keys=keys, limit=limit, skip=done_keys(actions_path))
+    rows = load_rows(scan_dir, verb, groups=groups, keys=keys, limit=limit, skip=done_keys(actions_path), pairs=pairs)
     counts: Counter[str] = Counter()
     with actions_path.open("a") as out:
 
@@ -365,84 +394,10 @@ def _bury_mapping(row: dict[str, Any], context: VerbContext) -> None:
     context.action(row, "buried", version=int(confirmed.version))
 
 
-def detach_stray(rows: list[dict[str, Any]], context: VerbContext) -> None:
-    """Tombstone live mappings whose Postgres person is tombstoned, while they still hold the reported version."""
-    for batch in lookups._chunks(rows, WRITE_BATCH_SIZE):
-        repairs._retry_transient(
-            partial(_detach_batch, list(batch), context), what="detach_stray batch", log=context.log
-        )
-
-
-def _detach_batch(rows: list[dict[str, Any]], context: VerbContext) -> None:
-    team_id = context.team_id
-    ch = observe.ch_mapping_states(team_id, [r["key"] for r in rows])
-    writes: list[DistinctIdWrite] = []
-    by_key: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        pg = row["evidence"]["pg"]
-        ch_state = ch.get(row["key"])
-        min_version = max(int(pg["version"]) + 1, (ch_state.max_version + 1) if ch_state else 0)
-        writes.append(
-            DistinctIdWrite(
-                distinct_id=row["key"],
-                action=DISTINCT_ID_WRITE_ACTION_TOMBSTONE,
-                person_uuid=pg["person_uuid"],
-                min_version=min_version,
-                expected_version=int(pg["version"]),
-            )
-        )
-        by_key[row["key"]] = row
-    if not context.apply:
-        current = {r.distinct_id: r for r in get_distinct_id_rows(team_id, list(by_key), strong=True)}
-        for write in writes:
-            now = current.get(write.distinct_id)
-            unchanged = (
-                now is not None
-                and not now.is_deleted
-                and now.person_uuid == write.person_uuid
-                and now.version == write.expected_version
-                and now.person_is_deleted
-            )
-            context.action(
-                by_key[write.distinct_id],
-                "would_repair" if unchanged else "skipped_changed",
-                target_version=write.min_version,
-            )
-        return
-    context.pacer.before_write()
-    response = personhog_call(
-        "person_consistency_detach_stray",
-        lambda: require_personhog_client().write_distinct_ids(WriteDistinctIdsRequest(team_id=team_id, writes=writes)),
-    )
-    min_versions = {w.distinct_id: w.min_version for w in writes}
-    for result in response.results:
-        row = by_key[result.distinct_id]
-        stored = result.row if result.HasField("row") else None
-        tombstoned_here = (
-            stored is not None
-            and stored.is_deleted
-            and stored.person_uuid == row["evidence"]["pg"]["person_uuid"]
-            and stored.version >= min_versions[result.distinct_id]
-        )
-        if stored is not None and (result.outcome == DISTINCT_ID_WRITE_OUTCOME_APPLIED or tombstoned_here):
-            context.deliveries.track(
-                create_person_distinct_id(
-                    team_id, result.distinct_id, stored.person_uuid, version=int(stored.version), is_deleted=True
-                )
-            )
-            outcome = "detached" if result.outcome == DISTINCT_ID_WRITE_OUTCOME_APPLIED else "already_detached"
-            context.action(row, outcome, version=int(stored.version))
-        elif result.outcome == DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE:
-            context.action(row, "skipped_person_gone")
-        else:
-            context.action(row, "skipped_changed")
-
-
 VERBS: dict[str, VerbFn] = {
     "republish": republish,
     "merge_stale": merge_stale,
     "bury": bury,
-    "detach_stray": detach_stray,
     "restore": restore_verbs.restore,
     "fold": restore_verbs.fold,
     "merge": restore_verbs.merge,
