@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 
-import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
+import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 
 export function FirstDataCelebration(): JSX.Element {
     const { firstDataWatch } = useValues(mcpAnalyticsOnboardingLogic)

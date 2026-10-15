@@ -55,7 +55,7 @@ interface HogfettiOptions {
 }
 
 interface HogfettiHook {
-    /** Returns false, and draws nothing, when the user prefers reduced motion. */
+    /** Returns false, and draws nothing, when the user prefers reduced motion or the host has unmounted. */
     trigger: () => boolean
     HogfettiComponent: React.FC
 }
@@ -74,12 +74,20 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
     })
 
     const pendingFrames = useRef(new Set<number>())
+    const isMounted = useRef(true)
     useOnMountEffect(() => {
         const pending = pendingFrames.current
-        return () => pending.forEach((id) => cancelAnimationFrame(id))
+        isMounted.current = true
+        return () => {
+            isMounted.current = false
+            pending.forEach((id) => cancelAnimationFrame(id))
+        }
     })
 
     const scheduleFrame = useCallback((callback: () => void): void => {
+        if (!isMounted.current) {
+            return
+        }
         const id = requestAnimationFrame(() => {
             pendingFrames.current.delete(id)
             callback()
@@ -104,7 +112,7 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
     }
 
     const trigger = useCallback((): boolean => {
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        if (!isMounted.current || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
             return false
         }
         const centerX = Math.random() * dimensions.width

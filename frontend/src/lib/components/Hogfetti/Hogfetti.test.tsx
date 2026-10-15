@@ -53,4 +53,20 @@ describe('useHogfetti', () => {
         expect(framesScheduledAtUnmount).toBe(1)
         expect(requestFrame).toHaveBeenCalledTimes(framesScheduledAtUnmount)
     })
+
+    it('draws nothing and schedules no frames when triggered after unmount', () => {
+        mockReducedMotion(false)
+        const requestFrame = jest.spyOn(window, 'requestAnimationFrame')
+        const { result, unmount } = renderHook(() => useHogfetti())
+        const { trigger } = result.current
+        unmount()
+
+        let animated: boolean | undefined
+        act(() => {
+            animated = trigger()
+        })
+
+        expect(animated).toBe(false)
+        expect(requestFrame).not.toHaveBeenCalled()
+    })
 })

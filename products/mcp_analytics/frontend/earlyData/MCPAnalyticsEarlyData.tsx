@@ -10,7 +10,6 @@ import { METRICS_UNLOCK_LIFETIME_CALLS, mcpAnalyticsOnboardingLogic } from '../m
 import { ActivityCallers } from './ActivityCallers'
 import { ActivityFeed } from './ActivityFeed'
 import { ActivityNextSteps } from './ActivityNextSteps'
-import { FirstDataCelebration } from './FirstDataCelebration'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
 
 /**
@@ -27,7 +26,6 @@ export function MCPAnalyticsActivityDashboard(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4" data-attr="mcp-analytics-activity">
-            <FirstDataCelebration />
             <McpSharedFilters
                 pageKey="mcp-activity"
                 dataAttrPrefix="mcp-activity"

@@ -64,7 +64,7 @@ export interface MCPOnboardingSignals {
     firstCallAt: string | null
 }
 
-export function dashboardStageForSignals(signals: MCPOnboardingSignals | null): MCPDashboardStage | null {
+function dashboardStageForSignals(signals: MCPOnboardingSignals | null): MCPDashboardStage | null {
     if (!signals || !signals.hasToolCall) {
         return null
     }

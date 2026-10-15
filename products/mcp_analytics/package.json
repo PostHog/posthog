@@ -15,6 +15,7 @@
         "react-intersection-observer": "9.5.3"
     },
     "devDependencies": {
+        "@testing-library/react": "*",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
