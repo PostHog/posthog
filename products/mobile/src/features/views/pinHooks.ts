@@ -77,8 +77,11 @@ export interface PinsState {
 /**
  * The pins, in this phone's order: ranked pins first, new ones after them in server order. Rows for one view collapse
  * into one pin. A complete list read forgets the order and mode of pins that are gone.
+ *
+ * Only the Views list passes `refetchOnMount`. Pin buttons and error states on view screens read the cached list, so
+ * opening a view sends no pin list request; the list's refresh rules own the re-reads.
  */
-export function usePins(): PinsState {
+export function usePins({ refetchOnMount = false }: { refetchOnMount?: boolean } = {}): PinsState {
     const context = useViewsContext()
     const demo = context.mode === 'demo'
     const queryKey = viewsKeys.shortcuts(context.scope)
@@ -87,6 +90,7 @@ export function usePins(): PinsState {
         queryFn: ({ signal }) => readShortcuts(signal),
         enabled: context.ready && !demo,
         staleTime: READ_FLOOR_MS,
+        refetchOnMount,
         retry: retryListRead,
     })
     const prefsKey = context.scope ? projectKey(context.scope) : null
@@ -527,7 +531,7 @@ export interface ViewsListState {
 /** Everything the Views list needs: pins, Recent, and the list's refresh rules over the visible Number and Chart pins. */
 export function useViewsList(): ViewsListState {
     const context = useViewsContext()
-    const { pins, truncated, list: pinList } = usePins()
+    const { pins, truncated, list: pinList } = usePins({ refetchOnMount: true })
     const pinnedKeys = usePinnedKeys()
     const { recent, list: recentList } = useRecentViews(pinnedKeys)
     const pinData = pins.data

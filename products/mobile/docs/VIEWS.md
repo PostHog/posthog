@@ -25,6 +25,7 @@ The app never sends `async_except_on_cache_miss`, which the insight endpoint tur
 Pins are the web's starred rows (`FileSystemShortcut`, default surface), so a phone pin shows as a star on the web.
 `shortcutInputFor()` writes the exact `path`, `type`, `ref` and `href` the web writes, so the server dedupes the row.
 Rows for one view (a sibling environment, a rename) collapse into one pin, and unpin deletes all of them.
+The Views list owns the pin list reads: on first paint unless read under a minute ago, on focus when 5 minutes old, and on the button or pull when a minute old. Pin buttons and error states on view screens read the cached list, so opening a view sends no pin list request.
 
 Order and display mode stay on the phone, per project, in the `views-pin-prefs:v2` store (AsyncStorage).
 The app never writes the server's `order`: `reorder` is closed to OAuth, and a PATCH would move a sibling-environment pin into this environment.
