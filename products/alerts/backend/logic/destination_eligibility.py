@@ -143,7 +143,7 @@ def _classify(
     if not functions:
         return ()
     # Insight destinations are built in an editor, so the first revision can already hold an edit.
-    edited_before_first_save = not set(allowed_event_ids).isdisjoint(INSIGHT_ALERT_EVENT_IDS)
+    stock = STOCK_INPUT_VALUES if not set(allowed_event_ids).isdisjoint(INSIGHT_ALERT_EVENT_IDS) else {}
     first_revisions: dict[UUID, HogFunctionRevision] = {
         revision.hog_function_id: revision
         for revision in HogFunctionRevision.objects.for_team(team_id)
@@ -156,7 +156,7 @@ def _classify(
         DestinationEligibility(
             hog_function_id=function.id,
             template_id=function.template_id,
-            hold_backs=_hold_backs(function, first_revisions.get(function.id), edited_before_first_save),
+            hold_backs=_hold_backs(function, first_revisions.get(function.id), stock.get(function.template_id or "")),
             code_hash=hashlib.md5((function.hog or "").encode(), usedforsecurity=False).hexdigest(),
         )
         for function in functions
@@ -214,7 +214,7 @@ def _bound_to_one_alert(filters: Any) -> bool:
 
 
 def _hold_backs(
-    function: HogFunction, first_revision: HogFunctionRevision | None, edited_before_first_save: bool
+    function: HogFunction, first_revision: HogFunctionRevision | None, stock: dict[str, list[Any]] | None
 ) -> tuple[DestinationHoldBack, ...]:
     template_id = function.template_id
     if not template_id:
@@ -244,21 +244,18 @@ def _hold_backs(
     last_untracked_save = function.updated_at if first_revision is None else first_revision.created_at
     if function.created_at < EDIT_TRACKING_STARTED and last_untracked_save - function.created_at > RESAVED_AFTER:
         found.append(DestinationHoldBack.UNTRACKED_EDIT)
-    if edited_before_first_save:
+    if stock is not None:
         first_inputs = function.inputs if first_revision is None else first_revision.content.get("inputs")
-        found.extend(_stock_hold_backs(template_id, first_inputs or {}))
-    if first_revision is None:
-        return tuple(dict.fromkeys(found))
-
-    first_snapshot = first_revision.content
-
-    if code_edited:
-        found.append(DestinationHoldBack.CODE)
-    if function.inputs_schema != first_snapshot.get("inputs_schema"):
-        found.append(DestinationHoldBack.CUSTOM_INPUTS)
-    if _without_derived(function.filters) != _without_derived(first_snapshot.get("filters")):
-        found.append(DestinationHoldBack.FILTERS)
-    found.extend(_input_hold_backs(template_id, function.inputs or {}, first_snapshot.get("inputs") or {}))
+        found.extend(_stock_hold_backs(template_id, first_inputs or {}, stock))
+    if first_revision is not None:
+        first_snapshot = first_revision.content
+        if code_edited:
+            found.append(DestinationHoldBack.CODE)
+        if function.inputs_schema != first_snapshot.get("inputs_schema"):
+            found.append(DestinationHoldBack.CUSTOM_INPUTS)
+        if _without_derived(function.filters) != _without_derived(first_snapshot.get("filters")):
+            found.append(DestinationHoldBack.FILTERS)
+        found.extend(_input_hold_backs(template_id, function.inputs or {}, first_snapshot.get("inputs") or {}))
     # Ordered and unique, so a report reads the same for the same function.
     return tuple(dict.fromkeys(found))
 
@@ -267,42 +264,42 @@ def _input_hold_backs(
     template_id: str, inputs: dict[str, Any], first_inputs: dict[str, Any]
 ) -> list[DestinationHoldBack]:
     found: list[DestinationHoldBack] = []
-    is_webhook = template_id == WebhookDestination.template_id
-    for key in sorted(set(inputs) | set(first_inputs)):
-        if key in SPEC_BY_TEMPLATE_ID[template_id].address_input_keys:
-            continue
+    for key in _compared_keys(template_id, set(inputs) | set(first_inputs)):
         value, first_value = input_value(inputs, key), input_value(first_inputs, key)
-        if is_webhook and key == "headers":
-            if value != first_value:
-                found.extend(_header_hold_backs(value))
+        # Native delivery sends stored headers as written, so a header's templating mode does not matter.
+        same_mode = _is_webhook_headers(template_id, key) or _templating(inputs, key) == _templating(first_inputs, key)
+        if value == first_value and same_mode:
             continue
-        if value == first_value and _templating(inputs, key) == _templating(first_inputs, key):
-            continue
-        found.append(_input_hold_back(template_id, key))
+        found.extend(_key_hold_backs(template_id, key, value))
     return found
 
 
-def _stock_hold_backs(template_id: str, inputs: dict[str, Any]) -> list[DestinationHoldBack]:
-    stock = STOCK_INPUT_VALUES.get(template_id)
-    if stock is None:
-        return []
+def _stock_hold_backs(
+    template_id: str, inputs: dict[str, Any], stock: dict[str, list[Any]]
+) -> list[DestinationHoldBack]:
     found: list[DestinationHoldBack] = []
-    for key in sorted(inputs):
-        if key in SPEC_BY_TEMPLATE_ID[template_id].address_input_keys or key in _NOT_SENT_INPUTS:
-            continue
+    for key in _compared_keys(template_id, set(inputs)):
         value = input_value(inputs, key)
         # The templates skip an empty input, so it sends what a missing one sends.
         if value in (None, "") or (value in stock.get(key, ()) and _templating(inputs, key) == "hog"):
             continue
-        if template_id == WebhookDestination.template_id and key == "headers":
-            found.extend(_header_hold_backs(value))
-        else:
-            found.append(_input_hold_back(template_id, key))
+        found.extend(_key_hold_backs(template_id, key, value))
     return found
 
 
-def _input_hold_back(template_id: str, key: str) -> DestinationHoldBack:
-    return _INPUT_HOLD_BACKS.get(template_id, {}).get(key, DestinationHoldBack.MESSAGE)
+def _compared_keys(template_id: str, keys: set[str]) -> list[str]:
+    skipped = SPEC_BY_TEMPLATE_ID[template_id].address_input_keys | _NOT_SENT_INPUTS
+    return sorted(keys - skipped)
+
+
+def _is_webhook_headers(template_id: str, key: str) -> bool:
+    return template_id == WebhookDestination.template_id and key == "headers"
+
+
+def _key_hold_backs(template_id: str, key: str, value: Any) -> list[DestinationHoldBack]:
+    if _is_webhook_headers(template_id, key):
+        return _header_hold_backs(value)
+    return [_INPUT_HOLD_BACKS.get(template_id, {}).get(key, DestinationHoldBack.MESSAGE)]
 
 
 def _header_hold_backs(headers: Any) -> list[DestinationHoldBack]:

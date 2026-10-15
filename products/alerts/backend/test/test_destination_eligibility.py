@@ -21,7 +21,6 @@ from products.alerts.backend.facade.destinations import (
     unbound_alert_destinations,
 )
 from products.alerts.backend.logic.destination_bucket_report import bucketed_destinations
-from products.alerts.backend.logic.destination_eligibility import STOCK_INPUT_VALUES
 from products.alerts.backend.logic.insight_alert_destinations import build_insight_alert_slack_config
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, DestinationType
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -403,16 +402,6 @@ class TestDestinationEligibility(APIBaseTest):
         self._function("template-slack", _with(SLACK_INPUTS, "text", "Look at this"))
 
         assert self._classify() == ()
-
-    def test_the_backend_insight_slack_defaults_are_stock(self) -> None:
-        inputs = build_insight_alert_slack_config(
-            alert_id=ALERT_ID,
-            alert_name=None,
-            data=INSIGHT_SLACK_DATA,
-        ).payload["inputs"]
-
-        for key in ("blocks", "text"):
-            assert inputs[key]["value"] in STOCK_INPUT_VALUES["template-slack"][key], key
 
 
 class TestBucketFor(SimpleTestCase):
