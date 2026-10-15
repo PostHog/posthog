@@ -138,6 +138,7 @@ class TestChildUsers:
                                 "id": "user_1",
                                 "name": "Child",
                                 "api_keys": [{"object": "ApiKey", "key": "EZAKfake0000", "mode": "production"}],
+                                "children": [{"id": "user_2", "api_keys": [{"key": "EZAKfake1111"}]}],
                             }
                         ],
                         "has_more": False,
@@ -146,7 +147,7 @@ class TestChildUsers:
             ],
         )
         assert result.raised is None
-        assert result.rows == [{"id": "user_1", "name": "Child"}]
+        assert result.rows == [{"id": "user_1", "name": "Child", "children": [{"id": "user_2"}]}]
 
 
 REPORT_TYPES = EASYPOST_ENDPOINTS["reports"].path_values

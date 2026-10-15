@@ -90,10 +90,19 @@ def validate_credentials(api_key: str) -> bool:
         return False
 
 
+def _strip_fields(value: Any, redacted_fields: tuple[str, ...]) -> Any:
+    # Recurse so a nested object (a child user's own `children`) cannot carry the field through.
+    if isinstance(value, dict):
+        return {k: _strip_fields(v, redacted_fields) for k, v in value.items() if k not in redacted_fields}
+    if isinstance(value, list):
+        return [_strip_fields(v, redacted_fields) for v in value]
+    return value
+
+
 def _redact(items: list[dict[str, Any]], redacted_fields: tuple[str, ...]) -> list[dict[str, Any]]:
     if not redacted_fields:
         return items
-    return [{k: v for k, v in item.items() if k not in redacted_fields} for item in items]
+    return _strip_fields(items, redacted_fields)
 
 
 def get_rows(
@@ -108,7 +117,8 @@ def get_rows(
     config = EASYPOST_ENDPOINTS[endpoint]
     incremental_field_name = incremental_field or "created_at"
 
-    session = make_tracked_session(redact_values=(api_key,))
+    # The fields stripped from rows are secrets; keep the raw responses out of HTTP sample capture too.
+    session = make_tracked_session(redact_values=(api_key,), capture=not config.redacted_fields)
     session.auth = (api_key, "")
     collection_key = config.response_key or config.name
 

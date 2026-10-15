@@ -38,7 +38,9 @@ class TestGetSchemas:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
 
-    @parameterized.expand([("carrier_accounts",), ("end_shippers",), ("carrier_types",), ("child_users",)])
+    @parameterized.expand(
+        [("carrier_accounts",), ("end_shippers",), ("carrier_types",), ("child_users",), ("reports",)]
+    )
     def test_restricted_endpoints_are_not_selected_by_default(self, endpoint: str) -> None:
         # EasyPost gates both endpoints: /carrier_accounts rejects test keys, and the EndShipper
         # API is opened per account. Selecting either by default fails a table nobody asked for.
