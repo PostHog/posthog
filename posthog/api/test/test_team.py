@@ -1,3 +1,4 @@
+import time
 import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -7,6 +8,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
+from django.conf import settings as django_settings
 from django.core.cache import cache
 from django.db import OperationalError
 from django.http import HttpResponse
@@ -1031,6 +1033,25 @@ def team_api_test_factory():
                 HTTP_AUTHORIZATION=f"Bearer {holding}",
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        def test_rotate_secret_token_requires_fresh_session(self):
+            # Rotation mints a durable credential, so an aged session must reauthenticate
+            # first, like it must for PSAK creation.
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            session = self.client.session
+            session[django_settings.SESSION_LAST_REAUTH_AT_KEY] = (
+                time.time() - django_settings.SESSION_FRESH_REAUTH_AGE - 1
+            )
+            session.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
 
         def test_delete_secret_token_backup_insufficient_privileges(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER

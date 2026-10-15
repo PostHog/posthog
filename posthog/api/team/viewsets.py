@@ -38,6 +38,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    TimeSensitiveActionPermission,
     UserCanCreateProjectPermission,
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
@@ -281,7 +282,8 @@ class TeamViewSet(
         methods=["PATCH"],
         detail=True,
         # Only ADMIN or higher users are allowed to access this project
-        permission_classes=[TeamMemberStrictManagementPermission],
+        # Minting a durable credential needs a fresh session, like PSAK creation does.
+        permission_classes=[TimeSensitiveActionPermission, TeamMemberStrictManagementPermission],
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
