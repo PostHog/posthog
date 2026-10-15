@@ -9,6 +9,7 @@ import { LemonModal } from '~/lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from '~/lib/lemon-ui/LemonSkeleton'
 import { Link } from '~/lib/lemon-ui/Link'
 
+import { TerraformLockToggle } from './TerraformLockToggle'
 import {
     TerraformExportResource,
     TerraformExportResult,
@@ -132,6 +133,13 @@ export function TerraformExportModal({
             }
         >
             <div className="space-y-4">
+                {resource.type === 'access_control' && (
+                    <TerraformLockToggle
+                        organizationId={resource.data.organizationId}
+                        projectId={resource.data.projectId}
+                    />
+                )}
+
                 {state.loading && (
                     <div className="space-y-2">
                         <LemonSkeleton className="h-4 w-1/2" />

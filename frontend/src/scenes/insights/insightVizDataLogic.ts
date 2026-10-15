@@ -26,12 +26,15 @@ import {
     FLAG_EVALUATIONS_TABLE,
     insightReachesPastFlagEvaluationsRetention,
 } from 'scenes/feature-flags/flagEvaluationsTable'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { cleanSeriesNodes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
 import {
     FLAG_CALLS_SERIES_NAME,
     flagCallsBreakdownFromEventBreakdown,
     readsFlagCalls,
     withFlagCallsAggregationTarget,
 } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
+import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -290,6 +293,7 @@ export interface insightVizDataLogicValues {
     retentionFilter: RetentionFilter | null
     samplingFactor: number | null | undefined
     series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
+    seriesMathAvailability: MathAvailability
     shouldShowSessionAnalysisWarning: boolean
     showAlertThresholdLines: boolean | null | undefined
     showAnnotations: boolean | null | undefined
@@ -477,6 +481,9 @@ export interface insightVizDataLogicActions {
     }
     updateQuerySource: (querySource: QuerySourceUpdate) => {
         querySource: QuerySourceUpdate
+    }
+    updateSeries: (series: SeriesNode[]) => {
+        series: SeriesNode[]
     }
     updateVizSpecificOptions: (vizSpecificOptions: VizSpecificOptions) => {
         vizSpecificOptions: VizSpecificOptions
@@ -1219,6 +1226,12 @@ export interface insightVizDataLogicMeta {
             breakdownFilter: BreakdownFilter | null | undefined
         ) => boolean
         isBreakdownSeries: (breakdownFilter: BreakdownFilter | null | undefined) => boolean
+        seriesMathAvailability: (
+            isFunnels: boolean,
+            isLifecycle: boolean,
+            isStickiness: boolean,
+            display: ChartDisplayType | null | undefined
+        ) => MathAvailability
         isSingleSeriesDefinition: (
             isTrends: boolean,
             formula: string | null | undefined,
@@ -1417,6 +1430,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     actions({
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         updateQuerySource: (querySource: QuerySourceUpdate) => ({ querySource }),
+        updateSeries: (series: SeriesNode[]) => ({ series }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange, ignoreDebounce: boolean = false) => ({ dateRange, ignoreDebounce }),
         /** Apply a drag-to-zoom date range to the insight's query. Both dates are bucket starts;
@@ -2350,6 +2364,26 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return !!breakdownFilter?.breakdown || (breakdownFilter?.breakdowns?.length ?? 0) > 0
             },
         ],
+        seriesMathAvailability: [
+            (s) => [s.isFunnels, s.isLifecycle, s.isStickiness, s.display],
+            (
+                isFunnels: boolean,
+                isLifecycle: boolean,
+                isStickiness: boolean,
+                display: ChartDisplayType | null | undefined
+            ): MathAvailability =>
+                isFunnels
+                    ? MathAvailability.FunnelsOnly
+                    : isLifecycle
+                      ? MathAvailability.None
+                      : isStickiness
+                        ? MathAvailability.ActorsOnly
+                        : display === ChartDisplayType.CalendarHeatmap
+                          ? MathAvailability.CalendarHeatmapOnly
+                          : display === ChartDisplayType.BoxPlot
+                            ? MathAvailability.BoxPlotOnly
+                            : MathAvailability.All,
+        ],
 
         // Whether there's only one event/action series defined in the query.
         // Ignores breakdowns which create multiple visual outputs from the same series.
@@ -2781,6 +2815,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     ),
                 } as InsightQueryNode),
             } as Node)
+        },
+        updateSeries: ({ series }) => {
+            actions.updateQuerySource({
+                series: cleanSeriesNodes(series, values.seriesMathAvailability),
+            } as QuerySourceUpdate)
         },
 
         zoomDateRange: ({ dateFrom, dateTo }) => {

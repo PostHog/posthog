@@ -7,8 +7,9 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { isUnderPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { libraryTypeForPath } from 'scenes/library/libraryUtils'
+import { settingsSectionSceneForPath } from 'scenes/settings/settingsSectionScenes'
 import { toolHrefForPath } from 'scenes/tools/toolsUtils'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +17,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
 import { TODAY_PANES } from './todayRailItems'
 
-export type TodayRailPane = 'home' | 'spaces' | 'views' | 'products'
+export type TodayRailPane = 'home' | 'spaces' | 'views' | 'products' | 'settings'
 
 /** What showed or hid the sidebar. `navigation` is a page change that hides the unpinned sidebar. */
 export type TodaySidebarToggleSource =
@@ -40,10 +41,6 @@ export function clampSidebarWidth(width: number | null): number {
         Math.max(Math.round(width ?? TODAY_SIDEBAR_DEFAULT_WIDTH), TODAY_SIDEBAR_MIN_WIDTH),
         TODAY_SIDEBAR_MAX_WIDTH
     )
-}
-
-function isUnder(path: string, root: string): boolean {
-    return path === root || path.startsWith(`${root}/`)
 }
 
 /** The page a rail pane opens, or undefined when the pane only opens the sidebar. */
@@ -76,23 +73,27 @@ export function nextPhonePages(
 /** The pane a route belongs to, or null for pages that keep whichever pane was open. */
 export function railPaneForPath(pathname: string): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
-    if (path === '/' || isUnder(path, urls.projectHomepage())) {
+    if (path === '/' || isUnderPath(path, urls.projectHomepage())) {
         return 'home'
     }
-    if (isUnder(path, '/ai') || isUnder(path, '/spaces')) {
+    if (isUnderPath(path, '/ai') || isUnderPath(path, '/spaces')) {
         return 'spaces'
     }
+    // Notebooks and dashboards are views, list pages included, so they never open the Products pane.
     if (
-        isUnder(path, urls.views()) ||
-        isUnder(path, '/canvases') ||
-        isUnder(path, urls.notebooks()) ||
-        isUnder(path, urls.dashboards())
+        isUnderPath(path, urls.views()) ||
+        isUnderPath(path, '/canvases') ||
+        isUnderPath(path, urls.notebooks()) ||
+        isUnderPath(path, urls.dashboards())
     ) {
         return 'views'
     }
+    if (isUnderPath(path, '/settings') || settingsSectionSceneForPath(path)) {
+        return 'settings'
+    }
     if (
-        isUnder(path, urls.library()) ||
-        isUnder(path, urls.tools()) ||
+        isUnderPath(path, urls.library()) ||
+        isUnderPath(path, urls.tools()) ||
         libraryTypeForPath(path) ||
         toolHrefForPath(path)
     ) {
@@ -198,12 +199,7 @@ export interface todayShellLogicMeta {
         ) => boolean
         phoneHeaderShown: (todayRailEnabled: boolean, phoneLayout: boolean, phoneHeaderHidden: boolean) => boolean
         phoneCanGoBack: (phonePages: TodayPhonePage[]) => boolean
-        sidebarBreadcrumbShown: (
-            todayRailEnabled: boolean,
-            phoneLayout: boolean,
-            mobileLayout: boolean,
-            sidebarVisible: boolean
-        ) => boolean
+        sidebarBreadcrumbShown: (todayRailEnabled: boolean, phoneLayout: boolean, sidebarVisible: boolean) => boolean
     }
 }
 
@@ -327,13 +323,10 @@ export const todayShellLogic = kea<todayShellLogicType>([
         // covers the button instead of replacing it, so it stays and the title never shifts. Phones open the
         // sidebar from the phone header.
         sidebarBreadcrumbShown: [
-            (s) => [s.todayRailEnabled, s.phoneLayout, s.mobileLayout, s.sidebarVisible],
-            (
-                todayRailEnabled: boolean,
-                phoneLayout: boolean,
-                mobileLayout: boolean,
-                sidebarVisible: boolean
-            ): boolean => todayRailEnabled && !phoneLayout && (mobileLayout || !sidebarVisible),
+            (s) => [s.todayRailEnabled, s.phoneLayout, s.sidebarVisible],
+            (todayRailEnabled: boolean, phoneLayout: boolean, sidebarVisible: boolean): boolean =>
+                // A hidden sidebar needs the crumb to come back, docked or overlay. The phone header has its own.
+                todayRailEnabled && !phoneLayout && !sidebarVisible,
         ],
     }),
     subscriptions(({ actions }) => ({

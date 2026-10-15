@@ -22,7 +22,7 @@ packages:
     - '!products/desktop'
     - docs/onboarding
     - services/agent-proxy
-    - services/integration-service
+    - services/credentials-service
     - services/oauth-proxy
     - services/mcp
     - services/stripe-app

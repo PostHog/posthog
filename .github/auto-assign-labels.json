@@ -15,6 +15,7 @@
         },
         {
             "scopes": [
+                "agent",
                 "tasks",
                 "tasks-agent",
                 "agent-proxy",

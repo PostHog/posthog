@@ -90,13 +90,6 @@ export interface sessionRecordingEventUsageLogicActions {
         enabled: boolean
         minifilterKey: string
     }
-    reportRecordingListVisibilityToggled: (
-        type: string,
-        visible: boolean
-    ) => {
-        type: string
-        visible: boolean
-    }
     reportRecordingLoaded: (
         playerData: SessionPlayerData,
         metadata: SessionRecordingType | null
@@ -113,9 +106,6 @@ export interface sessionRecordingEventUsageLogicActions {
     }
     reportRecordingPinnedToList: (pinned: boolean) => {
         pinned: boolean
-    }
-    reportRecordingPlayerSeekbarEventHovered: () => {
-        value: true
     }
     reportRecordingsListFetched: (
         loadTime: number,
@@ -178,7 +168,6 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         }),
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
-        reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingInspectorItemExpanded: (tab: InspectorListItemType, index: number) => ({ tab, index }),
         reportRecordingInspectorMiniFilterViewed: (minifilterKey: MiniFilterKey, enabled: boolean) => ({
             minifilterKey,
@@ -194,7 +183,6 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         }),
         reportRecordingDebugChatReopened: true,
         reportRecordingLoadedFromFile: (data: { success: boolean; error?: string }) => data,
-        reportRecordingListVisibilityToggled: (type: string, visible: boolean) => ({ type, visible }),
         reportRecordingPinnedToList: (pinned: boolean) => ({ pinned }),
         reportRecordingOpenedFromRecentRecordingList: true,
     }),
@@ -264,9 +252,6 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingOpenedFromRecentRecordingList: () => {
             posthog.capture('recording opened from recent recording list')
         },
-        reportRecordingPlayerSeekbarEventHovered: () => {
-            posthog.capture('recording player seekbar event hovered')
-        },
         reportRecordingInspectorItemExpanded: ({ tab, index }) => {
             posthog.capture('recording inspector item expanded', { tab: 'replay-4000', type: tab, index })
         },
@@ -290,9 +275,6 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         },
         reportRecordingLoadedFromFile: (properties) => {
             posthog.capture('recording loaded from file', properties)
-        },
-        reportRecordingListVisibilityToggled: (properties) => {
-            posthog.capture('recording list visibility toggled', properties)
         },
         reportRecordingPinnedToList: (properties) => {
             posthog.capture('recording pinned to list', properties)

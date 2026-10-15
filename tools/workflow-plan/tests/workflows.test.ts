@@ -1,7 +1,7 @@
 // These tests check the workflows under .github/workflows, not the planner. A failure here means a
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -286,7 +286,12 @@ const EXPECTATIONS: Expectation[] = [
                 changes: { filter: pathsFilter({ backend: true, legacy: false }) },
                 'turbo-discover': {
                     discover: {
-                        outputs: { run_legacy: 'false', matrix: '[{"group":"a"}]', mode: '', selection: '{"json_targets_files":""}' },
+                        outputs: {
+                            run_legacy: 'false',
+                            matrix: '[{"group":"a"}]',
+                            mode: '',
+                            selection: '{"json_targets_files":""}',
+                        },
                     },
                 },
             },
@@ -297,7 +302,15 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
         {
             runs: ['django_tests'],
-            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'sdk-major-guard', 'check-migrations', 'dynamic-ci-filter'],
+            skipped: [
+                'changes',
+                'django',
+                'turbo-tests',
+                'repo-checks',
+                'sdk-major-guard',
+                'check-migrations',
+                'dynamic-ci-filter',
+            ],
         }
     ),
     backend(
@@ -331,7 +344,14 @@ const EXPECTATIONS: Expectation[] = [
     backend(
         { name: 'master push', github: push() },
         {
-            runs: ['changes', 'repo-checks', 'sdk-major-guard', 'check-migrations', 'mirror-schema-cache', 'django_tests'],
+            runs: [
+                'changes',
+                'repo-checks',
+                'sdk-major-guard',
+                'check-migrations',
+                'mirror-schema-cache',
+                'django_tests',
+            ],
             skipped: [
                 'dynamic-ci-filter',
                 'detect-snapshot-mode',
@@ -478,6 +498,27 @@ const E2E_DISPATCH: Scenario = {
 }
 
 const STEP_EXPECTATIONS: StepExpectation[] = [
+    ...[
+        { name: 'known fallback', selective: '', changedFiles: '', fork: false },
+        { name: 'empty source selection', selective: 'true', changedFiles: '', fork: false },
+        { name: 'selective PR', selective: 'true', changedFiles: 'src/example.ts', fork: false },
+        { name: 'selective fork PR', selective: 'true', changedFiles: 'src/example.ts', fork: true },
+    ].flatMap(({ name, selective, changedFiles, fork }) =>
+        ['setup-gh-token', 'selector-install'].map((step) => ({
+            file: 'ci-frontend.yml',
+            job: 'select-jest-tests',
+            step,
+            scenario: {
+                name,
+                github: pullRequest({ fork }),
+                steps: {
+                    ...allFiltersChanged(workflow('ci-frontend.yml')),
+                    'select-jest-tests': { prepare: { outputs: { selective, changed_files: changedFiles } } },
+                },
+            },
+            runs: selective === 'true' && changedFiles !== '' && (step === 'selector-install' || !fork),
+        }))
+    ),
     {
         file: 'ci-frontend.yml',
         job: 'changes',
@@ -511,6 +552,47 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('.github/workflows run plans', () => {
+    it.each([
+        ['failed install', 'failure', 'src/example.ts', 'full'],
+        ['empty source selection', 'skipped', '', 'selective'],
+        ['successful install', 'success', 'src/example.ts', 'selective'],
+    ])('Jest selection after %s', (_name, installOutcome, changedFiles, mode) => {
+        const script = workflow('ci-frontend.yml').jobs['select-jest-tests']?.steps?.find(
+            (step) => step.id === 'classify'
+        )?.run
+        if (!script) {
+            throw new Error('Missing Jest matrix classification script')
+        }
+        const directory = mkdtempSync(path.join(os.tmpdir(), 'jest-selection-'))
+        const output = path.join(directory, 'output')
+        const fallback = path.join(directory, 'fallback')
+        try {
+            writeFileSync(fallback, 'mode=full\nshould_run=true\n')
+            const result = spawnSync(
+                'bash',
+                [
+                    '-e',
+                    '-c',
+                    `node() { printf 'mode=selective\\nshould_run=false\\n' >> "$GITHUB_OUTPUT"; }\n${script.replaceAll('/tmp/jest-selection-fallback', fallback)}`,
+                ],
+                {
+                    encoding: 'utf8',
+                    env: {
+                        PATH: process.env.PATH,
+                        SELECTIVE: 'true',
+                        INSTALL_OUTCOME: installOutcome,
+                        CHANGED_FILES: changedFiles,
+                        GITHUB_OUTPUT: output,
+                    },
+                }
+            )
+            expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' })
+            expect(readFileSync(output, 'utf8')).toBe(`mode=${mode}\nshould_run=${mode === 'full'}\n`)
+        } finally {
+            rmSync(directory, { recursive: true, force: true })
+        }
+    })
+
     it.each([
         ['new bump', workflowDispatch(), 'bump', 'success', 'pass', true, false],
         ['missing image', workflowDispatch(), 'bump', 'failure', 'pass', false, false],
@@ -649,6 +731,37 @@ describe('.github/workflows run plans', () => {
             expect(plan.jobs.build?.result).toBe(outcome)
         }
     )
+
+    it.each([
+        ['frontend PR', pullRequest(), false, true, 'false', 'skipped', false],
+        ['frontend merge queue', mergeQueue(), false, true, 'true', 'success', false],
+        ['hobby PR', pullRequest(), true, false, 'true', 'success', true],
+        ['hobby merge queue', mergeQueue(), true, false, 'true', 'success', false],
+        ['unrelated merge queue', mergeQueue(), false, false, 'false', 'skipped', false],
+    ] as const)('Docker image build on %s', (name, github, hobby, buildInputs, shouldBuild, result, publish) => {
+        const wf = workflow('container-images-ci.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: { changes: { filter: pathsFilter({ hobby, build_inputs: buildInputs }) } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.outputs.should_build).toBe(shouldBuild)
+        expect(plan.jobs.posthog_build?.result).toBe(result)
+        const build = wf.jobs.posthog_build?.steps?.find((step) => step.id === 'build')
+        if (result === 'success') {
+            const functions = planFunctions({
+                dependenciesSucceeded: true,
+                dependenciesFailed: false,
+                cancelled: false,
+            })
+            expect(evaluateValue(build?.with?.['push-image'], { github }, functions)).toBe(publish)
+            expect(evaluateValue(build?.with?.['pr-number'], { github }, functions)).toBe(publish ? 1 : '')
+        }
+        expect(plan.jobs.posthog_build?.steps.find((step) => step.name === 'Container image digest')?.runs).toBe(
+            result === 'success' && publish
+        )
+    })
 
     it.each(PINNED_WORKFLOWS)('%s names every conditional job in an expectation row', (file) => {
         const unnamed = Object.entries(workflow(file).jobs)

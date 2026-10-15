@@ -1005,6 +1005,7 @@ export const ReviewDroppedFindingPriorityEnumApi = {
  * * `dedup_anchor` - Same spot as another finding
  * * `dedup_sibling` - Repeat of a finding
  * * `cap` - Over the limit
+ * * `budget` - Over the pull request limit
  */
 export type ReviewDropDispositionEnumApi =
     (typeof ReviewDropDispositionEnumApi)[keyof typeof ReviewDropDispositionEnumApi]
@@ -1016,6 +1017,7 @@ export const ReviewDropDispositionEnumApi = {
     DedupAnchor: 'dedup_anchor',
     DedupSibling: 'dedup_sibling',
     Cap: 'cap',
+    Budget: 'budget',
 } as const
 
 export interface ReviewDroppedFindingApi {
@@ -1047,7 +1049,8 @@ export interface ReviewDroppedFindingApi {
      * * `dedup_comment` - Already in a PR comment
      * * `dedup_anchor` - Same spot as another finding
      * * `dedup_sibling` - Repeat of a finding
-     * * `cap` - Over the limit */
+     * * `cap` - Over the limit
+     * * `budget` - Over the pull request limit */
     disposition: ReviewDropDispositionEnumApi
     /**
      * For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. Null for other dispositions.

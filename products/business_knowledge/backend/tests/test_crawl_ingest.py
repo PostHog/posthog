@@ -20,9 +20,10 @@ Design notes:
   test patches the narrowest layer it needs.
 """
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from typing import Any
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -54,7 +55,7 @@ def _sitemap_index_xml(children: list[str]) -> str:
     )
 
 
-class TestDiscoverSitemap(BaseTest):
+class TestDiscoverSitemap(SimpleTestCase):
     def test_parses_flat_sitemap(self) -> None:
         sitemap = _sitemap_xml(
             [
@@ -255,7 +256,7 @@ def _no_robots(url: str, max_bytes: int = 0) -> str:
     raise AssertionError(f"unexpected metadata fetch: {url}")
 
 
-class TestDiscoverSameOrigin(BaseTest):
+class TestDiscoverSameOrigin(SimpleTestCase):
     def test_stays_on_origin_and_respects_depth(self) -> None:
         pages = {
             "https://ex.com/a": '<a href="/b">b</a><a href="https://other.com/x">external</a>',
@@ -669,6 +670,36 @@ class TestRefreshCrawlSource(APIBaseTest):
         assert doc_b.tombstoned_at is not None
         assert KnowledgeDocument.objects.unscoped().filter(source=source, stable_id="https://example.com/c").exists()
 
+    def test_refresh_cut_off_by_the_crawl_deadline_stores_new_pages_and_refreshes_stored_ones(self) -> None:
+        source = self._seed(["https://example.com/a", "https://example.com/b"])
+
+        sitemap_urls = [
+            "https://example.com/a",
+            "https://example.com/b",
+            "https://example.com/c",
+            "https://example.com/d",
+        ]
+        behaviours: dict[str, url_fetch.FetchResult | Exception] = {
+            url: _ok(url, f"<html><body>updated body of {url}</body></html>".encode()) for url in sitemap_urls
+        }
+        real_iter_fetch = crawl.iter_fetch
+
+        def _deadline_after_two_pages(urls: list[str], **kwargs: Any) -> Iterator[crawl.CrawlOutcome]:
+            yield from real_iter_fetch(urls[:2], **kwargs)
+            for url in urls[2:]:
+                yield crawl.CrawlOutcome(url=url, final_url=url, status="error", error="Crawl total timeout exceeded")
+
+        with (
+            patch.object(discover, "_http_get_text", return_value=_sitemap_xml(sitemap_urls)),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+            patch.object(crawl, "iter_fetch", side_effect=_deadline_after_two_pages),
+        ):
+            refresh_source(source_id=source.id, team_id=self.team.id)
+
+        assert KnowledgeDocument.objects.unscoped().filter(source=source, stable_id="https://example.com/c").exists()
+        doc_a = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/a")
+        assert "updated" in doc_a.content
+
     def test_unchanged_source_reports_not_modified(self) -> None:
         source = self._seed(["https://example.com/a"])
         doc_a = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/a")
@@ -879,7 +910,7 @@ class TestChunkIdIsolation(APIBaseTest):
         assert a_chunks.isdisjoint(b_chunks), "chunk UUIDs must not collide across sources"
 
 
-class TestDiscoverSSRF(BaseTest):
+class TestDiscoverSSRF(SimpleTestCase):
     """
     Regression: `discover._http_get_text` used to auto-follow redirects
     (`allow_redirects=True`), so a sitemap or link page could 302 to
