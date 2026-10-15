@@ -161,24 +161,27 @@ def test_messages_fan_out_per_chat_carry_the_chat_activity_time_and_skip_a_delet
     assert [row["id"] for row in result.rows] == ["chat-1-m1", "chat-1-m2", "chat-2-m1", "chat-2-m2"]
     assert result.rows[0]["userChatDeskUpdatedAt"] == datetime(2024, 3, 29, 3, 28, 35, tzinfo=UTC)
     assert result.rows[2]["userChatDeskUpdatedAt"] == datetime(2024, 3, 29, 3, 28, 37, tzinfo=UTC)
-    assert ChannelIOResumeConfig(chat_offset=0, message_cursor="m2", started_at_ms=NOW_MS) in result.committed_states
-    assert ChannelIOResumeConfig(chat_offset=1, started_at_ms=NOW_MS) in result.committed_states
+    remaining = [{"id": chat["id"], "deskUpdatedAt": chat["deskUpdatedAt"]} for chat in chats]
+    assert result.committed_states[:2] == [
+        ChannelIOResumeConfig(pending_chats=remaining, message_cursor="m2", started_at_ms=NOW_MS),
+        ChannelIOResumeConfig(pending_chats=remaining[1:], started_at_ms=NOW_MS),
+    ]
 
 
-def test_messages_resume_inside_the_saved_chat() -> None:
-    chats = [{"id": "chat-1"}, {"id": "chat-2"}]
-
+def test_messages_resume_from_the_saved_chats_without_reading_their_page_again() -> None:
+    # The opened page is not requested again: a chat that closed since the last attempt would shift it.
     result = driver().run(
         "messages",
-        message_responder(chats),
-        resume_state=ChannelIOResumeConfig(chat_offset=1, message_cursor="m2", started_at_ms=NOW_MS),
+        message_responder([{"id": "chat-1"}, {"id": "chat-2"}]),
+        resume_state=ChannelIOResumeConfig(
+            pending_chats=[{"id": "chat-2", "deskUpdatedAt": None}], message_cursor="m2", started_at_ms=NOW_MS
+        ),
     )
 
     assert result.raised is None
-    message_requests = [request for request in result.requests if request.path.endswith("/messages")]
-    assert [(request.path, request.param("cursor")) for request in message_requests] == [
-        ("/open/user-chats/chat-2/messages", "m2")
-    ]
+    assert result.paths[0] == "/open/user-chats/chat-2/messages"
+    assert result.requests[0].param("cursor") == "m2"
+    assert [request.param("state") for request in result.requests[1:]] == list(USER_CHAT_STATES[1:])
     assert [row["id"] for row in result.rows] == ["chat-2-m2"]
 
 

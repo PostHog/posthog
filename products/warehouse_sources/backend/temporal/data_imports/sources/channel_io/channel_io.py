@@ -42,12 +42,12 @@ Rows = list[dict[str, Any]]
 
 @frozen
 class ChannelIOResumeConfig:
-    # List tables: the next page. User chats: the next page of the current segment. Messages: the cursor that
-    # fetches the user chat page being read.
+    # List tables and user chats: the next page. Messages: the user chat page after the chats in `pending_chats`.
     segment: int = 0
     cursor: str | None = None
-    # Messages: how many chats of the current user chat page are written, and the next page of the current chat.
-    chat_offset: int = 0
+    # Messages: the chats of the current page whose messages are not all written, with the first one's next
+    # message page. Kept by id, because a chat that changes state leaves the page and shifts the rest.
+    pending_chats: list[dict[str, Any]] | None = None
     message_cursor: str | None = None
     # The end of the incremental windows, pinned so a resumed attempt reads the same segments.
     started_at_ms: int | None = None
@@ -243,6 +243,20 @@ def user_chat_rows(
             manager.safe_point()
 
 
+def _message_pages_to_read(
+    client: RESTClient, segments: list[UserChatSegment], resume: ChannelIOResumeConfig | None
+) -> Iterator[UserChatPage]:
+    if resume is None:
+        yield from user_chat_pages(client, segments, 0, None)
+        return
+    if resume.pending_chats is not None:
+        yield UserChatPage(segment=resume.segment, cursor=None, next_cursor=resume.cursor, chats=resume.pending_chats)
+        if resume.cursor is None:
+            yield from user_chat_pages(client, segments, resume.segment + 1, None)
+            return
+    yield from user_chat_pages(client, segments, resume.segment, resume.cursor)
+
+
 def message_rows(
     client: RESTClient,
     segments: list[UserChatSegment],
@@ -255,31 +269,31 @@ def message_rows(
     A chat deleted after it was listed answers 404, which skips it rather than failing the sync.
     """
     skip_missing_chat = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name="messages")
-    start_segment = resume.segment if resume is not None else 0
-    start_cursor = resume.cursor if resume is not None else None
-    resuming = resume is not None
+    first_message_cursor = resume.message_cursor if resume is not None else None
 
-    for page in user_chat_pages(client, segments, start_segment, start_cursor):
-        first_offset = resume.chat_offset if resuming and resume is not None else 0
-        first_message_cursor = resume.message_cursor if resuming and resume is not None else None
-        resuming = False
-        # Staged before this page's rows, so an empty page or a page of deleted chats still moves the cursor on.
-        manager.save_state(
-            ChannelIOResumeConfig(
-                segment=page.segment,
-                cursor=page.cursor,
-                chat_offset=first_offset,
-                message_cursor=first_message_cursor,
-                started_at_ms=started_at_ms,
+    for page in _message_pages_to_read(client, segments, resume):
+        chats = [
+            {"id": chat["id"], "deskUpdatedAt": chat.get("deskUpdatedAt") or chat.get("updatedAt")}
+            for chat in page.chats
+            if chat.get("id")
+        ]
+
+        def checkpoint(index: int, message_cursor: str | None, page: UserChatPage = page, chats: Rows = chats) -> None:
+            manager.save_state(
+                ChannelIOResumeConfig(
+                    segment=page.segment,
+                    cursor=page.next_cursor,
+                    pending_chats=chats[index:],
+                    message_cursor=message_cursor,
+                    started_at_ms=started_at_ms,
+                )
             )
-        )
-        for offset in range(first_offset, len(page.chats)):
-            chat = page.chats[offset]
-            chat_id = chat.get("id")
-            if not chat_id:
-                continue
-            chat_desk_updated_at = to_datetime(chat.get("deskUpdatedAt") or chat.get("updatedAt"))
-            message_cursor = first_message_cursor if offset == first_offset else None
+
+        # Staged before this page's rows, so an empty page or a page of deleted chats still moves the cursor on.
+        checkpoint(0, first_message_cursor)
+        for index, chat in enumerate(chats):
+            chat_desk_updated_at = to_datetime(chat["deskUpdatedAt"])
+            message_cursor = first_message_cursor if index == 0 else None
             next_page: dict[str, str | None] = {}
 
             def remember_next(
@@ -288,7 +302,7 @@ def message_rows(
                 box["cursor"] = str(state["cursor"]) if state and state.get("cursor") else None
 
             for messages in client.paginate(
-                path=f"/open/user-chats/{quote(str(chat_id), safe='')}/messages",
+                path=f"/open/user-chats/{quote(str(chat['id']), safe='')}/messages",
                 params={"sortOrder": "asc", "limit": PAGE_LIMIT},
                 paginator=cursor_paginator(),
                 data_selector="messages",
@@ -298,15 +312,10 @@ def message_rows(
                 page_state_hook=remember_next,
             ):
                 next_message_cursor = next_page.get("cursor")
-                manager.save_state(
-                    ChannelIOResumeConfig(
-                        segment=page.segment,
-                        cursor=page.cursor,
-                        chat_offset=offset if next_message_cursor else offset + 1,
-                        message_cursor=next_message_cursor,
-                        started_at_ms=started_at_ms,
-                    )
-                )
+                if next_message_cursor:
+                    checkpoint(index, next_message_cursor)
+                else:
+                    checkpoint(index + 1, None)
                 if messages:
                     yield [
                         {**normalize_row(message), "userChatDeskUpdatedAt": chat_desk_updated_at}
@@ -314,6 +323,7 @@ def message_rows(
                     ]
                 else:
                     manager.safe_point()
+        first_message_cursor = None
         manager.safe_point()
 
 
