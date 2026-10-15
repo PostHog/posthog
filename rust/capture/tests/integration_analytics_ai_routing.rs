@@ -77,8 +77,8 @@ impl<K: RecordKind> PublishEvents<K> for CapturingSink {
 }
 
 #[async_trait]
-impl PublishPrepared for CapturingSink {
-    async fn publish_prepared(&self, _events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+impl<L: capture::pipeline::Lane> PublishPrepared<L> for CapturingSink {
+    async fn publish_prepared(&self, _events: Vec<PreparedEvent<L>>) -> Vec<SinkResult> {
         unreachable!("v0 endpoints publish events")
     }
 }

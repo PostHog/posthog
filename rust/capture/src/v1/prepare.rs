@@ -29,9 +29,9 @@ use crate::v1::types::Publishable;
 /// `CAPTURE_V1_SCATTER_GATHER_MIN_BATCH`.
 pub const DEFAULT_SCATTER_GATHER_MIN_BATCH: usize = 8;
 
-pub struct SerializedBatch {
+pub struct SerializedBatch<L> {
     /// In input order.
-    pub prepared: Vec<PreparedEvent>,
+    pub prepared: Vec<PreparedEvent<L>>,
     pub failures: Vec<SerializationFailure>,
 }
 
@@ -39,8 +39,8 @@ pub struct SerializedBatch {
 // Vec<PreparedEvent>; boxing it just to even out variant sizes would add a
 // heap allocation per successful event.
 #[allow(clippy::large_enum_variant)]
-enum Slot {
-    Prepared(PreparedEvent),
+enum Slot<L> {
+    Prepared(PreparedEvent<L>),
     Skipped,
     Failed(SerializationFailure),
 }
@@ -48,14 +48,14 @@ enum Slot {
 fn prepare_one<E: Publishable>(
     ev: &E,
     ctx: &RequestContext,
-) -> anyhow::Result<Option<PreparedEvent>> {
-    if !ev.should_publish() {
+) -> anyhow::Result<Option<PreparedEvent<E::Lane>>> {
+    let Some(address) = ev.destination().filter(|_| ev.should_publish()) else {
         return Ok(None);
-    }
+    };
     let payload = ev.serialize(ctx)?;
     Ok(Some(PreparedEvent {
         uuid: ev.uuid(),
-        address: ev.destination().address(),
+        address: address.clone(),
         payload,
         headers: ev.headers(ctx),
         partition_key: ev.partition_key(ctx),
@@ -65,7 +65,7 @@ fn prepare_one<E: Publishable>(
 
 /// Records a panic in `prepare_one` as this event's failure, so one bad event
 /// cannot fail the batch or kill the worker task.
-fn run_one<E: Publishable>(ev: &E, ctx: &RequestContext) -> Slot {
+fn run_one<E: Publishable>(ev: &E, ctx: &RequestContext) -> Slot<E::Lane> {
     let uuid = ev.uuid();
     match catch_unwind(AssertUnwindSafe(|| prepare_one(ev, ctx))) {
         Ok(Ok(Some(prepared))) => Slot::Prepared(prepared),
@@ -84,14 +84,14 @@ pub async fn serialize_batch<E>(
     events: Vec<E>,
     ctx: &RequestContext,
     scatter_gather_threshold: usize,
-) -> (Vec<E>, SerializedBatch)
+) -> (Vec<E>, SerializedBatch<E::Lane>)
 where
     E: Publishable + 'static,
 {
     let start = Instant::now();
     let n = events.len();
 
-    let (events, slots): (Vec<E>, Vec<Slot>) = if scatter_gather_threshold == 0
+    let (events, slots): (Vec<E>, Vec<Slot<E::Lane>>) = if scatter_gather_threshold == 0
         || n < scatter_gather_threshold
     {
         let slots = events.iter().map(|ev| run_one(ev, ctx)).collect();
@@ -100,7 +100,7 @@ where
         let uuids: Vec<Uuid> = events.iter().map(|ev| ev.uuid()).collect();
         let events = Arc::new(events);
         let ctx = Arc::new(ctx.clone());
-        let mut set: JoinSet<(usize, Slot)> = JoinSet::new();
+        let mut set: JoinSet<(usize, Slot<E::Lane>)> = JoinSet::new();
         for i in 0..n {
             let events = Arc::clone(&events);
             let ctx = Arc::clone(&ctx);
@@ -112,7 +112,7 @@ where
             set.spawn(async move { (i, run_one(&events[i], &ctx)) });
         }
 
-        let mut indexed: Vec<Option<Slot>> = (0..n).map(|_| None).collect();
+        let mut indexed: Vec<Option<Slot<E::Lane>>> = (0..n).map(|_| None).collect();
         while let Some(joined) = set.join_next().await {
             // run_one catches panics internally, so a JoinError is unexpected;
             // leave that slot empty and let the fill below record it as a panic.
@@ -233,9 +233,8 @@ mod tests {
 
     use super::*;
     use crate::ordering::OrderingGuarantee;
-    use crate::pipeline::{Address, AnalyticsLane, PipelineLane};
-    use crate::v1::test_utils::test_context;
-    use crate::v1::types::Destination;
+    use crate::pipeline::{Address, AnalyticsLane, AnalyticsOutputLane};
+    use crate::v1::test_utils::{test_context, Destination};
 
     fn empty_captured_headers() -> CapturedEventHeaders {
         CapturedEventHeaders {
@@ -293,6 +292,8 @@ mod tests {
     }
 
     impl Publishable for FakeEvent {
+        type Lane = AnalyticsOutputLane;
+
         fn uuid(&self) -> Uuid {
             self.uuid
         }
@@ -301,8 +302,8 @@ mod tests {
             self.publish
         }
 
-        fn destination(&self) -> &Destination {
-            &self.destination
+        fn destination(&self) -> Option<&Destination> {
+            Some(&self.destination)
         }
 
         fn headers(&self, _ctx: &RequestContext) -> CapturedEventHeaders {
@@ -355,7 +356,7 @@ mod tests {
             assert_eq!(prepared.partition_key, format!("key-{i}"));
             assert_eq!(
                 prepared.address,
-                Address::Lane(PipelineLane::Analytics(AnalyticsLane::Main))
+                Address::Lane(AnalyticsOutputLane::Analytics(AnalyticsLane::Main))
             );
         }
     }

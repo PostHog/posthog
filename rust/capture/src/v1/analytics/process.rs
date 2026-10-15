@@ -27,44 +27,36 @@ use tracing::Level;
 
 use super::context::Context;
 use crate::api::CaptureError;
-use crate::config::CaptureMode;
 use crate::ingestion_warnings::{bounded_detail, emit_rate_limit_warning};
-use crate::kind::EventKind;
+use crate::kind::{Classify, Route};
+use crate::pipeline::{Address, Lane, OverflowBudget};
 use crate::router;
 use crate::sinks::sink::{Outcome, SinkResult};
 use crate::v1::context::RequestContext;
 use crate::v1::prepare::{serialize_batch, SerializationFailure};
-use crate::v1::types::{Destination, Publishable};
+use crate::v1::types::Publishable;
 use crate::v1::Error;
 use common_ingestion_warnings::{
     emit_request_warning, WarningEmitter, WarningType, CAPTURE_V1_ANALYTICS, CAPTURE_V1_RATE_LIMIT,
 };
 
-/// Maps event name to its Kafka destination, mirroring v0 classification.
+/// The lane an event starts on, from its name, or `None` when the deployment
+/// does not accept it (a non-AI event sent to an AI deployment).
 ///
 /// Unlike legacy capture, v1 does NOT split heatmap/scroll-depth properties out of
 /// non-$$heatmap events (e.g. $pageview) into a synthetic redirect. We keep properties
 /// as opaque RawValue to avoid deserialization. The Node.js events subpipeline
 /// (extractHeatmapDataStep) handles extraction when `skip_heatmap_processing` is unset
 /// in Kafka headers — removing that fallback would break scroll-depth heatmaps for v1.
-///
-/// AI events (per [`is_ai_event`]) are diverted to `Destination::AiMain` on
-/// every deployment.
-fn destination_for_event_name(name: &str) -> Destination {
-    match name {
-        "$exception" => Destination::ErrorTrackingMain,
-        "$$heatmap" => Destination::HeatmapsMain,
-        "$$client_ingestion_warning" => Destination::ClientWarningsMain,
-        _ if is_ai_event(name) => Destination::AiMain,
-        _ => Destination::AnalyticsMain,
-    }
+fn lane_for_event_name<K: Classify + Route>(name: &str) -> Option<K::Lane> {
+    K::classify(name, false).ok().map(K::lane)
 }
 
 /// Run the batch through the pipeline, then report its drops and build the
 /// response. The pipeline itself only decides each event's outcome; whatever
 /// stage it exits from, the warnings sweep sees the final outcomes exactly
 /// once, here.
-pub async fn process_batch<K: EventKind>(
+pub async fn process_batch<K: Classify + Route>(
     state: &router::State<K>,
     context: &mut Context,
     batch: Batch,
@@ -78,11 +70,11 @@ pub async fn process_batch<K: EventKind>(
 /// events with their final per-event outcomes; a whole-batch failure is the
 /// `Err`. Stages that leave nothing to publish return early with what they
 /// have, so the 200 with per-event drops still comes from `process_batch`.
-async fn run_pipeline<K: EventKind>(
+async fn run_pipeline<K: Classify + Route>(
     state: &router::State<K>,
     context: &mut Context,
     batch: Batch,
-) -> Result<Vec<WrappedEvent>, Error> {
+) -> Result<Vec<WrappedEvent<K::Lane>>, Error> {
     let processing_start = Instant::now();
     crate::ctx_log!(Level::INFO, context, "process_batch called");
 
@@ -100,7 +92,7 @@ async fn run_pipeline<K: EventKind>(
             return Err(err);
         }
     };
-    let mut events = assign_destinations(&state.historical_cfg, context, events);
+    let mut events = assign_destinations::<K>(&state.historical_cfg, context, events);
 
     // Import mode ingests only historical backfills: drop any batch not flagged
     // `historical_migration` (a batch-level flag) by marking every event Drop and
@@ -121,9 +113,7 @@ async fn run_pipeline<K: EventKind>(
         return Ok(events);
     }
 
-    if state.capture_mode == CaptureMode::Ai {
-        drop_non_ai_events(state, context, &mut events);
-    }
+    report_misrouted_events(state, context, &events);
 
     // Nothing left to process — return 200 with per-event drops.
     if events.iter().all(|ev| ev.result != EventResult::Ok) {
@@ -146,7 +136,6 @@ async fn run_pipeline<K: EventKind>(
             service,
             &context.api_token,
             context.server_received_at.timestamp(),
-            state.capture_mode.has_ai_overflow_lane(),
             &mut events,
         )
         .await;
@@ -200,10 +189,10 @@ async fn run_pipeline<K: EventKind>(
 // the trusted marker and exempts it from the llm_events meter; anything else has its
 // `$ai_gateway*` props stripped. The strip path skips the parse unless the raw bytes
 // plausibly carry a gateway key, so ordinary traffic stays off the hot path.
-fn apply_gateway_provenance<K: EventKind>(
+fn apply_gateway_provenance<K: Route>(
     state: &router::State<K>,
     context: &Context,
-    events: &mut [WrappedEvent],
+    events: &mut [WrappedEvent<K::Lane>],
 ) {
     use crate::v1::gateway_provenance as gp;
 
@@ -268,7 +257,7 @@ fn apply_gateway_provenance<K: EventKind>(
 /// Drop a `$ai_*` event whose properties carry a gateway key but can't be parsed to
 /// strip or stamp it. `RawValue` and ClickHouse accept JSON the typed parse rejects,
 /// so a forged marker we can't remove would otherwise survive to billing — fail closed.
-fn drop_unparseable_gateway_props(ev: &mut WrappedEvent) {
+fn drop_unparseable_gateway_props<L>(ev: &mut WrappedEvent<L>) {
     ev.result = EventResult::Drop;
     ev.details = Some("gateway_props_unparseable");
     metrics::counter!(
@@ -279,13 +268,13 @@ fn drop_unparseable_gateway_props(ev: &mut WrappedEvent) {
 }
 
 /// Sets `result` and `details` on each published event from its serialize failure or publish result.
-pub fn merge_publish_results(
-    events: &mut [WrappedEvent],
+pub fn merge_publish_results<L: Lane>(
+    events: &mut [WrappedEvent<L>],
     failures: &[SerializationFailure],
     publish_results: &[SinkResult],
 ) {
     // Uuids are unique here: validation rejects a batch with a duplicate.
-    let mut published: HashMap<Uuid, &mut WrappedEvent> = events
+    let mut published: HashMap<Uuid, &mut WrappedEvent<L>> = events
         .iter_mut()
         .filter(|e| e.should_publish())
         .map(|e| (e.uuid, e))
@@ -328,7 +317,7 @@ pub fn merge_publish_results(
 /// The batch is rejected as a unit, so `count` charges the full batch length;
 /// no per-event identifiers exist at this point. Unregistered tags emit
 /// nothing (allowlist in `WarningType::from_tag`). Never fails the request.
-fn emit_batch_abort_warning<K: EventKind>(
+fn emit_batch_abort_warning<K: Route>(
     state: &router::State<K>,
     context: &Context,
     err: &Error,
@@ -359,10 +348,10 @@ fn emit_batch_abort_warning<K: EventKind>(
 /// every outcome, so a stage reports a drop by tagging it and nothing else.
 /// Whether the tag turns into a warning is decided in one place,
 /// `WarningType::from_tag`.
-fn emit_drop_warnings<K: EventKind>(
+fn emit_drop_warnings<K: Route>(
     state: &router::State<K>,
     context: &Context,
-    events: &[WrappedEvent],
+    events: &[WrappedEvent<K::Lane>],
 ) {
     let emitter = state.ingestion_warning_emitter.as_deref();
     if emitter.is_none() {
@@ -720,60 +709,74 @@ fn normalize_timestamp(
     adjusted
 }
 
-fn assign_destinations(
+fn assign_destinations<K: Classify + Route>(
     historical_cfg: &router::HistoricalConfig,
     context: &RequestContext,
     events: Vec<ValidatedEvent>,
-) -> Vec<WrappedEvent> {
+) -> Vec<WrappedEvent<K::Lane>> {
     events
         .into_iter()
         .map(|validated| {
-            let mut destination = destination_for_event_name(&validated.event.event);
-            if let Some(ts) = validated.adjusted_timestamp {
-                destination = route_historical(historical_cfg, context, destination, ts);
-            }
-            validated.into_wrapped(destination)
+            let Some(lane) = lane_for_event_name::<K>(&validated.event.event) else {
+                let mut event = validated.into_wrapped(None);
+                if event.result == EventResult::Ok {
+                    event.result = EventResult::Drop;
+                    event.details = Some(DETAIL_MISROUTED_EVENT);
+                }
+                return event;
+            };
+            let lane = match validated.adjusted_timestamp {
+                Some(ts) => route_historical(historical_cfg, context, lane, ts),
+                None => lane,
+            };
+            validated.into_wrapped(Some(Address::Lane(lane)))
         })
         .collect()
 }
 
-fn route_historical(
+fn route_historical<L: Lane>(
     cfg: &router::HistoricalConfig,
     context: &RequestContext,
-    destination: Destination,
+    lane: L,
     adjusted_timestamp: DateTime<Utc>,
-) -> Destination {
-    if destination != Destination::AnalyticsMain {
-        return destination;
-    }
+) -> L {
+    let Some(historical) = lane.historical() else {
+        return lane;
+    };
     if context.historical_migration {
         metrics::counter!(CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, "reason" => "batch_flag")
             .increment(1);
-        return Destination::AnalyticsHistorical;
+        return historical;
     }
     if cfg.should_reroute(adjusted_timestamp) {
         metrics::counter!(CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, "reason" => "timestamp")
             .increment(1);
-        return Destination::AnalyticsHistorical;
+        return historical;
     }
-    destination
+    lane
 }
 
-fn apply_overflow_stamping(
+fn apply_overflow_stamping<L: Lane>(
     analytics_limiter: Option<&Arc<OverflowLimiter>>,
     ai_limiter: Option<&Arc<OverflowLimiter>>,
     ctx: &RequestContext,
-    events: &mut [WrappedEvent],
+    events: &mut [WrappedEvent<L>],
 ) {
     for event in events.iter_mut() {
         // Each overflowing lane keeps its own overflow destination AND its
         // own limiter instance, so an overflowing AI event lands on AI
         // overflow (never analytics overflow) and the per-key budgets are
         // isolated between the lanes.
-        let (overflow_destination, lane_limiter) = match event.destination {
-            Destination::AnalyticsMain => (Destination::AnalyticsOverflow, analytics_limiter),
-            Destination::AiMain => (Destination::AiOverflow, ai_limiter),
-            _ => continue,
+        let Some(Address::Lane(lane)) = event.destination else {
+            continue;
+        };
+        let Some((overflow_lane, budget)) = lane.overflow() else {
+            continue;
+        };
+        let overflow_destination = Some(Address::Lane(overflow_lane));
+        let lane_limiter = match budget {
+            OverflowBudget::Analytics => analytics_limiter,
+            OverflowBudget::Ai => ai_limiter,
         };
         if event.result == EventResult::Drop {
             continue;
@@ -814,12 +817,11 @@ fn apply_overflow_stamping(
     }
 }
 
-async fn apply_restrictions(
+async fn apply_restrictions<L: Lane>(
     service: &EventRestrictionService,
     token: &str,
     now_ts: i64,
-    has_ai_overflow_lane: bool,
-    events: &mut [WrappedEvent],
+    events: &mut [WrappedEvent<L>],
 ) {
     for event in events.iter_mut() {
         if event.result != EventResult::Ok {
@@ -830,8 +832,8 @@ async fn apply_restrictions(
         // against the correct restriction slice (Analytics vs ErrorTracking
         // vs Ai) — an event diverted to the AI lane is governed by ai-scoped
         // restrictions, not analytics ones. v0 derives the same mapping from
-        // the event kind.
-        let Some(pipeline) = event.destination.pipeline() else {
+        // the event's kind.
+        let Some(pipeline) = event.destination.as_ref().and_then(Address::pipeline) else {
             continue;
         };
 
@@ -855,24 +857,25 @@ async fn apply_restrictions(
 
         // Priority: overflow < custom topic < DLQ (DLQ wins, applied last)
         let force_overflow_destination = match event.destination {
-            Destination::AnalyticsMain => Some(Destination::AnalyticsOverflow),
-            Destination::AiMain if has_ai_overflow_lane => Some(Destination::AiOverflow),
-            _ => None,
+            Some(Address::Lane(lane)) => {
+                lane.overflow().map(|(overflow, _)| Address::Lane(overflow))
+            }
+            Some(Address::Dlq | Address::Custom(_)) | None => None,
         };
         if applied.force_overflow() {
             if let Some(destination) = force_overflow_destination {
-                event.destination = destination;
+                event.destination = Some(destination);
                 metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "force_overflow")
                     .increment(1);
             }
         }
         if let Some(topic) = applied.redirect_to_topic() {
-            event.destination = Destination::Custom(topic.to_string());
+            event.destination = Some(Address::Custom(topic.to_string()));
             metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "redirect_to_topic")
                 .increment(1);
         }
         if applied.redirect_to_dlq() {
-            event.destination = Destination::Dlq;
+            event.destination = Some(Address::Dlq);
             metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "redirect_to_dlq")
                 .increment(1);
         }
@@ -885,7 +888,8 @@ async fn apply_restrictions(
     }
 }
 
-/// Drop every event an AI-mode deployment was sent that is not on the AI lane.
+/// Report the events validation dropped because this mode does not accept
+/// them: every non-AI event sent to an AI deployment.
 ///
 /// capture-ai loads only the AI restriction slice (`Pipeline::for_capture_mode`),
 /// so an analytics, exception, or heatmap event reaching it would ingest
@@ -893,12 +897,12 @@ async fn apply_restrictions(
 /// answerable from the event name alone, on every deployment. Only the
 /// offenders drop, since v1 reports per-event outcomes; the v0 path on this
 /// deployment rejects the whole request (`CaptureError::NonAiEventOnAiLane`)
-/// because its contract has no way to say less. The gate runs before quota and
-/// restrictions so a refused event spends neither.
-fn drop_non_ai_events<K: EventKind>(
+/// because its contract has no way to say less. Validation drops them, so a
+/// refused event spends neither quota nor restrictions.
+fn report_misrouted_events<K: Route>(
     state: &router::State<K>,
     context: &Context,
-    events: &mut [WrappedEvent],
+    events: &[WrappedEvent<K::Lane>],
 ) {
     let mut dropped: u64 = 0;
     // Identifiers for the warning, kept only while exactly one event offended.
@@ -906,18 +910,10 @@ fn drop_non_ai_events<K: EventKind>(
     // how many there were.
     let mut single_offender: Option<(String, Uuid)> = None;
 
-    for event in events.iter_mut() {
-        // Gate on the event name, not the destination: `on_ai_lane` documents
-        // why the destination is the wrong question. `should_publish` rather
-        // than `result == Ok` so a Warning event -- which also publishes --
-        // cannot ride an analytics lane out of an AI deployment. Neither case
-        // is reachable at this point today; both make the gate correct on its
-        // own terms rather than on its position in the pipeline.
-        if !event.should_publish() || on_ai_lane(event) {
+    for event in events {
+        if event.details != Some(DETAIL_MISROUTED_EVENT) {
             continue;
         }
-        event.result = EventResult::Drop;
-        event.details = Some(DETAIL_MISROUTED_EVENT);
         dropped += 1;
         single_offender = match dropped {
             1 => Some((event.event.event.clone(), event.uuid)),
@@ -964,13 +960,13 @@ fn drop_non_ai_events<K: EventKind>(
 /// Whether this event rides the AI lane, independent of where restrictions
 /// have since pointed it.
 ///
-/// Gating on `destination == AiMain` would exempt exactly the events an
+/// Gating on the AI main lane would exempt exactly the events an
 /// operator redirected: `force_overflow` retargets an AI event to
-/// `AiOverflow`, which is still the AI lane, and a `redirect_to_topic`
-/// or DLQ restriction moves it off `AiMain` without taking it off the wire.
+/// AI overflow, which is still the AI lane, and a `redirect_to_topic`
+/// or DLQ restriction moves it off AI main without taking it off the wire.
 /// [`is_ai_event`] is the same rule v0 classifies AI events by, so both
 /// pipelines charge and measure the same set.
-fn on_ai_lane(event: &WrappedEvent) -> bool {
+fn on_ai_lane<L>(event: &WrappedEvent<L>) -> bool {
     is_ai_event(&event.event.event)
 }
 
@@ -984,7 +980,7 @@ fn on_ai_lane(event: &WrappedEvent) -> bool {
 ///
 /// Charged bytes are the event's properties, which dominate an AI event's wire
 /// size; the serialized envelope is not built until the prepare step.
-fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) {
+fn apply_ai_event_size_limit<L>(max_event_bytes: u64, events: &mut [WrappedEvent<L>]) {
     if max_event_bytes == 0 {
         return;
     }
@@ -1022,10 +1018,10 @@ fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) 
 ///
 /// Charged bytes are the event's properties, which dominate an AI event's wire
 /// size; `charge_ai_bytes` adds the flat envelope allowance the v0 path uses.
-async fn apply_ai_byte_limits(
+async fn apply_ai_byte_limits<L>(
     limiter: &GlobalRateLimiter,
     token: &str,
-    events: &mut [WrappedEvent],
+    events: &mut [WrappedEvent<L>],
 ) {
     let mut dropped: u64 = 0;
 
@@ -1060,11 +1056,11 @@ struct TokenDistinctIdTally {
     already_disabled_over_budget: u64,
 }
 
-async fn apply_token_distinct_id_limits(
+async fn apply_token_distinct_id_limits<L: Lane>(
     limiter: &GlobalRateLimiter,
     context: &RequestContext,
     emitter: Option<&dyn WarningEmitter>,
-    events: &mut [WrappedEvent],
+    events: &mut [WrappedEvent<L>],
 ) -> TokenDistinctIdTally {
     let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
     let mut limited_event_count: u64 = 0;
@@ -1102,10 +1098,12 @@ async fn apply_token_distinct_id_limits(
             event.force_disable_person_processing = true;
             event.details = Some(DETAIL_PERSON_PROCESSING_DISABLED);
             // Reroute to overflow to spread a hot token:distinct_id across
-            // partitions. Gated to AnalyticsMain only. Other lanes (exceptions,
+            // partitions. Gated to analytics main only. Other lanes (AI, exceptions,
             // heatmaps, etc.) keep their own destination.
-            if event.destination == Destination::AnalyticsMain {
-                event.destination = Destination::AnalyticsOverflow;
+            if let Some(Address::Lane(lane)) = event.destination {
+                if let Some((overflow, OverflowBudget::Analytics)) = lane.overflow() {
+                    event.destination = Some(Address::Lane(overflow));
+                }
             }
             limited_distinct_ids.insert(event.event.distinct_id.as_str());
             limited_event_count += 1;
@@ -1196,13 +1194,15 @@ mod tests {
     use crate::event_restrictions::{
         Pipeline, Restriction, RestrictionManager, RestrictionScope, RestrictionType,
     };
+    use crate::kind::{AiKind, AnalyticsKind, Classify, Historical, MainOrHistorical};
+    use crate::pipeline::{AiLane, AnalyticsLane, AnalyticsOutputLane};
     use crate::v1::analytics::constants::{CAPTURE_V1_PATH, DETAIL_INVALID_OPTIONS};
     use crate::v1::analytics::types::{Batch, Event};
     use crate::v1::prepare::DEFAULT_SCATTER_GATHER_MIN_BATCH;
     use crate::v1::test_utils::{
         self, find_by_did, malformed_wrapped_event, raw_obj, valid_event, wrapped_event,
     };
-    use crate::v1::types::Destination;
+    use crate::v1::test_utils::{Destination, TestDeployment, WrappedEvent};
     use crate::v1::Error;
 
     fn valid_batch(events: Vec<Event>) -> Batch {
@@ -2035,11 +2035,11 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
-        assert_eq!(ev.destination, Destination::AnalyticsMain);
+        assert_eq!(ev.destination, Some(Destination::AnalyticsMain));
         assert!(!ev.force_disable_person_processing);
     }
 
@@ -2061,7 +2061,7 @@ mod tests {
         ];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         for ev in &events {
             assert_eq!(ev.result, EventResult::Drop);
@@ -2085,12 +2085,12 @@ mod tests {
         let mut events = vec![malformed, wrapped_event("$pageview", "user-valid")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         // malformed event stays Drop with original destination, not re-evaluated
         let mal = find_by_did(&events, &malformed_did);
         assert_eq!(mal.result, EventResult::Drop);
-        assert_eq!(mal.destination, Destination::AnalyticsMain);
+        assert_eq!(mal.destination, Some(Destination::AnalyticsMain));
         // valid event gets dropped by restriction
         let valid = find_by_did(&events, "user-valid");
         assert_eq!(valid.result, EventResult::Drop);
@@ -2111,25 +2111,22 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
-        assert_eq!(ev.destination, Destination::AnalyticsOverflow);
+        assert_eq!(ev.destination, Some(Destination::AnalyticsOverflow));
     }
 
     /// A diverted AI event consults ai-scoped restrictions: an ai-scoped
-    /// ForceOverflow reroutes it to the AI overflow destination when the
-    /// deployment has an AI overflow lane and leaves it untouched when not,
-    /// while an analytics-scoped ForceOverflow never crosses into the AI lane.
+    /// ForceOverflow reroutes it to the AI overflow destination, while an
+    /// analytics-scoped ForceOverflow never crosses into the AI lane.
     #[rstest::rstest]
-    #[case::with_lane(Pipeline::Ai, true, Destination::AiOverflow)]
-    #[case::without_lane(Pipeline::Ai, false, Destination::AiMain)]
-    #[case::analytics_scoped_does_not_cross(Pipeline::Analytics, true, Destination::AiMain)]
+    #[case::ai_scoped(Pipeline::Ai, Destination::AiOverflow)]
+    #[case::analytics_scoped_does_not_cross(Pipeline::Analytics, Destination::AiMain)]
     #[tokio::test]
-    async fn restrictions_force_overflow_ai_events_need_an_overflow_lane(
+    async fn restrictions_force_overflow_ai_events_follow_their_scope(
         #[case] restriction_pipeline: Pipeline,
-        #[case] has_ai_overflow_lane: bool,
         #[case] expected_destination: Destination,
     ) {
         let service = restriction_service_for_pipeline(
@@ -2144,21 +2141,14 @@ mod tests {
         .await;
 
         let mut events = vec![wrapped_event("$ai_generation", "user-1")];
-        events[0].destination = Destination::AiMain;
+        events[0].destination = Some(Destination::AiMain);
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(
-            &service,
-            "phc_token",
-            now_ts,
-            has_ai_overflow_lane,
-            &mut events,
-        )
-        .await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
-        assert_eq!(ev.destination, expected_destination);
+        assert_eq!(ev.destination, Some(expected_destination));
     }
 
     /// An AI event past the ceiling is dropped on its own: v1 reports per-event
@@ -2168,12 +2158,12 @@ mod tests {
     #[tokio::test]
     async fn oversize_ai_events_drop_individually() {
         let mut oversized = wrapped_event("$ai_generation", "user-big");
-        oversized.destination = Destination::AiMain;
+        oversized.destination = Some(Destination::AiMain);
         oversized.event.properties =
             test_utils::raw_obj(&format!(r#"{{"$ai_input":"{}"}}"#, "x".repeat(800)));
 
         let mut small = wrapped_event("$ai_generation", "user-1");
-        small.destination = Destination::AiMain;
+        small.destination = Some(Destination::AiMain);
 
         let mut events = vec![oversized, small];
 
@@ -2196,7 +2186,7 @@ mod tests {
     #[tokio::test]
     async fn a_zero_ai_size_ceiling_disables_the_check() {
         let mut oversized = wrapped_event("$ai_generation", "user-big");
-        oversized.destination = Destination::AiMain;
+        oversized.destination = Some(Destination::AiMain);
         oversized.event.properties =
             test_utils::raw_obj(&format!(r#"{{"$ai_input":"{}"}}"#, "x".repeat(800)));
 
@@ -2204,7 +2194,7 @@ mod tests {
         apply_ai_event_size_limit(0, &mut events);
 
         assert_eq!(events[0].result, EventResult::Ok);
-        assert_eq!(events[0].destination, Destination::AiMain);
+        assert_eq!(events[0].destination, Some(Destination::AiMain));
     }
 
     /// The size ceiling follows the same lane rule as the budget: an oversize
@@ -2215,7 +2205,7 @@ mod tests {
         let mut oversized = wrapped_event("$ai_generation", "user-1");
         oversized.event.properties =
             test_utils::raw_obj(&format!(r#"{{"$ai_input":"{}"}}"#, "x".repeat(800)));
-        oversized.destination = Destination::AiOverflow;
+        oversized.destination = Some(Destination::AiOverflow);
 
         let mut events = vec![oversized];
         apply_ai_event_size_limit(700, &mut events);
@@ -2244,13 +2234,13 @@ mod tests {
             wrapped_event("$ai_generation", "user-2"),
         ];
         for event in events.iter_mut() {
-            event.destination = destination.clone();
+            event.destination = Some(destination.clone());
         }
 
         apply_ai_byte_limits(&limiter, "phc_token", &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
-        assert_eq!(events[0].destination, destination);
+        assert_eq!(events[0].destination, Some(destination));
         assert_eq!(events[1].result, EventResult::Drop);
     }
 
@@ -2269,7 +2259,7 @@ mod tests {
 
         for event in &events {
             assert_eq!(event.result, EventResult::Ok);
-            assert_eq!(event.destination, Destination::AnalyticsMain);
+            assert_eq!(event.destination, Some(Destination::AnalyticsMain));
         }
     }
 
@@ -2282,12 +2272,12 @@ mod tests {
         let limiter = GlobalRateLimiter::mock_budget(800);
 
         let mut already_dropped = wrapped_event("$ai_generation", "user-invalid");
-        already_dropped.destination = Destination::AiMain;
+        already_dropped.destination = Some(Destination::AiMain);
         already_dropped.result = EventResult::Drop;
         already_dropped.details = Some(DETAIL_INVALID_OPTIONS);
 
         let mut publishable = wrapped_event("$ai_generation", "user-1");
-        publishable.destination = Destination::AiMain;
+        publishable.destination = Some(Destination::AiMain);
 
         let mut events = vec![already_dropped, publishable];
 
@@ -2299,7 +2289,7 @@ mod tests {
             EventResult::Ok,
             "a dropped event's bytes must not shed a publishable one"
         );
-        assert_eq!(ev.destination, Destination::AiMain);
+        assert_eq!(ev.destination, Some(Destination::AiMain));
     }
 
     #[tokio::test]
@@ -2317,11 +2307,11 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
-        assert_eq!(ev.destination, Destination::Dlq);
+        assert_eq!(ev.destination, Some(Destination::Dlq));
     }
 
     #[tokio::test]
@@ -2339,13 +2329,13 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
         assert_eq!(
             ev.destination,
-            Destination::Custom("custom_analytics".to_string())
+            Some(Destination::Custom("custom_analytics".to_string()))
         );
     }
 
@@ -2364,11 +2354,11 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
-        assert_eq!(ev.destination, Destination::AnalyticsMain);
+        assert_eq!(ev.destination, Some(Destination::AnalyticsMain));
         assert!(ev.force_disable_person_processing);
     }
 
@@ -2399,11 +2389,11 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
-        assert_eq!(ev.destination, Destination::Dlq);
+        assert_eq!(ev.destination, Some(Destination::Dlq));
     }
 
     #[tokio::test]
@@ -2421,14 +2411,14 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
-        assert_eq!(ev.destination, Destination::AnalyticsMain);
+        assert_eq!(ev.destination, Some(Destination::AnalyticsMain));
     }
 
-    // --- destination_for_event_name ---
+    // --- lane_for_event_name ---
 
     #[rstest::rstest]
     #[case("$exception", Destination::ErrorTrackingMain)]
@@ -2451,8 +2441,8 @@ mod tests {
     #[case("ai_generation", Destination::AnalyticsMain)]
     fn destination_for_event_name_mapping(#[case] event_name: &str, #[case] expected: Destination) {
         assert_eq!(
-            destination_for_event_name(event_name),
-            expected,
+            lane_for_event_name::<AnalyticsKind<MainOrHistorical>>(event_name).map(Address::Lane),
+            Some(expected),
             "{event_name}"
         );
     }
@@ -2476,14 +2466,14 @@ mod tests {
         .await;
 
         let mut ev = wrapped_event(event_name, "user-1");
-        ev.destination = expected_dest.clone();
+        ev.destination = Some(expected_dest.clone());
         let mut events = vec![ev];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
-        assert_eq!(events[0].destination, expected_dest);
+        assert_eq!(events[0].destination, Some(expected_dest));
     }
 
     // --- pipeline isolation: analytics drop doesn't cross into errortracking ---
@@ -2504,17 +2494,17 @@ mod tests {
             wrapped_event("$pageview", "user-1"),
             wrapped_event("$exception", "user-2"),
         ];
-        events[1].destination = Destination::ErrorTrackingMain;
+        events[1].destination = Some(Destination::ErrorTrackingMain);
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         // Analytics event gets dropped by analytics-pipeline restriction
         assert_eq!(events[0].result, EventResult::Drop);
         // Exception event is untouched — it's on the ErrorTracking pipeline,
         // which has no restrictions configured here.
         assert_eq!(events[1].result, EventResult::Ok);
-        assert_eq!(events[1].destination, Destination::ErrorTrackingMain);
+        assert_eq!(events[1].destination, Some(Destination::ErrorTrackingMain));
     }
 
     // --- errortracking pipeline restrictions ---
@@ -2538,10 +2528,10 @@ mod tests {
             wrapped_event("$exception", "user-1"),
             wrapped_event("$pageview", "user-2"),
         ];
-        events[0].destination = Destination::ErrorTrackingMain;
+        events[0].destination = Some(Destination::ErrorTrackingMain);
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         assert_eq!(
             events[0].result,
@@ -2549,7 +2539,7 @@ mod tests {
             "exception should be dropped"
         );
         assert_eq!(events[1].result, EventResult::Ok, "pageview should be kept");
-        assert_eq!(events[1].destination, Destination::AnalyticsMain);
+        assert_eq!(events[1].destination, Some(Destination::AnalyticsMain));
     }
 
     #[tokio::test]
@@ -2566,15 +2556,15 @@ mod tests {
         .await;
 
         let mut events = vec![wrapped_event("$exception", "user-1")];
-        events[0].destination = Destination::ErrorTrackingMain;
+        events[0].destination = Some(Destination::ErrorTrackingMain);
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(
             events[0].destination,
-            Destination::ErrorTrackingMain,
+            Some(Destination::ErrorTrackingMain),
             "ForceOverflow is gated to AnalyticsMain; exception stays on its own lane"
         );
     }
@@ -2593,13 +2583,13 @@ mod tests {
         .await;
 
         let mut events = vec![wrapped_event("$exception", "user-1")];
-        events[0].destination = Destination::ErrorTrackingMain;
+        events[0].destination = Some(Destination::ErrorTrackingMain);
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
-        assert_eq!(events[0].destination, Destination::ErrorTrackingMain);
+        assert_eq!(events[0].destination, Some(Destination::ErrorTrackingMain));
         assert!(events[0].force_disable_person_processing);
     }
 
@@ -2617,13 +2607,13 @@ mod tests {
         .await;
 
         let mut events = vec![wrapped_event("$exception", "user-1")];
-        events[0].destination = Destination::ErrorTrackingMain;
+        events[0].destination = Some(Destination::ErrorTrackingMain);
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
-        assert_eq!(events[0].destination, Destination::Dlq);
+        assert_eq!(events[0].destination, Some(Destination::Dlq));
     }
 
     #[tokio::test]
@@ -2640,15 +2630,15 @@ mod tests {
         .await;
 
         let mut events = vec![wrapped_event("$exception", "user-1")];
-        events[0].destination = Destination::ErrorTrackingMain;
+        events[0].destination = Some(Destination::ErrorTrackingMain);
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(
             events[0].destination,
-            Destination::Custom("custom_exceptions".to_string())
+            Some(Destination::Custom("custom_exceptions".to_string()))
         );
     }
 
@@ -2673,13 +2663,13 @@ mod tests {
         .await;
 
         let mut events = vec![wrapped_event("$exception", "user-1")];
-        events[0].destination = Destination::ErrorTrackingMain;
+        events[0].destination = Some(Destination::ErrorTrackingMain);
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
-        assert_eq!(events[0].destination, Destination::Dlq);
+        assert_eq!(events[0].destination, Some(Destination::Dlq));
     }
 
     // --- apply_token_distinct_id_limits ---
@@ -2779,7 +2769,7 @@ mod tests {
 
         for ev in &events {
             assert_eq!(ev.result, EventResult::Ok);
-            assert_eq!(ev.destination, Destination::AnalyticsMain);
+            assert_eq!(ev.destination, Some(Destination::AnalyticsMain));
             assert!(ev.details.is_none());
         }
     }
@@ -2797,12 +2787,12 @@ mod tests {
 
         let ok_ev = find_by_did(&events, "user-1");
         assert_eq!(ok_ev.result, EventResult::Ok);
-        assert_eq!(ok_ev.destination, Destination::AnalyticsMain);
+        assert_eq!(ok_ev.destination, Some(Destination::AnalyticsMain));
         assert!(ok_ev.details.is_none());
         let limited_ev = find_by_did(&events, "user-2");
         assert_eq!(limited_ev.result, EventResult::Warning);
         // AnalyticsMain event over the limit is rerouted to overflow.
-        assert_eq!(limited_ev.destination, Destination::AnalyticsOverflow);
+        assert_eq!(limited_ev.destination, Some(Destination::AnalyticsOverflow));
         assert!(limited_ev.force_disable_person_processing);
         assert_eq!(limited_ev.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
@@ -2817,7 +2807,7 @@ mod tests {
 
         let ev = &events[0];
         assert_eq!(ev.result, EventResult::Drop);
-        assert_eq!(ev.destination, Destination::default());
+        assert_eq!(ev.destination, Some(Destination::AnalyticsMain));
         assert!(ev.details.is_some());
     }
 
@@ -2837,7 +2827,7 @@ mod tests {
             assert_eq!(ev.result, EventResult::Warning, "should be Warning");
             assert_eq!(
                 ev.destination,
-                Destination::AnalyticsOverflow,
+                Some(Destination::AnalyticsOverflow),
                 "should be rerouted to overflow"
             );
             assert!(
@@ -2871,7 +2861,7 @@ mod tests {
         // Other event rate-limited (person processing disabled, rerouted to overflow)
         let limited = find_by_did(&events, "user-2");
         assert_eq!(limited.result, EventResult::Warning);
-        assert_eq!(limited.destination, Destination::AnalyticsOverflow);
+        assert_eq!(limited.destination, Some(Destination::AnalyticsOverflow));
         assert!(limited.force_disable_person_processing);
         assert_eq!(limited.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
@@ -2953,7 +2943,7 @@ mod tests {
         // Its stamping is untouched: result stays Ok, no overflow reroute.
         let flagged = find_by_did(&events, "user-1");
         assert_eq!(flagged.result, EventResult::Ok);
-        assert_eq!(flagged.destination, Destination::AnalyticsMain);
+        assert_eq!(flagged.destination, Some(Destination::AnalyticsMain));
         assert!(flagged.force_disable_person_processing);
         assert_eq!(flagged.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
         // Unflagged event passes (not in limiter's limited keys)
@@ -3114,7 +3104,7 @@ mod tests {
         assert_eq!(ev.result, EventResult::Warning);
         assert_eq!(
             ev.destination,
-            Destination::AnalyticsHistorical,
+            Some(Destination::AnalyticsHistorical),
             "historical events must not be rerouted to overflow"
         );
         assert!(ev.force_disable_person_processing);
@@ -3123,8 +3113,12 @@ mod tests {
 
     // --- route_historical ---
 
+    const MAIN_LANE: AnalyticsOutputLane = AnalyticsOutputLane::Analytics(AnalyticsLane::Main);
+    const HISTORICAL_LANE: AnalyticsOutputLane =
+        AnalyticsOutputLane::Analytics(AnalyticsLane::Historical);
+
     struct RouteInput {
-        destination: Destination,
+        lane: AnalyticsOutputLane,
         historical_migration: bool,
         rerouting_enabled: bool,
         event_age: Duration,
@@ -3132,41 +3126,40 @@ mod tests {
 
     #[rstest::rstest]
     #[case::batch_flag(
-        RouteInput { destination: Destination::AnalyticsMain, historical_migration: true, rerouting_enabled: false, event_age: Duration::hours(1) },
-        Destination::AnalyticsHistorical,
+        RouteInput { lane: MAIN_LANE, historical_migration: true, rerouting_enabled: false, event_age: Duration::hours(1) },
+        HISTORICAL_LANE,
     )]
     #[case::old_timestamp(
-        RouteInput { destination: Destination::AnalyticsMain, historical_migration: false, rerouting_enabled: true, event_age: Duration::days(60) },
-        Destination::AnalyticsHistorical,
+        RouteInput { lane: MAIN_LANE, historical_migration: false, rerouting_enabled: true, event_age: Duration::days(60) },
+        HISTORICAL_LANE,
     )]
     #[case::recent_timestamp(
-        RouteInput { destination: Destination::AnalyticsMain, historical_migration: false, rerouting_enabled: true, event_age: Duration::hours(1) },
-        Destination::AnalyticsMain,
+        RouteInput { lane: MAIN_LANE, historical_migration: false, rerouting_enabled: true, event_age: Duration::hours(1) },
+        MAIN_LANE,
     )]
     #[case::rerouting_disabled(
-        RouteInput { destination: Destination::AnalyticsMain, historical_migration: false, rerouting_enabled: false, event_age: Duration::days(60) },
-        Destination::AnalyticsMain,
+        RouteInput { lane: MAIN_LANE, historical_migration: false, rerouting_enabled: false, event_age: Duration::days(60) },
+        MAIN_LANE,
     )]
     #[case::ai_lane_ignores_batch_flag(
-        RouteInput { destination: Destination::AiMain, historical_migration: true, rerouting_enabled: true, event_age: Duration::days(60) },
-        Destination::AiMain,
+        RouteInput { lane: AnalyticsOutputLane::Ai(AiLane::Main), historical_migration: true, rerouting_enabled: true, event_age: Duration::days(60) },
+        AnalyticsOutputLane::Ai(AiLane::Main),
     )]
     #[case::exceptions_ignore_batch_flag(
-        RouteInput { destination: Destination::ErrorTrackingMain, historical_migration: true, rerouting_enabled: true, event_age: Duration::days(60) },
-        Destination::ErrorTrackingMain,
+        RouteInput { lane: AnalyticsOutputLane::ErrorTracking, historical_migration: true, rerouting_enabled: true, event_age: Duration::days(60) },
+        AnalyticsOutputLane::ErrorTracking,
     )]
     fn route_historical_moves_only_analytics_main(
         #[case] input: RouteInput,
-        #[case] expected: Destination,
+        #[case] expected: AnalyticsOutputLane,
     ) {
         let cfg = router::HistoricalConfig::new(input.rerouting_enabled, 30);
         let mut ctx = test_utils::test_context();
         ctx.historical_migration = input.historical_migration;
 
-        let destination =
-            route_historical(&cfg, &ctx, input.destination, Utc::now() - input.event_age);
+        let lane = route_historical(&cfg, &ctx, input.lane, Utc::now() - input.event_age);
 
-        assert_eq!(destination, expected);
+        assert_eq!(lane, expected);
     }
 
     // --- ordering preservation regressions ---
@@ -3244,7 +3237,7 @@ mod tests {
         ];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
         assert_eq!(
             distinct_id_sequence(&events),
@@ -3282,19 +3275,19 @@ mod tests {
             ],
         );
         assert!(!events[0].force_disable_person_processing);
-        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert_eq!(events[0].destination, Some(Destination::AnalyticsMain));
         assert!(events[1].force_disable_person_processing);
         assert_eq!(events[1].result, EventResult::Warning);
-        assert_eq!(events[1].destination, Destination::AnalyticsOverflow);
+        assert_eq!(events[1].destination, Some(Destination::AnalyticsOverflow));
         assert_eq!(events[1].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
         assert!(!events[2].force_disable_person_processing);
-        assert_eq!(events[2].destination, Destination::AnalyticsMain);
+        assert_eq!(events[2].destination, Some(Destination::AnalyticsMain));
         assert!(events[3].force_disable_person_processing);
         assert_eq!(events[3].result, EventResult::Warning);
-        assert_eq!(events[3].destination, Destination::AnalyticsOverflow);
+        assert_eq!(events[3].destination, Some(Destination::AnalyticsOverflow));
         assert_eq!(events[3].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
         assert!(!events[4].force_disable_person_processing);
-        assert_eq!(events[4].destination, Destination::AnalyticsMain);
+        assert_eq!(events[4].destination, Some(Destination::AnalyticsMain));
     }
 
     #[tokio::test]
@@ -3316,7 +3309,7 @@ mod tests {
             EventRestrictionService::new(vec![Pipeline::Analytics], StdDuration::from_secs(300));
         service.update(RestrictionManager::new()).await;
         let now_ts = Utc::now().timestamp();
-        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
         assert_eq!(
             distinct_id_sequence(&events),
             expected,
@@ -3369,7 +3362,7 @@ mod tests {
 
         apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
 
-        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert_eq!(events[0].destination, Some(Destination::AnalyticsMain));
         assert!(!events[0].force_disable_person_processing);
     }
 
@@ -3382,7 +3375,7 @@ mod tests {
 
         apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
 
-        assert_eq!(events[0].destination, Destination::AnalyticsOverflow);
+        assert_eq!(events[0].destination, Some(Destination::AnalyticsOverflow));
         assert!(events[0].spread_partitions);
         assert!(events[0].force_disable_person_processing);
     }
@@ -3396,7 +3389,7 @@ mod tests {
 
         apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
 
-        assert_eq!(events[0].destination, Destination::AnalyticsOverflow);
+        assert_eq!(events[0].destination, Some(Destination::AnalyticsOverflow));
         assert!(events[0].spread_partitions);
         assert!(events[0].force_disable_person_processing);
     }
@@ -3414,11 +3407,11 @@ mod tests {
 
         apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
 
-        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert_eq!(events[0].destination, Some(Destination::AnalyticsMain));
         assert!(!events[0].spread_partitions);
         assert!(!events[0].force_disable_person_processing);
 
-        assert_eq!(events[1].destination, Destination::AnalyticsOverflow);
+        assert_eq!(events[1].destination, Some(Destination::AnalyticsOverflow));
         assert!(
             events[1].spread_partitions,
             "a bursting key must carry the spread stamp"
@@ -3441,7 +3434,7 @@ mod tests {
 
         apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
 
-        assert_eq!(events[1].destination, Destination::AnalyticsOverflow);
+        assert_eq!(events[1].destination, Some(Destination::AnalyticsOverflow));
         assert!(
             !events[1].spread_partitions,
             "preserve_locality=true keeps the partition key"
@@ -3454,13 +3447,13 @@ mod tests {
         let ctx = test_utils::test_context();
         let limiter = overflow_limiter(100, 100, Some("phc_test_token:user-1"));
         let mut events = vec![wrapped_event("$pageview", "user-1")];
-        events[0].destination = Destination::AnalyticsHistorical;
+        events[0].destination = Some(Destination::AnalyticsHistorical);
 
         apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
 
         assert_eq!(
             events[0].destination,
-            Destination::AnalyticsHistorical,
+            Some(Destination::AnalyticsHistorical),
             "non-AnalyticsMain events are not overflow-checked"
         );
     }
@@ -3474,7 +3467,7 @@ mod tests {
 
         apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
 
-        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert_eq!(events[0].destination, Some(Destination::AnalyticsMain));
     }
 
     /// The AI lane converts to its own overflow destination under the same
@@ -3493,11 +3486,11 @@ mod tests {
         let limiter = overflow_limiter(100, 100, Some("phc_tok:user-1"));
         let ai_limiter = ai_limiter_present.then_some(&limiter);
         let mut events = vec![wrapped_event("$ai_generation", "user-1")];
-        events[0].destination = Destination::AiMain;
+        events[0].destination = Some(Destination::AiMain);
 
         apply_overflow_stamping(None, ai_limiter, &ctx, &mut events);
 
-        assert_eq!(events[0].destination, expected_destination);
+        assert_eq!(events[0].destination, Some(expected_destination));
         assert_eq!(
             events[0].force_disable_person_processing,
             expected_force_disable
@@ -3513,13 +3506,13 @@ mod tests {
             wrapped_event("$ai_generation", "user-1"),
             wrapped_event("$ai_generation", "user-1"),
         ];
-        events[0].destination = Destination::AiMain;
-        events[1].destination = Destination::AiMain;
+        events[0].destination = Some(Destination::AiMain);
+        events[1].destination = Some(Destination::AiMain);
 
         apply_overflow_stamping(None, Some(&limiter), &ctx, &mut events);
 
-        assert_eq!(events[0].destination, Destination::AiMain);
-        assert_eq!(events[1].destination, Destination::AiOverflow);
+        assert_eq!(events[0].destination, Some(Destination::AiMain));
+        assert_eq!(events[1].destination, Some(Destination::AiOverflow));
         assert!(
             !events[1].spread_partitions,
             "preserve_locality=true keeps the partition key"
@@ -3538,12 +3531,12 @@ mod tests {
             wrapped_event("$ai_generation", "user-1"),
             wrapped_event("$ai_generation", "user-1"),
         ];
-        events[0].destination = Destination::AiMain;
-        events[1].destination = Destination::AiMain;
+        events[0].destination = Some(Destination::AiMain);
+        events[1].destination = Some(Destination::AiMain);
 
         apply_overflow_stamping(None, Some(&limiter), &ctx, &mut events);
 
-        assert_eq!(events[1].destination, Destination::AiOverflow);
+        assert_eq!(events[1].destination, Some(Destination::AiOverflow));
         assert!(events[1].spread_partitions);
         assert!(!events[1].force_disable_person_processing);
     }
@@ -3578,7 +3571,7 @@ mod tests {
             wrapped_event("$pageview", "user-1"),
             wrapped_event("$ai_generation", "user-1"),
         ];
-        events[1].destination = Destination::AiMain;
+        events[1].destination = Some(Destination::AiMain);
 
         apply_overflow_stamping(
             Some(&analytics_limiter),
@@ -3587,8 +3580,8 @@ mod tests {
             &mut events,
         );
 
-        assert_eq!(events[0].destination, expected_analytics_destination);
-        assert_eq!(events[1].destination, expected_ai_destination);
+        assert_eq!(events[0].destination, Some(expected_analytics_destination));
+        assert_eq!(events[1].destination, Some(expected_ai_destination));
     }
     // =========================================================================
     // apply_gateway_provenance tests — the verify→billing wiring
@@ -4175,9 +4168,7 @@ mod tests {
         // historical_migration must be fully dropped (200, per-event Drop) and
         // never published — otherwise live traffic could sneak in via the
         // import deployment.
-        let ts = TestStateBuilder::new()
-            .with_capture_mode(crate::config::CaptureMode::Import)
-            .build();
+        let ts = TestStateBuilder::new().build_for::<AnalyticsKind<Historical>>();
         let mut ctx = test_utils::test_analytics_context();
         let batch = batch_with_historical_flag(flag, vec![valid_event(), valid_event()]);
 
@@ -4216,9 +4207,7 @@ mod tests {
     async fn import_mode_publishes_historical_batch(#[case] flag: serde_json::Value) {
         // The happy path: a properly flagged historical batch flows through
         // Import mode exactly like Events mode and is published.
-        let ts = TestStateBuilder::new()
-            .with_capture_mode(crate::config::CaptureMode::Import)
-            .build();
+        let ts = TestStateBuilder::new().build_for::<AnalyticsKind<Historical>>();
         let mut ctx = test_utils::test_analytics_context();
         let batch = batch_with_historical_flag(flag, vec![valid_event(), valid_event()]);
 
@@ -4243,9 +4232,8 @@ mod tests {
         // must stay untouched. valid_event()'s distinct_id is "user-42".
         let limiter = std::sync::Arc::new(mock_limiter(vec!["phc_test_token:user-42"]));
         let ts = TestStateBuilder::new()
-            .with_capture_mode(crate::config::CaptureMode::Import)
             .with_global_rate_limiter(limiter)
-            .build();
+            .build_for::<AnalyticsKind<Historical>>();
         let mut ctx = test_utils::test_analytics_context();
         let batch = historical_batch(vec![valid_event()]);
 
@@ -4271,10 +4259,9 @@ mod tests {
         )
         .await;
         let ts = TestStateBuilder::new()
-            .with_capture_mode(crate::config::CaptureMode::Import)
             .with_overflow_limiter(1, 1)
             .with_restriction_service(restrictions)
-            .build();
+            .build_for::<AnalyticsKind<Historical>>();
         let mut ctx = test_utils::test_analytics_context();
         let batch = historical_batch(vec![
             Event {
@@ -4309,9 +4296,7 @@ mod tests {
     #[tokio::test]
     async fn import_mode_routes_ai_events_to_ai_lane() {
         // AI wins over historical: only the AI lane has AI processing.
-        let ts = TestStateBuilder::new()
-            .with_capture_mode(crate::config::CaptureMode::Import)
-            .build();
+        let ts = TestStateBuilder::new().build_for::<AnalyticsKind<Historical>>();
         let mut ctx = test_utils::test_analytics_context();
         let batch = historical_batch(vec![Event {
             event: "$ai_generation".to_string(),
@@ -4363,9 +4348,7 @@ mod tests {
 
     #[tokio::test]
     async fn ai_mode_drops_non_ai_events_and_publishes_the_rest() {
-        let ts = TestStateBuilder::new()
-            .with_capture_mode(CaptureMode::Ai)
-            .build();
+        let ts = TestStateBuilder::new().build_for::<AiKind>();
         let mut ctx = test_utils::test_analytics_context();
         let ai = named_event("$ai_generation");
         let ai_uuid = ai.uuid.clone();
@@ -4408,9 +4391,7 @@ mod tests {
         #[case] event_name: &str,
         #[case] expected: EventResult,
     ) {
-        let ts = TestStateBuilder::new()
-            .with_capture_mode(CaptureMode::Ai)
-            .build();
+        let ts = TestStateBuilder::new().build_for::<AiKind>();
         let mut ctx = test_utils::test_analytics_context();
         let batch = valid_batch(vec![named_event(event_name)]);
 
@@ -4451,9 +4432,7 @@ mod tests {
     /// per-event verdict for each event, not an error.
     #[tokio::test]
     async fn ai_mode_batch_of_only_non_ai_events_returns_200_with_every_event_dropped() {
-        let ts = TestStateBuilder::new()
-            .with_capture_mode(CaptureMode::Ai)
-            .build();
+        let ts = TestStateBuilder::new().build_for::<AiKind>();
         let mut ctx = test_utils::test_analytics_context();
         let batch = valid_batch(vec![
             named_event("$pageview"),
@@ -4476,67 +4455,12 @@ mod tests {
         );
     }
 
-    /// The gate keys on the event name, not the destination, so a restriction
-    /// that has already retargeted an AI event cannot smuggle it into the
-    /// non-AI drop. `force_overflow` sends it to `AiOverflow`,
-    /// `redirect_to_topic` to `Custom`, a DLQ restriction to `Dlq` -- all three
-    /// are still the AI lane.
-    ///
-    /// `apply_restrictions` runs after the gate, so this state is not reachable
-    /// through `process_batch`. The gate is called directly here so the
-    /// invariant holds on its own terms rather than on stage ordering: if the
-    /// two stages were ever reordered, nothing else in the suite would fail.
-    #[rstest::rstest]
-    #[case::force_overflow(Destination::AiOverflow)]
-    #[case::redirect_to_topic(Destination::Custom("some_other_topic".to_string()))]
-    #[case::redirect_to_dlq(Destination::Dlq)]
-    #[tokio::test]
-    async fn ai_lane_events_survive_the_gate_wherever_restrictions_pointed_them(
-        #[case] destination: Destination,
-    ) {
-        let ts = TestStateBuilder::new()
-            .with_capture_mode(CaptureMode::Ai)
-            .build();
-        let ctx = test_utils::test_analytics_context();
-        let mut events = vec![test_utils::wrapped_event("$ai_generation", "user-1")
-            .with_destination(destination.clone())];
-
-        drop_non_ai_events(&ts.state, &ctx, &mut events);
-
-        assert_eq!(
-            events[0].result,
-            EventResult::Ok,
-            "an AI event stays on the lane wherever it was pointed"
-        );
-        assert_eq!(events[0].destination, destination);
-        assert_eq!(events[0].details, None);
-    }
-
-    /// The other direction: a destination of `AiMain` does not put a non-AI
-    /// event on the lane. Only the event name decides membership.
-    #[tokio::test]
-    async fn a_non_ai_event_pointed_at_the_ai_destination_is_still_dropped() {
-        let ts = TestStateBuilder::new()
-            .with_capture_mode(CaptureMode::Ai)
-            .build();
-        let ctx = test_utils::test_analytics_context();
-        let mut events =
-            vec![test_utils::wrapped_event("$pageview", "user-1")
-                .with_destination(Destination::AiMain)];
-
-        drop_non_ai_events(&ts.state, &ctx, &mut events);
-
-        assert_eq!(events[0].result, EventResult::Drop);
-        assert_eq!(events[0].details, Some(DETAIL_MISROUTED_EVENT));
-    }
-
     #[tokio::test]
     async fn ai_mode_non_ai_drop_emits_the_misrouted_event_warning() {
         let collector = Arc::new(CollectingEmitter::new());
         let ts = TestStateBuilder::new()
-            .with_capture_mode(CaptureMode::Ai)
             .with_ingestion_warning_emitter(collector.clone())
-            .build();
+            .build_for::<AiKind>();
         let mut ctx = test_utils::test_analytics_context();
         let offender = named_event("$pageview");
         let offender_uuid = offender.uuid.clone();
@@ -4563,17 +4487,22 @@ mod tests {
     /// same warning through the drop tag. The ceiling applies on every
     /// deployment that carries AI events, so the warning does too: SDKs send
     /// `$ai_*` events through the analytics endpoint as well.
-    #[rstest::rstest]
-    #[case::ai_deployment(CaptureMode::Ai)]
-    #[case::analytics_deployment(CaptureMode::Events)]
     #[tokio::test]
-    async fn oversize_ai_event_emits_the_message_size_warning(#[case] capture_mode: CaptureMode) {
+    async fn oversize_ai_event_emits_the_message_size_warning_on_the_ai_deployment() {
+        oversize_ai_event_emits_the_message_size_warning::<AiKind>().await;
+    }
+
+    #[tokio::test]
+    async fn oversize_ai_event_emits_the_message_size_warning_on_the_analytics_deployment() {
+        oversize_ai_event_emits_the_message_size_warning::<AnalyticsKind<MainOrHistorical>>().await;
+    }
+
+    async fn oversize_ai_event_emits_the_message_size_warning<K: Classify + TestDeployment>() {
         let collector = Arc::new(CollectingEmitter::new());
         let ts = TestStateBuilder::new()
-            .with_capture_mode(capture_mode)
             .with_ai_max_event_bytes(700)
             .with_ingestion_warning_emitter(collector.clone())
-            .build();
+            .build_for::<K>();
         let mut ctx = test_utils::test_analytics_context();
 
         let mut oversized = named_event("$ai_generation");
@@ -4603,21 +4532,30 @@ mod tests {
     }
 
     /// Option drops are per event, share one `invalid_options` warning, and lenient forms pass.
-    #[rstest::rstest]
-    #[case::analytics_deployment(CaptureMode::Events, "$pageview")]
-    #[case::ai_deployment(CaptureMode::Ai, "$ai_generation")]
     #[tokio::test]
-    async fn option_drops_report_their_reason_and_share_one_warning(
-        #[case] capture_mode: CaptureMode,
-        #[case] event_name: &str,
+    async fn option_drops_report_their_reason_and_share_one_warning_on_the_analytics_deployment() {
+        option_drops_report_their_reason_and_share_one_warning::<AnalyticsKind<MainOrHistorical>>(
+            "$pageview",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn option_drops_report_their_reason_and_share_one_warning_on_the_ai_deployment() {
+        option_drops_report_their_reason_and_share_one_warning::<AiKind>("$ai_generation").await;
+    }
+
+    async fn option_drops_report_their_reason_and_share_one_warning<
+        K: Classify + TestDeployment,
+    >(
+        event_name: &str,
     ) {
         use crate::v1::analytics::types::RawOptions;
 
         let collector = Arc::new(CollectingEmitter::new());
         let ts = TestStateBuilder::new()
-            .with_capture_mode(capture_mode)
             .with_ingestion_warning_emitter(collector.clone())
-            .build();
+            .build_for::<K>();
         let mut ctx = test_utils::test_analytics_context();
         let event = |distinct_id: &str, options: serde_json::Value| Event {
             distinct_id: distinct_id.to_string(),
@@ -4726,10 +4664,9 @@ mod tests {
     async fn drops_from_several_stages_each_surface_once() {
         let collector = Arc::new(CollectingEmitter::new());
         let ts = TestStateBuilder::new()
-            .with_capture_mode(CaptureMode::Ai)
             .with_ai_max_event_bytes(700)
             .with_ingestion_warning_emitter(collector.clone())
-            .build();
+            .build_for::<AiKind>();
         let mut ctx = test_utils::test_analytics_context();
 
         let mut oversized = named_event("$ai_generation");
@@ -4766,9 +4703,8 @@ mod tests {
     async fn ai_mode_several_non_ai_drops_report_a_count_without_identifiers() {
         let collector = Arc::new(CollectingEmitter::new());
         let ts = TestStateBuilder::new()
-            .with_capture_mode(CaptureMode::Ai)
             .with_ingestion_warning_emitter(collector.clone())
-            .build();
+            .build_for::<AiKind>();
         let mut ctx = test_utils::test_analytics_context();
         let batch = valid_batch(vec![named_event("$pageview"), named_event("$exception")]);
 
@@ -4792,7 +4728,7 @@ mod tests {
     /// State wired to a `CollectingEmitter` so tests can assert exactly what
     /// `process_batch` emitted (type, count, details) without any Kafka.
     fn state_with_warning_collector() -> (
-        router::State<crate::kind::AnalyticsKind<crate::kind::MainOrHistorical>>,
+        router::State<AnalyticsKind<MainOrHistorical>>,
         Arc<CollectingEmitter>,
     ) {
         let collector = Arc::new(CollectingEmitter::new());
@@ -5027,8 +4963,7 @@ mod tests {
         batch_payload, event_with_all_options, event_with_empty_options, WrappedEventMut,
     };
 
-    fn test_outputs(
-    ) -> Arc<OutputRegistry<crate::kind::AnalyticsKind<crate::kind::MainOrHistorical>>> {
+    fn test_outputs() -> Arc<OutputRegistry<AnalyticsKind<MainOrHistorical>>> {
         test_utils::TestStateBuilder::new().build().state.outputs
     }
 

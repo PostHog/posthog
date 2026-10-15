@@ -7,13 +7,38 @@ use chrono::{DateTime, Utc};
 use serde_json::value::RawValue;
 use uuid::Uuid;
 
+use crate::kind::{AnalyticsKind, MainOrHistorical, Route};
 use crate::outputs::PreparedEvent;
+use crate::pipeline::{Address, AiLane, AnalyticsLane, AnalyticsOutputLane};
 use crate::v1::analytics::constants::CAPTURE_V1_PATH;
 use crate::v1::analytics::context::Context as AnalyticsContext;
 use crate::v1::analytics::query::Query;
-use crate::v1::analytics::types::{Event, EventResult, Options, RawOptions, WrappedEvent};
+use crate::v1::analytics::types::{Event, EventResult, Options, RawOptions};
 use crate::v1::context::RequestContext;
-use crate::v1::types::{Destination, Publishable};
+use crate::v1::types::Publishable;
+
+/// The capture-analytics event: v1 tests run that deployment's pipeline unless
+/// they build another deployment's state.
+pub type WrappedEvent = crate::v1::analytics::types::WrappedEvent<AnalyticsOutputLane>;
+
+/// The capture-analytics address, with constants named after the lanes so tests read
+/// as they route.
+pub type Destination = Address<AnalyticsOutputLane>;
+
+#[allow(non_upper_case_globals)]
+impl Address<AnalyticsOutputLane> {
+    pub const AnalyticsMain: Self =
+        Address::Lane(AnalyticsOutputLane::Analytics(AnalyticsLane::Main));
+    pub const AnalyticsHistorical: Self =
+        Address::Lane(AnalyticsOutputLane::Analytics(AnalyticsLane::Historical));
+    pub const AnalyticsOverflow: Self =
+        Address::Lane(AnalyticsOutputLane::Analytics(AnalyticsLane::Overflow));
+    pub const AiMain: Self = Address::Lane(AnalyticsOutputLane::Ai(AiLane::Main));
+    pub const AiOverflow: Self = Address::Lane(AnalyticsOutputLane::Ai(AiLane::Overflow));
+    pub const ErrorTrackingMain: Self = Address::Lane(AnalyticsOutputLane::ErrorTracking);
+    pub const HeatmapsMain: Self = Address::Lane(AnalyticsOutputLane::Heatmaps);
+    pub const ClientWarningsMain: Self = Address::Lane(AnalyticsOutputLane::ClientWarnings);
+}
 
 /// Serialize publishable events into `PreparedEvent`s for driving outputs in
 /// tests. Accepts `&[&dyn Publishable]` (integration) or `&[&ConcreteType]` (unit)
@@ -21,17 +46,19 @@ use crate::v1::types::{Destination, Publishable};
 pub fn prepared<E: Publishable + ?Sized>(
     events: &[&E],
     ctx: &RequestContext,
-) -> Vec<PreparedEvent> {
+) -> Vec<PreparedEvent<E::Lane>> {
     events
         .iter()
         .filter(|e| e.should_publish())
-        .map(|e| PreparedEvent {
-            uuid: e.uuid(),
-            address: e.destination().address(),
-            payload: e.serialize(ctx).expect("test payload must serialize"),
-            headers: e.headers(ctx),
-            partition_key: e.partition_key(ctx),
-            ordering: e.ordering(),
+        .filter_map(|e| {
+            Some(PreparedEvent {
+                uuid: e.uuid(),
+                address: e.destination()?.clone(),
+                payload: e.serialize(ctx).expect("test payload must serialize"),
+                headers: e.headers(ctx),
+                partition_key: e.partition_key(ctx),
+                ordering: e.ordering(),
+            })
         })
         .collect()
 }
@@ -106,7 +133,7 @@ pub fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
         ),
         result: EventResult::Ok,
         details: None,
-        destination: Destination::default(),
+        destination: Some(Destination::AnalyticsMain),
         force_disable_person_processing: false,
         spread_partitions: false,
         is_gateway_verified: false,
@@ -131,7 +158,7 @@ pub fn malformed_wrapped_event() -> WrappedEvent {
         adjusted_timestamp: None,
         result: EventResult::Drop,
         details: Some("missing_event_name"),
-        destination: Destination::default(),
+        destination: Some(Destination::AnalyticsMain),
         force_disable_person_processing: false,
         spread_partitions: false,
         is_gateway_verified: false,
@@ -207,7 +234,7 @@ pub fn realistic_pageview(distinct_id: &str) -> WrappedEvent {
         ),
         result: EventResult::Ok,
         details: None,
-        destination: Destination::AnalyticsMain,
+        destination: Some(Destination::AnalyticsMain),
         force_disable_person_processing: false,
         spread_partitions: false,
         is_gateway_verified: false,
@@ -246,7 +273,7 @@ pub fn realistic_identify(distinct_id: &str) -> WrappedEvent {
         ),
         result: EventResult::Ok,
         details: None,
-        destination: Destination::AnalyticsMain,
+        destination: Some(Destination::AnalyticsMain),
         force_disable_person_processing: false,
         spread_partitions: false,
         is_gateway_verified: false,
@@ -285,7 +312,7 @@ pub fn realistic_custom(distinct_id: &str, event_name: &str) -> WrappedEvent {
         ),
         result: EventResult::Ok,
         details: None,
-        destination: Destination::AnalyticsMain,
+        destination: Some(Destination::AnalyticsMain),
         force_disable_person_processing: false,
         spread_partitions: false,
         is_gateway_verified: false,
@@ -364,7 +391,7 @@ pub fn realistic_dup_uuid_pair() -> (Event, Event) {
     (first, second)
 }
 
-/// One Ok event per `Destination` variant + one pre-marked Drop, with
+/// One Ok event per capture-analytics address kind + one pre-marked Drop, with
 /// ordinal `user-dest-{0..5}` distinct_ids.
 pub fn realistic_spread_destinations() -> Vec<WrappedEvent> {
     let main = realistic_pageview("user-dest-0").with_destination(Destination::AnalyticsMain);
@@ -390,7 +417,7 @@ pub trait WrappedEventMut {
 
 impl WrappedEventMut for WrappedEvent {
     fn with_destination(mut self, d: Destination) -> Self {
-        self.destination = d;
+        self.destination = Some(d);
         self
     }
 
@@ -559,22 +586,71 @@ use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 
-use crate::config::CaptureMode;
+use crate::config::{CaptureMode, OutputsConfig};
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
-use crate::kind::{AnalyticsKind, EventKind, MainOrHistorical};
+use crate::kind::{AiKind, Historical, SnapshotKind};
 use crate::outputs::OutputRegistry;
+use crate::producers::ProducerName;
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::router::{self, HistoricalConfig};
 use crate::sinks::kafka::KafkaSinkBase;
 use crate::sinks::producer::MockKafkaProducer;
-use crate::sinks::registry::OutputTable;
+use crate::sinks::registry::{
+    AiOutputs, AnalyticsOutputs, ImportOutputs, Outputs, SessionReplayOutputs,
+};
 use crate::time::TimeSource;
+
+/// What a test needs to stand up a deployment for a kind: its capture mode and
+/// its outputs.
+pub trait TestDeployment: Route {
+    const CAPTURE_MODE: CaptureMode;
+
+    type Outputs: Outputs<ProducerName, Lane = Self::Lane>;
+
+    fn outputs(config: &OutputsConfig) -> Self::Outputs;
+}
+
+impl TestDeployment for AnalyticsKind<MainOrHistorical> {
+    const CAPTURE_MODE: CaptureMode = CaptureMode::Events;
+    type Outputs = AnalyticsOutputs;
+
+    fn outputs(config: &OutputsConfig) -> AnalyticsOutputs {
+        AnalyticsOutputs::new(config)
+    }
+}
+
+impl TestDeployment for AnalyticsKind<Historical> {
+    const CAPTURE_MODE: CaptureMode = CaptureMode::Import;
+    type Outputs = ImportOutputs;
+
+    fn outputs(config: &OutputsConfig) -> ImportOutputs {
+        ImportOutputs::new(config)
+    }
+}
+
+impl TestDeployment for AiKind {
+    const CAPTURE_MODE: CaptureMode = CaptureMode::Ai;
+    type Outputs = AiOutputs;
+
+    fn outputs(config: &OutputsConfig) -> AiOutputs {
+        AiOutputs::new(config)
+    }
+}
+
+impl TestDeployment for SnapshotKind {
+    const CAPTURE_MODE: CaptureMode = CaptureMode::Recordings;
+    type Outputs = SessionReplayOutputs;
+
+    fn outputs(config: &OutputsConfig) -> SessionReplayOutputs {
+        SessionReplayOutputs::new(config)
+    }
+}
 
 /// Result of building a test state — gives access to both the `router::State`
 /// and the `MockKafkaProducer` behind its outputs, so tests can inspect sent
 /// records.
-pub struct TestState<K: EventKind = AnalyticsKind<MainOrHistorical>> {
+pub struct TestState<K: Route = AnalyticsKind<MainOrHistorical>> {
     pub state: router::State<K>,
     pub mock_producer: MockKafkaProducer,
 }
@@ -593,7 +669,6 @@ pub struct TestStateBuilder {
     mock_producer: Option<MockKafkaProducer>,
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
-    capture_mode: CaptureMode,
     ai_max_event_bytes: u64,
 }
 
@@ -618,7 +693,6 @@ impl TestStateBuilder {
             mock_producer: None,
             ai_gateway_signing_secret: None,
             ingestion_warning_emitter: None,
-            capture_mode: CaptureMode::Events,
             ai_max_event_bytes: 0,
         }
     }
@@ -705,19 +779,18 @@ impl TestStateBuilder {
         self
     }
 
-    /// Set the deployment capture mode (defaults to `Events`).
-    pub fn with_capture_mode(mut self, mode: CaptureMode) -> Self {
-        self.capture_mode = mode;
-        self
-    }
-
     /// Set the per-event AI ceiling (defaults to `0`, which disables it).
     pub fn with_ai_max_event_bytes(mut self, bytes: u64) -> Self {
         self.ai_max_event_bytes = bytes;
         self
     }
 
+    /// A capture-analytics state.
     pub fn build(self) -> TestState {
+        self.build_for()
+    }
+
+    pub fn build_for<K: TestDeployment>(self) -> TestState<K> {
         let redis: Arc<dyn common_redis::Client + Send + Sync> = if self.quota_limited {
             let mut mock = MockRedisClient::new();
             for resource in &[
@@ -779,10 +852,7 @@ impl TestStateBuilder {
         let mock_producer = self.mock_producer.unwrap_or_default();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             mock_producer.clone(),
-            OutputTable::new(
-                &test_outputs_config(),
-                self.capture_mode.has_ai_overflow_lane(),
-            ),
+            K::outputs(&test_outputs_config()),
         )));
 
         let timesource: Arc<dyn TimeSource + Send + Sync> = Arc::new(crate::time::SystemTime {});
@@ -812,7 +882,7 @@ impl TestStateBuilder {
             capture_v1_scatter_gather_min_batch: 8,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
             ingestion_warning_emitter: self.ingestion_warning_emitter,
-            capture_mode: self.capture_mode,
+            capture_mode: K::CAPTURE_MODE,
         };
 
         TestState {

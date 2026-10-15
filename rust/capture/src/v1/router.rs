@@ -13,7 +13,7 @@ use axum::Router;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 
-use crate::kind::EventKind;
+use crate::kind::Route;
 use crate::router::State;
 use crate::v1::middleware::{v1_common_headers, v1_track_response_time};
 
@@ -28,9 +28,9 @@ pub struct RouterConfig {
 }
 
 /// Wraps the v1 endpoint `routes` this deployment mounts. The choice is made
-/// per deployment in `crate::router`, which owns the route-to-deployment split
-/// for every path capture serves.
-pub fn router<K: EventKind>(cfg: RouterConfig, routes: Router<State<K>>) -> Router<State<K>> {
+/// per capture mode in `crate::router`, which owns the route-to-deployment
+/// split for every path capture serves.
+pub fn router<K: Route>(cfg: RouterConfig, routes: Router<State<K>>) -> Router<State<K>> {
     // v1 endpoints are POST-only; preflight is answered by the CORS layer.
     let cors = CorsLayer::new()
         .allow_methods([Method::POST, Method::OPTIONS])

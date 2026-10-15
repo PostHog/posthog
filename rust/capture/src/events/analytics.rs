@@ -632,6 +632,7 @@ mod tests {
     use super::*;
     use crate::ingestion_warnings::SdkAttribution;
     use crate::kind::{AiKind, AnalyticsKind, Historical, MainOrHistorical};
+    use crate::pipeline::AnalyticsOutputLane;
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{OverflowReason, ProcessingContext};
     use chrono::{DateTime, TimeZone, Utc};
@@ -1492,7 +1493,7 @@ mod tests {
             "only the under-budget AI event must reach the sink"
         );
         let topics = test_outputs();
-        let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
+        let ai_topic = &*topics.ai_main.topic;
         assert_eq!(
             &*records[0].topic, ai_topic,
             "the surviving record must be on the AI lane"
@@ -1783,8 +1784,9 @@ mod tests {
     /// it diverts to `AiEvents` and the AI topic, exactly as under `Events`.
     #[tokio::test]
     async fn ai_mode_routes_ai_events_to_the_ai_lane_end_to_end() {
-        use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
+        use crate::sinks::kafka::KafkaSinkBase;
         use crate::sinks::producer::MockKafkaProducer;
+        use crate::sinks::registry::test_ai_outputs;
 
         // 800-byte budget: the small event fits, the large one takes the
         // running total past it.
@@ -1792,7 +1794,7 @@ mod tests {
 
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::<AiKind>::single(
-            KafkaSinkBase::with_producer(producer.clone(), test_outputs()),
+            KafkaSinkBase::with_producer(producer.clone(), test_ai_outputs()),
         ));
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
@@ -1839,8 +1841,8 @@ mod tests {
             1,
             "only the under-budget event must reach the sink under Ai mode"
         );
-        let topics = test_outputs();
-        let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
+        let topics = test_ai_outputs();
+        let ai_topic = &*topics.ai_main.topic;
         assert_eq!(
             &*records[0].topic, ai_topic,
             "an AI event diverts to the AI lane under Ai mode too"
@@ -2931,10 +2933,10 @@ mod tests {
         }
 
         #[async_trait::async_trait]
-        impl crate::outputs::PublishPrepared for RejectingSink {
+        impl crate::outputs::PublishPrepared<AnalyticsOutputLane> for RejectingSink {
             async fn publish_prepared(
                 &self,
-                _events: Vec<crate::outputs::PreparedEvent>,
+                _events: Vec<crate::outputs::PreparedEvent<AnalyticsOutputLane>>,
             ) -> Vec<crate::sinks::sink::SinkResult> {
                 unreachable!("v0 endpoints publish events")
             }
@@ -4151,10 +4153,10 @@ mod tests {
         }
 
         #[async_trait::async_trait]
-        impl crate::outputs::PublishPrepared for RejectingSink {
+        impl crate::outputs::PublishPrepared<AnalyticsOutputLane> for RejectingSink {
             async fn publish_prepared(
                 &self,
-                _events: Vec<crate::outputs::PreparedEvent>,
+                _events: Vec<crate::outputs::PreparedEvent<AnalyticsOutputLane>>,
             ) -> Vec<crate::sinks::sink::SinkResult> {
                 unreachable!("v0 endpoints publish events")
             }

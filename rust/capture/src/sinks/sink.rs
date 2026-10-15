@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use crate::api::CaptureError;
 use crate::ordering::OrderingGuarantee;
-use crate::sinks::registry::Destination;
+use crate::pipeline::Address;
 
 /// A serialized, addressed record ready for a backend: the sink input.
 /// The uuid identifies the source event so per-event results can be
@@ -27,11 +27,10 @@ use crate::sinks::registry::Destination;
 /// The fields are backend-agnostic: each sink interprets them in its own
 /// terms, and nothing here names a Kafka concept.
 #[derive(Debug, Clone)]
-pub(crate) struct PreparedPayload {
+pub(crate) struct PreparedPayload<L> {
     pub uuid: Uuid,
-    /// The output this record is addressed to. Each sink resolves it to its
-    /// own target, as v1's sinks resolve their `Destination`.
-    pub destination: Destination,
+    /// The output this record is addressed to.
+    pub address: Address<L>,
     pub partition_key: String,
     pub ordering: OrderingGuarantee,
     pub payload: Vec<u8>,
@@ -70,8 +69,8 @@ impl SinkResult {
 /// Backend mechanism: enqueue prepared payloads, ack them, report results.
 /// No prepare on the trait — payload assembly belongs to the layers above.
 #[async_trait]
-pub(crate) trait PublishPayloads {
-    async fn publish(&self, payloads: Vec<PreparedPayload>) -> Vec<SinkResult>;
+pub(crate) trait PublishPayloads<L: Send + 'static> {
+    async fn publish(&self, payloads: Vec<PreparedPayload<L>>) -> Vec<SinkResult>;
 }
 
 /// Collapse per-event results into the v0 whole-request response:

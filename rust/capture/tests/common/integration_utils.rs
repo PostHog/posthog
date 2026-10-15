@@ -1129,9 +1129,9 @@ impl<K: RecordKind> PublishEvents<K> for MemorySink {
 }
 
 #[async_trait]
-impl PublishPrepared for MemorySink {
+impl<L: capture::pipeline::Lane> PublishPrepared<L> for MemorySink {
     /// The v1 route-surface tests publish here and assert only the status.
-    async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+    async fn publish_prepared(&self, events: Vec<PreparedEvent<L>>) -> Vec<SinkResult> {
         events
             .iter()
             .map(|event| SinkResult::published(event.uuid))

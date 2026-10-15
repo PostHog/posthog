@@ -1,279 +1,460 @@
-//! Binds every fixed routing [`Destination`] to its output: a Kafka topic and
-//! the named producer that carries it.
+//! A deployment's outputs: every lane it has, bound to a Kafka topic and the
+//! named producer that carries it.
 
 use std::sync::Arc;
 
 use crate::config::OutputsConfig;
-use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, PipelineLane, SessionReplayLane};
+use crate::pipeline::{
+    Address, AiLane, AnalyticsLane, AnalyticsOutputLane, ImportOutputLane, Lane, SessionReplayLane,
+};
 use crate::producers::ProducerName;
 
-/// Which configured output a routing decision selects, named by pipeline and
-/// lane. Distinct outputs may share a topic.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Destination {
-    AnalyticsMain,
-    AnalyticsOverflow,
-    AnalyticsHistorical,
-    ClientWarningsMain,
-    HeatmapsMain,
-    SessionReplayMain,
-    SessionReplayOverflow,
-    /// Every pipeline's dlq lane, one shared output.
-    Dlq,
-    ErrorTrackingMain,
-    AiMain,
-    AiOverflow,
-    /// Admin-configured topic copied from `redirect_to_topic`.
-    Custom(String),
-}
-
-impl Destination {
-    /// Every registered always-required output. `check_complete` walks this so
-    /// a newly added output is caught at boot rather than at first produce.
-    const REGISTERED: [Destination; 11] = [
-        Destination::AnalyticsMain,
-        Destination::AnalyticsOverflow,
-        Destination::AnalyticsHistorical,
-        Destination::ClientWarningsMain,
-        Destination::HeatmapsMain,
-        Destination::SessionReplayMain,
-        Destination::SessionReplayOverflow,
-        Destination::Dlq,
-        Destination::ErrorTrackingMain,
-        Destination::AiMain,
-        Destination::AiOverflow,
-    ];
-
-    pub(crate) fn for_lane(lane: PipelineLane) -> Destination {
-        match lane {
-            PipelineLane::Analytics(AnalyticsLane::Main) => Destination::AnalyticsMain,
-            PipelineLane::Analytics(AnalyticsLane::Overflow) => Destination::AnalyticsOverflow,
-            PipelineLane::Analytics(AnalyticsLane::Historical) => Destination::AnalyticsHistorical,
-            PipelineLane::Ai(AiLane::Main) => Destination::AiMain,
-            PipelineLane::Ai(AiLane::Overflow) => Destination::AiOverflow,
-            PipelineLane::Warnings(BasicLane::Main) => Destination::ClientWarningsMain,
-            PipelineLane::Heatmaps(BasicLane::Main) => Destination::HeatmapsMain,
-            PipelineLane::ErrorTracking(BasicLane::Main) => Destination::ErrorTrackingMain,
-            PipelineLane::Replay(SessionReplayLane::Main) => Destination::SessionReplayMain,
-            PipelineLane::Replay(SessionReplayLane::Overflow) => Destination::SessionReplayOverflow,
-        }
-    }
-
-    pub(crate) fn for_address(address: Address) -> Destination {
-        match address {
-            Address::Lane(lane) => Self::for_lane(lane),
-            Address::Dlq => Destination::Dlq,
-            Address::Custom(topic) => Destination::Custom(topic),
-        }
-    }
-
-    /// Whether this output participates in the boot completeness check.
-    /// Deliberately exhaustive: a new variant cannot compile without
-    /// declaring which side it is on, and
-    /// `registered_is_exactly_the_required_outputs` pins [`Self::REGISTERED`]
-    /// to the `true` arms so declaring `true` without joining the array
-    /// fails a test instead of silently skipping the check.
-    #[cfg(test)]
-    fn is_required(&self) -> bool {
-        match self {
-            Destination::AnalyticsMain
-            | Destination::AnalyticsOverflow
-            | Destination::AnalyticsHistorical
-            | Destination::ClientWarningsMain
-            | Destination::HeatmapsMain
-            | Destination::SessionReplayMain
-            | Destination::SessionReplayOverflow
-            | Destination::Dlq
-            | Destination::ErrorTrackingMain
-            | Destination::AiMain
-            | Destination::AiOverflow => true,
-            // A custom redirect carries its own topic per event.
-            Destination::Custom(_) => false,
-        }
-    }
-
-    /// Stable, low-cardinality label for diagnostics. `Custom` collapses to
-    /// "custom" so admin topic names never leak into error messages.
-    fn name(&self) -> &'static str {
-        match self {
-            Destination::AnalyticsMain => "analytics-main",
-            Destination::AnalyticsOverflow => "analytics-overflow",
-            Destination::AnalyticsHistorical => "analytics-historical",
-            Destination::ClientWarningsMain => "clientwarnings-main",
-            Destination::HeatmapsMain => "heatmaps-main",
-            Destination::SessionReplayMain => "sessionreplay-main",
-            Destination::SessionReplayOverflow => "sessionreplay-overflow",
-            Destination::Dlq => "dlq",
-            Destination::ErrorTrackingMain => "errortracking-main",
-            Destination::AiMain => "ai-main",
-            Destination::AiOverflow => "ai-overflow",
-            Destination::Custom(_) => "custom",
-        }
-    }
-}
-
-/// `R` is how the target names its producer: a [`ProducerName`] in config,
-/// the producer handle once setup resolves it.
 #[derive(Clone, Debug)]
-pub struct OutputTarget<R = ProducerName> {
+pub struct SingleOutput<R = ProducerName> {
     // `Arc<str>` so the per-record lookup, metric labels and produce record never allocate.
     pub(crate) topic: Arc<str>,
     pub(crate) producer: R,
 }
 
-#[derive(Clone, Debug)]
-pub struct OutputTable<R = ProducerName> {
-    pub(crate) analytics_main: OutputTarget<R>,
-    pub(crate) analytics_overflow: OutputTarget<R>,
-    pub(crate) analytics_historical: OutputTarget<R>,
-    pub(crate) session_replay_main: OutputTarget<R>,
-    pub(crate) session_replay_overflow: OutputTarget<R>,
-    pub(crate) client_warnings: OutputTarget<R>,
-    pub(crate) heatmaps: OutputTarget<R>,
-    pub(crate) dlq: OutputTarget<R>,
-    pub(crate) error_tracking: OutputTarget<R>,
-    pub(crate) ai_main: OutputTarget<R>,
-    pub(crate) ai_overflow: OutputTarget<R>,
-    pub(crate) has_ai_overflow_lane: bool,
-    pub(crate) custom_producer: R,
+impl<R> SingleOutput<R> {
+    pub(crate) fn map<T>(&self, f: &mut impl FnMut(&R) -> T) -> SingleOutput<T> {
+        SingleOutput {
+            topic: Arc::clone(&self.topic),
+            producer: f(&self.producer),
+        }
+    }
 }
 
-impl<R> OutputTable<R> {
-    fn target_for(&self, output: &Destination) -> Option<&OutputTarget<R>> {
-        match output {
-            Destination::AnalyticsMain => Some(&self.analytics_main),
-            Destination::AnalyticsOverflow => Some(&self.analytics_overflow),
-            Destination::AnalyticsHistorical => Some(&self.analytics_historical),
-            Destination::ClientWarningsMain => Some(&self.client_warnings),
-            Destination::HeatmapsMain => Some(&self.heatmaps),
-            Destination::SessionReplayMain => Some(&self.session_replay_main),
-            Destination::SessionReplayOverflow => Some(&self.session_replay_overflow),
-            Destination::Dlq => Some(&self.dlq),
-            Destination::ErrorTrackingMain => Some(&self.error_tracking),
-            Destination::AiMain => Some(&self.ai_main),
-            Destination::AiOverflow => Some(&self.ai_overflow),
-            Destination::Custom(_) => None,
-        }
-    }
+/// One deployment's outputs: an output for every lane, the dlq output, and the
+/// producer custom redirects publish on.
+pub trait Outputs<R>: Send + Sync + 'static {
+    type Lane: Lane;
 
-    pub fn topic_for<'a>(&'a self, output: &'a Destination) -> &'a str {
-        match (output, self.target_for(output)) {
-            (Destination::Custom(topic), _) => topic,
-            (_, Some(target)) => &target.topic,
-            (_, None) => unreachable!("every fixed output has a target"),
-        }
-    }
+    /// The same outputs with `T` naming each producer.
+    type Mapped<T: Send + Sync + 'static>: Outputs<T, Lane = Self::Lane>;
 
-    pub(crate) fn resolve(&self, output: &Destination) -> (Arc<str>, &R) {
-        match (output, self.target_for(output)) {
-            (_, Some(target)) => (Arc::clone(&target.topic), &target.producer),
-            (Destination::Custom(topic), None) => {
-                (Arc::from(topic.as_str()), &self.custom_producer)
-            }
-            (_, None) => unreachable!("every fixed output has a target"),
-        }
-    }
+    fn map_producers<T: Send + Sync + 'static>(&self, f: impl FnMut(&R) -> T) -> Self::Mapped<T>;
 
-    pub fn map_producers<T>(&self, mut f: impl FnMut(&R) -> T) -> OutputTable<T> {
-        let custom_producer = f(&self.custom_producer);
-        let mut target = |t: &OutputTarget<R>| OutputTarget {
-            topic: Arc::clone(&t.topic),
-            producer: f(&t.producer),
+    fn target(&self, lane: Self::Lane) -> &SingleOutput<R>;
+
+    fn dlq(&self) -> &SingleOutput<R>;
+
+    fn custom_producer(&self) -> &R;
+
+    /// Every fixed output with its label.
+    fn rows(&self) -> Vec<(&'static str, &SingleOutput<R>)>;
+
+    fn resolve(&self, address: &Address<Self::Lane>) -> (Arc<str>, &R) {
+        let target = match address {
+            Address::Lane(lane) => self.target(*lane),
+            Address::Dlq => self.dlq(),
+            Address::Custom(topic) => return (Arc::from(topic.as_str()), self.custom_producer()),
         };
-        OutputTable {
-            analytics_main: target(&self.analytics_main),
-            analytics_overflow: target(&self.analytics_overflow),
-            analytics_historical: target(&self.analytics_historical),
-            session_replay_main: target(&self.session_replay_main),
-            session_replay_overflow: target(&self.session_replay_overflow),
-            client_warnings: target(&self.client_warnings),
-            heatmaps: target(&self.heatmaps),
-            dlq: target(&self.dlq),
-            error_tracking: target(&self.error_tracking),
-            ai_main: target(&self.ai_main),
-            ai_overflow: target(&self.ai_overflow),
-            has_ai_overflow_lane: self.has_ai_overflow_lane,
-            custom_producer,
-        }
+        (Arc::clone(&target.topic), &target.producer)
     }
 
-    pub fn has_ai_overflow_lane(&self) -> bool {
-        self.has_ai_overflow_lane
-    }
-
-    /// Every registered output must resolve to a non-empty topic. `Custom` is
-    /// excluded because it carries its own topic per event.
-    pub fn check_complete(&self) -> anyhow::Result<()> {
-        for output in &Destination::REGISTERED {
+    /// Every fixed output must resolve to a non-empty topic.
+    fn check_complete(&self) -> anyhow::Result<()> {
+        for (output, target) in self.rows() {
             anyhow::ensure!(
-                !self.topic_for(output).is_empty(),
-                "output '{}' resolves to an empty Kafka topic; every non-custom \
+                !target.topic.is_empty(),
+                "output '{output}' resolves to an empty Kafka topic; every non-custom \
                  output must be bound to a configured, non-empty topic",
-                output.name(),
             );
         }
         Ok(())
     }
 }
 
-impl OutputTable {
-    pub fn new(config: &OutputsConfig, has_ai_overflow_lane: bool) -> Self {
-        let target = |topic: &String, producer: ProducerName| OutputTarget {
-            topic: Arc::from(topic.as_str()),
-            producer,
-        };
+/// Events pods: the analytics routes, with `$ai_*`, `$exception`,
+/// `$$heatmap` and `$$client_ingestion_warning` events diverted by name.
+#[derive(Clone, Debug)]
+pub struct AnalyticsOutputs<R = ProducerName> {
+    pub(crate) analytics_main: SingleOutput<R>,
+    pub(crate) analytics_overflow: SingleOutput<R>,
+    pub(crate) analytics_historical: SingleOutput<R>,
+    pub(crate) ai_main: SingleOutput<R>,
+    pub(crate) ai_overflow: SingleOutput<R>,
+    pub(crate) heatmaps: SingleOutput<R>,
+    pub(crate) client_warnings: SingleOutput<R>,
+    pub(crate) error_tracking: SingleOutput<R>,
+    pub(crate) dlq: SingleOutput<R>,
+    pub(crate) custom_producer: R,
+}
+
+/// Import pods: the analytics routes, but only `historical_migration`
+/// batches, which never overflow.
+#[derive(Clone, Debug)]
+pub struct ImportOutputs<R = ProducerName> {
+    pub(crate) analytics_historical: SingleOutput<R>,
+    pub(crate) ai_main: SingleOutput<R>,
+    pub(crate) heatmaps: SingleOutput<R>,
+    pub(crate) client_warnings: SingleOutput<R>,
+    pub(crate) error_tracking: SingleOutput<R>,
+    pub(crate) dlq: SingleOutput<R>,
+    pub(crate) custom_producer: R,
+}
+
+/// Ai pods: the AI routes, which accept only `$ai_*` events.
+#[derive(Clone, Debug)]
+pub struct AiOutputs<R = ProducerName> {
+    pub(crate) ai_main: SingleOutput<R>,
+    pub(crate) ai_overflow: SingleOutput<R>,
+    pub(crate) dlq: SingleOutput<R>,
+    pub(crate) custom_producer: R,
+}
+
+/// Recordings pods: the replay route.
+#[derive(Clone, Debug)]
+pub struct SessionReplayOutputs<R = ProducerName> {
+    pub(crate) session_replay_main: SingleOutput<R>,
+    pub(crate) session_replay_overflow: SingleOutput<R>,
+    pub(crate) dlq: SingleOutput<R>,
+    pub(crate) custom_producer: R,
+}
+
+impl<R: Send + Sync + 'static> Outputs<R> for AnalyticsOutputs<R> {
+    type Lane = AnalyticsOutputLane;
+
+    type Mapped<T: Send + Sync + 'static> = AnalyticsOutputs<T>;
+
+    fn map_producers<T: Send + Sync + 'static>(
+        &self,
+        mut f: impl FnMut(&R) -> T,
+    ) -> AnalyticsOutputs<T> {
+        AnalyticsOutputs {
+            analytics_main: self.analytics_main.map(&mut f),
+            analytics_overflow: self.analytics_overflow.map(&mut f),
+            analytics_historical: self.analytics_historical.map(&mut f),
+            ai_main: self.ai_main.map(&mut f),
+            ai_overflow: self.ai_overflow.map(&mut f),
+            heatmaps: self.heatmaps.map(&mut f),
+            client_warnings: self.client_warnings.map(&mut f),
+            error_tracking: self.error_tracking.map(&mut f),
+            dlq: self.dlq.map(&mut f),
+            custom_producer: f(&self.custom_producer),
+        }
+    }
+
+    fn target(&self, lane: AnalyticsOutputLane) -> &SingleOutput<R> {
+        match lane {
+            AnalyticsOutputLane::Analytics(AnalyticsLane::Main) => &self.analytics_main,
+            AnalyticsOutputLane::Analytics(AnalyticsLane::Overflow) => &self.analytics_overflow,
+            AnalyticsOutputLane::Analytics(AnalyticsLane::Historical) => &self.analytics_historical,
+            AnalyticsOutputLane::Ai(AiLane::Main) => &self.ai_main,
+            AnalyticsOutputLane::Ai(AiLane::Overflow) => &self.ai_overflow,
+            AnalyticsOutputLane::Heatmaps => &self.heatmaps,
+            AnalyticsOutputLane::ClientWarnings => &self.client_warnings,
+            AnalyticsOutputLane::ErrorTracking => &self.error_tracking,
+        }
+    }
+
+    fn dlq(&self) -> &SingleOutput<R> {
+        &self.dlq
+    }
+
+    fn custom_producer(&self) -> &R {
+        &self.custom_producer
+    }
+
+    fn rows(&self) -> Vec<(&'static str, &SingleOutput<R>)> {
+        let Self {
+            analytics_main,
+            analytics_overflow,
+            analytics_historical,
+            ai_main,
+            ai_overflow,
+            heatmaps,
+            client_warnings,
+            error_tracking,
+            dlq,
+            custom_producer: _,
+        } = self;
+        vec![
+            ("analytics-main", analytics_main),
+            ("analytics-overflow", analytics_overflow),
+            ("analytics-historical", analytics_historical),
+            ("ai-main", ai_main),
+            ("ai-overflow", ai_overflow),
+            ("heatmaps-main", heatmaps),
+            ("clientwarnings-main", client_warnings),
+            ("errortracking-main", error_tracking),
+            ("dlq", dlq),
+        ]
+    }
+}
+
+impl<R: Send + Sync + 'static> Outputs<R> for ImportOutputs<R> {
+    type Lane = ImportOutputLane;
+
+    type Mapped<T: Send + Sync + 'static> = ImportOutputs<T>;
+
+    fn map_producers<T: Send + Sync + 'static>(
+        &self,
+        mut f: impl FnMut(&R) -> T,
+    ) -> ImportOutputs<T> {
+        ImportOutputs {
+            analytics_historical: self.analytics_historical.map(&mut f),
+            ai_main: self.ai_main.map(&mut f),
+            heatmaps: self.heatmaps.map(&mut f),
+            client_warnings: self.client_warnings.map(&mut f),
+            error_tracking: self.error_tracking.map(&mut f),
+            dlq: self.dlq.map(&mut f),
+            custom_producer: f(&self.custom_producer),
+        }
+    }
+
+    fn target(&self, lane: ImportOutputLane) -> &SingleOutput<R> {
+        match lane {
+            ImportOutputLane::AnalyticsHistorical => &self.analytics_historical,
+            ImportOutputLane::AiMain => &self.ai_main,
+            ImportOutputLane::Heatmaps => &self.heatmaps,
+            ImportOutputLane::ClientWarnings => &self.client_warnings,
+            ImportOutputLane::ErrorTracking => &self.error_tracking,
+        }
+    }
+
+    fn dlq(&self) -> &SingleOutput<R> {
+        &self.dlq
+    }
+
+    fn custom_producer(&self) -> &R {
+        &self.custom_producer
+    }
+
+    fn rows(&self) -> Vec<(&'static str, &SingleOutput<R>)> {
+        let Self {
+            analytics_historical,
+            ai_main,
+            heatmaps,
+            client_warnings,
+            error_tracking,
+            dlq,
+            custom_producer: _,
+        } = self;
+        vec![
+            ("analytics-historical", analytics_historical),
+            ("ai-main", ai_main),
+            ("heatmaps-main", heatmaps),
+            ("clientwarnings-main", client_warnings),
+            ("errortracking-main", error_tracking),
+            ("dlq", dlq),
+        ]
+    }
+}
+
+impl<R: Send + Sync + 'static> Outputs<R> for AiOutputs<R> {
+    type Lane = AiLane;
+
+    type Mapped<T: Send + Sync + 'static> = AiOutputs<T>;
+
+    fn map_producers<T: Send + Sync + 'static>(&self, mut f: impl FnMut(&R) -> T) -> AiOutputs<T> {
+        AiOutputs {
+            ai_main: self.ai_main.map(&mut f),
+            ai_overflow: self.ai_overflow.map(&mut f),
+            dlq: self.dlq.map(&mut f),
+            custom_producer: f(&self.custom_producer),
+        }
+    }
+
+    fn target(&self, lane: AiLane) -> &SingleOutput<R> {
+        match lane {
+            AiLane::Main => &self.ai_main,
+            AiLane::Overflow => &self.ai_overflow,
+        }
+    }
+
+    fn dlq(&self) -> &SingleOutput<R> {
+        &self.dlq
+    }
+
+    fn custom_producer(&self) -> &R {
+        &self.custom_producer
+    }
+
+    fn rows(&self) -> Vec<(&'static str, &SingleOutput<R>)> {
+        let Self {
+            ai_main,
+            ai_overflow,
+            dlq,
+            custom_producer: _,
+        } = self;
+        vec![
+            ("ai-main", ai_main),
+            ("ai-overflow", ai_overflow),
+            ("dlq", dlq),
+        ]
+    }
+}
+
+impl<R: Send + Sync + 'static> Outputs<R> for SessionReplayOutputs<R> {
+    type Lane = SessionReplayLane;
+
+    type Mapped<T: Send + Sync + 'static> = SessionReplayOutputs<T>;
+
+    fn map_producers<T: Send + Sync + 'static>(
+        &self,
+        mut f: impl FnMut(&R) -> T,
+    ) -> SessionReplayOutputs<T> {
+        SessionReplayOutputs {
+            session_replay_main: self.session_replay_main.map(&mut f),
+            session_replay_overflow: self.session_replay_overflow.map(&mut f),
+            dlq: self.dlq.map(&mut f),
+            custom_producer: f(&self.custom_producer),
+        }
+    }
+
+    fn target(&self, lane: SessionReplayLane) -> &SingleOutput<R> {
+        match lane {
+            SessionReplayLane::Main => &self.session_replay_main,
+            SessionReplayLane::Overflow => &self.session_replay_overflow,
+        }
+    }
+
+    fn dlq(&self) -> &SingleOutput<R> {
+        &self.dlq
+    }
+
+    fn custom_producer(&self) -> &R {
+        &self.custom_producer
+    }
+
+    fn rows(&self) -> Vec<(&'static str, &SingleOutput<R>)> {
+        let Self {
+            session_replay_main,
+            session_replay_overflow,
+            dlq,
+            custom_producer: _,
+        } = self;
+        vec![
+            ("sessionreplay-main", session_replay_main),
+            ("sessionreplay-overflow", session_replay_overflow),
+            ("dlq", dlq),
+        ]
+    }
+}
+
+fn output(topic: &str, producer: ProducerName) -> SingleOutput {
+    SingleOutput {
+        topic: topic.into(),
+        producer,
+    }
+}
+
+impl AnalyticsOutputs {
+    pub fn new(config: &OutputsConfig) -> Self {
         Self {
-            analytics_main: target(&config.analytics_main_topic, config.analytics_main_producer),
-            analytics_overflow: target(
+            analytics_main: output(&config.analytics_main_topic, config.analytics_main_producer),
+            analytics_overflow: output(
                 &config.analytics_overflow_topic,
                 config.analytics_overflow_producer,
             ),
-            analytics_historical: target(
+            analytics_historical: output(
                 &config.analytics_historical_topic,
                 config.analytics_historical_producer,
             ),
-            session_replay_main: target(
-                &config.session_replay_main_topic,
-                config.session_replay_main_producer,
-            ),
-            session_replay_overflow: target(
-                &config.session_replay_overflow_topic,
-                config.session_replay_overflow_producer,
-            ),
-            client_warnings: target(
+            ai_main: output(&config.ai_main_topic, config.ai_main_producer),
+            ai_overflow: output(&config.ai_overflow_topic, config.ai_overflow_producer),
+            heatmaps: output(&config.heatmaps_topic, config.heatmaps_producer),
+            client_warnings: output(
                 &config.client_warnings_topic,
                 config.client_warnings_producer,
             ),
-            heatmaps: target(&config.heatmaps_topic, config.heatmaps_producer),
-            dlq: target(&config.dlq_topic, config.dlq_producer),
-            error_tracking: target(&config.error_tracking_topic, config.error_tracking_producer),
-            ai_main: target(&config.ai_main_topic, config.ai_main_producer),
-            ai_overflow: target(&config.ai_overflow_topic, config.ai_overflow_producer),
-            has_ai_overflow_lane,
+            error_tracking: output(&config.error_tracking_topic, config.error_tracking_producer),
+            dlq: output(&config.dlq_topic, config.dlq_producer),
+            custom_producer: config.custom_producer,
+        }
+    }
+}
+
+impl ImportOutputs {
+    pub fn new(config: &OutputsConfig) -> Self {
+        Self {
+            analytics_historical: output(
+                &config.analytics_historical_topic,
+                config.analytics_historical_producer,
+            ),
+            ai_main: output(&config.ai_main_topic, config.ai_main_producer),
+            heatmaps: output(&config.heatmaps_topic, config.heatmaps_producer),
+            client_warnings: output(
+                &config.client_warnings_topic,
+                config.client_warnings_producer,
+            ),
+            error_tracking: output(&config.error_tracking_topic, config.error_tracking_producer),
+            dlq: output(&config.dlq_topic, config.dlq_producer),
+            custom_producer: config.custom_producer,
+        }
+    }
+}
+
+impl AiOutputs {
+    pub fn new(config: &OutputsConfig) -> Self {
+        Self {
+            ai_main: output(&config.ai_main_topic, config.ai_main_producer),
+            ai_overflow: output(&config.ai_overflow_topic, config.ai_overflow_producer),
+            dlq: output(&config.dlq_topic, config.dlq_producer),
+            custom_producer: config.custom_producer,
+        }
+    }
+}
+
+impl SessionReplayOutputs {
+    pub fn new(config: &OutputsConfig) -> Self {
+        Self {
+            session_replay_main: output(
+                &config.session_replay_main_topic,
+                config.session_replay_main_producer,
+            ),
+            session_replay_overflow: output(
+                &config.session_replay_overflow_topic,
+                config.session_replay_overflow_producer,
+            ),
+            dlq: output(&config.dlq_topic, config.dlq_producer),
             custom_producer: config.custom_producer,
         }
     }
 }
 
 #[cfg(test)]
-pub(crate) fn test_outputs() -> OutputTable {
-    let target = |topic: &str| OutputTarget {
+fn test_target(topic: &str) -> SingleOutput {
+    SingleOutput {
         topic: Arc::from(topic),
         producer: ProducerName::Ingestion,
-    };
-    OutputTable {
-        analytics_main: target("events_plugin_ingestion"),
-        analytics_overflow: target("events_plugin_ingestion_overflow"),
-        analytics_historical: target("events_plugin_ingestion_historical"),
-        session_replay_main: target("events_plugin_ingestion"),
-        session_replay_overflow: target("replay_overflow"),
-        client_warnings: target("client_ingestion_warning"),
-        heatmaps: target("heatmaps"),
-        dlq: target("events_plugin_ingestion_dlq"),
-        error_tracking: target("error_tracking_events"),
-        ai_main: target("ai_events"),
-        ai_overflow: target("ai_events_overflow"),
-        has_ai_overflow_lane: true,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_outputs() -> AnalyticsOutputs {
+    AnalyticsOutputs {
+        analytics_main: test_target("events_plugin_ingestion"),
+        analytics_overflow: test_target("events_plugin_ingestion_overflow"),
+        analytics_historical: test_target("events_plugin_ingestion_historical"),
+        ai_main: test_target("ai_events"),
+        ai_overflow: test_target("ai_events_overflow"),
+        heatmaps: test_target("heatmaps"),
+        client_warnings: test_target("client_ingestion_warning"),
+        error_tracking: test_target("error_tracking_events"),
+        dlq: test_target("events_plugin_ingestion_dlq"),
+        custom_producer: ProducerName::Ingestion,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_ai_outputs() -> AiOutputs {
+    AiOutputs {
+        ai_main: test_target("ai_events"),
+        ai_overflow: test_target("ai_events_overflow"),
+        dlq: test_target("events_plugin_ingestion_dlq"),
+        custom_producer: ProducerName::Ingestion,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_replay_outputs() -> SessionReplayOutputs {
+    SessionReplayOutputs {
+        session_replay_main: test_target("events_plugin_ingestion"),
+        session_replay_overflow: test_target("replay_overflow"),
+        dlq: test_target("events_plugin_ingestion_dlq"),
         custom_producer: ProducerName::Ingestion,
     }
 }
@@ -283,62 +464,86 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
-    #[rstest]
-    #[case(Destination::AnalyticsMain, "events_plugin_ingestion")]
-    #[case(Destination::SessionReplayMain, "events_plugin_ingestion")]
-    #[case(Destination::AnalyticsOverflow, "events_plugin_ingestion_overflow")]
-    #[case(Destination::AnalyticsHistorical, "events_plugin_ingestion_historical")]
-    #[case(Destination::ClientWarningsMain, "client_ingestion_warning")]
-    #[case(Destination::HeatmapsMain, "heatmaps")]
-    #[case(Destination::SessionReplayOverflow, "replay_overflow")]
-    #[case(Destination::Dlq, "events_plugin_ingestion_dlq")]
-    #[case(Destination::ErrorTrackingMain, "error_tracking_events")]
-    #[case(Destination::AiMain, "ai_events")]
-    #[case(Destination::AiOverflow, "ai_events_overflow")]
-    fn topic_for_resolves_registered_outputs(#[case] output: Destination, #[case] expected: &str) {
-        assert_eq!(test_outputs().topic_for(&output), expected);
+    fn default_config() -> OutputsConfig {
+        envconfig::Envconfig::init_from_hashmap(&Default::default())
+            .expect("default outputs config")
     }
 
-    #[test]
-    fn topic_for_custom_returns_inline_topic() {
-        let registry = test_outputs();
-        assert_eq!(
-            registry.topic_for(&Destination::Custom("admin_topic".to_string())),
-            "admin_topic"
-        );
+    const ANALYTICS_LANES: [AnalyticsOutputLane; 8] = [
+        AnalyticsOutputLane::Analytics(AnalyticsLane::Main),
+        AnalyticsOutputLane::Analytics(AnalyticsLane::Overflow),
+        AnalyticsOutputLane::Analytics(AnalyticsLane::Historical),
+        AnalyticsOutputLane::Ai(AiLane::Main),
+        AnalyticsOutputLane::Ai(AiLane::Overflow),
+        AnalyticsOutputLane::Heatmaps,
+        AnalyticsOutputLane::ClientWarnings,
+        AnalyticsOutputLane::ErrorTracking,
+    ];
+
+    const IMPORT_LANES: [ImportOutputLane; 5] = [
+        ImportOutputLane::AnalyticsHistorical,
+        ImportOutputLane::AiMain,
+        ImportOutputLane::Heatmaps,
+        ImportOutputLane::ClientWarnings,
+        ImportOutputLane::ErrorTracking,
+    ];
+
+    /// `target` and `rows` are written by hand per deployment; a lane mapped to
+    /// another lane's field compiles. Every lane must resolve to the row its
+    /// name labels, and every row to a distinct producer.
+    fn assert_lanes_match_rows<O: Outputs<usize>>(outputs: &O, lanes: &[O::Lane]) {
+        let rows = outputs.rows();
+        for lane in lanes {
+            let (_, row) = rows
+                .iter()
+                .find(|(label, _)| *label == lane.name())
+                .unwrap_or_else(|| panic!("no row labelled '{}'", lane.name()));
+            assert_eq!(outputs.target(*lane).producer, row.producer, "{lane:?}");
+        }
+        let dlq = Address::Dlq;
+        assert_eq!(*outputs.resolve(&dlq).1, outputs.dlq().producer);
+        let producers: std::collections::HashSet<usize> =
+            rows.iter().map(|(_, target)| target.producer).collect();
+        assert_eq!(producers.len(), rows.len(), "rows share a producer");
+        assert_eq!(rows.len(), lanes.len() + 1, "one row per lane plus dlq");
     }
 
-    #[test]
-    fn session_replay_main_does_not_share_analytics_main() {
-        let mut registry = test_outputs();
-        registry.session_replay_main.topic = Arc::from("replay_main");
-        assert_eq!(
-            registry.topic_for(&Destination::SessionReplayMain),
-            "replay_main"
-        );
-        assert_eq!(
-            registry.topic_for(&Destination::AnalyticsMain),
-            "events_plugin_ingestion"
-        );
-    }
-
-    #[test]
-    fn each_output_resolves_to_its_own_producer() {
+    fn numbered<R>() -> impl FnMut(&R) -> usize {
         let mut next = 0;
-        let table = test_outputs().map_producers(|_| {
+        move |_| {
             next += 1;
             next
-        });
-        let custom = Destination::Custom("admin_topic".to_string());
-        let (topic, _) = table.resolve(&custom);
-        assert_eq!(&*topic, "admin_topic");
+        }
+    }
 
-        let producers: std::collections::HashSet<i32> = Destination::REGISTERED
-            .iter()
-            .chain([&custom])
-            .map(|output| *table.resolve(output).1)
-            .collect();
-        assert_eq!(producers.len(), Destination::REGISTERED.len() + 1);
+    #[test]
+    fn each_lane_resolves_to_its_own_output() {
+        let config = default_config();
+        assert_lanes_match_rows(
+            &AnalyticsOutputs::new(&config).map_producers(numbered()),
+            &ANALYTICS_LANES,
+        );
+        assert_lanes_match_rows(
+            &ImportOutputs::new(&config).map_producers(numbered()),
+            &IMPORT_LANES,
+        );
+        assert_lanes_match_rows(
+            &AiOutputs::new(&config).map_producers(numbered()),
+            &[AiLane::Main, AiLane::Overflow],
+        );
+        assert_lanes_match_rows(
+            &SessionReplayOutputs::new(&config).map_producers(numbered()),
+            &[SessionReplayLane::Main, SessionReplayLane::Overflow],
+        );
+    }
+
+    #[test]
+    fn custom_redirects_publish_on_the_custom_producer() {
+        let outputs = test_outputs().map_producers(numbered());
+        let custom = Address::Custom("admin_topic".to_string());
+        let (topic, producer) = outputs.resolve(&custom);
+        assert_eq!(&*topic, "admin_topic");
+        assert_eq!(*producer, outputs.custom_producer);
     }
 
     #[test]
@@ -346,53 +551,42 @@ mod tests {
         assert!(test_outputs().check_complete().is_ok());
     }
 
-    /// The all-variants list below is hand-maintained: grow it with the enum.
+    /// Blanking a topic the deployment does not hold cannot fail the check, since
+    /// it never reads it.
     #[test]
-    fn registered_is_exactly_the_required_outputs() {
-        let all = [
-            Destination::AnalyticsMain,
-            Destination::AnalyticsOverflow,
-            Destination::AnalyticsHistorical,
-            Destination::ClientWarningsMain,
-            Destination::HeatmapsMain,
-            Destination::SessionReplayMain,
-            Destination::SessionReplayOverflow,
-            Destination::Dlq,
-            Destination::ErrorTrackingMain,
-            Destination::AiMain,
-            Destination::AiOverflow,
-            Destination::Custom("t".to_string()),
-        ];
-        for output in &all {
-            assert_eq!(
-                Destination::REGISTERED.contains(output),
-                output.is_required(),
-                "'{}' must be in REGISTERED exactly when it is required",
-                output.name()
-            );
-        }
+    fn check_complete_ignores_outputs_the_deployment_cannot_reach() {
+        let config: OutputsConfig = envconfig::Envconfig::init_from_hashmap(
+            &[(
+                "CAPTURE_OUTPUT_SESSION_REPLAY_MAIN_TOPIC".to_string(),
+                String::new(),
+            )]
+            .into_iter()
+            .collect(),
+        )
+        .expect("outputs config");
+        assert!(AnalyticsOutputs::new(&config).check_complete().is_ok());
+        assert!(SessionReplayOutputs::new(&config).check_complete().is_err());
     }
 
-    /// Every registered output, blanked one at a time, must fail the check and
-    /// the error must name the offending output.
+    /// Every row, blanked one at a time, must fail the check and the error must
+    /// name the offending output.
     #[rstest]
-    #[case("analytics-main", |r: &mut OutputTable| r.analytics_main.topic = Arc::from(""))]
-    #[case("analytics-overflow", |r: &mut OutputTable| r.analytics_overflow.topic = Arc::from(""))]
-    #[case("analytics-historical", |r: &mut OutputTable| r.analytics_historical.topic = Arc::from(""))]
-    #[case("clientwarnings-main", |r: &mut OutputTable| r.client_warnings.topic = Arc::from(""))]
-    #[case("heatmaps-main", |r: &mut OutputTable| r.heatmaps.topic = Arc::from(""))]
-    #[case("sessionreplay-main", |r: &mut OutputTable| r.session_replay_main.topic = Arc::from(""))]
-    #[case("sessionreplay-overflow", |r: &mut OutputTable| r.session_replay_overflow.topic = Arc::from(""))]
-    #[case("dlq", |r: &mut OutputTable| r.dlq.topic = Arc::from(""))]
-    #[case("errortracking-main", |r: &mut OutputTable| r.error_tracking.topic = Arc::from(""))]
-    #[case("ai-main", |r: &mut OutputTable| r.ai_main.topic = Arc::from(""))]
+    #[case("analytics-main", |r: &mut AnalyticsOutputs| r.analytics_main.topic = Arc::from(""))]
+    #[case("analytics-overflow", |r: &mut AnalyticsOutputs| r.analytics_overflow.topic = Arc::from(""))]
+    #[case("analytics-historical", |r: &mut AnalyticsOutputs| r.analytics_historical.topic = Arc::from(""))]
+    #[case("clientwarnings-main", |r: &mut AnalyticsOutputs| r.client_warnings.topic = Arc::from(""))]
+    #[case("heatmaps-main", |r: &mut AnalyticsOutputs| r.heatmaps.topic = Arc::from(""))]
+    #[case("dlq", |r: &mut AnalyticsOutputs| r.dlq.topic = Arc::from(""))]
+    #[case("errortracking-main", |r: &mut AnalyticsOutputs| r.error_tracking.topic = Arc::from(""))]
+    #[case("ai-main", |r: &mut AnalyticsOutputs| r.ai_main.topic = Arc::from(""))]
+    #[case("ai-overflow", |r: &mut AnalyticsOutputs| r.ai_overflow.topic = Arc::from(""))]
     fn check_complete_rejects_empty_topic(
         #[case] output_name: &str,
-        #[case] blank: fn(&mut OutputTable),
+        #[case] blank: fn(&mut AnalyticsOutputs),
     ) {
-        let mut registry = test_outputs();
-        blank(&mut registry);
-        let err = registry
+        let mut outputs = test_outputs();
+        blank(&mut outputs);
+        let err = outputs
             .check_complete()
             .expect_err("blank topic must fail the completeness check");
         let msg = format!("{err:#}");

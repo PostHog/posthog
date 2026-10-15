@@ -4,6 +4,7 @@ use metrics::counter;
 use crate::api::CaptureError;
 use crate::kind::EventKind;
 use crate::outputs::{PreparedEvent, PublishEvents, PublishPrepared};
+use crate::pipeline::Lane;
 use crate::sinks::sink::SinkResult;
 use crate::v0_request::ProcessedEvent;
 
@@ -25,8 +26,8 @@ impl<K: EventKind> PublishEvents<K> for NoOpSink {
 }
 
 #[async_trait]
-impl PublishPrepared for NoOpSink {
-    async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+impl<L: Lane> PublishPrepared<L> for NoOpSink {
+    async fn publish_prepared(&self, events: Vec<PreparedEvent<L>>) -> Vec<SinkResult> {
         counter!("capture_events_ingested_total").increment(events.len() as u64);
         events
             .into_iter()
