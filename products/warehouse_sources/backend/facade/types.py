@@ -1394,6 +1394,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     SIMONDATA = "SimonData", "SimonData"
     COMMISSIONJUNCTION = "CommissionJunction", "CommissionJunction"
     LIVEBLOCKS = "Liveblocks", "Liveblocks"
+    LIVESTORM = "Livestorm", "Livestorm"
     NATIONBUILDER = "NationBuilder", "NationBuilder"
     TANA = "Tana", "Tana"
     ZENCHEF = "Zenchef", "Zenchef"
