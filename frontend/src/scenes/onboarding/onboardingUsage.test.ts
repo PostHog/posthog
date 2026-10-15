@@ -10,6 +10,10 @@ import {
 } from './onboardingUsage'
 
 describe('onboardingUsage', () => {
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
     it('keeps the funnel event properties', () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
 
@@ -32,6 +36,5 @@ describe('onboardingUsage', () => {
             product_key: 'product_analytics',
             ...sharedProperties,
         })
-        capture.mockRestore()
     })
 })
