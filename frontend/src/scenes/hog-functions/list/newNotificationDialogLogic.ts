@@ -12,14 +12,18 @@ import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType, HogFunctionType 
 import type { IntegrationType } from '../../../types'
 import { HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES, HOG_FUNCTION_SUB_TEMPLATES } from '../sub-templates/sub-templates'
 
-export type DestinationKey = 'slack' | 'discord' | 'microsoft-teams' | 'webhook' | 'github'
+// Chat destinations work for any notification. Surveys build their own form on top of exactly these.
+export type ChatDestinationKey = 'slack' | 'discord' | 'microsoft-teams' | 'webhook'
+export type DestinationKey = ChatDestinationKey | 'github'
 
-export const DESTINATION_OPTIONS: {
-    value: DestinationKey
+interface DestinationOption<Key extends DestinationKey> {
+    value: Key
     label: string
     templateId: string
     iconUrl: string
-}[] = [
+}
+
+export const CHAT_DESTINATION_OPTIONS: DestinationOption<ChatDestinationKey>[] = [
     { value: 'slack', label: 'Slack', templateId: 'template-slack', iconUrl: '/static/services/slack.png' },
     { value: 'discord', label: 'Discord', templateId: 'template-discord', iconUrl: '/static/services/discord.png' },
     {
@@ -29,6 +33,10 @@ export const DESTINATION_OPTIONS: {
         iconUrl: '/static/services/microsoft-teams.png',
     },
     { value: 'webhook', label: 'Webhook', templateId: 'template-webhook', iconUrl: '/static/services/webhook.svg' },
+]
+
+export const DESTINATION_OPTIONS: DestinationOption<DestinationKey>[] = [
+    ...CHAT_DESTINATION_OPTIONS,
     { value: 'github', label: 'GitHub issue', templateId: 'template-github', iconUrl: '/static/services/github.png' },
 ]
 
