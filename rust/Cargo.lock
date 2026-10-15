@@ -10936,8 +10936,10 @@ dependencies = [
 name = "replay-recorder-v4"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "axum 0.7.9",
  "common-alloc",
+ "common-database",
  "common-kafka",
  "common-metrics",
  "envconfig",
@@ -10947,6 +10949,7 @@ dependencies = [
  "rdkafka",
  "replay-core-v4",
  "serde_json",
+ "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",
