@@ -98,6 +98,32 @@ describe('useViewRefresh on a dashboard', () => {
         unmount()
     })
 
+    test('never computes a tile the phone cannot draw', async () => {
+        const [drawn, web] = tiles('7d', 2, false)
+        const items = [
+            { ...drawn, drawable: () => true },
+            { ...web, drawable: () => false },
+        ] as RefreshItem[]
+        const { unmount } = renderHook(() => useViewRefresh(options('7d', items)))
+        await flush()
+
+        expect(reads).toEqual(['7d-dashboard', '7d-tile-0'])
+        unmount()
+    })
+
+    test('Load on a tile read within the last minute still sends one blocking read', async () => {
+        const { result, unmount } = renderHook(() => useViewRefresh(options('7d', tiles('7d', 1, false))))
+        await flush()
+
+        act(() => {
+            result.current.refreshItem('7d-tile-0')
+        })
+        await flush()
+
+        expect(reads).toEqual(['7d-dashboard', '7d-tile-0', '7d-tile-0'])
+        unmount()
+    })
+
     test('"Try again" reads a dashboard that failed to load, inside its minute floor', async () => {
         const failedOnce: RefreshContainer = {
             ...dashboard('7d'),

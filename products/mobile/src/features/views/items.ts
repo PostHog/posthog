@@ -24,6 +24,7 @@ import type { DashboardTileView, DashboardView, InsightSnapshot, PinView, WebOve
 
 import { type FiltersOverride, overrideForTile } from './rangeOverride'
 import type { ReadResult, RefreshMode } from './refreshQueue'
+import { queryDisplay } from './snapshotChart'
 import type { RefreshContainer, RefreshItem } from './useViewRefresh'
 import { reportScopeError } from './useViewsAccess'
 import {
@@ -158,6 +159,10 @@ export function insightItem(context: ItemContext, target: InsightTarget): Refres
         family: 'insights',
         windowMode: 'force_cache',
         snapshot: () => getSnapshot<InsightSnapshot>(context.client, queryKey),
+        drawable: () => {
+            const snapshot = getSnapshot<InsightSnapshot>(context.client, queryKey)
+            return !snapshot || queryDisplay(snapshot.query) !== 'web'
+        },
         read: async (mode, signal) => {
             const previous = getSnapshot<InsightSnapshot>(context.client, queryKey)
             try {

@@ -147,7 +147,8 @@ The dashboard, insight and web analytics screens (`app/views/dashboard/[id].tsx`
 
 A tap on a pinned tooltip opens the Point sheet (`point-sheet`): the bucket and every series value, "Watch recordings", "View people", "Open on web", "About this chart" and "Copy value".
 People and recordings load through `usePointActors`, one `blocking` actors query at a time; closing the sheet drops a query that has not started. In demo, rows that open the web say "Not available in the demo".
-An insight kind without a phone renderer shows "This chart opens on the web." `insightDisplay()` in `snapshotChart.ts` decides; see [Kinds that still open the web](#kinds-that-still-open-the-web).
+An insight kind without a phone renderer shows "This chart opens on the web." `insightDisplay()` in `snapshotChart.ts` decides from the saved query, so a tile keeps its display while it loads; see [Kinds that still open the web](#kinds-that-still-open-the-web).
+A drawable tile that the cache-only dashboard read found without a cache says "Not loaded yet" with Load (`view-tile-load-{tileId}`), which reads that tile only. It shows a skeleton while its read runs. A result with nothing to draw says "No data for this range" (`view-tile-empty-{tileId}`, `view-insight-empty`, `chart-fullscreen-empty`), or "No data" without a range. `insightRenderState()` returns `pending`, `empty` or `ready`.
 
 ## Date range control
 
@@ -167,7 +168,7 @@ Number and Chart pins in the list keep the saved range. Ranges last for the sess
 
 ## Charts beyond line and bar
 
-`insightDisplay(snapshot)` returns `number`, `chart`, `funnel`, `retention`, `bars` or `web`. `InsightVisual` (`src/features/views/InsightVisual.tsx`) renders every display except a big number, in tiles and on the insight screen.
+`insightDisplay(snapshot)` returns `number`, `chart`, `funnel`, `retention`, `bars` or `web`. It takes the display from the saved query (`queryDisplay`), with the same rules the adapters use (`isDrawableFunnel`, `isDrawableRetention`, `isRankingQuery`, `timeSeriesChartKind`). `InsightVisual` (`src/features/views/InsightVisual.tsx`) renders every display except a big number, in tiles and on the insight screen.
 
 | Display | When | Renderer |
 | --- | --- | --- |
@@ -176,7 +177,7 @@ Number and Chart pins in the list keep the saved range. Ranges last for the sess
 | `funnel` | `FunnelsQuery` in the steps layout. A breakdown adds its values step by step and says so under the steps | `FunnelSteps` |
 | `retention` | `RetentionQuery` that counts people, without a breakdown | `RetentionGrid` |
 | `bars` | Trends value bars, tables, pies, donuts and proportion bars | `BarList` |
-| `web` | Everything else | `OpensOnWeb` |
+| `web` | Everything else, and a funnel or retention result that its adapter cannot draw | `OpensOnWeb` |
 
 - `FunnelSteps`, `RetentionGrid` and `BarList` live in `src/ui/chart/` and draw React Native rows, not a Skia canvas. Their data comes from `src/model/adapters/funnel.ts`, `retention.ts` and `breakdown.ts` through `InsightSnapshot.funnel`, `.retention` and `.ranking`.
 - Pins keep one series: `capabilities.chart` still means one series without a breakdown, and `pinChartSeries` draws the first current series only.
@@ -199,7 +200,7 @@ Number and Chart pins in the list keep the saved range. Ranges last for the sess
 
 ## Kinds that still open the web
 
-These show the "This chart opens on the web." card, on tiles and on the insight screen:
+These show the "This chart opens on the web." card, on tiles and on the insight screen. A dashboard pass never computes them: the item's `drawable()` is false, so open, focus, the button and pull send no `blocking` or `force_*` read for them, and the tile has no refresh button.
 
 - Paths (`PathsQuery`), stickiness (`StickinessQuery`: its x axis is "Day N", not dates) and lifecycle (`LifecycleQuery`: stacked bars with negative dormant values).
 - SQL insights (`HogQLQuery`, `DataVisualizationNode`) that are not a big number. The phone has no table renderer.

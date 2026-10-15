@@ -51,6 +51,11 @@ export interface RefreshItem {
      * which has no cache-only read and returns its cache inside the window.
      */
     windowMode: 'force_cache' | 'blocking'
+    /**
+     * False for a tile whose kind the phone cannot draw. It shows the web card whatever its result, so a dashboard pass
+     * never computes it. Missing means drawable.
+     */
+    drawable?: () => boolean
 }
 
 /** The dashboard read that carries every tile. A dashboard read counts as a read of each tile it carries. */
@@ -132,6 +137,10 @@ function useQueueBusy(group: string): boolean {
 function visibleOf(options: ViewRefreshOptions): RefreshItem[] {
     const { items, visibleKeys } = options
     return visibleKeys ? items.filter((item) => visibleKeys.has(item.key)) : items.slice(0, INITIAL_VISIBLE_ROWS)
+}
+
+function drawable(item: RefreshItem): boolean {
+    return item.drawable?.() !== false
 }
 
 /** The bulk floor key: one per screen in each data scope. */
@@ -294,7 +303,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 // Dashboard tiles follow the web's open path: after the cache-only dashboard read, a tile computes
                 // only when it has no result or its `cache_target_age` has passed.
                 const wanted = current.container
-                    ? !hasGoodValue(snapshot) || cacheTargetPassed(snapshot)
+                    ? drawable(item) && (!hasGoodValue(snapshot) || cacheTargetPassed(snapshot))
                     : isDue(snapshot)
                 if (wanted) {
                     send(counters, item.key, item.family, 'blocking', item.read)
@@ -326,7 +335,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 }
                 for (const item of visibleOf(optionsRef.current)) {
                     const snapshot = item.snapshot()
-                    if (!hasGoodValue(snapshot) || cacheTargetPassed(snapshot)) {
+                    if (drawable(item) && (!hasGoodValue(snapshot) || cacheTargetPassed(snapshot))) {
                         send(counters, item.key, item.family, 'blocking', item.read)
                     }
                 }
@@ -389,7 +398,10 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             let rest = false
             for (const item of visible) {
                 const snapshot = item.snapshot()
-                if (isEligible(snapshot, now)) {
+                if (current.container && !drawable(item)) {
+                    // The cache-only dashboard read updates a web card without a compute.
+                    rest = true
+                } else if (isEligible(snapshot, now)) {
                     forced = true
                     send(counters, item.key, item.family, 'force_blocking', item.read)
                 } else if (!hasGoodValue(snapshot)) {
@@ -537,6 +549,9 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 group: groupOf(current),
                 mode,
                 run: item.read,
+                // A tap on an item without a value, such as Load on a tile, follows the open pass's read within the
+                // minute floor. It never forces, so it goes out like "Try again".
+                userRetry: mode === 'blocking',
             })
             return true
         },

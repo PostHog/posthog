@@ -1,6 +1,7 @@
 import { asRecord, isRecord } from '@/lib/records'
 
 import type { RetentionCellView, RetentionCohortView, RetentionPeriodUnit, RetentionView } from '../views'
+import { hasBreakdown } from './metric'
 
 type JsonRecord = Record<string, unknown>
 
@@ -54,21 +55,33 @@ function cohortView(
     return { key: `${index}:${date}`, date, size, cells }
 }
 
+function retentionSource(query: unknown): JsonRecord | undefined {
+    return asRecord(asRecord(query)?.source) ?? asRecord(query)
+}
+
 /**
- * The cohort grid of a retention insight, with percents as the web computes them. Breakdowns and sums or averages
- * of a property give null: the grid would mix cohorts or read amounts as people, so those open on the web.
+ * True for a retention insight the phone draws: it counts people and has no breakdown. With a breakdown the grid
+ * would mix cohorts, and a sum or average of a property would read amounts as people, so those open on the web.
  */
+export function isDrawableRetention(query: unknown): boolean {
+    const source = retentionSource(query)
+    if (source?.kind !== 'RetentionQuery') {
+        return false
+    }
+    const aggregation = asRecord(source.retentionFilter)?.aggregationType
+    return (aggregation === undefined || aggregation === null || aggregation === 'count') && !hasBreakdown(source)
+}
+
+/** The cohort grid of a drawable retention insight, with percents as the web computes them. */
 export function retentionView(query: unknown, result: unknown, now: number): RetentionView | null {
-    const source = asRecord(asRecord(query)?.source) ?? asRecord(query)
-    if (source?.kind !== 'RetentionQuery' || !Array.isArray(result)) {
+    const source = retentionSource(query)
+    if (!isDrawableRetention(query) || !Array.isArray(result)) {
         return null
     }
-    const filter = asRecord(source.retentionFilter)
-    const aggregation = filter?.aggregationType
-    if (aggregation !== undefined && aggregation !== null && aggregation !== 'count') {
-        return null
-    }
+    const filter = asRecord(source?.retentionFilter)
     const rows = result.filter(isRecord)
+    // Rows with breakdown values under a query without a breakdown would still mix cohorts in one grid. The null view
+    // with a good value makes `insightDisplay` open the insight on the web instead of showing it as empty.
     if (rows.some((row) => row.breakdown_value !== undefined && row.breakdown_value !== null)) {
         return null
     }

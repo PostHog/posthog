@@ -1,12 +1,16 @@
 import { parseBucketStart } from '@/lib/dates'
-import { breakdownLabel } from '@/model/adapters/breakdown'
-import { formatMetricValue } from '@/model/adapters/metric'
+import { breakdownLabel, isRankingQuery } from '@/model/adapters/breakdown'
+import { isDrawableFunnel } from '@/model/adapters/funnel'
+import { capabilitiesOf, kindLabelOf } from '@/model/adapters/insightSnapshot'
+import { asTrendsInsight, formatMetricValue, timeSeriesChartKind } from '@/model/adapters/metric'
+import { isDrawableRetention } from '@/model/adapters/retention'
 import type { MetricInterval } from '@/model/types'
 import type { InsightSeriesView, InsightSnapshot, NumberDelta, ResolvedRange } from '@/model/views'
 import { formatAxisDate } from '@/ui/chart/chartMath'
 import { seriesColor } from '@/ui/chart/palette'
 import type { ChartPoint, ChartSeries } from '@/ui/chart/types'
 
+import { hasGoodValue } from './freshness'
 import { formatRangeSpan } from './rangePresets'
 
 /**
@@ -15,23 +19,64 @@ import { formatRangeSpan } from './rangePresets'
  */
 export type InsightDisplay = 'number' | 'chart' | 'funnel' | 'retention' | 'bars' | 'web'
 
-export function insightDisplay(snapshot: InsightSnapshot): InsightDisplay {
-    if (snapshot.kindLabel === 'Big number' && snapshot.capabilities.number) {
+/**
+ * The display of a saved query, before any result: a tile keeps one display while it loads, and a dashboard pass
+ * knows which tiles the phone cannot draw.
+ */
+export function queryDisplay(query: unknown): InsightDisplay {
+    if (kindLabelOf(query) === 'Big number' && capabilitiesOf(query).number) {
         return 'number'
     }
-    if (snapshot.funnel) {
+    if (isDrawableFunnel(query)) {
         return 'funnel'
     }
-    if (snapshot.retention) {
+    if (isDrawableRetention(query)) {
         return 'retention'
     }
-    if (snapshot.ranking) {
+    if (isRankingQuery(query)) {
         return 'bars'
     }
-    if (snapshot.chartKind && snapshot.allSeries.some((s) => s.points.length > 0)) {
+    if (timeSeriesChartKind(asTrendsInsight(query))) {
         return 'chart'
     }
     return 'web'
+}
+
+export function insightDisplay(snapshot: InsightSnapshot): InsightDisplay {
+    const display = queryDisplay(snapshot.query)
+    // The adapters return null for a result they cannot draw, such as retention rows with breakdown values. That is
+    // a kind for the web, not an empty range.
+    const rejected = (display === 'funnel' && !snapshot.funnel) || (display === 'retention' && !snapshot.retention)
+    return rejected && hasGoodValue(snapshot) ? 'web' : display
+}
+
+/**
+ * `pending`: no result yet, such as a tile that the dashboard's cache-only read found without a cache. `empty`: a
+ * result with nothing to draw for the range. The web card needs no result, so it is always `ready`.
+ */
+export type InsightRenderState = 'pending' | 'empty' | 'ready'
+
+export function insightRenderState(snapshot: InsightSnapshot): InsightRenderState {
+    const display = insightDisplay(snapshot)
+    if (display === 'web') {
+        return 'ready'
+    }
+    if (!hasGoodValue(snapshot)) {
+        return 'pending'
+    }
+    const empty = {
+        number: snapshot.value === null,
+        chart: !snapshot.allSeries.some((series) => series.points.length > 0),
+        funnel: !snapshot.funnel?.steps.length,
+        retention: !snapshot.retention?.cohorts.length,
+        bars: !snapshot.ranking?.rows.length,
+    }[display]
+    return empty ? 'empty' : 'ready'
+}
+
+/** The line in a chart's place when its result has nothing to draw. */
+export function noDataText(snapshot: Pick<InsightSnapshot, 'resolvedRange'>): string {
+    return snapshot.resolvedRange ? 'No data for this range' : 'No data'
 }
 
 export function snapshotFormatter(snapshot: Pick<InsightSnapshot, 'format'>): (value: number) => string {

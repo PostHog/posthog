@@ -19,12 +19,19 @@ import { colors, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { useInsightChartModel } from '../InsightChart'
+import { InsightNoData } from '../InsightVisual'
 import { OpensOnWeb } from '../OpensOnWeb'
 import { useChartSheets } from '../pointSheet/ChartSheetsProvider'
 import type { ChartSheetSource } from '../pointSheet/chartSheetSource'
 import { VIEW_CONTENT_TOP } from '../screen/ViewChrome'
 import { useViewBack, ViewScreenFrame } from '../screen/ViewScreenFrame'
-import { insightDisplay, intervalLabel, resolvedRangeText, snapshotFormatter } from '../snapshotChart'
+import {
+    insightDisplay,
+    insightRenderState,
+    intervalLabel,
+    resolvedRangeText,
+    snapshotFormatter,
+} from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
 import { freshnessKey, useSnapshot, viewsKeys } from '../viewsCache'
 
@@ -56,7 +63,7 @@ export function FullScreenChart({ shortId, queryKey }: FullScreenChartProps): Re
     const snapshot = useSnapshot<InsightSnapshot>(key)
     return (
         <ViewScreenFrame chrome={<FullScreenChrome onBack={back} />}>
-            {snapshot ? (
+            {snapshot && insightRenderState(snapshot) !== 'pending' ? (
                 <FullScreenBody snapshot={snapshot} queryKey={key} />
             ) : (
                 <StateView
@@ -97,6 +104,7 @@ function FullScreenBody({ snapshot, queryKey }: { snapshot: InsightSnapshot; que
         [sheets, source]
     )
     const display = insightDisplay(snapshot)
+    const empty = insightRenderState(snapshot) === 'empty'
     const rangeText = resolvedRangeText(snapshot.resolvedRange, snapshot.interval)
     const padding = {
         paddingTop: topOffset(insets, VIEW_CONTENT_TOP),
@@ -114,7 +122,7 @@ function FullScreenBody({ snapshot, queryKey }: { snapshot: InsightSnapshot; que
         </View>
     )
 
-    if (display === 'chart') {
+    if (display === 'chart' && !empty) {
         return (
             <View style={[styles.fill, styles.gutter, padding]}>
                 {header}
@@ -124,7 +132,9 @@ function FullScreenBody({ snapshot, queryKey }: { snapshot: InsightSnapshot; que
     }
 
     let body: ReactNode = null
-    if (display === 'funnel' && snapshot.funnel) {
+    if (empty) {
+        body = <InsightNoData snapshot={snapshot} testID="chart-fullscreen-empty" />
+    } else if (display === 'funnel' && snapshot.funnel) {
         body = (
             <FunnelSteps
                 funnel={snapshot.funnel}

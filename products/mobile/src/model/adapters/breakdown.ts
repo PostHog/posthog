@@ -70,14 +70,19 @@ function rankedValue(entry: JsonRecord, index: number): RankedValueView | null {
     return { key: `${order}:${JSON.stringify(entry.breakdown_value ?? null)}`, label, value }
 }
 
+/** True for a trends insight in a value bar, table or pie display, which the phone ranks as bars. */
+export function isRankingQuery(query: unknown): boolean {
+    const display = asRecord(asTrendsInsight(query)?.source.trendsFilter)?.display
+    return typeof display === 'string' && RANKING_DISPLAYS.has(display)
+}
+
 /**
  * The totals of a value bar, table or pie insight, highest first, with "Other" last as the web lists it. The previous
  * period of a compare is left out: the bars rank the current window.
  */
 export function rankingView(query: unknown, result: unknown): RankingView | null {
     const insight = asTrendsInsight(query)
-    const display = asRecord(insight?.source.trendsFilter)?.display
-    if (!insight || typeof display !== 'string' || !RANKING_DISPLAYS.has(display)) {
+    if (!insight || !isRankingQuery(query)) {
         return null
     }
     const entries = Array.isArray(result) ? result.filter(isRecord) : []

@@ -1,4 +1,5 @@
 import type { InsightApi } from '@/api/insights'
+import { insightDisplay, insightRenderState } from '@/features/views/snapshotChart'
 
 import { insightSnapshot, usesOwnRange } from './insightSnapshot'
 
@@ -38,6 +39,14 @@ function insight(overrides: Partial<InsightApi>): InsightApi {
 
 const DAYS = ['2026-10-11', '2026-10-12', '2026-10-13', '2026-10-14']
 const CONTEXT = { readAt: 1000, serverNow: NOW }
+
+function viz(source: Record<string, unknown>): unknown {
+    return { kind: 'InsightVizNode', source }
+}
+
+const FUNNEL = viz({ kind: 'FunnelsQuery', series: [] })
+const RETENTION = viz({ kind: 'RetentionQuery', retentionFilter: { period: 'Week' } })
+const COHORT_ROW = { date: '2026-10-05T00:00:00Z', values: [{ count: 10 }] }
 
 describe('insightSnapshot', () => {
     test.each<[string, Partial<InsightApi>]>([
@@ -126,6 +135,53 @@ describe('insightSnapshot', () => {
         const snapshot = insightSnapshot(insight({ query, result }), undefined, CONTEXT)
 
         expect(snapshot).toMatchObject(expected)
+    })
+
+    // `result: null` is a tile that the cache-only dashboard read found without a cache.
+    test.each<[string, unknown, unknown, string, string]>([
+        ['a line chart without a cache', trends(undefined), null, 'chart', 'pending'],
+        ['a big number without a cache', trends(undefined, 'BoldNumber'), null, 'number', 'pending'],
+        ['a funnel without a cache', FUNNEL, null, 'funnel', 'pending'],
+        ['a retention grid without a cache', RETENTION, null, 'retention', 'pending'],
+        ['value bars without a cache', trends(undefined, 'ActionsBarValue'), null, 'bars', 'pending'],
+        ['a line chart with no points in the range', trends(undefined), [], 'chart', 'empty'],
+        ['a funnel with no steps', FUNNEL, [], 'funnel', 'empty'],
+        ['a retention grid with no cohorts', RETENTION, [], 'retention', 'empty'],
+        ['a line chart with points', trends(undefined), [{ days: DAYS, data: [1, 2, 3, 4] }], 'chart', 'ready'],
+        ['paths', viz({ kind: 'PathsQuery' }), null, 'web', 'ready'],
+        ['a world map', trends(undefined, 'WorldMap'), null, 'web', 'ready'],
+        [
+            'a funnel broken down by cohort',
+            viz({ kind: 'FunnelsQuery', series: [], breakdownFilter: { breakdown: [3], breakdown_type: 'cohort' } }),
+            null,
+            'web',
+            'ready',
+        ],
+        [
+            'retention with a breakdown',
+            viz({ kind: 'RetentionQuery', breakdownFilter: { breakdown: '$browser' } }),
+            null,
+            'web',
+            'ready',
+        ],
+        [
+            'retention that sums a property',
+            viz({ kind: 'RetentionQuery', retentionFilter: { aggregationType: 'sum' } }),
+            null,
+            'web',
+            'ready',
+        ],
+        [
+            'retention rows with breakdown values under a query without a breakdown',
+            RETENTION,
+            [{ ...COHORT_ROW, breakdown_value: 'Chrome' }],
+            'web',
+            'ready',
+        ],
+    ])('shows %s with the display and state it draws', (_name, query, result, display, state) => {
+        const snapshot = insightSnapshot(insight({ query, result }), undefined, CONTEXT)
+
+        expect([insightDisplay(snapshot), insightRenderState(snapshot)]).toEqual([display, state])
     })
 
     test.each<[string, Record<string, unknown> | null, unknown, boolean]>([

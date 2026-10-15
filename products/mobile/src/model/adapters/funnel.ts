@@ -1,6 +1,7 @@
 import { asRecord, isRecord } from '@/lib/records'
 
 import type { FunnelStepView, FunnelView } from '../views'
+import { hasBreakdown } from './metric'
 
 type JsonRecord = Record<string, unknown>
 
@@ -21,23 +22,31 @@ function stepName(step: JsonRecord | undefined, index: number): string {
 }
 
 /**
- * The steps of a funnel in the steps layout. A breakdown answers one list of steps per value; their counts add up to
- * the whole funnel because each person falls under one value. A cohort breakdown can count a person in several
- * cohorts, so it gives null and the funnel opens on the web, like the trends and time-to-convert layouts.
+ * True for a funnel the phone draws: the steps layout, without a cohort breakdown. A cohort breakdown can count a
+ * person in several cohorts, so the sum of its values is wrong and the funnel opens on the web, like the trends and
+ * time-to-convert layouts.
  */
-export function funnelView(query: unknown, result: unknown): FunnelView | null {
+export function isDrawableFunnel(query: unknown): boolean {
     const source = asRecord(asRecord(query)?.source) ?? asRecord(query)
-    if (source?.kind !== 'FunnelsQuery' || !Array.isArray(result)) {
-        return null
+    if (source?.kind !== 'FunnelsQuery') {
+        return false
     }
     const layout = asRecord(source.funnelsFilter)?.funnelVizType
     if (layout !== undefined && layout !== null && layout !== 'steps') {
+        return false
+    }
+    return !(hasBreakdown(source) && asRecord(source.breakdownFilter)?.breakdown_type === 'cohort')
+}
+
+/**
+ * The steps of a drawable funnel. A breakdown answers one list of steps per value; their counts add up to the whole
+ * funnel because each person falls under one value.
+ */
+export function funnelView(query: unknown, result: unknown): FunnelView | null {
+    if (!isDrawableFunnel(query) || !Array.isArray(result)) {
         return null
     }
     const byBreakdown = result.length > 0 && result.every(Array.isArray)
-    if (byBreakdown && asRecord(source.breakdownFilter)?.breakdown_type === 'cohort') {
-        return null
-    }
     const groups: JsonRecord[][] = byBreakdown
         ? result.map((group: unknown[]) => group.filter(isRecord))
         : [result.filter(isRecord)]

@@ -32,7 +32,7 @@ describe('funnelView', () => {
     test.each<[string, unknown]>([
         [
             'a cohort breakdown, which can count a person twice',
-            funnels({ breakdownFilter: { breakdown_type: 'cohort' } }),
+            funnels({ breakdownFilter: { breakdown: [3], breakdown_type: 'cohort' } }),
         ],
         ['the trends layout', funnels({ funnelsFilter: { funnelVizType: 'trends' } })],
     ])('leaves %s to the web', (_name, query) => {

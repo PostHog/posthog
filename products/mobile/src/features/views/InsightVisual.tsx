@@ -16,7 +16,15 @@ import { InsightChart } from './InsightChart'
 import { OpensOnWeb } from './OpensOnWeb'
 import { useChartSheets } from './pointSheet/ChartSheetsProvider'
 import type { ChartSheetSource } from './pointSheet/chartSheetSource'
-import { type InsightDisplay, insightDisplay, intervalLabel, snapshotFormatter } from './snapshotChart'
+import { TileSkeleton } from './screen/ViewSkeleton'
+import {
+    type InsightDisplay,
+    insightDisplay,
+    insightRenderState,
+    intervalLabel,
+    noDataText,
+    snapshotFormatter,
+} from './snapshotChart'
 
 /** A tile ranks this many values, then "+N more" opens the chart full screen. */
 const TILE_BAR_ROWS = 6
@@ -31,6 +39,22 @@ export function hasFullScreen(display: InsightDisplay): boolean {
 /** "Weekly cohorts" for a retention insight. */
 export function retentionCaption(snapshot: InsightSnapshot): string | null {
     return snapshot.retention ? `${PERIOD_ADJECTIVES[snapshot.retention.period]} cohorts` : null
+}
+
+interface InsightNoDataProps {
+    snapshot: Pick<InsightSnapshot, 'resolvedRange'>
+    /** The height of the chart this line stands in for, so the layout does not jump when data arrives. */
+    minHeight?: number
+    testID: string
+}
+
+/** The muted line in a chart's place when its result has nothing to draw. */
+export function InsightNoData({ snapshot, minHeight, testID }: InsightNoDataProps): ReactElement {
+    return (
+        <View style={[styles.noData, minHeight !== undefined && { minHeight }]} testID={testID}>
+            <Text style={styles.noDataText}>{noDataText(snapshot)}</Text>
+        </View>
+    )
 }
 
 /** The line above a chart on the insight screen: what the chart shows at a glance. */
@@ -63,11 +87,14 @@ interface InsightVisualProps {
     canvasSlot?: ChartCanvasSlot
     /** The chart's testID, such as `chart-demo-tile-1`. */
     testID: string
+    /** The testID of the line that says the range has no data. */
+    emptyTestID?: string
 }
 
 /**
  * An insight's body when it is not a big number: a line or bar chart, funnel steps, a retention grid, ranked bars, or
- * the card that opens it on the web.
+ * the card that opens it on the web. Before its result arrives it shows a placeholder, and a result with nothing to
+ * draw shows "No data".
  */
 export function InsightVisual({
     snapshot,
@@ -78,6 +105,7 @@ export function InsightVisual({
     chartHeight,
     canvasSlot,
     testID,
+    emptyTestID = 'view-insight-empty',
 }: InsightVisualProps): ReactElement | null {
     const sheets = useChartSheets()
     const openFullScreen = useOpenFullScreen()
@@ -91,6 +119,24 @@ export function InsightVisual({
         [sheets, source, open]
     )
     const formatValue = useMemo(() => snapshotFormatter(snapshot), [snapshot])
+
+    const state = insightRenderState(snapshot)
+    if (state === 'pending') {
+        return (
+            <View testID="view-insight-pending">
+                <TileSkeleton height={chartHeight} />
+            </View>
+        )
+    }
+    if (state === 'empty') {
+        return place === 'screen' ? (
+            <View style={styles.card}>
+                <InsightNoData snapshot={snapshot} testID={emptyTestID} />
+            </View>
+        ) : (
+            <InsightNoData snapshot={snapshot} minHeight={chartHeight} testID={emptyTestID} />
+        )
+    }
 
     const body = ((): ReactElement | null => {
         switch (display) {
@@ -145,7 +191,7 @@ export function InsightVisual({
                 ) : null
             case 'web':
                 return place === 'screen' ? (
-                    <View style={styles.webCard}>
+                    <View style={styles.card}>
                         <OpensOnWeb shortId={snapshot.shortId} />
                     </View>
                 ) : (
@@ -200,11 +246,18 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    webCard: {
+    card: {
         padding: 14,
         borderRadius: radii.card,
         borderWidth: 1,
         borderColor: colors.hairline,
         backgroundColor: colors.white,
+    },
+    noData: {
+        justifyContent: 'center',
+    },
+    noDataText: {
+        ...type.bodySmall,
+        color: colors.muted,
     },
 })

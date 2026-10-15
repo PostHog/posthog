@@ -13,12 +13,14 @@ import { colors, radii, type } from '@/ui/tokens'
 import { DeltaPill } from '../DeltaPill'
 import { isEligible } from '../freshness'
 import { useOpenFullScreen } from '../fullScreen/useOpenFullScreen'
-import { hasFullScreen, InsightVisual, retentionCaption } from '../InsightVisual'
+import { hasFullScreen, InsightNoData, InsightVisual, retentionCaption } from '../InsightVisual'
 import type { ChartSheetSource } from '../pointSheet/chartSheetSource'
 import { TileSkeleton } from '../screen/ViewSkeleton'
 import {
     deltaBasisText,
+    type InsightDisplay,
     insightDisplay,
+    insightRenderState,
     intervalLabel,
     resolvedRangeText,
     snapshotFormatter,
@@ -35,6 +37,12 @@ export function tileChartTestID(demo: boolean, tileId: number): string {
 }
 
 const TILE_CHART_HEIGHT = 160
+/** The height of a big number's row, so a tile without its number keeps the same size. */
+const TILE_NUMBER_HEIGHT = 36
+
+function bodyHeight(display: InsightDisplay | null): number {
+    return display === 'number' ? TILE_NUMBER_HEIGHT : TILE_CHART_HEIGHT
+}
 
 const TILE_ERRORS: Record<ItemErrorKind, string> = {
     deleted: 'This insight was deleted.',
@@ -73,13 +81,19 @@ export function InsightTile({ tile, index, dashboardRef, dashboardName, refreshI
         }
     }
     const display = snapshot ? insightDisplay(snapshot) : null
+    // Pending and empty tiles have nothing to refresh or open full screen. Load reads a pending tile.
+    const state = snapshot ? insightRenderState(snapshot) : null
+    const ready = state === 'ready'
     const openFullScreen = useOpenFullScreen()
     const expand = useCallback(() => {
         if (source) {
             openFullScreen(source, 'button')
         }
     }, [openFullScreen, source])
-    const canRefresh = Boolean(itemKey && snapshot && isEligible(snapshot) && !data.updating)
+    // A web card shows no result, so a refresh would compute for nothing.
+    const canRefresh = Boolean(
+        itemKey && snapshot && ready && display !== 'web' && isEligible(snapshot) && !data.updating
+    )
     const name = snapshot?.name ?? view.name
 
     return (
@@ -113,7 +127,7 @@ export function InsightTile({ tile, index, dashboardRef, dashboardName, refreshI
                         <RefreshIcon size={18} color={colors.secondary} />
                     </Pressable44>
                 ) : null}
-                {display && hasFullScreen(display) ? (
+                {display && ready && hasFullScreen(display) ? (
                     <Pressable44
                         onPress={expand}
                         accessibilityLabel={`Open ${name} full screen`}
@@ -132,8 +146,40 @@ export function InsightTile({ tile, index, dashboardRef, dashboardName, refreshI
                     ) : (
                         <TileSkeleton height={TILE_CHART_HEIGHT} />
                     )
+                ) : state === 'pending' ? (
+                    data.updating ? (
+                        <TileSkeleton height={bodyHeight(display)} />
+                    ) : data.error ? (
+                        <Text style={styles.message}>{TILE_ERRORS[data.error]}</Text>
+                    ) : (
+                        <View style={[styles.pending, { minHeight: bodyHeight(display) }]}>
+                            <Text style={styles.pendingText}>Not loaded yet</Text>
+                            <Pressable44
+                                onPress={() => {
+                                    if (itemKey) {
+                                        refreshItem(itemKey)
+                                    }
+                                }}
+                                disabled={data.updating || !itemKey}
+                                accessibilityLabel={`Load ${name}`}
+                                style={styles.loadButton}
+                                pressedBackground={colors.pressed}
+                                testID={`view-tile-load-${view.tileId}`}
+                            >
+                                <Text style={styles.loadButtonText}>Load</Text>
+                            </Pressable44>
+                        </View>
+                    )
                 ) : display === 'number' ? (
-                    <NumberBody snapshot={snapshot} onOpen={open} />
+                    state === 'empty' ? (
+                        <InsightNoData
+                            snapshot={snapshot}
+                            minHeight={TILE_NUMBER_HEIGHT}
+                            testID={`view-tile-empty-${view.tileId}`}
+                        />
+                    ) : (
+                        <NumberBody snapshot={snapshot} onOpen={open} />
+                    )
                 ) : (
                     <InsightVisual
                         snapshot={snapshot}
@@ -144,6 +190,7 @@ export function InsightTile({ tile, index, dashboardRef, dashboardName, refreshI
                         chartHeight={TILE_CHART_HEIGHT}
                         canvasSlot={{ key: String(view.tileId), index }}
                         testID={tileChartTestID(mode === 'demo', view.tileId)}
+                        emptyTestID={`view-tile-empty-${view.tileId}`}
                     />
                 )}
             </View>
@@ -154,7 +201,7 @@ export function InsightTile({ tile, index, dashboardRef, dashboardName, refreshI
 
 function tileMeta(snapshot: InsightSnapshot | undefined, view: DashboardTileView): string {
     // A SQL tile without `{filters}` has no date window, so the dashboard's dates would mislabel it.
-    if (!snapshot || view.ignoresRangeOverride) {
+    if (!snapshot || view.ignoresRangeOverride || insightRenderState(snapshot) === 'pending') {
         return snapshot?.kindLabel ?? view.kindLabel
     }
     const range = resolvedRangeText(snapshot.resolvedRange, snapshot.interval)
@@ -253,6 +300,29 @@ const styles = StyleSheet.create({
         ...type.metaSmall,
         color: colors.muted,
         paddingVertical: 8,
+    },
+    pending: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    pendingText: {
+        ...type.bodySmall,
+        color: colors.muted,
+    },
+    loadButton: {
+        height: 36,
+        justifyContent: 'center',
+        paddingHorizontal: 14,
+        borderRadius: radii.pill,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.white,
+    },
+    loadButtonText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: colors.ink,
     },
     numberRow: {
         flexDirection: 'row',
