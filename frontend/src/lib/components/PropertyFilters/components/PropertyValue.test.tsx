@@ -491,4 +491,36 @@ describe('PropertyValue', () => {
         expect(propertyDefinitionsModel.values.options['42']?.status).not.toBe('loaded')
         await waitFor(() => expect(onSet).toHaveBeenCalledWith(expected))
     })
+
+    it('keeps a loaded flag dependency variant named false as a string', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/flag_value/values': {
+                    results: [{ name: true }, { name: false }, { name: 'false' }],
+                    refreshing: false,
+                },
+            },
+        })
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="42"
+                    type={PropertyFilterType.Flag}
+                    operator={PropertyOperator.FlagEvaluatesTo}
+                    onSet={onSet}
+                    value={null}
+                />
+            </Provider>
+        )
+
+        const input = screen.getByRole('textbox')
+        userEvent.click(input)
+        await waitFor(() => expect(propertyDefinitionsModel.values.options['42']?.status).toBe('loaded'), {
+            timeout: 3000,
+        })
+        userEvent.type(input, 'false{enter}')
+
+        await waitFor(() => expect(onSet).toHaveBeenCalledWith('false'))
+    })
 })

@@ -541,7 +541,12 @@ export function PropertyValue({
                             had_search_input: currentSearchInput.current !== '',
                         })
                     }
-                    const typedVal = isFlagDependencyProperty ? trimmedVal.map(toFlagDependencyValue) : trimmedVal
+                    // A loaded option keeps its own type, so a variant named "true" or "false" stays a string.
+                    const typedVal = isFlagDependencyProperty
+                        ? trimmedVal.map((v) =>
+                              displayOptions.some((o) => o.name === v) ? v : toFlagDependencyValue(v)
+                          )
+                        : trimmedVal
                     isMultiSelect ? setValue(typedVal) : setValue(typedVal[0])
                 }}
                 onInputChange={onSearchTextChange}
