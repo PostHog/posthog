@@ -269,6 +269,7 @@ the row lists both.
 | customer_io                      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | customerly                       | HTTP                        | requests                                                        | ✅                          |
 | dagster_cloud                    | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| daisycon                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | databricks                       | DB protocol                 | databricks-sql-connector                                        | ➖                          |
 | datadog                          | HTTP                        | requests                                                        | ✅                          |
 | dataforseo                       | HTTP                        | requests                                                        | ✅                          |

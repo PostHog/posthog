@@ -3167,6 +3167,7 @@ export interface CredentialApi {
  * * `Railway` - Railway
  * * `Argocd` - Argocd
  * * `PrefectCloud` - PrefectCloud
+ * * `Daisycon` - Daisycon
  * * `DagsterCloud` - DagsterCloud
  * * `Env0` - Env0
  * * `Kubecost` - Kubecost
@@ -4554,6 +4555,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Railway: 'Railway',
     Argocd: 'Argocd',
     PrefectCloud: 'PrefectCloud',
+    Daisycon: 'Daisycon',
     DagsterCloud: 'DagsterCloud',
     Env0: 'Env0',
     Kubecost: 'Kubecost',
