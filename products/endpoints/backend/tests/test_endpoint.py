@@ -50,6 +50,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
         self.sample_hogql_query = {
             "connectionId": None,
+            "executionTarget": None,
             "explain": None,
             "filters": None,
             "kind": "HogQLQuery",
@@ -347,6 +348,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(response_data["is_active"])
         want_query = {
             "connectionId": None,
+            "executionTarget": None,
             "explain": None,
             "filters": None,
             "kind": "HogQLQuery",
