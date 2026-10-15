@@ -415,15 +415,23 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
         return build_job_payload(recalc, is_existing=False)
 
 
+def active_recalculation_filter() -> Q:
+    """The rows that block a new recalculation: PENDING or IN_PROGRESS, inside the staleness bound.
+
+    The scheduled discovery applies the same filter to many experiments in one query, so the two
+    readers cannot disagree on which run is active.
+    """
+    threshold = timezone.now() - _STALE_RECALC_THRESHOLD
+    return Q(status=ExperimentMetricsRecalculation.Status.PENDING, created_at__gte=threshold) | Q(
+        status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold
+    )
+
+
 def get_active_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
     with team_scope(experiment.team_id, canonical=True):
-        threshold = timezone.now() - _STALE_RECALC_THRESHOLD
         return (
             ExperimentMetricsRecalculation.objects.filter(team=experiment.team, experiment=experiment)
-            .filter(
-                Q(status=ExperimentMetricsRecalculation.Status.PENDING, created_at__gte=threshold)
-                | Q(status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold)
-            )
+            .filter(active_recalculation_filter())
             .order_by("-created_at")
             .first()
         )
