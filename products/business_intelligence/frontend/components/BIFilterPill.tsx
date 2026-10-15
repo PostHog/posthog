@@ -5,14 +5,11 @@ import { LemonDropdown } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
-import {
-    getBIFieldPillLabel,
-    getBIFilterSummary,
-    getBIFilterValidationError,
-    getBIShelfEditorKey,
-} from 'products/business_intelligence/frontend/biEditorTypes'
+import { getBIFilterValidationError, getBIShelfEditorKey } from 'products/business_intelligence/frontend/biEditorTypes'
 import { BIFilterEditor } from 'products/business_intelligence/frontend/components/BIFilterEditor'
 import { BIPill } from 'products/business_intelligence/frontend/components/BIPill'
+
+import { getBIFilterLabel, describeBIFilter } from '../biFilterSummary'
 
 export function BIFilterPill({ index }: { index: number }): JSX.Element | null {
     const { config, activeExpressionEditorId } = useValues(biEditorLogic)
@@ -29,7 +26,8 @@ export function BIFilterPill({ index }: { index: number }): JSX.Element | null {
             setActiveExpressionEditorId(null)
         }
     }
-    const label = getBIFieldPillLabel(filter.field)
+    const label = getBIFilterLabel(filter)
+    const description = describeBIFilter(filter, config)
 
     return (
         <LemonDropdown
@@ -42,14 +40,8 @@ export function BIFilterPill({ index }: { index: number }): JSX.Element | null {
             <BIPill
                 kind="filter"
                 label={label}
-                detail={
-                    getBIFilterValidationError(filter)
-                        ? 'Invalid'
-                        : filter.enabled === false
-                          ? 'Off'
-                          : getBIFilterSummary(filter)
-                }
-                title={`${label}: ${getBIFilterSummary(filter)}`}
+                detail={getBIFilterValidationError(filter) ? 'Invalid' : filter.enabled === false ? 'Off' : description}
+                title={`${label}: ${description}`}
                 shelf="filters"
                 index={index}
                 incomplete={!filter.field.expression.trim() && !filter.customExpression?.trim()}

@@ -5,8 +5,10 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withToolHooks } from '@/tools/tool-hooks'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import hooks_workflowsDataSuggestionsCreate from '@/tools/workflows/dataSuggestionCreateHooks'
 
 const BroadcastsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
@@ -113,6 +115,112 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
                 body,
             })
             return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
+        },
+    })
+
+const WorkflowsDataSuggestionsCreateSchema = () => {
+    const WorkflowDataSuggestionsBuildBody = orvalSchemas.WorkflowDataSuggestionsBuildBody()
+    return WorkflowDataSuggestionsBuildBody
+}
+
+const workflowsDataSuggestionsCreate = (): ToolBase<
+    ReturnType<typeof WorkflowsDataSuggestionsCreateSchema>,
+    Schemas.DataSuggestionBuildResponse
+> =>
+    withUiApp('workflow-data-suggestions', {
+        name: 'workflows-data-suggestions-create',
+        schema: WorkflowsDataSuggestionsCreateSchema(),
+        handler: withToolHooks(
+            hooks_workflowsDataSuggestionsCreate,
+            async (context: Context, params: z.infer<ReturnType<typeof WorkflowsDataSuggestionsCreateSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const body: Record<string, unknown> = {}
+                if (params.suggestion_id !== undefined) {
+                    body['suggestion_id'] = params.suggestion_id
+                }
+                if (params.retry !== undefined) {
+                    body['retry'] = params.retry
+                }
+                body['save_draft'] = true
+                const result = await context.api.request<Schemas.DataSuggestionBuildResponse>({
+                    method: 'POST',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/build/`,
+                    body,
+                })
+                const filtered = pickResponseFields(result, [
+                    'status',
+                    'workflow_id',
+                    'missing_inputs',
+                    'uses_saved_template',
+                ]) as typeof result
+                return filtered
+            }
+        ),
+    })
+
+const WorkflowsDataSuggestionsGetSchema = () => z.object({})
+
+const workflowsDataSuggestionsGet = (): ToolBase<
+    ReturnType<typeof WorkflowsDataSuggestionsGetSchema>,
+    Schemas.DataSuggestionsResponse
+> =>
+    withUiApp('workflow-data-suggestions', {
+        name: 'workflows-data-suggestions-get',
+        schema: WorkflowsDataSuggestionsGetSchema(),
+        handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsDataSuggestionsGetSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.DataSuggestionsResponse>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/current/`,
+            })
+            const filtered = pickResponseFields(result, [
+                'status',
+                'suggestions.*.id',
+                'suggestions.*.name',
+                'suggestions.*.description',
+                'suggestions.*.reason',
+                'suggestions.*.trigger_event',
+                'suggestions.*.weekly_count',
+                'email_sender_ready',
+            ]) as typeof result
+            return filtered
+        },
+    })
+
+const WorkflowsDataSuggestionsListSchema = () => {
+    const WorkflowDataSuggestionsGenerateBody = orvalSchemas.WorkflowDataSuggestionsGenerateBody()
+    return WorkflowDataSuggestionsGenerateBody
+}
+
+const workflowsDataSuggestionsList = (): ToolBase<
+    ReturnType<typeof WorkflowsDataSuggestionsListSchema>,
+    Schemas.DataSuggestionsResponse
+> =>
+    withUiApp('workflow-data-suggestions', {
+        name: 'workflows-data-suggestions-list',
+        schema: WorkflowsDataSuggestionsListSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsDataSuggestionsListSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.refresh !== undefined) {
+                body['refresh'] = params.refresh
+            }
+            const result = await context.api.request<Schemas.DataSuggestionsResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/generate/`,
+                body,
+            })
+            const filtered = pickResponseFields(result, [
+                'status',
+                'suggestions.*.id',
+                'suggestions.*.name',
+                'suggestions.*.description',
+                'suggestions.*.reason',
+                'suggestions.*.trigger_event',
+                'suggestions.*.weekly_count',
+                'email_sender_ready',
+            ]) as typeof result
+            return filtered
         },
     })
 
@@ -731,6 +839,9 @@ const workflowsVersionStats = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'broadcasts-create': broadcastsCreate,
     'workflows-create': workflowsCreate,
+    'workflows-data-suggestions-create': workflowsDataSuggestionsCreate,
+    'workflows-data-suggestions-get': workflowsDataSuggestionsGet,
+    'workflows-data-suggestions-list': workflowsDataSuggestionsList,
     'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-get': workflowsGet,
     'workflows-get-invocation': workflowsGetInvocation,
