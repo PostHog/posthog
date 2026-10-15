@@ -1,14 +1,15 @@
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import unquote
 
 import pytest
+import time_machine
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cosmosdb.cosmosdb import (
@@ -28,6 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 # A syntactically valid 64-byte key, as the Azure portal issues them (the value itself is made up).
 ACCOUNT_KEY = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU2Nzg5YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXowMTIzNDU2Nzg5"
 ENDPOINT = "https://unit-test.documents.azure.com"
+# Each run reads documents written before now minus five minutes.
+NOW = datetime(2023, 11, 14, 22, 18, 20, tzinfo=UTC)
+CEILING = 1700000000
 COLLECTION = {"id": "orders", "partitionKey": {"paths": ["/tenantId"], "kind": "Hash"}}
 
 
@@ -87,23 +91,36 @@ class TestPartitionKeyValue:
     @pytest.mark.parametrize(
         ("document", "paths", "expected"),
         [
-            ({"tenantId": "t-1"}, ("/tenantId",), "t-1"),
+            ({"tenantId": "t-1"}, ("/tenantId",), '"t-1"'),
+            ({"tenantId": "1"}, ("/tenantId",), '"1"'),
             ({"tenantId": 1}, ("/tenantId",), "1"),
             ({"tenantId": True}, ("/tenantId",), "true"),
             ({"tenantId": None}, ("/tenantId",), "null"),
+            ({"tenantId": ""}, ("/tenantId",), '""'),
             ({"id": "x"}, ("/tenantId",), ""),
-            ({"address": {"city": "Oslo"}}, ("/address/city",), "Oslo"),
+            ({"address": {"city": "Oslo"}}, ("/address/city",), '"Oslo"'),
             ({"address": "flat"}, ("/address/city",), ""),
-            ({"tenantId": "t-1", "region": "eu"}, ("/tenantId", "/region"), '["t-1", "eu"]'),
-            ({"tenantId": "t-1"}, ("/tenantId", "/region"), '["t-1", null]'),
+            ({"tenantId": "t-1", "region": "eu"}, ("/tenantId", "/region"), '["\\"t-1\\"","\\"eu\\""]'),
+            ({"tenantId": "t-1"}, ("/tenantId", "/region"), '["\\"t-1\\"",""]'),
+            ({"tenantId": "t-1", "region": None}, ("/tenantId", "/region"), '["\\"t-1\\"","null"]'),
             ({"id": "x"}, (), ""),
         ],
     )
     def test_resolves_the_path_to_one_string(self, document: dict[str, Any], paths: tuple[str, ...], expected: str):
         assert partition_key_value(document, paths) == expected
 
+    def test_keys_that_differ_in_type_or_presence_stay_distinct(self) -> None:
+        documents: list[dict[str, Any]] = [{"k": "1"}, {"k": 1}, {"k": ""}, {"k": None}, {}, {"k": True}, {"k": "true"}]
+
+        assert len({partition_key_value(document, ("/k",)) for document in documents}) == len(documents)
+
 
 class TestQueryDocuments:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel(NOW, tick=False):
+            yield
+
     def test_walks_continuation_tokens_and_stages_each_before_its_page(self) -> None:
         result = _driver().run(
             "orders",
@@ -119,10 +136,10 @@ class TestQueryDocuments:
         assert result.paths == ["/dbs/shop/colls/orders"] + ["/dbs/shop/colls/orders/docs"] * 3
         assert [request.headers.get("x-ms-continuation") for request in result.requests[1:]] == [None, "tok-2", "tok-3"]
         assert [row["id"] for row in result.rows] == ["1", "2", "3"]
-        assert [row["_partition_key"] for row in result.rows] == ["a", "b", "a"]
+        assert [row["_partition_key"] for row in result.rows] == ['"a"', '"b"', '"a"']
         assert result.saved_states == [
-            CosmosDBResumeConfig(continuation="tok-2", ts_floor=None),
-            CosmosDBResumeConfig(continuation="tok-3", ts_floor=None),
+            CosmosDBResumeConfig(continuation="tok-2", ts_floor=None, ts_ceiling=CEILING),
+            CosmosDBResumeConfig(continuation="tok-3", ts_floor=None, ts_ceiling=CEILING),
         ]
         assert result.committed_states == result.saved_states
         assert result.completed_state is None
@@ -130,33 +147,33 @@ class TestQueryDocuments:
     @pytest.mark.parametrize(
         ("inputs", "expected_query", "expected_parameters"),
         [
-            ({}, "SELECT * FROM c", []),
+            ({}, "SELECT * FROM c WHERE c._ts < @ceiling", [{"name": "@ceiling", "value": CEILING}]),
             (
-                {"incremental_field": "_ts", "db_incremental_field_last_value": 1700000000},
-                "SELECT * FROM c WHERE c._ts >= @ts",
-                [{"name": "@ts", "value": 1700000000}],
+                {"incremental_field": "_ts", "db_incremental_field_last_value": 1699990000},
+                "SELECT * FROM c WHERE c._ts >= @floor AND c._ts < @ceiling",
+                [{"name": "@floor", "value": 1699990000}, {"name": "@ceiling", "value": CEILING}],
             ),
             (
-                {"incremental_field": "_ts", "db_incremental_field_last_value": "1700000000"},
-                "SELECT * FROM c WHERE c._ts >= @ts",
-                [{"name": "@ts", "value": 1700000000}],
+                {"incremental_field": "_ts", "db_incremental_field_last_value": "1699990000"},
+                "SELECT * FROM c WHERE c._ts >= @floor AND c._ts < @ceiling",
+                [{"name": "@floor", "value": 1699990000}, {"name": "@ceiling", "value": CEILING}],
             ),
             (
                 {
                     "incremental_field": "_ts",
-                    "db_incremental_field_last_value": datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC),
+                    "db_incremental_field_last_value": datetime(2023, 11, 14, 19, 26, 40, tzinfo=UTC),
                 },
-                "SELECT * FROM c WHERE c._ts >= @ts",
-                [{"name": "@ts", "value": 1700000000}],
+                "SELECT * FROM c WHERE c._ts >= @floor AND c._ts < @ceiling",
+                [{"name": "@floor", "value": 1699990000}, {"name": "@ceiling", "value": CEILING}],
             ),
             (
                 {
                     "incremental_field": "_ts",
                     "should_use_incremental_field": False,
-                    "db_incremental_field_last_value": 1700000000,
+                    "db_incremental_field_last_value": 1699990000,
                 },
-                "SELECT * FROM c",
-                [],
+                "SELECT * FROM c WHERE c._ts < @ceiling",
+                [{"name": "@ceiling", "value": CEILING}],
             ),
         ],
     )
@@ -176,7 +193,7 @@ class TestQueryDocuments:
         result = _driver().run(
             "orders",
             [_collection(), _page([{"id": "9", "tenantId": "a", "_ts": 50}])],
-            resume_state=CosmosDBResumeConfig(continuation="tok-7", ts_floor=40),
+            resume_state=CosmosDBResumeConfig(continuation="tok-7", ts_floor=40, ts_ceiling=90),
             incremental_field="_ts",
             db_incremental_field_last_value=45,
         )
@@ -184,7 +201,10 @@ class TestQueryDocuments:
         assert result.raised is None
         query_request = result.requests[1]
         assert query_request.headers["x-ms-continuation"] == "tok-7"
-        assert query_request.json()["parameters"] == [{"name": "@ts", "value": 40}]
+        assert query_request.json()["parameters"] == [
+            {"name": "@floor", "value": 40},
+            {"name": "@ceiling", "value": 90},
+        ]
 
     def test_empty_pages_with_a_token_keep_walking(self) -> None:
         result = _driver().run(
@@ -218,13 +238,17 @@ class TestQueryDocuments:
         assert len(result.requests) == 4
         assert [row["id"] for row in result.rows] == ["1"]
 
-    def test_throttle_that_outlives_the_budget_raises_a_retryable_error(self) -> None:
-        result = _driver().run(
-            "orders",
-            always(ScriptedResponse(status=429, json={"code": "TooManyRequests"}, headers={"Retry-After": "86400"})),
-        )
+    def test_retries_stop_before_a_full_attempt_would_overrun_five_minutes(self) -> None:
+        unavailable = ScriptedResponse(status=503, json={"code": "ServiceUnavailable"}, headers={"Retry-After": "60"})
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            return _collection() if request.path == "/dbs/shop/colls/orders" else unavailable
+
+        result = _driver().run("orders", respond)
 
         assert isinstance(result.raised, CosmosDBRetryableError)
+        # Waits of 60 s at 0 s and 60 s still leave room for a full 150 s attempt; a third does not.
+        assert len(result.requests) == 1 + 3
 
     def test_bad_key_surfaces_the_vendor_error(self) -> None:
         result = _driver().run(

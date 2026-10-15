@@ -1,5 +1,6 @@
 import hmac
 import json
+import time
 import base64
 import hashlib
 import binascii
@@ -30,10 +31,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cosmosdb.s
 )
 
 REQUEST_TIMEOUT_SECONDS = (30, 120)
-# Five attempts with the wait capped at a minute keeps one request under the five-minute hold the
-# source contract allows, whatever `x-ms-retry-after-ms` asks for.
 MAX_RETRY_ATTEMPTS = 5
 MAX_BACKOFF_SECONDS = 60.0
+# One request with its retries and waits holds the worker for five minutes at most (the source
+# contract), so a retry only starts when a full-length attempt still fits in the budget.
+RETRY_BUDGET_SECONDS = 300.0
+MAX_REQUEST_SECONDS = float(sum(REQUEST_TIMEOUT_SECONDS))
+# A run reads only documents written before this long ago. Rows arrive unordered across
+# partitions, so without a ceiling a write that lands during the run in an already-read partition
+# would sit below the watermark the run promotes and never sync. The margin also covers clock skew
+# and replication lag.
+TS_CEILING_MARGIN_SECONDS = 5 * 60
 INVALID_KEY_MESSAGE = "Azure Cosmos DB account key is not valid base64"
 
 
@@ -49,6 +57,7 @@ class CosmosDBResumeConfig:
     # watermark the query was built with travels with the token.
     continuation: str | None = None
     ts_floor: int | None = None
+    ts_ceiling: int | None = None
 
 
 @frozen
@@ -167,6 +176,7 @@ class CosmosDBClient:
     ) -> requests.Response:
         url = f"{self._base_url}/{path}"
         attempt = 0
+        started = time.monotonic()
 
         while True:
             date = format_datetime(datetime.now(UTC), usegmt=True)
@@ -183,11 +193,12 @@ class CosmosDBClient:
 
             if response.status_code == 429 or response.status_code >= 500:
                 attempt += 1
-                if attempt >= MAX_RETRY_ATTEMPTS:
+                delay = _backoff_seconds(response, attempt)
+                elapsed = time.monotonic() - started
+                if attempt >= MAX_RETRY_ATTEMPTS or elapsed + delay + MAX_REQUEST_SECONDS > RETRY_BUDGET_SECONDS:
                     raise CosmosDBRetryableError(
                         f"Azure Cosmos DB error (retryable): status={response.status_code}, path={path}"
                     )
-                delay = _backoff_seconds(response, attempt)
                 self._logger.debug(
                     f"Azure Cosmos DB throttled: status={response.status_code}, sleeping {delay}s (attempt {attempt})"
                 )
@@ -265,22 +276,24 @@ def _resolve_path(document: dict[str, Any], path: str) -> Any:
     return value
 
 
-def partition_key_value(document: dict[str, Any], paths: tuple[str, ...]) -> str:
-    """The document's partition key as one string column.
+def _encode_partition_key_part(value: Any) -> str:
+    # JSON keeps types apart (`"1"` vs `1`), and JSON never encodes to "", so "" is free to mean
+    # Cosmos's undefined partition (no value at the path).
+    return "" if value is _MISSING else json.dumps(value, separators=(",", ":"), sort_keys=True)
 
-    A string key stays as is; a number, bool or null is JSON-encoded so `1` and `true` stay
-    distinct; a document with no value at the path (Cosmos's "undefined" partition) gets "".
-    Hierarchical keys are JSON-encoded as the list of their parts.
+
+def partition_key_value(document: dict[str, Any], paths: tuple[str, ...]) -> str:
+    """The document's partition key as one string column that is distinct for distinct keys.
+
+    A single key is its JSON encoding, or "" when the document has no value at the path. A
+    hierarchical key is the JSON list of its encoded parts.
     """
-    values = [_resolve_path(document, path) for path in paths]
-    if not values:
+    parts = [_encode_partition_key_part(_resolve_path(document, path)) for path in paths]
+    if not parts:
         return ""
-    if len(values) == 1:
-        value = values[0]
-        if value is _MISSING:
-            return ""
-        return value if isinstance(value, str) else json.dumps(value)
-    return json.dumps([None if value is _MISSING else value for value in values])
+    if len(parts) == 1:
+        return parts[0]
+    return json.dumps(parts, separators=(",", ":"))
 
 
 def shape_document(document: dict[str, Any], paths: tuple[str, ...]) -> dict[str, Any]:
@@ -306,13 +319,20 @@ def to_epoch_seconds(value: Any) -> int | None:
         raise ValueError(f"Azure Cosmos DB incremental value is not an epoch timestamp: {value!r}")
 
 
-def build_query(ts_floor: int | None) -> tuple[str, list[dict[str, Any]]]:
+def build_query(ts_floor: int | None, ts_ceiling: int | None) -> tuple[str, list[dict[str, Any]]]:
     # No ORDER BY: the REST gateway refuses a cross-partition ORDER BY (the SDKs plan it client-side),
     # so rows arrive in partition order. `>=` re-reads the watermark second, because writes that
     # landed in it after the last sync read it would otherwise be skipped; merge dedupes the overlap.
-    if ts_floor is None:
-        return "SELECT * FROM c", []
-    return f"SELECT * FROM c WHERE c.{TIMESTAMP_FIELD} >= @ts", [{"name": "@ts", "value": ts_floor}]
+    conditions: list[str] = []
+    parameters: list[dict[str, Any]] = []
+    if ts_floor is not None:
+        conditions.append(f"c.{TIMESTAMP_FIELD} >= @floor")
+        parameters.append({"name": "@floor", "value": ts_floor})
+    if ts_ceiling is not None:
+        conditions.append(f"c.{TIMESTAMP_FIELD} < @ceiling")
+        parameters.append({"name": "@ceiling", "value": ts_ceiling})
+    where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+    return f"SELECT * FROM c{where}", parameters
 
 
 def validate_credentials(endpoint: str, key: str, database: str, api_version: str) -> tuple[bool, Optional[str]]:
@@ -362,18 +382,22 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     continuation: str | None = None
+    ts_ceiling = int(time.time()) - TS_CEILING_MARGIN_SECONDS
     if resume is not None and resume.continuation:
         continuation = resume.continuation
         ts_floor = resume.ts_floor
+        ts_ceiling = resume.ts_ceiling if resume.ts_ceiling is not None else ts_ceiling
         logger.debug(f"Azure Cosmos DB: resuming {collection.id} from a saved continuation token")
 
-    query, parameters = build_query(ts_floor)
+    query, parameters = build_query(ts_floor, ts_ceiling)
 
     while True:
         documents, continuation = client.query_page(database, collection.id, query, parameters, continuation)
         if continuation:
             # Staged before the yield it covers: the pipeline commits it once this page is written.
-            resumable_source_manager.save_state(CosmosDBResumeConfig(continuation=continuation, ts_floor=ts_floor))
+            resumable_source_manager.save_state(
+                CosmosDBResumeConfig(continuation=continuation, ts_floor=ts_floor, ts_ceiling=ts_ceiling)
+            )
         rows = [shape_document(document, collection.partition_key_paths) for document in documents]
         if rows:
             yield rows

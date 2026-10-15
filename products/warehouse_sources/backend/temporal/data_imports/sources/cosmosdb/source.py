@@ -138,7 +138,8 @@ Enter the account endpoint (`https://<account>.documents.azure.com`), a read-onl
             SourceSchema(
                 name=collection.id,
                 supports_incremental=True,
-                supports_append=True,
+                # The `>=` watermark re-reads its boundary second, which only merge dedupes.
+                supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS,
             )
             for collection in client.list_collections(config.database)
