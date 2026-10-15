@@ -178,6 +178,9 @@ Use a **user API key** from **Account settings > API keys** in Blueshift. Pick t
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback
+            if inputs.should_use_incremental_field
+            else None,
             # A full refresh rebuilds the table, so it starts from the backfill and keeps no cursor.
             cursor_manager=self.get_cursor_manager(inputs)
             if inputs.schema_name == "campaign_stats" and inputs.should_use_incremental_field

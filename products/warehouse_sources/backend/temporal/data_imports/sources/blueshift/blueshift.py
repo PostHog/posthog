@@ -117,6 +117,7 @@ def _campaign_stats_rows(
     resumable_source_manager: ResumableSourceManager[BlueshiftResumeConfig],
     db_incremental_field_last_value: Optional[Any],
     cursor_manager: Optional[SourceCursorManager[BlueshiftStatsCursor]],
+    db_incremental_field_last_value_before_lookback: Optional[Any] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     """Yield the per-campaign performance summary for each UTC day, oldest first, through today."""
     config = BLUESHIFT_ENDPOINTS["campaign_stats"]
@@ -129,10 +130,14 @@ def _campaign_stats_rows(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     stored = cursor_manager.load() if cursor_manager is not None else None
     last_value = parse_datetime_value(db_incremental_field_last_value)
+    # The pipeline moves the watermark back by the schema's lookback. The cursor moves back by the
+    # same amount, so a lookback still reads earlier days again.
+    before_lookback = parse_datetime_value(db_incremental_field_last_value_before_lookback)
+    lookback = max(before_lookback - last_value, timedelta(0)) if before_lookback and last_value else timedelta(0)
     # The watermark day and the cursor day were still in progress when the last sync read them,
     # so the walk reads them again.
     known_starts = [
-        *([date.fromisoformat(stored.next_date)] if stored is not None else []),
+        *([(datetime.combine(date.fromisoformat(stored.next_date), time.min) - lookback).date()] if stored else []),
         *([last_value.date()] if last_value is not None else []),
     ]
     if resume is not None and resume.next_date is not None:
@@ -182,6 +187,7 @@ def blueshift_source(
     resumable_source_manager: ResumableSourceManager[BlueshiftResumeConfig],
     db_incremental_field_last_value: Optional[Any],
     cursor_manager: Optional[SourceCursorManager[BlueshiftStatsCursor]] = None,
+    db_incremental_field_last_value_before_lookback: Optional[Any] = None,
 ) -> SourceResponse:
     config = BLUESHIFT_ENDPOINTS[endpoint]
 
@@ -189,7 +195,12 @@ def blueshift_source(
         return _source_response(
             config,
             lambda: _campaign_stats_rows(
-                region, api_key, resumable_source_manager, db_incremental_field_last_value, cursor_manager
+                region,
+                api_key,
+                resumable_source_manager,
+                db_incremental_field_last_value,
+                cursor_manager,
+                db_incremental_field_last_value_before_lookback,
             ),
         )
 

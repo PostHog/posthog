@@ -139,8 +139,23 @@ class TestBlueshiftCampaignStats:
         assert "2026-10-14" not in {row["date"] for row in result.rows}
         assert result.committed_states[-1] == BlueshiftResumeConfig(next_date="2026-10-15")
 
+    @parameterized.expand(
+        [
+            ("quiet_account_reads_only_from_the_cursor", {}, "2026-10-14"),
+            (
+                "lookback_moves_the_cursor_back",
+                {
+                    "db_incremental_field_last_value": date(2026, 10, 3),
+                    "db_incremental_field_last_value_before_lookback": date(2026, 10, 10),
+                },
+                "2026-10-07",
+            ),
+        ]
+    )
     @time_machine.travel(NOW, tick=False)
-    def test_quiet_account_starts_from_the_stored_cursor_and_advances_it(self) -> None:
+    def test_starts_from_the_stored_cursor_and_advances_it(
+        self, _name: str, inputs: dict[str, Any], first_day: str
+    ) -> None:
         source = BlueshiftSource()
         cursor = SourceCursorManager(BlueshiftStatsCursor, BlueshiftStatsCursor(next_date="2026-10-14"), source)
         result = SourceDriver(source, BlueshiftSourceConfig(api_key=API_KEY, region="us")).run(
@@ -148,10 +163,12 @@ class TestBlueshiftCampaignStats:
             always(ScriptedResponse(json={"campaigns": []})),
             incremental_field="date",
             source_cursor=cursor,
+            **inputs,
         )
 
         assert result.raised is None
-        assert result.params("start_time") == ["2026-10-14T00:00:00.000Z", "2026-10-15T00:00:00.000Z"]
+        assert result.params("start_time")[0] == f"{first_day}T00:00:00.000Z"
+        assert result.params("start_time")[-1] == "2026-10-15T00:00:00.000Z"
         assert cursor.staged == BlueshiftStatsCursor(next_date="2026-10-15")
 
     @time_machine.travel(NOW, tick=False)
