@@ -853,6 +853,14 @@ class TestSplitTextForSlack(unittest.TestCase):
         # Plain text, no fences since the available body room is below fence overhead.
         assert all("```" not in chunk for chunk in chunks)
 
+        # Short fences can still amplify chunk count when a small caller limit leaves
+        # too little body capacity: the old path emitted 55 chunks for these 5,000 chars.
+        small_limit = 100
+        plain_body_chunks = _split_markdown_for_slack(f"```\n{'y' * 5000}\n```", small_limit)
+        assert len(plain_body_chunks) == 50
+        assert all(len(chunk) <= small_limit for chunk in plain_body_chunks)
+        assert all("```" not in chunk for chunk in plain_body_chunks)
+
     def test_mixed_text_and_code_block_preserves_block(self):
         prefix = "intro paragraph\n\n"
         suffix = "\n\ntrailing paragraph"

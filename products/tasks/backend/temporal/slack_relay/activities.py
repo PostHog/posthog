@@ -55,6 +55,7 @@ def _append_unconfirmed_attachment_notice(
 
 
 _FENCED_CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)\n```")
+_MIN_FENCED_CODE_BODY_CAPACITY = 100
 
 
 class _SlackChunkPacker:
@@ -124,9 +125,9 @@ class _SlackChunkPacker:
         """
         overhead = len(fence_open) + len(fence_close)
         room = self._limit - overhead
-        if room < overhead:
-            # Repeating fences that cost more than the body would amplify a long
-            # language label. Plain-text packing keeps output growth bounded.
+        if room < max(overhead, _MIN_FENCED_CODE_BODY_CAPACITY):
+            # Too little body room amplifies the number of chunks even when the fence itself
+            # is short. Plain-text packing keeps output growth bounded.
             self._pack_lines(body)
             return
         cursor = 0
