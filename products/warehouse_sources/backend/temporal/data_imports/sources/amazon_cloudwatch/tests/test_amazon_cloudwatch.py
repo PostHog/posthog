@@ -153,6 +153,14 @@ class TestLogEvents:
         )
         assert result.saved_states[0] == first_cursor
         assert result.committed_states[0] == first_cursor
+        # The last page of a group stages the next group, so a handoff there does not reread the group.
+        assert result.saved_states[2] == AmazonCloudWatchResumeConfig(
+            slice_key="/aws/lambda/two",
+            next_token=None,
+            window_start="2024-03-08T00:00:00+00:00",
+            window_end="2024-03-10T12:00:00+00:00",
+        )
+        assert result.saved_states[3].slice_key == "__complete__"
         assert result.final_state is None
         # Events arrive per log group, so the watermark may only move once the whole run completes.
         assert result.response is not None and result.response.sort_mode == "desc"
@@ -168,6 +176,21 @@ class TestLogEvents:
         assert [(r.json()["logGroupName"], r.json().get("nextToken")) for r in result.requests] == [
             ("/aws/lambda/two", "p9")
         ]
+
+    def test_a_cursor_staged_after_the_last_page_ends_the_run_without_a_request(self) -> None:
+        result = driver().run(
+            "log_events",
+            by_origin(),
+            resume_state=AmazonCloudWatchResumeConfig(
+                slice_key="__complete__",
+                window_start="2024-03-08T00:00:00+00:00",
+                window_end="2024-03-10T12:00:00+00:00",
+            ),
+        )
+
+        assert result.raised is None
+        assert result.requests == []
+        assert result.final_state is None
 
     def test_a_saved_log_group_no_longer_configured_restarts_from_the_first_group(self) -> None:
         result = driver().run(
@@ -409,6 +432,12 @@ class TestMetricData:
                 "InternalError",
                 "Amazon CloudWatch request failed: MetricQueryInternalError - metric query 'cpu': Access denied",
             ),
+            # Partial data with no continuation token cannot be completed, so the run must not end as a success.
+            (
+                "PartialData",
+                "Amazon CloudWatch request failed: MetricQueryPartialData - metric query 'cpu' returned more "
+                "datapoints than one response holds",
+            ),
         ],
     )
     def test_a_query_failing_inside_a_successful_response_fails_the_run(self, status: str, message: str) -> None:
@@ -555,19 +584,22 @@ class TestParseMetricQueries:
     @pytest.mark.parametrize(
         ("raw", "message"),
         [
-            ("not json", "Metric queries must be valid JSON"),
-            ('{"id": "a"}', "Metric query 1 needs a namespace and a metric_name"),
-            ('[{"id": "a", "expression": "x"}, {"id": "a", "expression": "y"}]', "Metric query ids must be unique"),
-            ("[1]", "Metric queries must be a JSON list"),
+            ("not json", "Invalid metric queries: not valid JSON"),
+            ('{"id": "a"}', "Invalid metric queries: query 1 needs a namespace and a metric_name"),
+            (
+                '[{"id": "a", "expression": "x"}, {"id": "a", "expression": "y"}]',
+                "Invalid metric queries: the id 'a' is used twice",
+            ),
+            ("[1]", "Invalid metric queries: expected a JSON list"),
             (
                 '[{"namespace": "AWS/EC2", "metric_name": "CPU", "dimensions": [1]}]',
-                "Metric query 1 has a dimension without a name and a value",
+                "Invalid metric queries: query 1 has a dimension without a name and a value",
             ),
             (
                 '[{"namespace": "AWS/EC2", "metric_name": "CPU", "period": "five"}]',
-                "Metric query 1 has a period that is not a whole number",
+                "Invalid metric queries: query 1 has a period that is not a whole number",
             ),
-            ('[{"Id": "q1", "MetricStat": "invalid"}]', "Metric queries do not match the CloudWatch API"),
+            ('[{"Id": "q1", "MetricStat": "invalid"}]', "Invalid metric queries: they do not match the CloudWatch API"),
         ],
     )
     def test_bad_queries_raise_a_message_for_the_wizard(self, raw: str, message: str) -> None:
@@ -583,7 +615,7 @@ class TestValidateCredentials:
             ({"aws_region": "mars"}, "Enter an AWS region code, for example us-east-1."),
             (
                 {"metric_queries": "{"},
-                "Metric queries must be valid JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+                "Invalid metric queries: not valid JSON (Expecting property name enclosed in double quotes: line 1 column 2 (char 1)).",
             ),
         ],
     )

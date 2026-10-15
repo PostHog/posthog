@@ -9,9 +9,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_cloudwatch.amazon_cloudwatch import (
+    INVALID_METRIC_QUERIES,
     INVALID_REQUEST_ERROR_CODES,
     METRIC_QUERY_FORBIDDEN,
     METRIC_QUERY_INTERNAL_ERROR,
+    METRIC_QUERY_PARTIAL_DATA,
     THROTTLING_ERROR_CODES,
     VALIDATION_ERROR_MESSAGES,
     AmazonCloudWatchResumeConfig,
@@ -19,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_clo
     validate_credentials as validate_amazon_cloudwatch_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_cloudwatch.settings import (
+    AMAZON_CLOUDWATCH_ENDPOINTS,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -73,11 +76,11 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
         errors["Amazon CloudWatch request failed: ResourceNotFoundException"] = (
             "A configured log group does not exist in this region. Check the log group names on the source."
         )
-        errors["Metric queries must"] = "The metric queries on the source are not valid. Fix them and retry the sync."
-        errors["Metric queries do not match"] = (
-            "The metric queries on the source are not valid. Fix them and retry the sync."
+        errors[INVALID_METRIC_QUERIES] = "The metric queries on the source are not valid. Fix them and retry the sync."
+        errors[f"Amazon CloudWatch request failed: {METRIC_QUERY_PARTIAL_DATA}"] = (
+            "A metric query returns more datapoints than CloudWatch sends in one response. Use a longer period, "
+            "or fewer metrics in the expression, then retry the sync."
         )
-        errors["Metric query"] = "The metric queries on the source are not valid. Fix them and retry the sync."
         for code in INVALID_REQUEST_ERROR_CODES:
             errors[f"Amazon CloudWatch request failed: {code}"] = (
                 "AWS rejected a request built from the source settings, usually a metric query. "
@@ -115,7 +118,17 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=ENDPOINT_DESCRIPTIONS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions=ENDPOINT_DESCRIPTIONS,
+            default_incremental_lookback_seconds={
+                name: config.incremental_lookback_seconds
+                for name, config in AMAZON_CLOUDWATCH_ENDPOINTS.items()
+                if config.incremental_lookback_seconds is not None
+            },
+        )
 
     def validate_credentials(
         self,

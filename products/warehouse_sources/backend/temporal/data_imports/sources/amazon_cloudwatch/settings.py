@@ -38,6 +38,9 @@ class CloudWatchEndpointConfig:
     window_days: int | None = None
     partition_key: str | None = None
     partition_format: Literal["month", "week", "day", "hour"] | None = None
+    # Seconds an incremental run re-reads behind its watermark, for rows that arrive late. The
+    # merge key drops the rows read twice.
+    incremental_lookback_seconds: int | None = None
     # Whether rows arrive in ascending timestamp order across the whole run. Log events are read
     # per log group and metric values per query, so neither is globally ordered.
     sorted_ascending: bool = False
@@ -56,6 +59,8 @@ AMAZON_CLOUDWATCH_ENDPOINTS: dict[str, CloudWatchEndpointConfig] = {
         operation="FilterLogEvents",
         primary_key=["log_group_name", "event_id"],
         lookback_days=7,
+        # CloudWatch Logs accepts events stamped in the past, and filters on that event time.
+        incremental_lookback_seconds=3600,
         partition_key="timestamp",
         partition_format="day",
     ),
@@ -85,6 +90,8 @@ AMAZON_CLOUDWATCH_ENDPOINTS: dict[str, CloudWatchEndpointConfig] = {
         # One-minute datapoints are kept for 15 days; older reads come back at 5-minute resolution.
         lookback_days=14,
         window_days=14,
+        # Recent datapoints are still being aggregated, and some services publish minutes late.
+        incremental_lookback_seconds=3600,
         partition_key="timestamp",
         partition_format="day",
     ),

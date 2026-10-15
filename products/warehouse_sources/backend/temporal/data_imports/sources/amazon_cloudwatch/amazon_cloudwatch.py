@@ -80,6 +80,10 @@ class AmazonCloudWatchThrottledError(AmazonCloudWatchError):
 
 
 METRIC_QUERY_FORBIDDEN = "MetricQueryForbidden"
+METRIC_QUERY_PARTIAL_DATA = "MetricQueryPartialData"
+INVALID_METRIC_QUERIES = "Invalid metric queries"
+# The cursor a slice's last page stages when no slice follows it, so a resumed attempt knows the run is done.
+COMPLETED_SLICE = "__complete__"
 METRIC_QUERY_INTERNAL_ERROR = "MetricQueryInternalError"
 INVALID_REQUEST_ERROR_CODES = frozenset(
     {"InvalidParameterValue", "InvalidParameterCombination", "MissingParameter", "InvalidParameterException"}
@@ -176,11 +180,11 @@ def parse_metric_queries(raw: Optional[str]) -> list[dict[str, Any]]:
     try:
         parsed = json.loads(raw)
     except ValueError as error:
-        raise ValueError(f"Metric queries must be valid JSON: {error}") from error
+        raise ValueError(f"{INVALID_METRIC_QUERIES}: not valid JSON ({error}).") from error
     if isinstance(parsed, dict):
         parsed = [parsed]
     if not isinstance(parsed, list) or not all(isinstance(item, dict) for item in parsed):
-        raise ValueError("Metric queries must be a JSON list of query objects.")
+        raise ValueError(f"{INVALID_METRIC_QUERIES}: expected a JSON list of query objects.")
 
     queries: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -192,7 +196,7 @@ def parse_metric_queries(raw: Optional[str]) -> list[dict[str, Any]]:
             query = _metric_query_from_flat(item, index)
         query_id = str(query["Id"])
         if query_id in seen:
-            raise ValueError(f"Metric query ids must be unique: '{query_id}' is used twice.")
+            raise ValueError(f"{INVALID_METRIC_QUERIES}: the id '{query_id}' is used twice.")
         seen.add(query_id)
         query.setdefault("ReturnData", True)
         queries.append(query)
@@ -208,7 +212,7 @@ def parse_metric_queries(raw: Optional[str]) -> list[dict[str, Any]]:
         input_shape,
     )
     if report.has_errors():
-        raise ValueError(f"Metric queries do not match the CloudWatch API: {report.generate_report()}")
+        raise ValueError(f"{INVALID_METRIC_QUERIES}: they do not match the CloudWatch API. {report.generate_report()}")
     return queries
 
 
@@ -218,7 +222,9 @@ def _period(value: Any, index: int, default: Optional[int]) -> Optional[int]:
     try:
         return int(value)
     except (TypeError, ValueError) as error:
-        raise ValueError(f"Metric query {index} has a period that is not a whole number of seconds.") from error
+        raise ValueError(
+            f"{INVALID_METRIC_QUERIES}: query {index} has a period that is not a whole number of seconds."
+        ) from error
 
 
 def _metric_query_from_flat(item: dict[str, Any], index: int) -> dict[str, Any]:
@@ -232,7 +238,9 @@ def _metric_query_from_flat(item: dict[str, Any], index: int) -> dict[str, Any]:
         namespace = item.get("namespace")
         metric_name = item.get("metric_name") or item.get("metricName")
         if not namespace or not metric_name:
-            raise ValueError(f"Metric query {index} needs a namespace and a metric_name (or an expression).")
+            raise ValueError(
+                f"{INVALID_METRIC_QUERIES}: query {index} needs a namespace and a metric_name, or an expression."
+            )
         dimension_list = _dimensions(item.get("dimensions") or {}, index)
         metric: dict[str, Any] = {"Namespace": namespace, "MetricName": metric_name}
         if dimension_list:
@@ -256,13 +264,15 @@ def _dimensions(dimensions: Any, index: int) -> list[dict[str, str]]:
     if isinstance(dimensions, dict):
         return [{"Name": str(name), "Value": str(value)} for name, value in dimensions.items()]
     if not isinstance(dimensions, list):
-        raise ValueError(f"Metric query {index} needs dimensions as an object or a list of name and value pairs.")
+        raise ValueError(
+            f"{INVALID_METRIC_QUERIES}: query {index} needs dimensions as an object or a list of name and value pairs."
+        )
     dimension_list: list[dict[str, str]] = []
     for dimension in dimensions:
         name = dimension.get("name") or dimension.get("Name") if isinstance(dimension, dict) else None
         value = dimension.get("value") or dimension.get("Value") if isinstance(dimension, dict) else None
         if not name or value is None:
-            raise ValueError(f"Metric query {index} has a dimension without a name and a value.")
+            raise ValueError(f"{INVALID_METRIC_QUERIES}: query {index} has a dimension without a name and a value.")
         dimension_list.append({"Name": str(name), "Value": str(value)})
     return dimension_list
 
@@ -537,9 +547,17 @@ def check_metric_results(body: dict[str, Any]) -> None:
 
     `Forbidden` means the credentials cannot read that metric. `InternalError` is AWS's transient
     failure, retried with the attempt; the cursor of the page was not staged, so nothing is skipped.
+    `PartialData` with no continuation token means the query produced more datapoints than one
+    response holds, and the rest cannot be fetched.
     """
     for result in body.get("MetricDataResults") or []:
         status = result.get("StatusCode")
+        if status == "PartialData" and not body.get("NextToken"):
+            raise AmazonCloudWatchError(
+                f"Amazon CloudWatch request failed: {METRIC_QUERY_PARTIAL_DATA} - metric query '{result.get('Id')}' "
+                "returned more datapoints than one response holds",
+                METRIC_QUERY_PARTIAL_DATA,
+            )
         if status not in ("Forbidden", "InternalError"):
             continue
         detail = "; ".join(str(message.get("Value") or message.get("Code")) for message in result.get("Messages") or [])
@@ -693,6 +711,10 @@ def get_rows(
         )
     slices = _slices(endpoint_config, client, parse_log_group_names(log_group_names), window)
 
+    if resume is not None and resume.slice_key == COMPLETED_SLICE:
+        resumable_source_manager.clear_state()
+        return
+
     index, next_token = 0, None
     if resume is not None:
         # A saved slice that no longer exists (the window moved, a log group went away) restarts the run.
@@ -702,7 +724,9 @@ def get_rows(
                 logger.debug(f"Resuming Amazon CloudWatch sync. endpoint={endpoint}, slice={slice_key}")
                 break
 
-    for slice_key, log_group in slices[index:]:
+    for position in range(index, len(slices)):
+        slice_key, log_group = slices[position]
+        following_slice = slices[position + 1][0] if position + 1 < len(slices) else COMPLETED_SLICE
         while True:
             body = client.call(
                 endpoint_config.service,
@@ -714,10 +738,11 @@ def get_rows(
             rows = _rows(endpoint_config, log_group, body)
             next_token = _next_token(endpoint_config, body)
 
-            # Staged before the batch it covers: a crash after the write resumes at the next page.
+            # Staged before the batch it covers: a crash after the write resumes at the next page,
+            # or at the next slice once this one has no page left.
             resumable_source_manager.save_state(
                 AmazonCloudWatchResumeConfig(
-                    slice_key=slice_key,
+                    slice_key=slice_key if next_token else following_slice,
                     next_token=next_token,
                     window_start=window.start.isoformat(),
                     window_end=window.end.isoformat(),
