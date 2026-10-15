@@ -858,7 +858,11 @@ export function MenuFilterCombobox({
 
     // `taxonomic filter empty result` — once per scope+query when a real search
     // returns nothing. `emptyState.body` marks the "type more" prompt, which is
-    // not an empty result.
+    // not an empty result. A failed fetch is a different outcome (`taxonomic filter
+    // fetch failed`, below), so `anyError` rules it out — and `anyFetching` holds off
+    // capturing until every group has actually reported in: on the first render of a
+    // query, nothing has reported loading yet, so `emptyState` briefly looks like a
+    // genuine empty result before the real outcome (success, empty, or error) is known.
     // `groupType` is `undefined` for the meta scopes (All/Recent/Pinned) because there's no single content group there
     // (legacy fires per-group).
     // Dedup mirrors legacy `lastEmptyResultDedupeKey`: remember only the most
@@ -867,7 +871,7 @@ export function MenuFilterCombobox({
     const lastEmptyResultKeyRef = useRef<string | null>(null)
     useEffect(() => {
         const trimmed = searchQuery.trim()
-        if (!emptyState || emptyState.body || !trimmed) {
+        if (!emptyState || emptyState.body || !trimmed || anyError || anyFetching) {
             return
         }
         const key = `${telemetryGroupType ?? 'all'}::${trimmed}`
@@ -880,17 +884,22 @@ export function MenuFilterCombobox({
             groupType: telemetryGroupType,
             searchQuery: trimmed,
         })
-    }, [emptyState, searchQuery, telemetryGroupType])
+    }, [emptyState, searchQuery, telemetryGroupType, anyError, anyFetching])
 
     // `taxonomic filter fetch failed` — once per scope+query while the visible list's request
     // keeps failing. Mirrors legacy `lastFetchFailedDedupeKey`: the key is only cleared once the
     // group settles without an error, so retries that fail again for the same query don't
     // recapture, but a later genuine failure for a new query does.
+    // Clearing on `!anyFetching` rather than `!isAnyLoading` matters: `isAnyLoading` depends on
+    // the fetch having no cached data yet, so a retry on a key that already holds older data (or
+    // a raw-query tag that hasn't caught up yet, e.g. a trailing-whitespace edit) reads as
+    // "settled" for one render even though the request hasn't actually finished. `anyFetching`
+    // treats that same stale tag as still busy, so the key survives the gap.
     const lastFetchFailedKeyRef = useRef<string | null>(null)
     useEffect(() => {
         const trimmed = searchQuery.trim()
         if (!anyError) {
-            if (!isAnyLoading) {
+            if (!anyFetching) {
                 lastFetchFailedKeyRef.current = null
             }
             return
@@ -905,7 +914,7 @@ export function MenuFilterCombobox({
             groupType: telemetryGroupType,
             searchQuery: trimmed,
         })
-    }, [anyError, isAnyLoading, searchQuery, telemetryGroupType])
+    }, [anyError, anyFetching, searchQuery, telemetryGroupType])
 
     // Offered in the empty state whenever an event/custom-event group is among
     // the visible targets (drilled Events/CustomEvents, or the merged All surface

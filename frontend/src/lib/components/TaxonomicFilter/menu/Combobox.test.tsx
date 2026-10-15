@@ -248,6 +248,11 @@ describe('MenuFilterCombobox', () => {
         expect(
             captureMock.mock.calls.filter(([event]: [string]) => event === 'taxonomic filter fetch failed')
         ).toHaveLength(1)
+        // A failed fetch is not a dead-end search — it must not also inflate the
+        // `taxonomic filter empty result` metric.
+        expect(
+            captureMock.mock.calls.filter(([event]: [string]) => event === 'taxonomic filter empty result')
+        ).toHaveLength(0)
 
         apiGet.mockImplementation((url: string) =>
             url.includes('search=fail')
@@ -260,6 +265,41 @@ describe('MenuFilterCombobox', () => {
         expect(screen.queryByTestId('menu-filter-error')).not.toBeInTheDocument()
         // The new query's own fetch never failed, so the dedup count must stay at the one
         // genuine failure — a stale report for "fail" must not recapture under "ok".
+        expect(
+            captureMock.mock.calls.filter(([event]: [string]) => event === 'taxonomic filter fetch failed')
+        ).toHaveLength(1)
+    })
+
+    it('does not recapture `taxonomic filter fetch failed` for a trailing-whitespace edit of the same failing query', async () => {
+        apiGet.mockImplementation((url: string) =>
+            url.includes('search=ab') ? Promise.reject(new Error('network error')) : emptyPaginated()
+        )
+        const tree = (q: string): JSX.Element => (
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    onChange={jest.fn()}
+                    searchQuery={q}
+                >
+                    <MenuFilterCombobox
+                        drillTo={TaxonomicFilterGroupType.Events}
+                        onCommit={jest.fn()}
+                        onBack={jest.fn()}
+                    />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+
+        const { rerender } = render(tree('ab'))
+        await waitFor(() => expect(screen.getByTestId('menu-filter-error')).toBeInTheDocument())
+        expect(
+            captureMock.mock.calls.filter(([event]: [string]) => event === 'taxonomic filter fetch failed')
+        ).toHaveLength(1)
+
+        // A trailing space is a different cache key (and a different raw query tag for one
+        // render) but the same trimmed query — it must not read as a fresh failure.
+        rerender(tree('ab '))
+        await waitFor(() => expect(screen.getByTestId('menu-filter-error')).toBeInTheDocument())
         expect(
             captureMock.mock.calls.filter(([event]: [string]) => event === 'taxonomic filter fetch failed')
         ).toHaveLength(1)
