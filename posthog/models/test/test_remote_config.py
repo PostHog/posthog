@@ -1,6 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from posthog.test.base import BaseTest
@@ -19,6 +19,7 @@ from posthog.models.remote_config import (
     REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
     RemoteConfig,
     RemoteConfigTokenChangeSyncError,
+    UnreadableTriggerGroupsError,
 )
 
 from products.actions.backend.models.action import Action
@@ -29,6 +30,13 @@ from products.surveys.backend.models import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 6
 SITE_HOG = "export function onEvent({ inputs }) { console.log(inputs) }"
+_READABLE_GROUP = {"id": "g1", "sampleRate": 1, "conditions": {"matchType": "any", "events": ["purchase"]}}
+_SENT_GROUP = {"id": "g1", "sampleRate": 1, "conditions": {"matchType": "any", "events": [{"name": "purchase"}]}}
+_FLAG_GROUP_WITH_NULL_EVENTS = {
+    "id": "g3",
+    "sampleRate": 1,
+    "conditions": {"matchType": "any", "events": None, "flag": "k"},
+}
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -342,6 +350,55 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert config is not None
         session_recording = config["sessionRecording"]
         assert session_recording["domains"] == self.team.recording_domains
+
+    @parameterized.expand(
+        [
+            ("group_not_an_object", {"version": 2, "groups": ["not-a-group", _READABLE_GROUP]}, [_SENT_GROUP], True),
+            (
+                "conditions_missing",
+                {"version": 2, "groups": [{"id": "g2", "sampleRate": 1}, _READABLE_GROUP]},
+                [_SENT_GROUP],
+                True,
+            ),
+            (
+                "events_null",
+                {"version": 2, "groups": [_FLAG_GROUP_WITH_NULL_EVENTS]},
+                [_FLAG_GROUP_WITH_NULL_EVENTS],
+                False,
+            ),
+            (
+                "events_not_a_list",
+                {"version": 2, "groups": [{"conditions": {"events": "purchase"}}, _READABLE_GROUP]},
+                [_SENT_GROUP],
+                True,
+            ),
+            ("groups_missing", {"version": 2}, [], False),
+            ("groups_all_unreadable", {"version": 2, "groups": [{"conditions": {"events": "purchase"}}]}, False, True),
+            ("column_not_an_object", ["not-a-config"], False, True),
+            ("groups_not_a_list", {"version": 2, "groups": None}, False, True),
+        ]
+    )
+    def test_session_recording_trigger_groups_send_only_readable_groups(
+        self,
+        _name: str,
+        stored: Any,
+        expected_trigger_groups: list[dict] | Literal[False],
+        expect_reported: bool,
+    ) -> None:
+        self.team.session_recording_trigger_groups = stored
+        with patch("posthog.models.remote_config.capture_exception") as mock_capture_exception:
+            self.team.save()
+            self.sync_remote_config()
+        reported = any(
+            isinstance(c.args[0], UnreadableTriggerGroupsError) for c in mock_capture_exception.call_args_list
+        )
+        assert reported == expect_reported
+        session_recording = self.remote_config.config["sessionRecording"]
+        if expected_trigger_groups is False:
+            assert session_recording is False
+        else:
+            assert session_recording["version"] == 2
+            assert session_recording["triggerGroups"] == expected_trigger_groups
 
     def test_extra_settings_recorder_script(self):
         self.team.session_recording_opt_in = True
