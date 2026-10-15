@@ -75,6 +75,7 @@ def search_scratchpad(
     team_id: int,
     text: str | None = None,
     key: str | None = None,
+    skill_name: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
@@ -99,6 +100,11 @@ def search_scratchpad(
     only way to fetch a known entry reliably. `text` can't stand in for it: an ILIKE
     across content *and* key means a key mentioned inside enough other bodies pushes the
     row you wanted past the limit.
+
+    `skill_name` keeps the entries one writer created, matched the same way `created_by_skill`
+    resolves: the creating run's skill, or the stored identity when no run is left. A per-scout
+    view needs this in SQL, because the newest rows across the fleet can fill the limit before
+    one scout's entries appear.
 
     `date_from` / `date_to` are a half-open window on `updated_at` (the entry's
     sort key) — `updated_at >= date_from` and `updated_at < date_to`. Pass `date_to`
@@ -127,6 +133,10 @@ def search_scratchpad(
         qs = qs.filter(key=key)
     if text:
         qs = qs.filter(Q(content__icontains=text) | Q(key__icontains=text))
+    if skill_name:
+        qs = qs.filter(
+            Q(created_by_run__skill_name=skill_name) | Q(created_by_run__isnull=True, created_by_identity=skill_name)
+        )
     if not include_expired:
         qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
     if date_from is not None:
