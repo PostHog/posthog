@@ -182,6 +182,7 @@ describe('metricsLogic', () => {
 
         submit(logic)
         await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setNewMetricForm({ name: 'edited_after_submit' })
 
         expect((dataCatalogMetricsCreate as jest.Mock).mock.calls[0][1].overwrite).toBe(false)
         expect(lemonToast.error).not.toHaveBeenCalled()
@@ -192,7 +193,10 @@ describe('metricsLogic', () => {
         onOverwrite()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect((dataCatalogMetricsCreate as jest.Mock).mock.calls[1][1].overwrite).toBe(true)
+        expect((dataCatalogMetricsCreate as jest.Mock).mock.calls[1][1]).toMatchObject({
+            name: 'weekly_active_users',
+            overwrite: true,
+        })
         expect(logic.values[modalOpenKey]).toEqual(false)
         expect(logic.values.allMetrics).toEqual([overwritten])
     })
@@ -212,7 +216,7 @@ describe('metricsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         const body = (dataCatalogMetricsCreate as jest.Mock).mock.calls.at(-1)?.[1]
-        expect(body.definition).toBeUndefined()
+        expect(body.definition).toBeNull()
         expect(router.values.location.pathname).toContain(urls.dataCatalogMetric('mrr'))
         expect(router.values.searchParams.edit).toEqual('definition')
     })

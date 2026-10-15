@@ -1944,7 +1944,7 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.metricPrefill).toBeNull()
         })
 
-        it('asks before it overwrites a taken name, and reopens the form with the typed values on cancel', async () => {
+        it('asks before it overwrites a taken name, and reopens the form with the typed values and query on dismiss', async () => {
             const createBodies: Record<string, any>[] = []
             useMocks({
                 post: {
@@ -1968,20 +1968,21 @@ describe('sqlEditorLogic', () => {
             const open = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
             const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
             mountEditor()
-            logic.actions.setQueryInput('SELECT count() FROM events')
+            logic.actions.setQueryInput('SELECT 1;\nSELECT 2;\nSELECT 3')
 
-            logic.actions.saveAsMetricSubmit(PREFILL)
+            logic.actions.saveAsMetricSubmit(PREFILL, 'SELECT 2')
             await expectLogic(logic).toFinishAllListeners()
 
             expect(createBodies.map((body) => body.overwrite)).toEqual([false])
             const dialog = open.mock.calls.at(-1)?.[0]
-            dialog?.secondaryButton?.onClick?.({} as any)
+            dialog?.onAfterClose?.()
             await expectLogic(logic).toFinishAllListeners()
-            expect(openForm.mock.calls.at(-1)?.[0].initialValues).toMatchObject(PREFILL)
+            expect(openForm.mock.calls.at(-1)?.[0].initialValues).toMatchObject({ ...PREFILL, saveTarget: 1 })
 
             dialog?.primaryButton?.onClick?.({} as any)
             await expectLogic(logic).toFinishAllListeners()
             expect(createBodies.map((body) => body.overwrite)).toEqual([false, true])
+            expect(createBodies[1].definition.query).toEqual('SELECT 2')
             expect(router.values.location.pathname).toContain(urls.dataCatalogMetric(PREFILL.name))
             open.mockRestore()
             openForm.mockRestore()
