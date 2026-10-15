@@ -21,6 +21,7 @@ from products.messaging.backend.facade.testing import create_message_template_fo
 from products.workflows.backend.facade.contracts import DataSuggestionsResult
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
 from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow, missing_inputs
 from products.workflows.backend.services.data_suggestions.event_volume import FULL_SCAN_MAX_WEEKLY_EVENTS, weekly_counts
 from products.workflows.backend.services.data_suggestions.planner import (
@@ -491,6 +492,8 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         branch = next(action for action in built.workflow["actions"] if action["type"] == "conditional_branch")
         # The editor's schema rejects null filters, so a suggested branch must look like one added by hand.
         assert branch["config"]["conditions"] == [{"filters": {}, "name": "Is on a paid plan"}]
+        # The draft check compiles the empty condition, which must still count as unset.
+        assert validated_draft(self.team, built.workflow, EventSource.WEB) is not None
         assert [item.field for item in missing_inputs(built.workflow, {})] == ["Condition: Is on a paid plan"]
 
     @patch(f"{SERVICE}.suggest_ideas")
@@ -695,6 +698,22 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert HogFlow.objects.filter(team=self.team, id=built["workflow_id"], status="draft").exists()
         # The project has no sender, so the agent learns it must add one before it can fill the field.
         assert [item["field"] for item in built["missing_inputs"]] == [NO_SENDER_FIELD]
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_worker_that_lost_its_lock_saves_no_draft(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+        suggestion_id = self._list()["suggestions"][0]["id"]
+        caller = build_caller(EventSource.API.value, save=True)
+        cache.set(_build_lock_key(self.team.id, suggestion_id, caller), "newer-run", 60)
+        drafts_before = HogFlow.objects.filter(team=self.team).count()
+
+        build_data_suggestion(self.team.id, self.user.id, suggestion_id, "stale-run", EventSource.API.value, True)
+
+        assert HogFlow.objects.filter(team=self.team).count() == drafts_before
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")

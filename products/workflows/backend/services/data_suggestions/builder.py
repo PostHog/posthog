@@ -377,7 +377,7 @@ def missing_inputs(
             fields += [
                 f"Condition: {condition.get('name') or 'unnamed'}"
                 for condition in config.get("conditions") or []
-                if not condition.get("filters")
+                if not _has_conditions(condition.get("filters"))
             ]
         if action["type"] == "function_email":
             sender = (((config.get("inputs") or {}).get("email") or {}).get("value") or {}).get("from") or {}
@@ -393,6 +393,11 @@ def missing_inputs(
         step_name = action.get("name") or action["id"]
         missing += [MissingInput(step_id=action["id"], step_name=step_name, field=field) for field in fields]
     return tuple(missing)
+
+
+def _has_conditions(filters: Any) -> bool:
+    # The draft check compiles every condition, so an unset one still carries source and bytecode keys.
+    return isinstance(filters, dict) and any(filters.get(key) for key in ("properties", "events", "actions"))
 
 
 def _is_blank(value: Any) -> bool:

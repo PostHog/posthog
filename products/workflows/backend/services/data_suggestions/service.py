@@ -225,9 +225,9 @@ def run_build(
                 result, validated = _plan_and_build(
                     team=team, user=user, suggestion=suggestion, events=cached.events, validate_draft=validate_draft
                 )
-                if save_draft is not None and validated is not None:
+                # A task that outlived its lock would save a second draft next to the newer run's draft.
+                if save_draft is not None and validated is not None and not _lost_lock(lock_key, lock_token):
                     result = dataclasses.replace(result, workflow_id=save_draft(team, user, validated))
-                    _capture_saved_build(user=user, suggestion=suggestion, result=result, caller=caller)
         except Exception as error:
             # Without a stored failure the next poll finds no result and no lock, and queues the same build again.
             logger.exception("workflows.data_suggestions.build_failed", team_id=team_id)
@@ -236,6 +236,9 @@ def run_build(
         ttl = _BUILD_CACHE_SECONDS if result.status == "ready" else FAILURE_CACHE_TTL_SECONDS
         if not _lost_lock(lock_key, lock_token):
             cache.set(_build_key(team_id, suggestion_id, caller), dataclasses.asdict(result), ttl)
+        # Sent after the result is stored, so a slow analytics delivery never keeps a saved draft reading as building.
+        if result.workflow_id is not None and suggestion is not None:
+            _capture_saved_build(user=user, suggestion=suggestion, result=result, caller=caller)
     finally:
         _release(lock_key, lock_token)
 
