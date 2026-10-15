@@ -17,7 +17,7 @@ _READ_SETTINGS = {"apply_deleted_mask": 0, "max_execution_time": 120, "max_memor
 _CH_CHUNK = 1_000
 _OPERATION = "person_consistency_observe"
 
-_CH_PERSONS_SQL = """
+_CH_PERSONS_SELECT = """
 SELECT
     toString(id),
     max(version),
@@ -30,11 +30,11 @@ SELECT
     ),
     maxIf(toUnixTimestamp(_timestamp), _row_exists)
 FROM person
-WHERE team_id = %(team_id)s AND id IN %(person_uuids)s
+WHERE team_id = %(team_id)s AND {keys}
 GROUP BY id
 """
 
-_CH_MAPPINGS_SQL = """
+_CH_MAPPINGS_SELECT = """
 SELECT
     distinct_id,
     max(version),
@@ -43,9 +43,25 @@ SELECT
     maxIf(version, _row_exists),
     argMaxIf(is_deleted, version, _row_exists)
 FROM person_distinct_id2
-WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+WHERE team_id = %(team_id)s AND {keys}
 GROUP BY distinct_id
 """
+
+# A range starts after `after`, or at it on a scan's first page, and ends at `last` inclusive.
+_CH_PERSONS_SQL = _CH_PERSONS_SELECT.replace("{keys}", "id IN %(person_uuids)s")
+_CH_PERSONS_RANGE_SQL = {
+    first: _CH_PERSONS_SELECT.replace(
+        "{keys}", f"id {'>=' if first else '>'} toUUID(%(after)s) AND id <= toUUID(%(last)s)"
+    )
+    for first in (True, False)
+}
+_CH_MAPPINGS_SQL = _CH_MAPPINGS_SELECT.replace("{keys}", "distinct_id IN %(distinct_ids)s")
+_CH_MAPPINGS_RANGE_SQL = {
+    first: _CH_MAPPINGS_SELECT.replace(
+        "{keys}", f"distinct_id {'>=' if first else '>'} %(after)s AND distinct_id <= %(last)s"
+    )
+    for first in (True, False)
+}
 
 
 def ch_person_from_row(row: Sequence[Any]) -> tuple[str, ChPerson]:
@@ -75,19 +91,35 @@ def ch_person_states(team_id: int, person_uuids: Sequence[str]) -> dict[str, ChP
     return states
 
 
+def ch_person_states_in_range(team_id: int, after: str, last: str, *, first: bool) -> dict[str, ChPerson]:
+    rows = lookups._ch(_CH_PERSONS_RANGE_SQL[first], {"team_id": team_id, "after": after, "last": last}, _READ_SETTINGS)
+    return dict(ch_person_from_row(row) for row in rows)
+
+
+def ch_mapping_from_row(row: Sequence[Any]) -> tuple[str, ChMapping]:
+    distinct_id, max_version, visible_rows, owner, winner_version, winner_deleted = row
+    return distinct_id, ChMapping(
+        max_version=int(max_version),
+        visible_rows=int(visible_rows),
+        winner_person_uuid=str(owner),
+        winner_version=int(winner_version),
+        winner_deleted=bool(winner_deleted),
+    )
+
+
 def ch_mapping_states(team_id: int, distinct_ids: Sequence[str]) -> dict[str, ChMapping]:
     states: dict[str, ChMapping] = {}
     for chunk in lookups._chunks(list(distinct_ids), _CH_CHUNK):
         rows = lookups._ch(_CH_MAPPINGS_SQL, {"team_id": team_id, "distinct_ids": list(chunk)}, _READ_SETTINGS)
-        for distinct_id, max_version, visible_rows, owner, winner_version, winner_deleted in rows:
-            states[distinct_id] = ChMapping(
-                max_version=int(max_version),
-                visible_rows=int(visible_rows),
-                winner_person_uuid=str(owner),
-                winner_version=int(winner_version),
-                winner_deleted=bool(winner_deleted),
-            )
+        states.update(ch_mapping_from_row(row) for row in rows)
     return states
+
+
+def ch_mapping_states_in_range(team_id: int, after: str, last: str, *, first: bool) -> dict[str, ChMapping]:
+    rows = lookups._ch(
+        _CH_MAPPINGS_RANGE_SQL[first], {"team_id": team_id, "after": after, "last": last}, _READ_SETTINGS
+    )
+    return dict(ch_mapping_from_row(row) for row in rows)
 
 
 def pg_person_states(team_id: int, person_uuids: Sequence[str]) -> dict[str, PgPerson]:
