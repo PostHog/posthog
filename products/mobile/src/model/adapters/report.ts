@@ -459,6 +459,10 @@ function primaryPullRequest(report: SignalReportApi): ReportPullRequestApi | und
     )
 }
 
+export function primaryPullRequestUrl(report: SignalReportApi): string | undefined {
+    return primaryPullRequest(report)?.url ?? report.implementation_pr_url ?? undefined
+}
+
 function pullRequestView(pr: ReportPullRequestApi | undefined): PullRequestView | undefined {
     if (!pr) {
         return undefined

@@ -127,6 +127,23 @@ test('waits for report details and prevents a second handoff before the server r
     expect(screen.queryByTestId('inbox-row-menu-handoff')).toBeNull()
 })
 
+test('offers View PR from the row data before report details load and never shows handoff', () => {
+    jest.mocked(useReport).mockReturnValue(loadingQuery())
+    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
+    const close = jest.fn()
+    const url = 'https://github.com/example/app/pull/77'
+    const props = { target: { ...TARGET, item: { ...TARGET.item, pullRequestUrl: url } }, onClose: close }
+    const view = render(<InboxRowActions {...props} />, { wrapper: OverlayHost })
+    expect(screen.queryByTestId('inbox-row-menu-handoff')).toBeNull()
+    expect(screen.getByTestId('inbox-row-menu-view-pr')).toHaveTextContent('View PR')
+    jest.mocked(useReport).mockReturnValue(successQuery(REPORT))
+    view.rerender(<InboxRowActions {...props} />)
+    expect(screen.queryByTestId('inbox-row-menu-handoff')).toBeNull()
+    fireEvent.press(screen.getByTestId('inbox-row-menu-view-pr'))
+    expect(open).toHaveBeenCalledWith(url)
+    expect(close).toHaveBeenCalledTimes(1)
+})
+
 test.each<Partial<ReportView>>([
     { status: 'resolved' },
     { canAct: false },

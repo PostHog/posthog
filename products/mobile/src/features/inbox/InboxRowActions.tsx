@@ -1,6 +1,8 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useState } from 'react'
+import { Linking } from 'react-native'
 import { track } from '@/lib/analytics'
+import { safeHttpsUrl } from '@/lib/urls'
 import { useAsyncAction } from '@/lib/useAsyncAction'
 import type { InboxItem, SnoozeChoice } from '@/model/types'
 import { motion } from '@/ui/tokens'
@@ -23,7 +25,7 @@ export interface RowMenuTarget {
     anchor: RowAnchor
 }
 
-type RowMenuAction = 'reassign' | 'snooze' | 'chat' | 'mark_read' | 'hand_off'
+type RowMenuAction = 'reassign' | 'snooze' | 'chat' | 'mark_read' | 'hand_off' | 'view_pr'
 
 type Step = 'menu' | 'assignee' | 'snooze'
 
@@ -90,6 +92,10 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
     const entry = useHandoffEntry(reportId)
     const report = reportQuery.data ? mergeLiveRun(reportQuery.data, entry) : undefined
     const canHandOff = report !== undefined && actionBarStateFor(report).showHandoff
+    // The list payload names the PR, so the menu offers it on its first frame instead of a handoff row that disappears once
+    // the report loads. The loaded report still adds a PR a live run shipped after the list was fetched.
+    const pullRequestUrl = item.pullRequestUrl ?? report?.work.pullRequest?.url
+    const safePullRequestUrl = pullRequestUrl ? safeHttpsUrl(pullRequestUrl) : undefined
     const handoffTarget = useHandoffPreferenceStore((state) => state.target)
     const [handoffError, setHandoffError] = useState<string | undefined>()
     const [step, setStep] = useState<Step>('menu')
@@ -125,6 +131,14 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
         }
     })
     const handoffPending = handOff.pending || actions.pending.handOff
+    const viewPullRequest = (): void => {
+        if (!safePullRequestUrl) {
+            return
+        }
+        choose('view_pr')
+        close()
+        Linking.openURL(safePullRequestUrl).catch(() => undefined)
+    }
     const reassign = (): void => {
         choose('reassign')
         setStep('assignee')
@@ -157,8 +171,11 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
                 anchor={anchor}
                 reassignDisabled={!reviewers}
                 handoffLabel={`Hand off to ${handoffAgentName(handoffTarget)}`}
-                showHandoff={!report || canHandOff || handoffPending}
+                showHandoff={!pullRequestUrl && (!report || canHandOff || handoffPending)}
                 handoffDisabled={!canHandOff}
+                showPullRequest={pullRequestUrl !== undefined}
+                pullRequestDisabled={!safePullRequestUrl}
+                onViewPullRequest={viewPullRequest}
                 handoffPending={handoffPending}
                 handoffError={handoffError}
                 onHandOff={() => void handOff.run()}

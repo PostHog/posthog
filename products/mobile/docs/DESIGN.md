@@ -100,6 +100,9 @@ Sizing a glyph does not change its button's tap target, which stays at least 44p
   Claude Code or Codex), Reassign, Snooze, Chat and, for an unread report, Mark as read.
   Hand off uses the same eligibility rules and saved destination as the report's hand-off button;
   it waits for report details, blocks repeat taps while pending and keeps failures in the menu for retry.
+  A report with a pull request shows View PR (with an external-link mark, it opens the browser) in
+  place of Hand off, from the first frame: the inbox list payload carries the PR URL, so the menu
+  does not wait for report details.
   The other actions work like the report's action pill, without leaving the inbox.
   Loading, empty and error states are separate screens.
 - **Chats**: the mobile port of the web app's Chats pane. Header with the logomark, "Chats" and a

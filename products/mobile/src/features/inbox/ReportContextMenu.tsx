@@ -1,4 +1,4 @@
-import { type ComponentType, type ReactElement, useState } from 'react'
+import { type ComponentType, type ReactElement, type ReactNode, useState } from 'react'
 import { ActivityIndicator, type LayoutChangeEvent, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { useSafeAreaFrame } from 'react-native-safe-area-context'
 
@@ -7,6 +7,8 @@ import { FloatingCard } from '@/ui/FloatingCard'
 import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { ClockIcon } from '@/ui/icons/ClockIcon'
+import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
+import { GitBranchIcon } from '@/ui/icons/GitBranchIcon'
 import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { ReassignIcon } from '@/ui/icons/ReassignIcon'
 import type { IconProps } from '@/ui/icons/types'
@@ -33,6 +35,11 @@ interface ReportContextMenuProps {
     handoffPending: boolean
     handoffError?: string
     onHandOff: () => void
+    /** Replaces the handoff row: a report with a PR is past handing off. */
+    showPullRequest: boolean
+    /** Dims View PR when the PR link is not an https URL the phone can open. */
+    pullRequestDisabled: boolean
+    onViewPullRequest: () => void
     onClose: () => void
     onReassign: () => void
     onSnooze: () => void
@@ -45,6 +52,7 @@ interface ContextMenuRowProps {
     Icon: ComponentType<IconProps>
     disabled?: boolean
     pending?: boolean
+    trailing?: ReactNode
     onPress: () => void
     testID: string
 }
@@ -54,6 +62,7 @@ function ContextMenuRow({
     Icon,
     disabled = false,
     pending = false,
+    trailing,
     onPress,
     testID,
 }: ContextMenuRowProps): ReactElement {
@@ -74,6 +83,7 @@ function ContextMenuRow({
                 )}
             </View>
             <Text style={[styles.rowLabel, disabled && styles.disabledLabel]}>{label}</Text>
+            {trailing}
         </Pressable44>
     )
 }
@@ -89,6 +99,9 @@ export function ReportContextMenu({
     handoffPending,
     handoffError,
     onHandOff,
+    showPullRequest,
+    pullRequestDisabled,
+    onViewPullRequest,
     onClose,
     onReassign,
     onSnooze,
@@ -144,6 +157,21 @@ export function ReportContextMenu({
                     </Text>
                 </View>
                 <View style={styles.divider} />
+                {showPullRequest ? (
+                    <ContextMenuRow
+                        label="View PR"
+                        Icon={GitBranchIcon}
+                        disabled={pullRequestDisabled}
+                        trailing={
+                            <ExternalLinkIcon
+                                size={16}
+                                color={pullRequestDisabled ? colors.disabled : colors.tertiary}
+                            />
+                        }
+                        onPress={onViewPullRequest}
+                        testID="inbox-row-menu-view-pr"
+                    />
+                ) : null}
                 {showHandoff ? (
                     <ContextMenuRow
                         label={handoffLabel}

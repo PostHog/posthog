@@ -60,6 +60,8 @@ export interface InboxItem {
     agent?: AgentBadge
     progressLabel?: string
     snoozeLabel?: string
+    /** The report's primary pull request, known from the list payload before the report detail loads. */
+    pullRequestUrl?: string
 }
 
 export interface Headline {

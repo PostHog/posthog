@@ -3,6 +3,7 @@ import type { InboxPageApi, SignalReportApi } from '@/api/reports'
 import { POSTHOG_AGENT } from '../agent'
 import { isErrorSource, isFeedbackSource, primarySource, sourceInfo } from '../sources'
 import type { Accent, InboxItem, InboxItemState } from '../types'
+import { primaryPullRequestUrl } from './report'
 import { displayTitle } from './text'
 
 const CLOSED_STATUSES: ReadonlySet<string> = new Set(['resolved', 'suppressed', 'deleted'])
@@ -43,6 +44,7 @@ export function inboxFromReports(reports: readonly SignalReportApi[]): InboxItem
         const sourceProduct = primarySource(report.source_products)
         const agentClaimed = report.assignee?.kind === 'task' || report.assignee?.kind === 'agent'
         const needsInput = report.status === 'pending_input'
+        const pullRequestUrl = primaryPullRequestUrl(report)
         return {
             id: report.id,
             reportId: report.id,
@@ -56,6 +58,7 @@ export function inboxFromReports(reports: readonly SignalReportApi[]): InboxItem
             needsInput,
             read: false,
             ...(agentClaimed ? { agent: { ...POSTHOG_AGENT } } : {}),
+            ...(pullRequestUrl ? { pullRequestUrl } : {}),
         }
     })
 }

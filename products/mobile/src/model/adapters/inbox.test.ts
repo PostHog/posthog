@@ -20,12 +20,15 @@ describe('inbox adapters', () => {
                 assignee: { kind: 'task', user: null, task_id: 't1', agent: null, claimed_at: null },
             }),
             reportFixture({ id: 'c', status: 'resolved', source_products: ['freshdesk'] }),
+            reportFixture({ id: 'd', implementation_pr_url: 'https://github.com/example/app/pull/9' }),
         ])
         expect(items).toMatchObject([
             { reportId: 'a', needsInput: true, sourceProduct: 'session_replay', accent: 'alert', state: 'open' },
             { reportId: 'b', needsInput: false, agent: { name: 'PostHog' } },
             { reportId: 'c', state: 'done', accent: 'resolved', sourceProduct: 'other', sourceLabel: 'Report' },
+            { reportId: 'd', pullRequestUrl: 'https://github.com/example/app/pull/9' },
         ])
         expect(items[0]?.agent).toBeUndefined()
+        expect(items[0]?.pullRequestUrl).toBeUndefined()
     })
 })
