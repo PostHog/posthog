@@ -3,6 +3,17 @@
 The design handoff (README, prototype and reference screenshots) is the spec.
 This file records how it maps to React Native.
 
+## App icon
+
+Android adaptive icon layers use a 108dp canvas, with a central 72dp viewport and a 66dp safe circle.
+`plugins/withAndroidAdaptiveIconInsets.js` adds a proportional 18dp inset on every side during
+prebuild, so the hedgehog and the DEV or PREVIEW label fit inside launcher masks. The inset
+applies to both regular and round adaptive icons for all three build variants.
+
+Keep the 1024px source images at their existing scale; the plugin supplies Android's extra
+spacing. Icon changes need a new native build and cannot ship through an over-the-air update.
+See [Android's adaptive icon guidelines](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive).
+
 ## Tokens
 
 All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these values.

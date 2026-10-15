@@ -133,6 +133,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
             ],
             'expo-font',
             'expo-updates',
+            './plugins/withAndroidAdaptiveIconInsets',
             './plugins/withIosSceneLifecycle',
             '@bacons/apple-targets',
         ],
