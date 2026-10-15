@@ -64566,27 +64566,6 @@ export namespace Schemas {
       data: MCPEventData;
     }
 
-    export type MCPEventIdentityFiltersActionsItem = { [key: string]: unknown };
-
-    export type MCPEventIdentityFiltersEventsItem = { [key: string]: unknown };
-
-    export type MCPEventIdentityFiltersPropertiesItem = { [key: string]: unknown };
-
-    export interface MCPEventIdentityFilters {
-      /** Captured PostHog events. Use events.
-       *
-       * * `events` - events */
-      source?: MCPEventSourceEnum;
-      /** Saved action entries combined with the event entries using OR. Example: [{"id": "123", "type": "actions"}]. */
-      actions?: MCPEventIdentityFiltersActionsItem[];
-      /** Captured event entries combined with OR. Example: [{"id": "survey sent", "type": "events", "properties": [{"key": "rating", "type": "event", "operator": "lt", "value": 3}]}]. */
-      events?: MCPEventIdentityFiltersEventsItem[];
-      /** Property conditions applied to all selected events. Example: [{"key": "plan", "type": "event", "operator": "exact", "value": "enterprise"}]. */
-      properties?: MCPEventIdentityFiltersPropertiesItem[];
-      /** Apply the project's existing test-account exclusions. */
-      filter_test_accounts?: boolean;
-    }
-
     export interface MCPEventIdentityArguments {
       /**
          * Project whose captured events should be monitored.
@@ -64594,7 +64573,7 @@ export namespace Schemas {
          */
       project_id: number;
       /** Original event filters, including filters for deleted resources. */
-      filters: MCPEventIdentityFilters;
+      filters: MCPEventFilters;
     }
 
     export interface MCPEventPreview {

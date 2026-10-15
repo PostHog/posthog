@@ -957,27 +957,6 @@ export interface MCPEventSubscribeApi {
     cursor?: string | null
 }
 
-export type MCPEventIdentityFiltersApiActionsItem = { [key: string]: unknown }
-
-export type MCPEventIdentityFiltersApiEventsItem = { [key: string]: unknown }
-
-export type MCPEventIdentityFiltersApiPropertiesItem = { [key: string]: unknown }
-
-export interface MCPEventIdentityFiltersApi {
-    /** Captured PostHog events. Use events.
-     *
-     * * `events` - events */
-    source?: MCPEventSourceEnumApi
-    /** Saved action entries combined with the event entries using OR. Example: [{"id": "123", "type": "actions"}]. */
-    actions?: MCPEventIdentityFiltersApiActionsItem[]
-    /** Captured event entries combined with OR. Example: [{"id": "survey sent", "type": "events", "properties": [{"key": "rating", "type": "event", "operator": "lt", "value": 3}]}]. */
-    events?: MCPEventIdentityFiltersApiEventsItem[]
-    /** Property conditions applied to all selected events. Example: [{"key": "plan", "type": "event", "operator": "exact", "value": "enterprise"}]. */
-    properties?: MCPEventIdentityFiltersApiPropertiesItem[]
-    /** Apply the project's existing test-account exclusions. */
-    filter_test_accounts?: boolean
-}
-
 export interface MCPEventIdentityArgumentsApi {
     /**
      * Project whose captured events should be monitored.
@@ -985,7 +964,7 @@ export interface MCPEventIdentityArgumentsApi {
      */
     project_id: number
     /** Original event filters, including filters for deleted resources. */
-    filters: MCPEventIdentityFiltersApi
+    filters: MCPEventFiltersApi
 }
 
 export interface MCPEventUnsubscribeDeliveryApi {

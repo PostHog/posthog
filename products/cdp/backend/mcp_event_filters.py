@@ -9,17 +9,10 @@ from posthog.hogql.restricted_properties import restricted_property_keys_for_tab
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
-from products.cdp.backend.filters import FilterPropertyReferences
 from products.cdp.backend.mcp_event_properties import MCPEventPropertyAccess
 
 
 class MCPEventFilterAccessValidator:
-    @classmethod
-    def validate(cls, expression: ast.Expr, *, team: Team, user: User) -> None:
-        references = FilterPropertyReferences()
-        references.visit(expression)
-        cls.validate_snapshot(references.references, team=team, user=user)
-
     @staticmethod
     def validate_snapshot(dependencies: dict[str, list[str | None]], *, team: Team, user: User) -> None:
         restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)

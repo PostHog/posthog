@@ -199,7 +199,17 @@ class MCPEventSubscriptionTestCase(APIBaseTest):
 
 
 class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
-    def test_refresh_reuses_destination_and_unsubscribe_blocks_queued_delivery(self) -> None:
+    @parameterized.expand(["event", "deleted_action"])
+    def test_refresh_reuses_destination_and_unsubscribe_blocks_queued_delivery(self, source: str) -> None:
+        action = None
+        if source == "deleted_action":
+            action = Action.objects.create(
+                team=self.team, name="Example action", steps_json=[{"event": "example_event"}]
+            )
+            self.payload["arguments"] = {
+                "project_id": self.team.pk,
+                "filters": {"actions": [{"id": str(action.pk), "type": "actions"}]},
+            }
         subscription = self.subscribe()
         assert subscription.hog_function is not None
         first_function_id = subscription.hog_function_id
@@ -217,6 +227,9 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         self.assertEqual(refreshed.generation, first_generation)
         self.assertEqual(refreshed.verified_at, verified_at)
 
+        if action is not None:
+            action.deleted = True
+            action.save(update_fields=["deleted"])
         stopped = {
             **self.payload,
             "delivery": {"mode": "webhook", "url": self.callback_url},
@@ -309,6 +322,21 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         key = self.create_personal_api_key_with_scopes(["mcp_event_subscription:write", "query:read"])
         self.headers = {"HTTP_AUTHORIZATION": f"Bearer {key}"}
         self.assertEqual(self.authorize(subscription).status_code, 403)
+
+    @parameterized.expand(["preview", "subscribe"])
+    def test_invalid_realtime_filters_cannot_preview_or_subscribe(self, endpoint: str) -> None:
+        arguments = {
+            "project_id": self.team.pk,
+            "filters": {"properties": [{"type": "hogql", "key": "unsupported_global = 'value'"}]},
+        }
+        payload = arguments if endpoint == "preview" else {**self.payload, "arguments": arguments}
+        response = self.client.post(
+            self.url + endpoint + "/", payload, HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"]
+        )
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertIn("Real-time filters cannot read", json.dumps(response.json()))
+        self.assertFalse(MCPEventSubscription.objects.for_team(self.team.pk).exists())
+        self.assertFalse(HogFunction.objects.filter(team=self.team).exists())
 
     def test_callback_failure_leaves_no_subscription_or_destination(self) -> None:
         with patch("products.cdp.backend.mcp_events.verify_callback", side_effect=MCPCallbackError("timeout")):
