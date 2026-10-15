@@ -1055,6 +1055,54 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
     @parameterized.expand(
         [
+            ("team", TeamSerializer, {}, False),
+            ("project", ProjectBackwardCompatSerializer, {}, False),
+            ("team_raced", TeamSerializer, {}, True),
+            ("project_raced", ProjectBackwardCompatSerializer, {}, True),
+            ("team_raced_with_conversations", TeamSerializer, {"conversations_enabled": True}, True),
+            (
+                "project_raced_with_conversations",
+                ProjectBackwardCompatSerializer,
+                {"conversations_enabled": True},
+                True,
+            ),
+        ]
+    )
+    def test_logs_retention_change_is_refused_when_another_write_landed_first(
+        self, _name: str, serializer_class: type, extra_fields: dict[str, Any], raced: bool
+    ) -> None:
+        self.team.logs_settings = {"retention_days": 30, "retention_last_updated": "2025-01-01T00:00:00+00:00"}
+        self.team.save()
+        # Validation read this snapshot of the team, and update() must compare against it.
+        project = Project.objects.get(pk=self.project.pk)
+        team = project.passthrough_team
+        concurrent_settings = {"retention_days": 14, "retention_last_updated": "2025-01-03T00:00:00+00:00"}
+        if raced:
+            Team.objects.filter(pk=self.team.pk).update(logs_settings=concurrent_settings)
+
+        requested_settings = {"retention_days": 14, "retention_last_updated": "2025-01-03T00:00:01+00:00"}
+        payload = {"logs_settings": requested_settings, **extra_fields}
+        request = APIRequestFactory().patch("/", payload, format="json")
+        request.user = self.user
+
+        def update() -> None:
+            if serializer_class is TeamSerializer:
+                TeamSerializer(context={"request": request}).update(team, payload)
+            else:
+                ProjectBackwardCompatSerializer(context={"request": request, "view": None}).update(project, payload)
+
+        if raced:
+            with self.assertRaises(serializers.ValidationError) as refused:
+                update()
+            self.assertIn("logs_settings", refused.exception.detail)
+        else:
+            update()
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.logs_settings, concurrent_settings if raced else requested_settings)
+
+    @parameterized.expand(
+        [
             (TeamSerializer, "saved"),
             (ProjectBackwardCompatSerializer, "saved"),
             (TeamSerializer, "save_fails"),

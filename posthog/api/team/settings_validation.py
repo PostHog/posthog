@@ -1,7 +1,11 @@
 """Validation, feature flag, and access helpers for project settings."""
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
+
+from django.db import transaction
 
 import re2
 from pydantic import TypeAdapter
@@ -296,3 +300,30 @@ def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | No
     if not serializer.is_valid():
         raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
     return serializer.validated_data
+
+
+def is_throttled_logs_retention_change(read_settings: dict[str, Any] | None, new_settings: Any) -> bool:
+    """Only a change away from a stored period counts against the 24-hour limit."""
+    if not read_settings or not isinstance(new_settings, dict):
+        return False
+    new_retention = new_settings.get("retention_days")
+    return new_retention is not None and new_retention != read_settings.get("retention_days")
+
+
+@contextmanager
+def refuse_stale_logs_retention_change(
+    team: Team, read_settings: dict[str, Any] | None, new_settings: Any
+) -> Iterator[None]:
+    """Wrap the save of a logs retention change, so that it fails when another write changed logs_settings first.
+
+    The 24-hour limit was checked against read_settings. The conditional update holds the row
+    lock until the save commits, so a concurrent change waits for it and then fails the same check.
+    """
+    if not is_throttled_logs_retention_change(read_settings, new_settings):
+        yield
+        return
+    with transaction.atomic():
+        # Compare the whole value: an entitlement reset changes retention_days but not retention_last_updated.
+        if not Team.objects.filter(pk=team.pk, logs_settings=read_settings).update(logs_settings=new_settings):
+            raise exceptions.ValidationError({"logs_settings": "Retention changed. Reload the settings and retry."})
+        yield
