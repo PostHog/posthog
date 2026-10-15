@@ -21,7 +21,11 @@ function loadAppModules(): Promise<AppModules> {
     return (appModulesPromise ??= Promise.all([
         retryBootImport(() => import('scenes/App')),
         retryBootImport(() => import('scenes/bootApp')),
-    ]))
+    ]).then((modules) => {
+        // Marked here, not in the lazy() factory: React calls the factory only after the CSS gate in boot().
+        markBootPhase('app_modules_loaded')
+        return modules
+    }))
 }
 
 // Lazy-load App so the entry chunk stays minimal: the entire transitive dependency
@@ -33,7 +37,6 @@ function loadAppModules(): Promise<AppModules> {
 // boot() also starts the module imports while CSS loads; runtime initialization stays behind the render gate.
 const App = lazy(() =>
     loadAppModules().then(([appModule, bootModule]) => {
-        markBootPhase('app_modules_loaded')
         bootModule.bootApp()
         return { default: appModule.App }
     })

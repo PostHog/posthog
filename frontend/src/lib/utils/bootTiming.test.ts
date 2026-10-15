@@ -80,6 +80,23 @@ describe('bootTiming', () => {
         expect(capture).toHaveBeenCalledTimes(sends ? 1 : 0)
     })
 
+    it('reports a page hidden only between two marks', async () => {
+        let visibilityState: DocumentVisibilityState = 'visible'
+        jest.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibilityState)
+        const setVisibility = (state: DocumentVisibilityState): void => {
+            visibilityState = state
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+
+        markAt(50, 'entry')
+        setVisibility('hidden')
+        setVisibility('visible')
+        markAt(900, 'scene_rendered')
+        await flushSend()
+
+        expect(capture).toHaveBeenCalledWith('app boot timing', expect.objectContaining({ page_was_hidden: true }))
+    })
+
     it.each([
         { reason: 'the entry script did not run, as in tests, storybook and the exporter', runEntry: false },
         { reason: 'performance.now is unavailable', runEntry: true, nowThrows: true },

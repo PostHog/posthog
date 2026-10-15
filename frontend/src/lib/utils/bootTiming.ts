@@ -1,7 +1,3 @@
-import type { PostHog } from 'posthog-js'
-
-import { hashCodeForString } from 'lib/utils/strings'
-
 // pinned: analytics event and property names. Boot performance insights read them.
 const BOOT_TIMING_EVENT = 'app boot timing'
 const SAMPLE_RATE = 0.05
@@ -23,17 +19,27 @@ function getNavigationType(): string | null {
     return navigation?.type ?? null
 }
 
-function isInSample(posthog: PostHog): boolean {
+// A background tab throttles timers and skips rendering, so its boot times are not comparable.
+function recordHidden(): void {
+    pageWasHidden ||= document.visibilityState === 'hidden'
+}
+
+async function sendBootTiming(): Promise<void> {
+    // The entry chunk imports this module, and static imports would pull these modules into it.
+    // import() also resolves after the current React commit. A parent's layout effect runs after
+    // its children's, so an `app_ready` mark from the same commit still gets into the event.
+    const [{ default: posthog }, { hashCodeForString }] = await Promise.all([
+        import('posthog-js'),
+        import('lib/utils/strings'),
+    ])
+    sent = true
+    document.removeEventListener('visibilitychange', recordHidden)
+
     // Not `$device_id`: posthog-js gives it a new value on each page load of a user bootstrapped with
     // `identity_distinct_id`. The distinct ID changes only at login, so a user stays in or out across page loads.
     const distinctId = posthog.get_distinct_id()
     // hashCodeForString returns 0 for an empty string, which would put every such page load in the sample.
-    return !!distinctId?.trim() && hashCodeForString(distinctId) % 100 < SAMPLE_RATE * 100
-}
-
-function sendBootTiming(posthog: PostHog): void {
-    sent = true
-    if (!isInSample(posthog)) {
+    if (!distinctId?.trim() || hashCodeForString(distinctId) % 100 >= SAMPLE_RATE * 100) {
         return
     }
     const durations = Object.fromEntries(
@@ -61,16 +67,15 @@ export function markBootPhase(phase: BootPhase, phaseContext?: BootContext): voi
     try {
         phaseTimes[phase] = performance.now()
         performance.mark?.(`posthog:boot:${phase}`)
-        // A background tab throttles timers and skips rendering, so its boot times are not comparable.
-        pageWasHidden ||= document.visibilityState === 'hidden'
+        recordHidden()
+        if (phase === 'entry') {
+            document.addEventListener('visibilitychange', recordHidden)
+        }
     } catch {
         return
     }
     Object.assign(context, phaseContext)
     if (phase === 'scene_rendered') {
-        // The entry chunk imports this module, and a static import would pull posthog-js into it.
-        // import() also resolves after the current React commit. A parent's layout effect runs after
-        // its children's, so an `app_ready` mark from the same commit still gets into the event.
-        void import('posthog-js').then(({ default: posthog }) => sendBootTiming(posthog)).catch(() => {})
+        void sendBootTiming().catch(() => {})
     }
 }
