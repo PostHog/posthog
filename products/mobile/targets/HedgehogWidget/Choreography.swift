@@ -33,8 +33,13 @@ struct Tick: Codable, Equatable {
     /// Turns added on the way into this tick, clockwise on screen. A flip is two ticks of half a turn each.
     let turn: Double?
     let hoggie: String?
+    /// Absent in scripts from older app versions; the provider then derives the movement from `y` and `turn`.
+    let motion: TickMotion?
 
-    init(pose: Pose, frame: Int, x: Double, y: Double, facing: Facing, bubble: String? = nil, turn: Double? = nil, hoggie: String? = nil) {
+    init(
+        pose: Pose, frame: Int, x: Double, y: Double, facing: Facing, bubble: String? = nil, turn: Double? = nil,
+        hoggie: String? = nil, motion: TickMotion? = nil
+    ) {
         self.pose = pose
         self.frame = frame
         self.x = x
@@ -43,6 +48,7 @@ struct Tick: Codable, Equatable {
         self.bubble = bubble
         self.turn = turn
         self.hoggie = hoggie
+        self.motion = motion
     }
 
     /// Feet on the floor and no flip, for an entry shown without the keyframes around it.
@@ -54,6 +60,32 @@ struct Tick: Codable, Equatable {
     var spriteName: String {
         let index = ((frame % pose.frameCount) + pose.frameCount) % pose.frameCount
         return String(format: "hog_%@_%02d", pose.rawValue, index)
+    }
+}
+
+/// How the hedgehog gets from the previous keyframe to this one within the beat, measured from hedgehog-mode's physics.
+struct TickMotion: Codable, Equatable {
+    struct Bounce: Codable, Equatable {
+        let airtime: Double
+        let apex: Double
+    }
+
+    /// "idle", "walk" or "jump". A plain string, so a kind added by a newer app falls back instead of failing the script.
+    let kind: String
+    /// Jump only. Seconds in the air before the first landing.
+    var airtime: Double? = nil
+    /// Jump only. 0...1 of the renderer's available rise.
+    var apex: Double? = nil
+    /// Jump only. The rebounds after the first landing, in order.
+    var bounces: [Bounce]? = nil
+    /// Jump only. Whole flips during the main airtime, clockwise on screen.
+    var turns: Double? = nil
+
+    static let idle = TickMotion(kind: "idle")
+    static let walk = TickMotion(kind: "walk")
+
+    static func jump(airtime: Double, apex: Double, bounces: [Bounce] = [], turns: Double? = nil) -> TickMotion {
+        TickMotion(kind: "jump", airtime: airtime, apex: apex, bounces: bounces, turns: turns)
     }
 }
 
@@ -115,7 +147,7 @@ enum ChoreographyLoader {
             return FallbackChoreography.value
         }
         do {
-            let choreography = try decoder.decode(Choreography.self, from: Data(json.utf8))
+            let choreography = try decode(Data(json.utf8))
             guard choreography.version == Choreography.supportedVersion,
                   !choreography.keyframes.isEmpty,
                   choreography.keyframeSec > 0
@@ -128,6 +160,10 @@ enum ChoreographyLoader {
             logger.error("Choreography does not decode: \(String(describing: error), privacy: .public)")
             return FallbackChoreography.value
         }
+    }
+
+    static func decode(_ data: Data) throws -> Choreography {
+        try decoder.decode(Choreography.self, from: data)
     }
 
     private static let decoder: JSONDecoder = {
@@ -153,21 +189,18 @@ enum FallbackChoreography {
     static let value: Choreography = {
         // A fixed start keeps every widget on the device on the same keyframe for the same beat.
         let startsAt = Date(timeIntervalSince1970: 1_767_225_600)
-        var keyframes: [Tick] = []
-        for step in 0...4 {
-            keyframes.append(Tick(pose: .walk, frame: step * 2, x: 0.15 + Double(step) * 0.15, y: 0, facing: .right))
-        }
-        keyframes.append(Tick(pose: .jump, frame: 4, x: 0.8, y: 0.8, facing: .right, turn: 0.5))
-        keyframes.append(Tick(pose: .jump, frame: 9, x: 0.85, y: 0, facing: .right, turn: 0.5))
-        keyframes.append(Tick(pose: .wave, frame: 8, x: 0.85, y: 0, facing: .left, bubble: "Hi there!"))
-        keyframes.append(Tick(pose: .wave, frame: 14, x: 0.85, y: 0, facing: .left, bubble: "Hi there!"))
-        keyframes.append(Tick(pose: .idle, frame: 12, x: 0.85, y: 0, facing: .left))
-        keyframes.append(Tick(pose: .jump, frame: 4, x: 0.72, y: 0.35, facing: .left))
-        keyframes.append(Tick(pose: .jump, frame: 9, x: 0.62, y: 0, facing: .left))
-        for step in 0...3 {
-            keyframes.append(Tick(pose: .walk, frame: step * 3, x: 0.5 - Double(step) * 0.12, y: 0, facing: .left))
-        }
-        keyframes.append(Tick(pose: .idle, frame: 6, x: 0.15, y: 0, facing: .right))
+        // Hand-written with hedgehog-mode's numbers: a beat of walking covers 1.5 sprites of the 2.8-sprite travel width,
+        // a jump is 0.9 s in the air, and each rebound has half the airtime and a quarter of the height of the one before.
+        let bounces = [TickMotion.Bounce(airtime: 0.45, apex: 0.25), TickMotion.Bounce(airtime: 0.22, apex: 0.0625)]
+        let keyframes = [
+            Tick(pose: .idle, frame: 0, x: 0.2, y: 0, facing: .right, motion: .idle),
+            Tick(pose: .walk, frame: 3, x: 0.736, y: 0, facing: .right, motion: .walk),
+            Tick(pose: .fall, frame: 4, x: 0.736, y: 0, facing: .right, motion: .jump(airtime: 0.9, apex: 1, bounces: bounces)),
+            Tick(pose: .wave, frame: 12, x: 0.736, y: 0, facing: .left, motion: .idle),
+            Tick(pose: .walk, frame: 7, x: 0.2, y: 0, facing: .left, motion: .walk),
+            Tick(pose: .fall, frame: 4, x: 0.2, y: 0, facing: .left, motion: .jump(airtime: 0.9, apex: 1, bounces: bounces, turns: -1)),
+            Tick(pose: .idle, frame: 12, x: 0.2, y: 0, facing: .right, motion: .idle),
+        ]
 
         let reaction = Reaction(
             keyframes: [

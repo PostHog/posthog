@@ -9,7 +9,9 @@ import org.json.JSONObject
 object HedgehogStore {
     private const val FILE = "hedgehog_widget"
     private const val KEY_CHOREOGRAPHY = "choreography"
-
+    // Bump when loops change meaning, so a placed widget drops its pinned loop once and picks up the new script.
+    private const val KEY_LOOP = "loop.v2"
+    private const val KEY_LEGACY_LOOP = "loop"
 
     private fun prefs(context: Context): SharedPreferences =
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -34,7 +36,7 @@ object HedgehogStore {
 
     // Pin the loop while a widget is placed. Daily sync and launcher refreshes must not restart a ViewFlipper.
     fun loop(context: Context, id: Int): List<Tick>? = runCatching {
-        val json = prefs(context).getString("loop.$id", null) ?: return null
+        val json = prefs(context).getString("$KEY_LOOP.$id", null) ?: return null
         val array = JSONArray(json)
         (0 until array.length()).map { index ->
             val tick = array.getJSONObject(index)
@@ -49,10 +51,10 @@ object HedgehogStore {
             array.put(JSONObject().put("pose", tick.pose).put("frame", tick.frame)
                 .put("x", tick.x).put("y", tick.y).put("facing", tick.facing.name))
         }
-        prefs(context).edit().putString("loop.$id", array.toString()).commit()
+        prefs(context).edit().putString("$KEY_LOOP.$id", array.toString()).remove("$KEY_LEGACY_LOOP.$id").commit()
     }
 
     fun remove(context: Context, id: Int) {
-        prefs(context).edit().remove("loop.$id").remove("selectedHog.$id").commit()
+        prefs(context).edit().remove("$KEY_LOOP.$id").remove("$KEY_LEGACY_LOOP.$id").remove("selectedHog.$id").commit()
     }
 }
