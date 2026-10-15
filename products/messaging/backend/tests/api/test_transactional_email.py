@@ -187,12 +187,12 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand([("marketing_category",), ("no_email_content",)])
     def test_a_template_whose_workflow_was_deleted_takes_edits_it_could_not_send_with(
-        self, _name, mock_post, _flag, _capture
+        self, mock_post, _flag, _capture, edit
     ):
         category = MessageCategory.objects.create(
             team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
         )
-        body = {"message_category": str(category.id)} if _name == "marketing_category" else {"content": {}}
+        body = {"message_category": str(category.id)} if edit == "marketing_category" else {"content": {}}
         self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}")
 
         response = self.client.patch(
