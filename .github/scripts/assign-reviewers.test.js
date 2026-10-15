@@ -13,6 +13,7 @@ const {
     computeAdditionOwners,
     computeSensitiveOwners,
     sensitiveOwnersToExplain,
+    loadLabelRules,
     matchTeamRules,
     isSubstantive,
     classifyOwners,
@@ -20,7 +21,6 @@ const {
     buildReviewerComment,
     fileMatchesPattern,
 } = require('./assign-reviewers')
-const { loadRules } = require('./label-pr-from-title')
 
 const file = (filename, additions = 0, deletions = 0) => ({
     filename,
@@ -437,34 +437,52 @@ test('classifyOwnersWithPinned: requests owners of additions and of sensitive pa
 const AGENT_INFRA_MATCH = { labels: ['feature/agent-infra'], teams: ['@PostHog/team-agent-infrastructure'] }
 const NO_MATCH = { labels: [], teams: [] }
 
-for (const { description, title, footprints, expected } of [
+const TEAM_RULE_RESOLUTIONS = {
+    'packages/agent/src/run.ts': resolved(['team-agent-infrastructure'], 'packages/agent/owners.yaml'),
+    'products/surveys/backend/api.py': resolved(['team-surveys'], 'products/surveys/product.yaml'),
+    'products/feature_flags/backend/api.py': resolved(['team-feature-flags'], 'products/feature_flags/product.yaml'),
+}
+
+for (const { description, title, files, expected } of [
     {
         description: 'an agent infra scope requests the team without its code',
         title: 'feat(agent-proxy): x',
-        footprints: [fp('@PostHog/team-devex', 50)],
+        files: [file('products/surveys/backend/api.py', 50)],
         expected: AGENT_INFRA_MATCH,
     },
     {
         description: 'a minor change to agent infra code requests the team without its scope',
         title: 'chore: x',
-        footprints: [fp('@PostHog/team-surveys', 200), fp('@PostHog/team-agent-infrastructure', 1)],
+        files: [file('products/surveys/backend/api.py', 200), file('packages/agent/src/run.ts', 1)],
+        expected: AGENT_INFRA_MATCH,
+    },
+    {
+        description: 'a rename out of agent infra code requests the team',
+        title: 'chore: x',
+        files: [
+            {
+                ...file('products/surveys/backend/api.py', 1),
+                status: 'renamed',
+                previousFilename: 'packages/agent/src/run.ts',
+            },
+        ],
         expected: AGENT_INFRA_MATCH,
     },
     {
         description: 'a scope rule without teams requests nobody',
         title: 'feat(flags): x',
-        footprints: [fp('@PostHog/team-feature-flags', 50)],
+        files: [file('products/feature_flags/backend/api.py', 50)],
         expected: NO_MATCH,
     },
     {
         description: 'an unrelated PR requests nobody',
         title: 'feat(surveys): x',
-        footprints: [fp('@PostHog/team-surveys', 50)],
+        files: [file('products/surveys/backend/api.py', 50)],
         expected: NO_MATCH,
     },
 ]) {
     test(`matchTeamRules with the shipped config: ${description}`, () => {
-        const { labels, teams } = matchTeamRules(loadRules(), title, footprints)
+        const { labels, teams } = matchTeamRules(loadLabelRules(), title, TEAM_RULE_RESOLUTIONS, files)
         assert.deepEqual({ labels, teams: teams.map((entry) => entry.owner) }, expected)
     })
 }

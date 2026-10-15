@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require('child_process')
+const fs = require('fs')
+const path = require('path')
 const { pathMatchesPattern } = require('./codeowners')
-const { loadRules, parseScopes } = require('./label-pr-from-title')
 
 // Tunable knobs for how aggressively we trim the reviewer list. Kept in one
 // place so adjusting noise levels doesn't require re-reading the logic. All
@@ -331,9 +332,49 @@ function computeSensitiveOwners(resolutionByPath, changedFiles, config = CONFIG)
     return Array.from(owners.values())
 }
 
-function matchTeamRules(rules, title, footprints) {
-    const scopes = new Set(parseScopes(title))
-    const owningTeams = new Set(footprints.filter((f) => f.type === 'team').map((f) => f.name))
+// Read as data so the reviewer app token never runs code outside the security-owned scripts.
+function loadLabelRules() {
+    const parsed = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'auto-assign-labels.json'), 'utf8'))
+    return Array.isArray(parsed.rules) ? parsed.rules : []
+}
+
+function parseTitleScopes(title) {
+    const match = /^\s*\w+\(([^)]+)\)!?:/.exec(title || '')
+    if (!match) {
+        return []
+    }
+    return match[1]
+        .split(',')
+        .map((scope) => scope.trim().toLowerCase())
+        .filter(Boolean)
+}
+
+function teamsOwningChanges(resolutionByPath, changedFiles, config = CONFIG) {
+    const teams = new Set()
+    for (const file of changedFiles) {
+        for (const changedPath of changedPaths(file)) {
+            const resolution = resolutionByPath[changedPath]
+            if (
+                !resolution ||
+                isExcludedFile(changedPath, config.excludedPatterns) ||
+                isGeneratedOrVendored(changedPath, resolution)
+            ) {
+                continue
+            }
+            for (const rawOwner of resolution.owners || []) {
+                const resolved = mapResolvedOwner(rawOwner)
+                if (resolved && resolved.type === 'team') {
+                    teams.add(resolved.name)
+                }
+            }
+        }
+    }
+    return teams
+}
+
+function matchTeamRules(rules, title, resolutionByPath, changedFiles) {
+    const scopes = new Set(parseTitleScopes(title))
+    const owningTeams = teamsOwningChanges(resolutionByPath, changedFiles)
     const labels = new Set()
     const teams = new Map()
 
@@ -741,7 +782,7 @@ async function main() {
         const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
         const additionOwners = computeAdditionOwners(resolutionByPath, changedFiles)
         const sensitiveOwners = computeSensitiveOwners(resolutionByPath, changedFiles)
-        const ruleMatch = matchTeamRules(loadRules(), process.env.PR_TITLE, footprints)
+        const ruleMatch = matchTeamRules(loadLabelRules(), process.env.PR_TITLE, resolutionByPath, changedFiles)
         const { requested, demoted } = classifyOwnersWithPinned(footprints, [
             ...additionOwners,
             ...sensitiveOwners,
@@ -796,6 +837,7 @@ module.exports = {
     computeAdditionOwners,
     computeSensitiveOwners,
     sensitiveOwnersToExplain,
+    loadLabelRules,
     matchTeamRules,
     isSubstantive,
     classifyOwners,
