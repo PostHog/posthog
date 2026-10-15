@@ -5,6 +5,7 @@ import threading
 from contextlib import nullcontext
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, call, patch
@@ -14,8 +15,9 @@ from django.utils import timezone
 
 import requests
 from celery.exceptions import Retry
+from temporalio.exceptions import ApplicationError
 
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models import OAuthAccessToken, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
@@ -643,8 +645,10 @@ def test_a_notice_github_error_fails_the_activity_so_temporal_retries(team, stam
         team_id=team.id, pull_request=pull_request, head_sha=head_sha, status=ReviewRunStatus.REVIEWING
     )
 
-    with pytest.raises(GitHubRateLimitError):
+    with pytest.raises(ApplicationError) as raised:
         _run_activity(mark_review_failed, MarkReviewFailedInput(str(run.id), team.id, "RuntimeError: worker lost"))
+
+    assert raised.value.next_retry_delay == timedelta(seconds=60)
 
     run.refresh_from_db()
     assert run.status == ReviewRunStatus.FAILED  # committed before the post, so the raise leaves it
@@ -1790,6 +1794,41 @@ def test_engine_context_after_the_wait_holds_the_review_posted_during_it(team, s
     context = json.loads(activities._review_invocation(run, None).context_json)
     assert [review["id"] for review in context["reviews"]] == [7171]
     assert [item["state"] for item in context["review_evidence"]] == ["completed"]
+
+
+@pytest.mark.parametrize(
+    "error, expected_delay_seconds",
+    [
+        pytest.param(
+            GitHubRateLimitError("secondary rate limit", retry_after=60), 60, id="secondary_limit_waits_a_minute"
+        ),
+        pytest.param(GitHubRateLimitError("secondary rate limit", retry_after=10), 60, id="short_hint_waits_a_minute"),
+        pytest.param(GitHubRateLimitError("primary rate limit", retry_after=900), 900, id="reset_hint_is_honored"),
+        pytest.param(GitHubEgressBudgetExhausted("shed", scope=INSTALLATION_ID), 60, id="egress_budget_waits_a_minute"),
+    ],
+)
+@pytest.mark.parametrize("activity_fn", [fetch_review_context, refresh_review_evidence])
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_github_rate_limit_delays_the_activity_retry(
+    team, stamphog_chain: StamphogChain, activity_fn: Any, error: Exception, expected_delay_seconds: int
+) -> None:
+    repo_config = _repo_config(team.id)
+    head_sha = "sha133a"
+    stamphog_chain.recorder.register_pr(REPO, 133, _pr_object(133, "devex-dev", head_sha), _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=133, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha=head_sha, status=ReviewRunStatus.REVIEWING
+    )
+
+    with (
+        patch.object(StamphogGitHubClient, "get_pr_review_threads", side_effect=error),
+        pytest.raises(ApplicationError) as raised,
+    ):
+        _run_activity(activity_fn, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert raised.value.next_retry_delay == timedelta(seconds=expected_delay_seconds)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

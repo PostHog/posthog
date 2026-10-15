@@ -25,6 +25,7 @@ import shlex
 import base64
 import random
 import tarfile
+import functools
 import threading
 import contextvars
 from collections.abc import Callable, Iterator, Sequence
@@ -34,7 +35,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any, Literal, ParamSpec, TypeVar
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -49,8 +50,10 @@ import yaml
 import requests
 from prometheus_client import Counter
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.llm.gateway_client import AIGatewayConfig, resolve_ai_gateway_config
 from posthog.models import User
 from posthog.ph_client import ph_background_capture, ph_scoped_capture
@@ -134,6 +137,12 @@ _CONTEXT_RELATIVE_PATH = PurePosixPath(STAMPHOG_SANDBOX_CONTEXT_PATH).relative_t
 
 # The context reads are a dozen GitHub round trips plus the familiarity reads, which run their own pool.
 _CONTEXT_FETCH_WORKERS = 8
+
+# GitHub asks a caller to wait at least a minute after a secondary rate limit that names no reset.
+_GITHUB_MIN_BACKOFF_SECONDS = 60
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
 
 # Server-shipped default policy files, the base layer every repo's config sits on. Named by the
 # basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
@@ -464,6 +473,25 @@ def _resolve_sandbox_backend() -> str:
     return provider if provider else "modal"
 
 
+def _backs_off_on_github_rate_limit(fn: Callable[_P, _T]) -> Callable[_P, _T]:
+    """Make Temporal wait out a GitHub rate limit before it retries the activity.
+
+    ACTIVITY_RETRY_POLICY retries after 5s and 10s, so without this delay every attempt lands in the
+    same rate-limit window and the run fails.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _T:
+        try:
+            return fn(*args, **kwargs)
+        except (GitHubRateLimitError, GitHubEgressBudgetExhausted) as error:
+            retry_after = error.retry_after if isinstance(error, GitHubRateLimitError) else None
+            delay = max(retry_after or 0, _GITHUB_MIN_BACKOFF_SECONDS)
+            raise ApplicationError(str(error), next_retry_delay=timedelta(seconds=delay)) from error
+
+    return wrapper
+
+
 def _pr_commit_messages(client: StamphogGitHubClient, repo: str, pr_number: int, head_sha: str) -> list[str] | None:
     """The PR's commit messages for the engine's provenance trailers, or None when they are unavailable.
 
@@ -494,6 +522,7 @@ class _StepTimer:
 
 @activity.defn
 @asyncify
+@_backs_off_on_github_rate_limit
 def fetch_review_context(input: StamphogReviewInput) -> dict:
     """Load the PR, its changed files, the author's merged PRs, and default-branch policy.
 
@@ -620,6 +649,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
 
 @activity.defn
 @asyncify
+@_backs_off_on_github_rate_limit
 def dismiss_stale_approvals(input: StamphogReviewInput) -> dict:
     """Retract every standing stamphog approval before this run reviews — old-head AND same-head.
 
@@ -665,6 +695,7 @@ def dismiss_stale_approvals(input: StamphogReviewInput) -> dict:
 
 @activity.defn
 @asyncify
+@_backs_off_on_github_rate_limit
 def signal_review_started(input: StamphogReviewInput) -> dict:
     """Post stamphog's own 👀 on the PR the moment this run commits to reviewing.
 
@@ -741,6 +772,7 @@ def _read_review_evidence(run: ReviewRun, earlier: list[dict]) -> list[dict]:
 
 @activity.defn
 @asyncify
+@_backs_off_on_github_rate_limit
 def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
     """Reviewers still working on the PR, refreshing the stored reactions and review status.
 
@@ -797,6 +829,7 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
 
 @activity.defn
 @asyncify
+@_backs_off_on_github_rate_limit
 def refresh_review_evidence(input: StamphogReviewInput) -> dict:
     """Re-read the reviews, discussion and inline threads before the engine counts an external review.
 
@@ -1664,6 +1697,7 @@ def rereview_after_external_review_finished(input: StamphogReviewInput) -> dict:
 
 @activity.defn
 @asyncify
+@_backs_off_on_github_rate_limit
 def post_verdict(input: StamphogReviewInput) -> dict:
     """Parse the engine output and post the approval or sticky comment."""
     post_started = time.monotonic()
@@ -1900,6 +1934,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
 @activity.defn
 @asyncify
+@_backs_off_on_github_rate_limit
 def mark_review_failed(input: MarkReviewFailedInput) -> None:
     """Mark a run FAILED after an unrecoverable workflow error."""
     run = _load_run(StamphogReviewInput(review_run_id=input.review_run_id, team_id=input.team_id))
