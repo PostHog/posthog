@@ -924,6 +924,7 @@ class InputsItemSerializer(serializers.Serializer):
                             "posthog_ticket_tags",
                             "customer_analytics_account_properties",
                             "customer_analytics_account_relationships",
+                            "task_repository",
                         ]
                         or (item_type == "boolean" and isinstance(value, str))
                         or (item_type == "choice" and _is_templated_choice(schema, value))

@@ -47,6 +47,8 @@ from products.workflows.backend.presentation.views.hog_flow import (
     mint_audience_confirm_token,
 )
 
+from common.hogvm.python.execute import execute_bytecode
+
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
 _WIDER_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "@", "operator": "icontains"}
 
@@ -7268,15 +7270,21 @@ class TestCreateTaskActionValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("org_slash_repo", "my-org/my-repo"),
-            ("hog_template", "{event.properties.repository}"),
-            ("template_inside_a_name", "my-org/{variables.repo}"),
+            ("org_slash_repo", "my-org/my-repo", {}),
+            (
+                "hog_template",
+                "{event.properties.repository}",
+                {"event": {"properties": {"repository": "my-org/my-repo"}}},
+            ),
+            ("template_inside_a_name", "my-org/{variables.repo}", {"variables": {"repo": "my-repo"}}),
         ]
     )
-    def test_accepts_a_repository(self, _name, repository):
+    def test_accepts_a_repository_and_renders_it_at_run_time(self, _name, repository, run_globals):
         response = self._post_flow({"repository": {"value": repository}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+        saved = response.json()["actions"][1]["config"]["inputs"]["repository"]
+        assert execute_bytecode(saved["bytecode"], run_globals).result == "my-org/my-repo"
 
     def test_rejects_a_model_outside_the_task_model_catalogue(self):
         with patch(
