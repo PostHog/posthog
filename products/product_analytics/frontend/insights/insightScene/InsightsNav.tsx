@@ -4,13 +4,12 @@ import posthog from 'posthog-js'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 
 import { AlertDeletionWarning } from 'products/alerts/frontend/components/AlertDeletionWarning'
-
-import { insightLogic } from '../insightLogic'
 
 export function InsightsNav(): JSX.Element {
     const { insightProps, insight } = useValues(insightLogic)
