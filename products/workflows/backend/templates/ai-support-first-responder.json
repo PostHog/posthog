@@ -405,7 +405,7 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":mag: Ticket *#{event.properties.ticket_number}* investigated by AI. The write-up is also saved on the ticket as a private note."
+                                    "text": ":mag: Ticket *#{toInt(event.properties.ticket_number)}* investigated by AI. The write-up is also saved on the ticket as a private note."
                                 }
                             },
                             {
@@ -421,7 +421,7 @@
                                             "type": "plain_text",
                                             "text": "View ticket"
                                         },
-                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{event.properties.ticket_number}"
+                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{toInt(event.properties.ticket_number)}"
                                     }
                                 ]
                             }
@@ -429,7 +429,7 @@
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "Ticket #{event.properties.ticket_number} investigated by AI\n\n{replaceAll(replaceAll(replaceAll(toString(variables.task_final_message), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}",
+                        "value": "Ticket #{toInt(event.properties.ticket_number)} investigated by AI\n\n{replaceAll(replaceAll(replaceAll(toString(variables.task_final_message), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}",
                         "templating": "hog"
                     }
                 }
@@ -492,7 +492,7 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":warning: Ticket *#{event.properties.ticket_number}* needs manual triage\nThe AI investigation didn't run, so it's been tagged needs_triage."
+                                    "text": ":warning: Ticket *#{toInt(event.properties.ticket_number)}* needs manual triage\nThe AI investigation didn't run, so it's been tagged needs_triage."
                                 }
                             },
                             {
@@ -504,7 +504,7 @@
                                             "type": "plain_text",
                                             "text": "View ticket"
                                         },
-                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{event.properties.ticket_number}"
+                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{toInt(event.properties.ticket_number)}"
                                     }
                                 ]
                             }
@@ -512,7 +512,7 @@
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "Ticket #{event.properties.ticket_number} needs manual triage",
+                        "value": "Ticket #{toInt(event.properties.ticket_number)} needs manual triage",
                         "templating": "hog"
                     }
                 }

@@ -187,7 +187,7 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":ticket: New ticket *#{event.properties.ticket_number}* from {replaceAll(replaceAll(replaceAll(toString(groups.organization.properties.name ?? event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}\nCSM: {variables.account.CSM[1].email}"
+                                    "text": ":ticket: New ticket *#{toInt(event.properties.ticket_number)}* from {replaceAll(replaceAll(replaceAll(toString(groups.organization.properties.name ?? event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}\nCSM: {variables.account.CSM[1].email}"
                                 }
                             },
                             {
@@ -199,7 +199,7 @@
                                             "type": "plain_text",
                                             "text": "View ticket"
                                         },
-                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{event.properties.ticket_number}"
+                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{toInt(event.properties.ticket_number)}"
                                     }
                                 ]
                             }
@@ -207,7 +207,7 @@
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "New ticket #{event.properties.ticket_number} from an account you look after",
+                        "value": "New ticket #{toInt(event.properties.ticket_number)} from an account you look after",
                         "templating": "hog"
                     }
                 }

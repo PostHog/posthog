@@ -106,7 +106,7 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":ticket: New ticket *#{event.properties.ticket_number}*\nFrom: {replaceAll(replaceAll(replaceAll(toString(event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}"
+                                    "text": ":ticket: New ticket *#{toInt(event.properties.ticket_number)}*\nFrom: {replaceAll(replaceAll(replaceAll(toString(event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}"
                                 }
                             },
                             {
@@ -118,7 +118,7 @@
                                             "type": "plain_text",
                                             "text": "View ticket"
                                         },
-                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{event.properties.ticket_number}"
+                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{toInt(event.properties.ticket_number)}"
                                     }
                                 ]
                             }
@@ -126,7 +126,7 @@
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "New ticket #{event.properties.ticket_number}",
+                        "value": "New ticket #{toInt(event.properties.ticket_number)}",
                         "templating": "hog"
                     }
                 },

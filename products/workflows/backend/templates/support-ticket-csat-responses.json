@@ -133,7 +133,7 @@
                         "templating": "hog"
                     },
                     "message": {
-                        "value": "CSAT response\nScore: {event.properties['$survey_questions'][1].response}\nComment: {substring(toString(event.properties['$survey_questions'][2].response ?? ''), 1, 4000)}",
+                        "value": "CSAT response\nScore: {toInt(event.properties['$survey_questions'][1].response)}\nComment: {substring(toString(event.properties['$survey_questions'][2].response ?? ''), 1, 4000)}",
                         "templating": "hog"
                     },
                     "is_private": {
@@ -213,7 +213,7 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":star: New CSAT comment\nFrom: {replaceAll(replaceAll(replaceAll(toString(person.properties.email ?? event.distinct_id), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}\nTicket: #{toInt(event.properties.ticket_number)}\nScore: {event.properties['$survey_questions'][1].response}\nComment: {replaceAll(replaceAll(replaceAll(toString(substring(toString(event.properties['$survey_questions'][2].response), 1, 2000)), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}"
+                                    "text": ":star: New CSAT comment\nFrom: {replaceAll(replaceAll(replaceAll(toString(person.properties.email ?? event.distinct_id), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}\nTicket: #{toInt(event.properties.ticket_number)}\nScore: {toInt(event.properties['$survey_questions'][1].response)}\nComment: {replaceAll(replaceAll(replaceAll(toString(substring(toString(event.properties['$survey_questions'][2].response), 1, 2000)), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}"
                                 }
                             },
                             {
@@ -270,7 +270,7 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":warning: Low CSAT score\nFrom: {replaceAll(replaceAll(replaceAll(toString(person.properties.email ?? event.distinct_id), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}\nTicket: #{toInt(event.properties.ticket_number)}\nScore: {event.properties['$survey_questions'][1].response}"
+                                    "text": ":warning: Low CSAT score\nFrom: {replaceAll(replaceAll(replaceAll(toString(person.properties.email ?? event.distinct_id), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}\nTicket: #{toInt(event.properties.ticket_number)}\nScore: {toInt(event.properties['$survey_questions'][1].response)}"
                                 }
                             },
                             {

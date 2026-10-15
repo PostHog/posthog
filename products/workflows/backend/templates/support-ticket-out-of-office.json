@@ -248,7 +248,7 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":warning: Ticket *#{event.properties.ticket_number}* has a new reply, but its assignee ({variables.ticket.assignee.user.email}) is out of office and it couldn't be reassigned. Check the assignee in the 'Reassign ticket' step."
+                                    "text": ":warning: Ticket *#{toInt(event.properties.ticket_number)}* has a new reply, but its assignee ({variables.ticket.assignee.user.email}) is out of office and it couldn't be reassigned. Check the assignee in the 'Reassign ticket' step."
                                 }
                             },
                             {
@@ -260,7 +260,7 @@
                                             "type": "plain_text",
                                             "text": "View ticket"
                                         },
-                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{event.properties.ticket_number}"
+                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{toInt(event.properties.ticket_number)}"
                                     }
                                 ]
                             }
@@ -268,7 +268,7 @@
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "Couldn't reassign ticket #{event.properties.ticket_number} while its assignee is out of office",
+                        "value": "Couldn't reassign ticket #{toInt(event.properties.ticket_number)} while its assignee is out of office",
                         "templating": "hog"
                     }
                 }

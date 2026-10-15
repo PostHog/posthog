@@ -158,7 +158,7 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":rotating_light: New ticket *#{event.properties.ticket_number}* from an important customer\nFrom: {replaceAll(replaceAll(replaceAll(toString(event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}"
+                                    "text": ":rotating_light: New ticket *#{toInt(event.properties.ticket_number)}* from an important customer\nFrom: {replaceAll(replaceAll(replaceAll(toString(event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}"
                                 }
                             },
                             {
@@ -170,7 +170,7 @@
                                             "type": "plain_text",
                                             "text": "View ticket"
                                         },
-                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{event.properties.ticket_number}"
+                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{toInt(event.properties.ticket_number)}"
                                     }
                                 ]
                             }
@@ -178,7 +178,7 @@
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "New ticket #{event.properties.ticket_number} from an important customer",
+                        "value": "New ticket #{toInt(event.properties.ticket_number)} from an important customer",
                         "templating": "hog"
                     }
                 }
