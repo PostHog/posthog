@@ -39,8 +39,9 @@ export function BISourcePreviewModal({ tabId }: { tabId: string }): JSX.Element 
                     data-attr="bi-source-preview-scope"
                 />
                 <p className="m-0 text-secondary">
-                    Sample of up to {limit.toLocaleString()} unaggregated rows. Repeated IDs are separate records. A
-                    sample does not establish uniqueness. Result filters and table calculations do not apply.
+                    Sample of up to <span translate="no">{limit.toLocaleString()}</span> unaggregated rows. Repeated IDs
+                    are separate records. A sample does not establish uniqueness. Result filters and table calculations
+                    do not apply.
                 </p>
                 {response && 'types' in response && Array.isArray(response.types) && (
                     <details className="text-xs">
