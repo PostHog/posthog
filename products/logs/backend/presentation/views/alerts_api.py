@@ -1221,8 +1221,10 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["POST"], url_path="reset", required_scopes=["logs:write"])
     def reset(self, request: Request, *args: object, **kwargs: object) -> Response:
-        alert = self.get_object()
         with transaction.atomic():
+            # The logs row first, then the platform copy: the cutover and rollback take the two
+            # locks in that order, and the opposite order deadlocks against them.
+            alert = self._get_locked_alert()
             previous_failures = alert.consecutive_failures
             if alert.platform_owned:
                 # The platform skips a broken alert, so the reset has to reach its copy. Its state
