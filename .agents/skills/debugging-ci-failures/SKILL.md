@@ -250,7 +250,7 @@ history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 #### Backend tests, which run on Depot CI
 
 Backend CI runs on Depot CI, not GitHub Actions, so `gh run` finds no run for it.
-The required check `Backend CI on Depot / Django Tests Pass on Depot` links the Depot gate job and carries no output.
+The required check is `Backend CI on Depot / Test results`, posted by the gate job; Depot's own `Backend CI on Depot / Django Tests Pass on Depot` check links the gate job and carries no output.
 The `Backend CI on Depot / Test results` check on the same commit lists the failing tests in its summary; read it with `gh api repos/PostHog/posthog/commits/<sha>/check-runs --jq '.check_runs[] | select(.name == "Backend CI on Depot / Test results") | .output.summary'`.
 A run that Depot still shows as running past its job timeouts is stuck; cancelling or retrying it is not read-only, so the rule against re-running CI applies.
 

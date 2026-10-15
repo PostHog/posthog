@@ -204,7 +204,7 @@ Three cases behave in ways the name does not suggest:
 - A **job-level** `continue-on-error: true` posts a `failure` check run even though dependents read `success` and the run goes green. Use step-level `continue-on-error` plus an explicit verdict step instead.
 - A **matrix that expands to zero cells** fails its dependents on GitHub Actions and posts no check run at all. Guard any `fromJSON` matrix with an `if:` that skips the job when the list is empty.
 
-Required contexts are pinned to one app: every entry in this repo's `master` ruleset carries `integration_id: 15368`, the `github-actions` app, except Backend CI's `Backend CI on Depot / Django Tests Pass on Depot`, which is pinned to Depot Code Access (`219785`). A check run from another app never satisfies one however exactly the name matches. [`/depot-ci`](../depot-ci/references/posthog-check-run-semantics.md) has the measurements, the rulesets query, and how Depot CI differs.
+Required contexts are pinned to one app: every entry in this repo's `master` ruleset carries `integration_id: 15368`, the `github-actions` app, except Backend CI's `Backend CI on Depot / Test results`, which is pinned to the PostHog tests app (`2492437`). A check run from another app never satisfies one however exactly the name matches. [`/depot-ci`](../depot-ci/references/posthog-check-run-semantics.md) has the measurements, the rulesets query, and how Depot CI differs.
 
 ## Checkout / clone — sparse first, then shallow
 
