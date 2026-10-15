@@ -403,8 +403,9 @@ class WidgetMessageView(APIView):
                 if session_context:
                     ticket.session_context.update(session_context)
 
-                # HMAC-verified requests are server-attested — mark the identity trusted.
-                if ownership_match == "distinct_id":
+                # The HMAC attests only the distinct ID. On other channels identity_verified attests the
+                # sender's address or platform account, and this request proves neither.
+                if ownership_match == "distinct_id" and ticket.channel_source == Channel.WIDGET:
                     ticket.identity_verified = True
 
                 # Increment unread count for team (customer sent a message)

@@ -1251,16 +1251,18 @@ class TestWidgetIdentityVerification(BaseTest):
 
     @parameterized.expand(
         [
-            ("zendesk", None, Channel.EMAIL, 123),
-            ("slack", True, Channel.SLACK, None),
+            ("zendesk", None, Channel.EMAIL, 123, False),
+            ("slack", True, Channel.SLACK, None, False),
+            ("outbound_email_owned_by_distinct_id", None, Channel.EMAIL, None, True),
         ]
     )
     def test_send_message_to_bridged_ticket_preserves_channel_identity(
-        self, _name, identity_verified, channel_source, zendesk_ticket_id
+        self, _name, identity_verified, channel_source, zendesk_ticket_id, owned_by_distinct_id
     ):
         email = "person@example.com"
+        ticket_distinct_id = self.distinct_id if owned_by_distinct_id else email
         ticket = self._create_email_ticket(
-            email,
+            ticket_distinct_id,
             identity_verified=identity_verified,
             channel_source=channel_source,
             zendesk_ticket_id=zendesk_ticket_id,
@@ -1280,7 +1282,7 @@ class TestWidgetIdentityVerification(BaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ticket.refresh_from_db()
-        self.assertEqual(ticket.distinct_id, email)
+        self.assertEqual(ticket.distinct_id, ticket_distinct_id)
         self.assertEqual(ticket.identity_verified, identity_verified)
         self.assertEqual(ticket.anonymous_traits, {})
 
