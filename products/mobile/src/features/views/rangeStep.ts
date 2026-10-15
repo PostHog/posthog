@@ -216,12 +216,37 @@ function stepHours(
     }
 }
 
+function sameChoice(next: RangeChoice, choice: RangeChoice | null, saved: SavedRange): boolean {
+    if (next.kind === 'preset') {
+        const current = choice
+            ? choice.kind === 'preset'
+                ? choice.key
+                : null
+            : presetForValues(saved.dateFrom, saved.dateTo)?.key
+        return current === next.key
+    }
+    return choice?.kind === 'fixed' && choice.dateFrom === next.dateFrom && choice.dateTo === next.dateTo
+}
+
 /**
  * The choice one step back (-1) or forward (1) from the current one, or null when that step is not possible: All
- * time, forward from the window that holds now, or no resolved window yet. A step that lands on the current period
- * returns its relative preset (`dStart`, `wStart`, `mStart`, `yStart`, or the original `-Nd`).
+ * time, forward from the window that holds now, no resolved window yet, or a step that lands on the range already
+ * shown. A step that lands on the current period returns its relative preset (`dStart`, `wStart`, `mStart`, `yStart`,
+ * or the original `-Nd`).
  */
 export function stepRange(
+    choice: RangeChoice | null,
+    saved: SavedRange,
+    direction: StepDirection,
+    context: StepContext
+): RangeChoice | null {
+    const next = stepOf(choice, saved, direction, context)
+    // An hours window resolves to the end of the hour of its compute, so a cached "Last 24 hours" read in an earlier
+    // hour ends before now, and a step forward would only return the same preset.
+    return next && !sameChoice(next, choice, saved) ? next : null
+}
+
+function stepOf(
     choice: RangeChoice | null,
     saved: SavedRange,
     direction: StepDirection,

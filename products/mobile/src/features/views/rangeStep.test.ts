@@ -138,6 +138,14 @@ describe('stepRange', () => {
             1,
             preset('24h'),
         ],
+        [
+            'last 24 hours forward from a cache read in an earlier hour',
+            preset('24h'),
+            NO_SAVED,
+            { from: '2026-10-13T17:00:00Z', to: '2026-10-14T17:59:59Z' },
+            1,
+            null,
+        ],
         ['all time', preset('all'), NO_SAVED, days('2020-01-01', '2026-10-14'), -1, null],
     ])('steps %s', (_name, choice, saved, resolved, direction, expected) => {
         expect(stepRange(choice, saved, direction, { resolved, today: TODAY, now: NOW })).toEqual(expected)
