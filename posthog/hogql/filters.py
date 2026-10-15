@@ -328,7 +328,7 @@ class ReplaceFilters(CloningVisitor):
 
         if not any([found_events, found_sessions, found_logs, found_traces, found_groups, found_persons]):
             raise QueryError(
-                "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, flag_evaluations, sessions, logs, traces, groups or persons table."
+                "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, ai_events, flag_evaluations, sessions, logs, traces, groups or persons table."
             )
 
         # Person semantics apply only when persons is the sole recognized table; any query that also
