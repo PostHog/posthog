@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import IntegrityError, models
-from django.db.models import Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -152,16 +152,21 @@ def get_recent_file_system_items(
     before the ``(type, ref)`` keys are matched. ``descending`` is threaded down to the view-log
     query so the ``limit`` slice picks the globally oldest/newest views, not a re-sorted page.
     """
-    log_rows = list(
-        recent_view_logs(
-            team_id=team_id,
-            user_id=user_id,
-            surface=surface,
-            exclude_types=exclude_types,
-            limit=limit,
-            descending=descending,
-        ).values_list("type", "ref", "viewed_at")
-    )
+    base_queryset = (
+        file_system_queryset
+        if file_system_queryset is not None
+        else FileSystem.objects.filter(surface_q(surface), team_id=team_id)
+    ).exclude(shortcut=True)
+    log_queryset = recent_view_logs(
+        team_id=team_id,
+        user_id=user_id,
+        surface=surface,
+        exclude_types=exclude_types,
+        descending=descending,
+    ).filter(Exists(base_queryset.filter(type=OuterRef("type"), ref=OuterRef("ref"))))
+    if limit is not None:
+        log_queryset = log_queryset[:limit]
+    log_rows = list(log_queryset.values_list("type", "ref", "viewed_at"))
     if not log_rows:
         return []
 
@@ -170,14 +175,8 @@ def get_recent_file_system_items(
     for row_type, row_ref, _ in log_rows:
         key_filter |= Q(type=row_type, ref=row_ref)
 
-    base_queryset = (
-        file_system_queryset
-        if file_system_queryset is not None
-        else FileSystem.objects.filter(surface_q(surface), team_id=team_id)
-    )
     rows_by_key: dict[tuple[str, Optional[str]], FileSystem] = {
-        (row.type, row.ref): row
-        for row in base_queryset.filter(key_filter).exclude(shortcut=True).select_related("created_by")
+        (row.type, row.ref): row for row in base_queryset.filter(key_filter).select_related("created_by")
     }
 
     ordered: list[FileSystem] = []
