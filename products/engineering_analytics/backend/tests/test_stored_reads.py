@@ -198,7 +198,6 @@ class TestStoredReads(BaseTest):
         with (
             patch(f"{_CI_PRECOMPUTE}.cache", LocMemCache(self.id(), {})),
             patch(f"{_CI_PRECOMPUTE}.history_start", return_value=timezone.now() - timedelta(days=400)),
-            patch(f"{_CURATED}.refresh_ci_precompute"),
             patch(f"{_CI_PRECOMPUTE}.ensure_stored", return_value=SimpleNamespace(ready=True, job_ids=[uuid4()])),
             patch(f"{_CURATED}.execute_hogql_query", side_effect=execute),
         ):
@@ -214,7 +213,6 @@ class TestStoredReads(BaseTest):
         with (
             patch(f"{_CI_PRECOMPUTE}.cache", LocMemCache(self.id(), {})),
             patch(f"{_CI_PRECOMPUTE}.history_start", return_value=None),
-            patch(f"{_CURATED}.refresh_ci_precompute"),
             patch(f"{_CURATED}.execute_hogql_query", return_value=SimpleNamespace(results=[(1,)])),
         ):
             curated.run(sql, query_type=_RAW_READ)
