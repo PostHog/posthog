@@ -10,7 +10,7 @@ from django.views.decorators.http import require_GET
 from loginas.utils import is_impersonated_session
 from pydantic import JsonValue
 
-from products.tasks.backend.facade.infrastructure import DEV_STACK_IMAGE_NAME, IMAGE_NAMES, InfrastructureStatus
+from products.tasks.backend.facade.infrastructure import IMAGE_NAMES, InfrastructureStatus
 
 
 @require_GET
@@ -34,15 +34,15 @@ def infrastructure_admin(request: HttpRequest) -> HttpResponse:
     elif source == "workflow":
         image_id = request.GET.get("image_id", "")
         if image_id == "dev_stack":
-            workflow_id = f"bake-dev-stack-image-{DEV_STACK_IMAGE_NAME}"
+            return JsonResponse(collector.read_dev_stack_workflow().model_dump(mode="json"))
         else:
             try:
                 parsed_id = UUID(image_id)
             except ValueError:
                 return JsonResponse({"detail": "Invalid image ID"}, status=400)
             workflow_id = f"build-sandbox-image-{parsed_id}"
+            loader = lambda: collector.workflow(workflow_id)
         source = f"workflow:{workflow_id}"
-        loader = lambda: collector.workflow(workflow_id)
     elif source in loaders:
         loader = loaders[source]
     else:

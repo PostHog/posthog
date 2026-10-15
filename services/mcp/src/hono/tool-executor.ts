@@ -14,12 +14,15 @@ import {
     handleToolError,
     MissingOrganizationContextError,
     MissingProjectContextError,
+    PinnedContextSwitchError,
     PostHogApiError,
     PostHogValidationError,
     ToolInputValidationError,
     MCPToolResultError,
     findPostHogPermissionError,
     findRecoverableApiError,
+    hasTimeoutCause,
+    isTimeoutError,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
@@ -33,6 +36,7 @@ import {
     describeInputShape,
     describeValidationError,
     formatInputValidationError,
+    getDeprecatedToolRedirect,
     markNoncanonicalMetricRun,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
@@ -89,8 +93,8 @@ interface ExecMetricState {
  *
  * CLI-mode clients read `content[].text`, so for them the structured copy only adds
  * tokens. A render-ui host in single-exec mode is the exception, because there
- * `buildAdvertisedTools` offers `exec` and `render-ui` to the model, and `handleToolCall`
- * routes both of those before this path. Any other tool name that reaches here is therefore the
+ * `buildAdvertisedTools` offers `exec` and `render-ui` only, and `handleToolCall` routes
+ * both of those before this path. Any other tool name that reaches here is therefore the
  * render-ui app calling `callServerTool` to load its own data. That app reads
  * `structuredContent` and ignores the text channel, so dropping the structured payload
  * leaves it with nothing to draw, and it shows its error state instead of the chart. The
@@ -157,23 +161,7 @@ export class ToolExecutor {
     // Guarded because analytics must never break `tools/list`.
     private injectAnalyticsParameters(tools: ListToolsResult['tools']): ListToolsResult['tools'] {
         try {
-            return getPostHogClient()
-                .prepareToolList(tools)
-                .map((tool) => {
-                    const visibility = (tool._meta?.ui as { visibility?: unknown } | undefined)?.visibility
-                    if (!Array.isArray(visibility) || visibility.length !== 1 || visibility[0] !== 'app') {
-                        return tool
-                    }
-                    return {
-                        ...tool,
-                        inputSchema: {
-                            ...tool.inputSchema,
-                            required: tool.inputSchema.required?.filter(
-                                (name) => name !== 'context' && name !== 'llm_model'
-                            ),
-                        },
-                    }
-                })
+            return getPostHogClient().prepareToolList(tools)
         } catch {
             return tools
         }
@@ -182,36 +170,7 @@ export class ToolExecutor {
     private buildAdvertisedTools(state: ResolvedState): ListToolsResult['tools'] {
         if (state.useSingleExec) {
             const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
-            // Hosts authorize app calls against tools/list, including tools hidden from the model.
-            const appToolNames = new Set(
-                renderUiEntry
-                    ? state.allTools.filter((tool) => tool.annotations.readOnlyHint).map((tool) => tool.name)
-                    : []
-            )
-            const appTools = this.catalog
-                .getPreBuiltEntries()
-                .filter((entry) => appToolNames.has(entry.name))
-                .map((entry) => {
-                    const uiMeta = entry._meta?.ui
-                    return {
-                        ...entry,
-                        description: `Load ${entry.name} data for a PostHog app.`,
-                        // Omit generated query schemas to limit discovery size; calls still use the full validator.
-                        inputSchema: { type: 'object' as const, additionalProperties: true },
-                        _meta: {
-                            ...entry._meta,
-                            ui: {
-                                ...(uiMeta && typeof uiMeta === 'object' ? uiMeta : {}),
-                                visibility: ['app'],
-                            },
-                        },
-                    }
-                })
-            return [
-                this.instructionsBuilder.buildExecToolEntry(state),
-                ...(renderUiEntry ? [renderUiEntry] : []),
-                ...appTools,
-            ]
+            return [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])]
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
@@ -310,7 +269,8 @@ export class ToolExecutor {
 
         if (!state.allTools.some((t) => t.name === toolName)) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
-            return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+            const text = getDeprecatedToolRedirect(toolName, state.allTools) ?? `Tool ${toolName} not found`
+            return { content: [{ type: 'text', text }], isError: true }
         }
 
         const preBuilt = this.catalog.getToolByName(toolName)
@@ -997,7 +957,11 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         const errorCode = error.errorCode ? sanitizeErrorToken(error.errorCode) : undefined
         return { errorType: error.errorType, ...(errorCode ? { errorCode } : {}) }
     }
-    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
+    if (
+        error instanceof MissingProjectContextError ||
+        error instanceof MissingOrganizationContextError ||
+        error instanceof PinnedContextSwitchError
+    ) {
         return { errorType: 'missing_context' }
     }
     if (error instanceof ToolInputValidationError) {
@@ -1018,7 +982,7 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
     }
-    if (error instanceof Error && error.name === 'TimeoutError') {
+    if (hasTimeoutCause(error)) {
         return { errorType: 'timeout' }
     }
 
@@ -1103,7 +1067,11 @@ function resolveSafeErrorMessage(error: unknown): string | undefined {
         return `Tool failed: ${error.errorType}`
     }
     // Static recovery walkthroughs generated by our own constructors.
-    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
+    if (
+        error instanceof MissingProjectContextError ||
+        error instanceof MissingOrganizationContextError ||
+        error instanceof PinnedContextSwitchError
+    ) {
         return error.message
     }
     // Documented value-free: offending field paths + issue codes, never input values.
@@ -1115,7 +1083,7 @@ function resolveSafeErrorMessage(error: unknown): string | undefined {
     if (error instanceof ExecCommandError) {
         return `Exec command rejected: ${error.reason}`
     }
-    if (error instanceof Error && error.name === 'TimeoutError') {
+    if (isTimeoutError(error)) {
         return 'Tool call timed out'
     }
     const apiError = findRecoverableApiError(error)

@@ -51,7 +51,14 @@ describe('biEditorLogic', () => {
         limit: 1000,
         sort: null,
     }
-    it.each([0, 1, 2])('keeps Top N and result filters attached to their measures when removing value %s', (index) => {
+    it.each([
+        ['remove', 0],
+        ['remove', 1],
+        ['remove', 2],
+        ['reorder', 0],
+        ['reorder', 1],
+        ['reorder', 2],
+    ] as const)('keeps Top N and result filters attached when %s changes value %s', (operation, index) => {
         const logic = biEditorLogic({ tabId: TAB_ID })
         logic.mount()
         logic.actions.setAutoUpdate(false)
@@ -72,19 +79,120 @@ describe('biEditorLogic', () => {
                 })),
             },
         })
-        logic.actions.removeFieldFromShelf('values', index)
-        expect(logic.values.config.resultFilters).toHaveLength(2)
+        if (operation === 'remove') {
+            logic.actions.removeFieldFromShelf('values', index)
+        } else {
+            logic.actions.moveFieldToShelf('values', index, 'values', index === 0 ? 3 : 0)
+        }
+        expect(logic.values.config.resultFilters).toHaveLength(operation === 'remove' ? 2 : 3)
         for (const filter of logic.values.config.resultFilters!) {
             expect(logic.values.config.values[filter.measureIndex].field.id).toBe(
                 filter.id.replace('filter-', 'measure-')
             )
         }
-        if (index === 1) {
+        if (index === 1 && operation === 'remove') {
             expect(logic.values.config.topN).toBeUndefined()
         } else {
             const measureIndex = logic.values.config.topN!.measureIndex
             expect(logic.values.config.values[measureIndex].field.id).toBe('measure-1')
         }
+        logic.unmount()
+    })
+
+    it('reorders dimension pills and swaps measures without losing their calculations or placement on reload', () => {
+        const logic = biEditorLogic({ tabId: TAB_ID })
+        logic.mount()
+        const category = { ...eventField, id: 'category', name: 'Category', expression: 'properties.category' }
+        const revenue = {
+            field: { ...eventField, id: 'revenue', expression: 'properties.revenue' },
+            aggregation: 'sum' as const,
+            tableCalculation: { type: 'running_total' as const },
+        }
+        logic.actions.restoreState({
+            editorView: BIEditorView.BI,
+            config: {
+                ...config,
+                columns: [eventField, category],
+                rows: [],
+                values: [revenue],
+                sort: { key: `columns:${category.id}`, direction: 'asc' },
+            },
+        })
+        logic.actions.moveFieldToShelf('columns', 1, 'columns', 0)
+        expect(logic.values.config.columns).toEqual([category, eventField])
+        logic.actions.swapRowsAndColumns()
+        expect(logic.values.config.rows).toEqual([category, eventField])
+        expect(logic.values.config.columns).toEqual([])
+        expect(logic.values.config.values).toEqual([{ ...revenue, shelf: 'columns' }])
+        expect(logic.values.config.sort?.key).toBe(`rows:${category.id}`)
+        expect(logic.values.config.chartType).toBe(ChartDisplayType.ActionsBarValue)
+        expect(parseBIEditorState(BIEditorView.BI, JSON.stringify(logic.values.config))?.config.values).toEqual(
+            logic.values.config.values
+        )
+        logic.actions.moveFieldToShelf('values', 0, 'rows')
+        expect(logic.values.config.values).toEqual([{ ...revenue, shelf: 'rows' }])
+        logic.actions.convertMeasureToDimension(0)
+        expect(logic.values.config.values).toEqual([])
+        expect(logic.values.config.rows).toEqual([category, eventField, revenue.field])
+        logic.unmount()
+    })
+
+    it.each(['rows', 'columns'] as const)('copies a timeline field into %s without changing the original', (target) => {
+        const logic = biEditorLogic({ tabId: TAB_ID })
+        logic.mount()
+        const date = {
+            ...eventField,
+            id: 'date',
+            name: 'timestamp',
+            expression: 'timestamp',
+            type: 'datetime' as const,
+            dateBucket: 'month' as const,
+        }
+        logic.actions.restoreState({
+            editorView: BIEditorView.BI,
+            config: { ...config, rows: [date], columns: [], values: [] },
+        })
+        logic.actions.duplicateField('rows', 0, target, 0)
+        logic.actions.setFieldDatePart(target, 0, 'month')
+        expect(logic.values.config.rows[target === 'rows' ? 1 : 0]).toEqual(date)
+        expect(logic.values.config[target][0].id).not.toBe(date.id)
+        expect(logic.values.generatedQuery?.query).toContain('toStartOfMonth(timestamp)')
+        expect(logic.values.generatedQuery?.query).toContain('toMonth(timestamp)')
+        const restored = parseBIEditorState(BIEditorView.BI, JSON.stringify(logic.values.config))!
+        expect(restored.config[target][0].datePart).toBe('month')
+        logic.actions.setFieldDateBucket(target, 0, 'year')
+        expect(logic.values.config[target][0].datePart).toBeUndefined()
+        expect(logic.values.generatedQuery?.query).toContain('toStartOfYear(timestamp)')
+        logic.unmount()
+    })
+
+    it('copies a calculated measure at the drop position and keeps filters attached to the original', () => {
+        const logic = biEditorLogic({ tabId: TAB_ID })
+        logic.mount()
+        logic.actions.setAutoUpdate(false)
+        const measure = {
+            field: { ...eventField, type: 'float' as const },
+            aggregation: 'custom' as const,
+            customExpression: 'sum(revenue) / nullIf(count(), 0)',
+            label: 'Revenue per event',
+            shelf: 'columns' as const,
+            tableCalculation: { type: 'running_total' as const },
+        }
+        logic.actions.restoreState({
+            editorView: BIEditorView.BI,
+            config: {
+                ...config,
+                values: [measure],
+                resultFilters: [{ id: 'original', measureIndex: 0, operator: 'greater_than', value: '5' }],
+                topN: { fieldId: eventField.id, count: 5, measureIndex: 0, includeOther: false },
+            },
+        })
+        logic.actions.duplicateField('values', 0, 'values', 0)
+        expect(logic.values.config.values).toEqual([measure, measure])
+        expect(logic.values.config.resultFilters?.[0].measureIndex).toBe(1)
+        expect(logic.values.config.topN?.measureIndex).toBe(1)
+        logic.actions.duplicateField('values', 0, 'rows')
+        expect(logic.values.config.values).toEqual([measure, measure, { ...measure, shelf: 'rows' }])
         logic.unmount()
     })
 
@@ -344,6 +452,62 @@ describe('biEditorLogic', () => {
             expect(connections.values.connections).toEqual([])
             connections.unmount()
             biLogic.unmount()
+        }
+    )
+
+    it.each(['dimension', 'measure'] as const)(
+        'reuses, edits, clears, restores and deletes a worksheet-local %s',
+        (kind) => {
+            const logic = biEditorLogic({ tabId: TAB_ID })
+            logic.mount()
+            logic.actions.restoreState({ editorView: BIEditorView.BI, config })
+            const expression = kind === 'dimension' ? "coalesce(properties.plan, 'Unknown')" : 'sum(revenue)'
+            const editedExpression = kind === 'dimension' ? 'lower(properties.plan)' : 'avg(revenue)'
+            logic.actions.setCalculatedMeasureDraft({ index: null, kind, name: 'Local calculation', expression })
+            logic.actions.saveCalculatedMeasure()
+            const field = logic.values.config.localFields![0]
+            const shelf = kind === 'dimension' ? 'rows' : 'values'
+            logic.actions.duplicateField(shelf, kind === 'dimension' ? logic.values.config.rows.length - 1 : 0)
+            if (kind === 'dimension') {
+                logic.actions.addFieldToShelf(field, 'filters')
+            }
+            logic.actions.editCalculatedField(field)
+            logic.actions.setCalculatedMeasureDraft({
+                ...logic.values.calculatedMeasureDraft!,
+                name: 'Renamed calculation',
+                expression: editedExpression,
+            })
+            logic.actions.saveCalculatedMeasure()
+            expect(logic.values.config.localFields![0].name).toBe('Renamed calculation')
+            if (kind === 'dimension') {
+                expect(logic.values.config.rows.slice(-2).map((field) => field.expression)).toEqual([
+                    editedExpression,
+                    editedExpression,
+                ])
+                expect(
+                    logic.values.config.filters.find((filter) => filter.field.id === field.id)?.field.expression
+                ).toBe(editedExpression)
+            } else {
+                expect(logic.values.config.values.map((value) => value.customExpression)).toEqual([
+                    editedExpression,
+                    editedExpression,
+                ])
+            }
+            const saved = parseBIEditorState(BIEditorView.BI, JSON.stringify(logic.values.config))!
+            logic.actions.resetConfig()
+            expect(logic.values.config.localFields).toEqual(saved.config.localFields)
+            expect(
+                logic.values.dataPaneFields[kind === 'dimension' ? 'dimensions' : 'measures'].some(
+                    (field) => field.name === 'Renamed calculation'
+                )
+            ).toBe(true)
+            logic.actions.restoreState(saved)
+            logic.actions.removeLocalField(field.id)
+            expect(logic.values.config.localFields).toEqual([])
+            expect(logic.values.config.filters.some((filter) => filter.field.id === field.id)).toBe(false)
+            expect(logic.values.config.values.some((value) => value.field.id === field.id)).toBe(false)
+            expect(logic.values.config.rows.some((row) => (row.localFieldId ?? row.id) === field.id)).toBe(false)
+            logic.unmount()
         }
     )
 

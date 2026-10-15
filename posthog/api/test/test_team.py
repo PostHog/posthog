@@ -28,6 +28,7 @@ from posthog.api.team import (
     handle_conversations_token_on_update,
     merge_conversations_settings,
 )
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
@@ -48,6 +49,7 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 from posthog.utils import get_context_for_template, get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -442,6 +444,45 @@ def team_api_test_factory():
                 response_data["test_account_filters"],
                 [{"key": "$current_url", "value": "test"}],
             )
+
+        @parameterized.expand(
+            [
+                # The filter that does not compile must neither break the save nor hide the denial.
+                ("flat", lambda denied: [{"type": "hogql", "key": ""}, denied]),
+                (
+                    "nested_in_behavioral",
+                    lambda _denied: [
+                        {
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                            "event_filters": [{"type": "hogql", "key": "person.denied_join.id = 'internal'"}],
+                        }
+                    ],
+                ),
+            ]
+        )
+        @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
+        @patch("posthog.hogql.property.posthoganalytics.feature_enabled", return_value=True)
+        def test_update_rejects_a_test_account_filter_through_a_denied_warehouse_table(
+            self, _name, filters_for, _behavioral_flag, _flag
+        ):
+            denied_filter = deny_warehouse_table_to_member(self.organization, self.team, self.user)
+            filters_before = self.team.test_account_filters
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"test_account_filters": filters_for(denied_filter)},
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["attr"] == "test_account_filters"
+            assert "denied_warehouse_table" in response.json()["detail"]
+            self.team.refresh_from_db()
+            assert self.team.test_account_filters == filters_before
 
         @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
         @patch("posthoganalytics.capture")
@@ -1382,6 +1423,37 @@ def team_api_test_factory():
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert response.json()["modifiers"] == {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
+
+        @parameterized.expand(
+            [
+                (
+                    "environments",
+                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
+                    None,
+                    {"useNewEventsSchema": True},
+                ),
+                (
+                    "projects",
+                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
+                    None,
+                    {"useNewEventsSchema": True},
+                ),
+                ("environments", True, None, None),
+                ("projects", ["useNewEventsSchema"], None, None),
+                ("environments", True, {"bounceRateDurationSeconds": 30}, {"bounceRateDurationSeconds": 30}),
+            ]
+        )
+        def test_patching_modifiers_over_a_stored_value(
+            self, prefix: str, stored: object, patched: dict | None, expected: dict | None
+        ) -> None:
+            self.team.modifiers = stored
+            self.team.save()
+
+            response = self.client.patch(f"/api/{prefix}/{self.team.id}", {"modifiers": patched}, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            self.team.refresh_from_db()
+            assert self.team.modifiers == expected
 
         @parameterized.expand(
             [
@@ -4219,6 +4291,41 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         expected: dict[str, str | None] = dict(current_settings) if settings_input == "omitted" else {}
         expected["widget_public_token"] = "test-generated-token" if enabling else None
         self.assertEqual(result["conversations_settings"], expected)
+
+    @parameterized.expand(
+        [
+            (serializer, scopes, allowed)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for scopes, allowed in (
+                (None, True),
+                (["project:read"], False),
+                (["query:read"], True),
+                (["query:write"], True),
+                (["*"], True),
+            )
+        ]
+    )
+    def test_live_events_token_requires_query_access(
+        self,
+        serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+        scopes: list[str] | None,
+        allowed: bool,
+    ) -> None:
+        authenticator = None
+        if scopes is not None:
+            authenticator = PersonalAPIKeyAuthentication()
+            authenticator.personal_api_key = PersonalAPIKey(scopes=scopes)
+        request = MagicMock(user=MagicMock(id=1, is_authenticated=True))
+        request.successful_authenticator = authenticator
+        team = Team(id=1)
+        serializer = serializer_class(context={"request": request})
+
+        with patch("posthog.api.team.get_or_mint_live_events_token", return_value="test-live-token"):
+            if isinstance(serializer, TeamSerializer):
+                token = serializer.get_live_events_token(team)
+            else:
+                token = serializer.get_live_events_token(MagicMock(passthrough_team=team))
+            self.assertEqual(token, "test-live-token" if allowed else None)
 
     @parameterized.expand(
         [

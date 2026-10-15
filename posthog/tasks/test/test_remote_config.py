@@ -3,7 +3,7 @@ from collections.abc import Callable
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -86,7 +86,7 @@ class TestRemoteConfig(BaseTest):
         mock_sync.assert_called_once_with(bypass_recordings_quota_cache=False)
 
 
-class TestRemoteConfigCacheTasks(BaseTest):
+class TestRemoteConfigCacheTasks(SimpleTestCase):
     @parameterized.expand(
         [
             (

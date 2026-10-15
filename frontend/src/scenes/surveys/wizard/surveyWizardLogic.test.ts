@@ -349,6 +349,24 @@ describe('surveyWizardLogic', () => {
             })
         })
 
+        it('should carry every intro screen field from the template appearance', async () => {
+            const logic = surveyWizardLogic({ id: 'new' })
+            logic.mount()
+            const introScreenAppearance = {
+                displayIntroScreen: true,
+                introScreenHeader: 'Help us improve',
+                introScreenDescription: '<b>One minute</b>',
+                introScreenDescriptionContentType: 'html' as const,
+                introScreenButtonText: 'Start',
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.selectTemplate({ ...createMockTemplate(), appearance: introScreenAppearance })
+            }).toMatchValues({
+                survey: expect.objectContaining({ appearance: expect.objectContaining(introScreenAppearance) }),
+            })
+        })
+
         it('should apply recommended frequency based on template type', async () => {
             const logic = surveyWizardLogic({ id: 'new' })
             logic.mount()

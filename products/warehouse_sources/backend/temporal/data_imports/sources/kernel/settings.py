@@ -1,8 +1,11 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from products.warehouse_sources.backend.types import IncrementalField
 
-@dataclass
+
+@dataclass(frozen=True)
 class KernelEndpointConfig:
     name: str
     path: str
@@ -11,12 +14,20 @@ class KernelEndpointConfig:
     # Extra query params merged into every request (e.g. browsers needs status=all to
     # include soft-deleted sessions - the list defaults to status=active otherwise).
     extra_params: dict[str, str] = field(default_factory=dict)
+    incremental_fields: list[IncrementalField] = field(default_factory=list)
+    partition_key: Optional[str] = None
+    # Credential keys dropped from one nested object, keyed by the top-level field that holds it.
+    nested_sensitive_fields: dict[str, frozenset[str]] = field(default_factory=dict)
+    # Error `code` in a 404 body that means the resource is switched off for the organization,
+    # so the table is empty rather than broken.
+    empty_on_error_code: Optional[str] = None
     should_sync_default: bool = True
     description: Optional[str] = None
 
 
-# All Kernel list endpoints share offset pagination (limit/offset query params, X-Has-More /
-# X-Next-Offset response headers). None of these are synced incrementally: Kernel documents a
+# Kernel list endpoints share offset pagination (limit/offset query params, X-Has-More /
+# X-Next-Offset response headers), except audit_logs (see kernel.py). Only audit_logs syncs
+# incrementally, on its required server-side `start` filter. Kernel documents a
 # `since` filter on /invocations, but it could not be verified against a live API for this alpha
 # release (server-side filtering and response ordering both need a smoke test before the pipeline
 # can trust a watermark), so every table ships as a full refresh. See kernel.py for the follow-up note.
@@ -56,6 +67,34 @@ KERNEL_ENDPOINTS: dict[str, KernelEndpointConfig] = {
         # Fans out over every browser session and can carry captured page content, so it's opt-in.
         should_sync_default=False,
         description="Archived telemetry events (console, network, page, interaction, and more) captured by your browser sessions during Kernel's 30-day retention window.",
+    ),
+    "browser_pools": KernelEndpointConfig(
+        name="browser_pools",
+        path="/browser_pools",
+        description="Browser pools, with their size, live acquired/available counts, and browser configuration.",
+    ),
+    "proxies": KernelEndpointConfig(
+        name="proxies",
+        path="/proxies",
+        # Proxy authentication credentials must not reach the warehouse.
+        nested_sensitive_fields={"config": frozenset({"password", "username"})},
+        description="Proxy configurations that browser sessions route traffic through, with health status.",
+    ),
+    "projects": KernelEndpointConfig(
+        name="projects",
+        path="/org/projects",
+        empty_on_error_code="projects_disabled",
+        description="Projects that isolate resources within your Kernel organization.",
+    ),
+    "audit_logs": KernelEndpointConfig(
+        name="audit_logs",
+        path="/audit-logs",
+        # Audit records carry no id; kernel.py derives a synthetic `id` from the record contents.
+        incremental_fields=[incremental_field("timestamp")],
+        partition_key="timestamp",
+        # Audit logs need a Start-Up or Enterprise plan and record every API request, so they are opt-in.
+        should_sync_default=False,
+        description="Organization-wide audit log of authenticated API requests: who called which endpoint, when, and the response status.",
     ),
 }
 

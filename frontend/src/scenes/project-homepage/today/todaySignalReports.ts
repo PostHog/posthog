@@ -101,6 +101,7 @@ export function teamReportCard(report: SignalReport): TodayReportCard {
         reason: null,
         stateLabel: null,
         resolved: false,
+        canLeaveReview: report.is_suggested_reviewer,
         priority: report.priority ?? null,
         summary: report.summary_lead || null,
         pullRequestState: report.implementation_pr_merged ? 'merged' : (report.implementation_pr_state ?? null),

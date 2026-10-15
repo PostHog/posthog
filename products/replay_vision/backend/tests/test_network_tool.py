@@ -94,6 +94,12 @@ class TestIndexState:
                 "none",
                 False,
             ),
+            (
+                "captured but a request hid its status",
+                SessionNetworkPayload(captured=True, unknown_outcomes=True),
+                "none",
+                False,
+            ),
             ("no capture at all", _payload(captured=False), "none", False),
             ("no payload", None, "none", False),
         ]

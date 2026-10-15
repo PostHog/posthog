@@ -1,5 +1,6 @@
 import dataclasses
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from requests import Response
 
@@ -9,6 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
     rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BaseNextUrlPaginator,
@@ -29,6 +33,8 @@ BASE_URL = f"{API_HOST}/api/v2"
 # project key under `_project_key` (make_parent_key_name(name, "key") == f"_{name}_key"), matching
 # the column the hand-rolled source emitted.
 PROJECTS_PARENT_NAME = "project"
+# Parent resource name for environment-scoped endpoints, injecting the environment key as `_environment_key`.
+ENVIRONMENTS_PARENT_NAME = "environment"
 
 
 @dataclasses.dataclass
@@ -84,6 +90,21 @@ class LaunchDarklyLinkPaginator(BaseNextUrlPaginator):
         return "LaunchDarklyLinkPaginator()"
 
 
+def _endpoint_params(config: LaunchDarklyEndpointConfig) -> dict[str, Any]:
+    params: dict[str, Any] = dict(config.extra_params)
+    if config.page_size is not None:
+        params["limit"] = config.page_size
+    return params
+
+
+def _with_flag_key(row: dict[str, Any]) -> dict[str, Any]:
+    # A flag status row names its flag only in its links: /api/v2/flag-statuses/{project}/{environment}/{flag}.
+    links = row.get("_links") or {}
+    href = (links.get("self") or {}).get("href") or (links.get("parent") or {}).get("href") or ""
+    row["_flag_key"] = urlparse(href).path.rstrip("/").rsplit("/", 1)[-1] or None
+    return row
+
+
 def _client_config(access_token: str) -> ClientConfig:
     return {
         "base_url": BASE_URL,
@@ -109,7 +130,7 @@ def _build_toplevel_resource(
                 "name": config.name,
                 "endpoint": {
                     "path": config.path,
-                    "params": {"limit": config.page_size},
+                    "params": _endpoint_params(config),
                     "data_selector": "items",
                     "paginator": LaunchDarklyLinkPaginator(),
                 },
@@ -137,15 +158,8 @@ def _build_toplevel_resource(
     )
 
 
-def _build_fanout_resource(
-    config: LaunchDarklyEndpointConfig,
-    access_token: str,
-    team_id: int,
-    job_id: str,
-    resumable_source_manager: ResumableSourceManager[LaunchDarklyResumeConfig],
-    resume: Optional[LaunchDarklyResumeConfig],
-) -> Resource:
-    rest_config: RESTAPIConfig = {
+def _project_fanout_config(config: LaunchDarklyEndpointConfig, access_token: str) -> RESTAPIConfig:
+    return {
         "client": _client_config(access_token),
         "resources": [
             {
@@ -163,13 +177,89 @@ def _build_fanout_resource(
                     "path": config.path,
                     "params": {
                         "project_key": {"type": "resolve", "resource": PROJECTS_PARENT_NAME, "field": "key"},
-                        "limit": config.page_size,
+                        **_endpoint_params(config),
                     },
                     "data_selector": "items",
                     "paginator": LaunchDarklyLinkPaginator(),
                 },
                 # Injects the parent project's key into every child row as `_project_key`.
                 "include_from_parent": ["key"],
+            },
+        ],
+    }
+
+
+def _build_fanout_resource(
+    config: LaunchDarklyEndpointConfig,
+    access_token: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[LaunchDarklyResumeConfig],
+    resume: Optional[LaunchDarklyResumeConfig],
+) -> Resource:
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resume is not None and resume.fanout_state:
+        initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        resumable_source_manager.save_state(LaunchDarklyResumeConfig(fanout_state=state))
+
+    resources = rest_api_resources(
+        _project_fanout_config(config, access_token),
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    return next(resource for resource in resources if resource.name == config.name)
+
+
+def _build_environment_fanout_resource(
+    config: LaunchDarklyEndpointConfig,
+    access_token: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[LaunchDarklyResumeConfig],
+    resume: Optional[LaunchDarklyResumeConfig],
+) -> Resource:
+    # The framework resumes only one dependent level, so the project -> environment walk feeds the
+    # child as a plain iterator and the per-environment child progress is what gets checkpointed.
+    environments_config = LAUNCHDARKLY_ENDPOINTS["environments"]
+    environments = next(
+        resource
+        for resource in rest_api_resources(
+            _project_fanout_config(environments_config, access_token), team_id, job_id, None
+        )
+        if resource.name == environments_config.name
+    )
+
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(access_token),
+        "resources": [
+            {
+                "name": ENVIRONMENTS_PARENT_NAME,
+                # The iterator supplies the rows; the path is never requested.
+                "endpoint": {"path": "/projects"},
+                "data_iterator": lambda: iter(environments),
+            },
+            {
+                "name": config.name,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {
+                        "project_key": {
+                            "type": "resolve",
+                            "resource": ENVIRONMENTS_PARENT_NAME,
+                            "field": "_project_key",
+                        },
+                        "environment_key": {"type": "resolve", "resource": ENVIRONMENTS_PARENT_NAME, "field": "key"},
+                        **_endpoint_params(config),
+                    },
+                    "data_selector": "items",
+                    "paginator": LaunchDarklyLinkPaginator(),
+                },
+                "include_from_parent": ["key", "_project_key"],
             },
         ],
     }
@@ -189,7 +279,11 @@ def _build_fanout_resource(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
-    return next(resource for resource in resources if resource.name == config.name)
+    resource = next(resource for resource in resources if resource.name == config.name)
+    resource.add_map(rename_parent_fields(ENVIRONMENTS_PARENT_NAME, {"_project_key": "_project_key"}))
+    if config.name == "flag_statuses":
+        resource.add_map(_with_flag_key)
+    return resource
 
 
 def launchdarkly_source(
@@ -203,7 +297,11 @@ def launchdarkly_source(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    if config.requires_project:
+    if config.requires_environment:
+        resource = _build_environment_fanout_resource(
+            config, access_token, team_id, job_id, resumable_source_manager, resume
+        )
+    elif config.requires_project:
         resource = _build_fanout_resource(config, access_token, team_id, job_id, resumable_source_manager, resume)
     else:
         resource = _build_toplevel_resource(config, access_token, team_id, job_id, resumable_source_manager, resume)

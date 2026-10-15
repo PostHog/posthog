@@ -13,6 +13,7 @@ import {
 } from '~/types'
 
 import { SURVEY_RATING_SCALE } from './constants'
+import { isIntroScreenShown } from './surveyIntroScreen'
 
 export type SurveySdkType =
     | 'posthog-js'
@@ -115,6 +116,18 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         },
         unsupportedSdks: [],
         check: (s) => s.schedule === SurveySchedule.Always,
+    },
+    {
+        feature: 'Intro screen',
+        sdkVersions: {
+            'posthog-js': '1.415.0',
+            'posthog-react-native': '4.63.0',
+            'posthog-ios': '3.70.0',
+            'posthog-android': '3.61.0',
+            posthog_flutter: '5.39.0',
+        },
+        unsupportedSdks: [],
+        check: (s) => isIntroScreenShown(s.appearance),
     },
     {
         feature: 'Feedback button surveys',

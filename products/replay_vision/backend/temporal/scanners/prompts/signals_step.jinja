@@ -11,4 +11,6 @@ Write the `headline` as the shortest line that names the defect — 8 words or f
 
 Write the `description` as plain prose with no timestamp references — no `(t …)` markers, no timestamps, no "at N seconds", no event IDs. The timing belongs in `start_time` and `end_time`, not the text.
 
+Give `start_time` and `end_time` in video time, the same scale you cite moments in and your lookups use. Never read them off the footer's `REC_T`, which counts session time and runs ahead of the video wherever an inactive stretch was cut.{% if last_video_second is not none %} The video ends at second {{ last_video_second }}, so neither value can be larger than {{ last_video_second }}.{% endif %}
+
 One recording can surface more than one distinct defect; list each separately. Don't repeat the earlier turns' conclusions. Skip anything below {{ min_signal_confidence }} confidence.

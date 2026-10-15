@@ -1,4 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -229,6 +231,38 @@ export const ExternalId: Story = {
     },
 }
 
+export const ChurnedAndIgnored: Story = {
+    render: () => <App />,
+    decorators: [
+        mswDecorator({
+            get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: {
+                    ...account,
+                    churned_at: '2026-05-01T10:00:00Z',
+                    ignored_at: '2026-05-15T10:00:00Z',
+                },
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: {
+            waitForSelector: ['[data-attr="account-churned-tag"]', '[data-attr="account-ignored-tag"]'],
+            viewport: { width: 1280, height: 900 },
+            // The scene's tab panel is its own <main>, so the default snapshot crops out the title tags.
+            includeNavigationInSnapshot: true,
+        },
+    },
+}
+
+export const EditStatusDates: Story = {
+    ...ChurnedAndIgnored,
+    play: async ({ canvasElement }) => {
+        const tag = await within(canvasElement).findByText('Churned', {}, { timeout: 15000 })
+        await userEvent.click(tag)
+        await within(document.body).findByText('Edit account')
+    },
+}
+
 export const Narrow: Story = {
     render: () => <App />,
     parameters: {
@@ -420,5 +454,96 @@ export const PinnedPropertiesNarrow: Story = {
     ...PinnedProperties,
     parameters: {
         testOptions: { waitForSelector: '[data-attr="account-property-row"]', viewport: { width: 800, height: 900 } },
+    },
+}
+
+const widgetCustomId = '33333333-3333-4333-8333-333333333333'
+const widgetRelationshipId = '44444444-4444-4444-8444-444444444444'
+const widgetCanonicalId = '55555555-5555-4555-8555-555555555555'
+const widgetDefinitions = [
+    { ...pinnedDefinitions[0].definition, id: widgetCustomId },
+    { ...pinnedDefinitions[9].definition, id: widgetCanonicalId },
+]
+const widgetRelationship = { ...pinnedRelationships[0], id: widgetRelationshipId }
+const propertiesView = {
+    ...accountView,
+    content: createAccountViewContent([
+        {
+            nodeId: 'properties-first',
+            kind: 'properties',
+            span: 6,
+            title: 'Account information',
+            config: {
+                properties: [
+                    { kind: 'account', key: 'website_domain' },
+                    { kind: 'custom_property', id: widgetCustomId },
+                    { kind: 'relationship', id: widgetRelationshipId },
+                    { kind: 'account', key: 'billing_id' },
+                ],
+            },
+        },
+        {
+            nodeId: 'properties-second',
+            kind: 'properties',
+            span: 6,
+            title: 'Contact properties',
+            config: {
+                properties: [
+                    { kind: 'account', key: 'known_emails' },
+                    { kind: 'relationship', id: widgetRelationshipId },
+                    { kind: 'custom_property', id: widgetCanonicalId },
+                    { kind: 'custom_property', id: '66666666-6666-4666-8666-666666666666' },
+                ],
+            },
+        },
+    ]),
+}
+const propertiesWidgetDecorator = mswDecorator({
+    get: {
+        [ACCOUNT_VIEWS_ENDPOINT]: [propertiesView],
+        [CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT]: { count: widgetDefinitions.length, results: widgetDefinitions },
+        [RELATIONSHIP_DEFINITIONS_ENDPOINT]: { count: 1, results: [widgetRelationship] },
+        [VALUES_ENDPOINT]: widgetDefinitions.map((definition, index) => ({
+            ...pinnedDefinitions[index === 0 ? 0 : 9].value,
+            definition_id: definition.id,
+        })),
+        [ASSIGNMENTS_ENDPOINT]: [
+            {
+                id: 'widget-assignment',
+                definition: widgetRelationship,
+                user: pinnedMembers[0],
+                started_at: '2026-05-10T10:00:00Z',
+                ended_at: null,
+            },
+        ],
+        [ACCOUNT_RETRIEVE_ENDPOINT]: {
+            ...account,
+            properties: {
+                ...account.properties,
+                website_domain: 'a-long-company-website-domain.example.com',
+                known_emails: ['a-long-contact-address@example.com', 'another-contact@example.com'],
+            },
+        },
+    },
+})
+
+export const PropertiesWidgets: Story = {
+    render: () => <App />,
+    decorators: [propertiesWidgetDecorator],
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="account-properties-widget"]',
+            viewport: { width: 1800, height: 900 },
+        },
+    },
+}
+
+export const PropertiesWidgetsNarrow: Story = {
+    ...PropertiesWidgets,
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="account-properties-widget"]',
+            viewport: { width: 1000, height: 900 },
+        },
     },
 }

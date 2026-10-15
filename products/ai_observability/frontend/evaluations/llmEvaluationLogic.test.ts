@@ -1,6 +1,7 @@
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
@@ -10,8 +11,9 @@ import { initKeaTests } from '~/test/init'
 import { ActivityScope } from '~/types'
 
 import type { TestHogResponseApi } from '../generated/api.schemas'
+import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
-import { numericScorePasses } from './constants'
+import { EVALUATION_RUNS_QUERY_LIMIT, numericScorePasses } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
@@ -240,6 +242,7 @@ describe('llmEvaluationLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
+                '/api/llm_proxy/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
@@ -722,28 +725,46 @@ return result`,
                 await expectLogic(logic).toMatchValues({ formValid: true })
             })
 
-            it('requires numeric bounds only while a System One judge is selected', async () => {
-                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-                logic.actions.loadEvaluationSuccess({
-                    ...mockEvaluation,
-                    output_type: 'numeric',
-                    output_config: {},
-                    model_configuration: { provider: 'system_one', model: 'custom-model', provider_key_id: 'key-1' },
-                })
-                expect(logic.values.formValid).toBe(false)
+            it.each([
+                ['system_one', false, true],
+                ['openrouter', true, true],
+                ['openrouter', false, false],
+            ] as const)(
+                'requires numeric bounds for %s with supportsDecisions=%s: %s',
+                async (provider, supportsDecisions, boundsRequired) => {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    await expectLogic(logic).toFinishAllListeners()
+                    modelPickerLogic.actions.loadByokModelsSuccess([
+                        {
+                            id: 'custom-model',
+                            name: 'Decision model',
+                            provider: 'OpenRouter',
+                            description: '',
+                            providerKeyId: 'key-1',
+                            supportsDecisions,
+                        },
+                    ])
+                    logic.actions.loadEvaluationSuccess({
+                        ...mockEvaluation,
+                        output_type: 'numeric',
+                        output_config: {},
+                        model_configuration: { provider, model: 'custom-model', provider_key_id: 'key-1' },
+                    })
+                    expect(logic.values.formValid).toBe(!boundsRequired)
 
-                logic.actions.patchOutputConfig({ min: 1, max: 10 })
-                expect(logic.values.formValid).toBe(true)
-                logic.actions.patchOutputConfig({ max: null })
-                expect(logic.values.formValid).toBe(false)
+                    logic.actions.patchOutputConfig({ min: 1, max: 10 })
+                    expect(logic.values.formValid).toBe(true)
+                    logic.actions.patchOutputConfig({ max: null })
+                    expect(logic.values.formValid).toBe(!boundsRequired)
 
-                logic.actions.setModelConfiguration({
-                    provider: 'openai',
-                    model: 'gpt-5-mini',
-                    provider_key_id: 'key-1',
-                })
-                expect(logic.values.formValid).toBe(true)
-            })
+                    logic.actions.setModelConfiguration({
+                        provider: 'openai',
+                        model: 'gpt-5-mini',
+                        provider_key_id: 'key-1',
+                    })
+                    expect(logic.values.formValid).toBe(true)
+                }
+            )
 
             // A loaded evaluation whose stored shape doesn't match its type (e.g. an llm_judge
             // record with no prompt) used to crash formValid with a TypeError on render.
@@ -1019,6 +1040,15 @@ return result`,
                 expect(logic.values.isReportableEvaluation).toBe(false)
             })
 
+            it.each([
+                { trueCount: 999, expected: 99.9 },
+                { trueCount: 1000, expected: 100 },
+            ])('rounds the pass rate down to $expected% for $trueCount of 1000 passing', ({ trueCount, expected }) => {
+                logic.actions.loadEvaluationSuccess(mockEvaluation)
+                logic.actions.loadRunsStatsSuccess({ total: 1000, applicable: 1000, trueCount })
+                expect(logic.values.runsSummary?.successRate).toBe(expected)
+            })
+
             it.each(['boolean', 'numeric'] as const)('has no success rate for ungraded %s runs', (output_type) => {
                 logic.actions.loadEvaluationSuccess({
                     ...mockEvaluation,
@@ -1048,7 +1078,6 @@ return result`,
                         scoreMean: null,
                         successful: 1,
                         failed: 1,
-                        errors: 0,
                         successRate: 50,
                         applicabilityRate: 67,
                     },
@@ -1238,6 +1267,75 @@ return result`,
                     evaluation: expect.objectContaining({ name: 'Test Evaluation' }),
                     hasUnsavedChanges: false,
                 })
+            })
+        })
+
+        describe('loadOlderEvaluationRuns', () => {
+            const runRow = (id: string, timestamp: string): unknown[] => {
+                const row: unknown[] = new Array(22).fill(null)
+                row[0] = id
+                row[1] = timestamp
+                row[2] = 'eval-123'
+                return row
+            }
+
+            it('pages past the first runs with a timestamp cursor and appends the older runs', async () => {
+                const newest = Array.from({ length: EVALUATION_RUNS_QUERY_LIMIT }, (_, i) =>
+                    runRow(
+                        `new-${i}`,
+                        i < EVALUATION_RUNS_QUERY_LIMIT - 2 ? '2024-01-02T00:00:00Z' : '2024-01-01T00:00:00Z'
+                    )
+                )
+                const queryHogQL = jest.spyOn(api, 'queryHogQL').mockImplementation(async (query) => {
+                    if (query.includes('count() as total')) {
+                        return { results: [[EVALUATION_RUNS_QUERY_LIMIT + 1]] } as any
+                    }
+                    return {
+                        results: query.includes('uuid NOT IN') ? [runRow('old-1', '2023-12-31T00:00:00Z')] : newest,
+                    } as any
+                })
+
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationRunsSuccess']).toMatchValues({
+                    evaluationRunsHasMore: true,
+                })
+
+                logic.actions.loadOlderEvaluationRuns()
+                await expectLogic(logic).toDispatchActions(['loadOlderEvaluationRunsSuccess']).toMatchValues({
+                    evaluationRunsHasMore: false,
+                })
+
+                expect(logic.values.evaluationRuns.map((run) => run.id).slice(-3)).toEqual([
+                    `new-${EVALUATION_RUNS_QUERY_LIMIT - 2}`,
+                    `new-${EVALUATION_RUNS_QUERY_LIMIT - 1}`,
+                    'old-1',
+                ])
+                const olderQuery = queryHogQL.mock.calls.find(([query]) => String(query).includes('uuid NOT IN'))
+                expect(olderQuery?.[0]).toContain(
+                    `AND timestamp <= toDateTime('2024-01-01T00:00:00Z') AND uuid NOT IN ['new-${EVALUATION_RUNS_QUERY_LIMIT - 2}', 'new-${EVALUATION_RUNS_QUERY_LIMIT - 1}']`
+                )
+                queryHogQL.mockRestore()
+            })
+
+            it('reloads runs with the filter in the query, so failures past the newest page are reachable', async () => {
+                const queryHogQL = jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_config: { allows_na: false, true_is_failure: true },
+                })
+                queryHogQL.mockClear()
+
+                logic.actions.setEvaluationRunsFilter('fail', 'all')
+                await expectLogic(logic).toDispatchActions(['loadEvaluationRunsSuccess'])
+
+                const runsQuery = queryHogQL.mock.calls.find(([query]) =>
+                    String(query).includes('ORDER BY timestamp DESC')
+                )
+                expect(runsQuery?.[0]).toContain(`NOT (properties.$ai_evaluation_result = 'false')`)
+                queryHogQL.mockRestore()
             })
         })
     })

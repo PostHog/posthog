@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -55,6 +56,16 @@ PARTITION_FIELDS: dict[str, list[str]] = {
 
 @SourceRegistry.register
 class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
+    codebase_detection = detect(
+        env=("^BLUESKY_",),
+        script_hosts=("embed.bsky.app",),
+        npm=("@atproto/api",),
+        pypi=("atproto",),
+        cargo=("atrium-api", "bsky-sdk"),
+        go=("github.com/bluesky-social/indigo",),
+        pub=("bluesky", "bluesky_cli", "bluesky_text", "bluesky_text_flutter"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # The AT Protocol's XRPC methods aren't versioned (no path segment, header, or query param

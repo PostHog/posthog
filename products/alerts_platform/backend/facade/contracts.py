@@ -17,6 +17,8 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
+
 if TYPE_CHECKING:
     # facade.lifecycle imports this module, so the policy type stays off the runtime import path.
     from products.alerts_platform.backend.facade.lifecycle import AlertPolicy
@@ -89,6 +91,18 @@ class SourceEvaluationInputs:
     batch_key: AlertBatchKey
 
 
+# Where a source keeps its bound inside `source_config`. Each source gives it its own shape and
+# the platform interprets none of it: the history row snapshots it, so a reader sees the bound a
+# check was evaluated against.
+SOURCE_CONDITION_KEY: Final = "condition"
+
+
+def source_condition(source_config: dict[str, Any]) -> dict[str, Any]:
+    """A source's bound, or an empty one when the stored value is missing or not an object."""
+    condition = source_config.get(SOURCE_CONDITION_KEY)
+    return condition if isinstance(condition, dict) else {}
+
+
 @frozen
 class PlatformAlertCheckInput:
     """One configuration and its runtime state, as a source adapter reads it.
@@ -101,9 +115,6 @@ class PlatformAlertCheckInput:
     team_id: int
     name: str
     source_config: dict[str, Any]
-    threshold_count: int
-    threshold_operator: str
-    window_minutes: int
     check_interval_minutes: int
     evaluation_periods: int
     datapoints_to_alarm: int
@@ -116,11 +127,16 @@ class PlatformAlertCheckInput:
     last_notified_at: datetime | None
     snooze_until: datetime | None
     firing_started_at: datetime | None = None
+    owned_by_platform: bool = False
 
     @property
     def filters(self) -> dict[str, Any]:
         """Satisfies the logs query layer, which names this field `filters`."""
         return self.source_config
+
+    @property
+    def condition(self) -> dict[str, Any]:
+        return source_condition(self.source_config)
 
 
 @frozen
@@ -133,9 +149,6 @@ class PlatformAlertUpsert:
     enabled: bool
     source_kind: SourceKind
     source_config: dict[str, Any]
-    threshold_count: int
-    threshold_operator: str
-    window_minutes: int
     check_interval_minutes: int
     evaluation_periods: int
     datapoints_to_alarm: int
@@ -147,6 +160,20 @@ class PlatformAlertUpsert:
     anchor_time: str | None = None
 
 
+@frozen
+class PlatformOwnershipHandover:
+    """A source alert handed to the platform, with the runtime state the platform carries on from."""
+
+    legacy_configuration_id: UUID
+    team_id: int
+    state: PlatformAlertState
+    last_notified_at: datetime | None
+    consecutive_failures: int
+    # The platform checks no earlier than a minute after the handover, whatever this says.
+    next_check_at: datetime
+    at: datetime
+
+
 class SkipReason(StrEnum):
     """Why a check reached an outcome without a query answering it.
 
@@ -156,6 +183,12 @@ class SkipReason(StrEnum):
 
     BROKEN_CONFIG = "broken_config"
     QUERY_FAILED = "query_failed"
+    # The source's own stack runs no query for this check, so the source does not either: a
+    # snooze or a schedule restriction where that stack gates evaluation, or data not ready yet.
+    SOURCE_RULE = "source_rule"
+    # ClickHouse refused the query for load, not because of the alert. The check leaves the alert's
+    # state alone, so a comparison can set it aside instead of reading load as a disagreement.
+    CAPACITY = "capacity"
 
 
 class MuteReason(StrEnum):
@@ -226,6 +259,9 @@ class PlatformAlertOutcome:
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
+    # A team's checks with the same group are due in one slot, so a source that answers them with
+    # one query can do so. None spreads the configuration by its own id.
+    schedule_group: str | None = None
 
 
 @frozen
@@ -271,6 +307,8 @@ class AnnouncedTransition:
     error_message: str | None
     # A resolve states this as the time its firing ended.
     occurred_at: datetime
+    # The evaluation this transition came from, so a source can read back what it put in the key.
+    evaluation_key: str = ""
 
 
 @frozen
@@ -283,6 +321,7 @@ class EvaluationAnnouncement:
     """
 
     configuration_id: str
+    source: SourceKind
     alert_name: str
     # Evaluation-level, so it sits here rather than on a transition: a failed check fails the
     # whole evaluation, and every group in one announcement saw the same count.
@@ -311,6 +350,10 @@ class AlertDeliveryRequest:
     actions, so its rows reach no message destination even when their kind has an event id.
     `event_ids_by_incident_action` maps each action onto the event id an incident manager
     destination filters on, the way `event_ids_by_kind` does for a message.
+
+    `owned_by_platform` is the owner when the check was read, not when the delivery runs. The
+    source decided its own send for that check from the same owner, so a retry across a cutover
+    or a rollback still has exactly one stack sending.
     """
 
     source: SourceKind
@@ -322,6 +365,7 @@ class AlertDeliveryRequest:
     incident_actions: dict[str, IncidentAction] = field(default_factory=dict)
     sends_messages: bool = True
     event_ids_by_incident_action: dict[str, str] = field(default_factory=dict)
+    owned_by_platform: bool = False
 
 
 @frozen
@@ -351,6 +395,7 @@ class PlatformConfigurationSnapshot:
     id: UUID
     next_check_at: datetime | None
     consecutive_failures: int
+    owner: str
 
 
 @frozen
@@ -378,9 +423,6 @@ class PlatformAlertConfigurationView:
     enabled: bool
     source_kind: str
     source_config: dict[str, Any]
-    threshold_count: int
-    threshold_operator: str
-    window_minutes: int
     check_interval_minutes: int
     recurrence_unit: str | None
     anchor_time: str | None
@@ -451,6 +493,8 @@ class DestinationType(LabeledStrEnum):
     WEBHOOK = "webhook", "Webhook"
     TEAMS = "teams", "Microsoft Teams"
     PAGERDUTY = "pagerduty", "PagerDuty"
+    EMAIL = "email", "Email"
+    IN_APP = "in_app", "In-app notification"
 
 
 class PagerDutySeverity(StrEnum):
@@ -483,9 +527,19 @@ class AlertDestinationData(TypedDict):
     slack_channel_id: NotRequired[str]
     slack_channel_name: NotRequired[str]
     webhook_url: NotRequired[str]
+    # Request headers a user added to a webhook, such as an auth token, as sorted (name, value)
+    # pairs so a destination stays hashable. Secret-bearing, so never shown in a read response.
+    webhook_headers: NotRequired[dict[str, str]]
     pagerduty_routing_key: NotRequired[str]
     pagerduty_severity: NotRequired[str]
     pagerduty_region: NotRequired[str]
+    email_addresses: NotRequired[list[str]]
+    in_app_user_ids: NotRequired[list[int]]
+    # What an in-app notification is about, so the inbox applies its access rules for that resource.
+    in_app_resource_type: NotRequired[str]
+    in_app_resource_id: NotRequired[str]
+    # A path in the app, because the inbox opens it with the client-side router.
+    in_app_url: NotRequired[str]
 
 
 class AlertDestinationValidationError(Exception):
@@ -577,6 +631,67 @@ class DestinationResolver(Protocol):
     def __call__(
         self, *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
     ) -> list[AlertDestinationGroup]: ...
+
+
+@frozen
+class MessageDetail:
+    """One labelled fact in a message. Every provider renders these the same way, as a Slack
+    section, an Adaptive Card body, or lines of markdown."""
+
+    label: str
+    value: str
+
+
+@frozen
+class MessageLink:
+    label: str
+    url: str
+
+
+@frozen
+class SourceDescription:
+    """What a source says about one transition, in the words its own product uses.
+
+    The platform imports no source, so it can say only "Value: 11". A source can say "11 logs in
+    10m". Every part is optional, and a part a source leaves out falls back to the platform's
+    own wording or to nothing.
+    """
+
+    # Replaces the platform's breach details. A failed or turned-off check keeps the platform's
+    # failure details, because the failure is the platform's, not the source's.
+    details: tuple[MessageDetail, ...] = ()
+    # Short lines of small print, such as which services an alert watches.
+    context: tuple[str, ...] = ()
+    # Where the data behind the alert is, such as the matching logs.
+    data_link: MessageLink | None = None
+
+
+class SourceDescriber(Protocol):
+    """How a source describes its transitions. A source registers one for native delivery.
+
+    It runs once per destination on the send path, inside a delivery that a held thread or a
+    failure repeats. So it builds its answer from the transition alone and does no I/O.
+    """
+
+    def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
+
+
+class LegacyWebhookBody(Protocol):
+    """The webhook body a source's own stack sent, for teams whose receivers still parse it.
+
+    Runs on the send path like a describer, so it builds the body from its arguments and does no
+    I/O. `alert_id` is the id the source's destinations match on.
+    """
+
+    def __call__(
+        self,
+        *,
+        project_id: int,
+        alert_id: str,
+        alert_name: str,
+        consecutive_failures: int,
+        transition: AnnouncedTransition,
+    ) -> dict[str, Any]: ...
 
 
 # Comparison against a source's own stack.

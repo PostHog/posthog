@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -21,17 +22,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import RowFilterColumn
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
     ShopifySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
+    CREATED_AT,
     SHOPIFY_API_VERSION_2025_10,
     SHOPIFY_API_VERSION_2026_07,
     SHOPIFY_GRAPHQL_OBJECTS,
+    resolve_schema_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
+    CREATED_AT_FILTER_OPERATORS,
     SHOPIFY_ACCESS_TOKEN_APP_NOT_INSTALLED_ERROR,
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
@@ -59,6 +64,121 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^SHOPIFY_",
+            "^PUBLIC_STORE_DOMAIN$",
+            "^PUBLIC_STOREFRONT_API_TOKEN$",
+            "^PRIVATE_STOREFRONT_API_TOKEN$",
+            "^PUBLIC_STOREFRONT_ID$",
+            "^PUBLIC_CHECKOUT_DOMAIN$",
+            "^PUBLIC_CUSTOMER_ACCOUNT_API_CLIENT_ID$",
+            "^GATSBY_MYSHOPIFY_URL$",
+        ),
+        script_hosts=("cdn.shopify.com", "sdks.shopifycdn.com"),
+        npm=(
+            "@shopify/shopify-api",
+            "shopify-api-node",
+            "@shopify/shopify-app-remix",
+            "@shopify/shopify-app-react-router",
+            "@shopify/shopify-app-express",
+            "@shopify/hydrogen",
+            "@shopify/app-bridge",
+            "@shopify/app-bridge-react",
+            "@shopify/storefront-api-client",
+            "@shopify/admin-api-client",
+            "@shopify/graphql-client",
+            "@shopify/shopify-app-session-storage",
+            "@shopify/shopify-app-session-storage-prisma",
+            "@shopify/shopify-app-session-storage-memory",
+            "@shopify/shopify-app-session-storage-postgresql",
+            "@shopify/shopify-app-session-storage-redis",
+            "@shopify/shopify-app-session-storage-kv",
+            "@shopify/shopify-app-session-storage-mongodb",
+            "@shopify/shopify-app-session-storage-dynamodb",
+            "@shopify/shopify-app-session-storage-sqlite",
+            "@shopify/shopify-app-session-storage-drizzle",
+            "@shopify/shopify-app-session-storage-mysql",
+            "@shopify/cli",
+            "@shopify/app",
+            "@shopify/theme",
+            "@shopify/cli-hydrogen",
+            "@shopify/oxygen-cli",
+            "@shopify/hydrogen-react",
+            "@shopify/remix-oxygen",
+            "@shopify/mini-oxygen",
+            "@shopify/oxygen-workers-types",
+            "@shopify/hydrogen-codegen",
+            "@shopify/api-codegen-preset",
+            "@shopify/hydrogen-ui-alpha",
+            "@shopify/storefront-kit-react",
+            "@shopify/app-bridge-types",
+            "@shopify/app-bridge-ui-types",
+            "@shopify/app-bridge-utils",
+            "@shopify/polaris",
+            "@shopify/polaris-types",
+            "@shopify/discount-app-components",
+            "@shopify/ui-extensions",
+            "@shopify/ui-extensions-react",
+            "@shopify/checkout-ui-extensions",
+            "@shopify/checkout-ui-extensions-react",
+            "@shopify/admin-ui-extensions",
+            "@shopify/admin-ui-extensions-react",
+            "@shopify/post-purchase-ui-extensions",
+            "@shopify/post-purchase-ui-extensions-react",
+            "@shopify/retail-ui-extensions",
+            "@shopify/retail-ui-extensions-react",
+            "@shopify/customer-account-ui-extensions",
+            "@shopify/customer-account-ui-extensions-react",
+            "@shopify/web-pixels-extension",
+            "@shopify/shopify_function",
+            "@shopify/scripts-checkout-apis",
+            "@shopify/buy-button-js",
+            "shopify-buy",
+            "@shopify/checkout-sheet-kit",
+            "@shopify/checkout-kit",
+            "@shopify/shop-minis-react",
+            "@shopify/shop-minis-platform",
+            "@shopify/shop-minis-platform-sdk",
+            "@shopify/koa-shopify-auth",
+            "@shopify/koa-shopify-webhooks",
+            "@shopify/koa-shopify-graphql-proxy",
+            "@shopify/slate-tools",
+            "gatsby-source-shopify",
+            "@nuxtjs/shopify",
+            "nuxt-shopify",
+        ),
+        pypi=("shopifyapi", "shopifyapp", "shopifyql", "django-shopify-auth"),
+        cargo=("shopify_function", "shopify_function_wasm_api"),
+        cocoapods=("Mobile-Buy-SDK", "ShopifyCheckoutSheetKit", "ShopifyCheckoutKit"),
+        composer=(
+            "shopify/shopify-api",
+            "shopify/shopify-app-php",
+            "phpclassic/php-shopify",
+            "kyon147/laravel-shopify",
+            "osiset/laravel-shopify",
+            "gnikyt/basic-shopify-api",
+            "osiset/basic-shopify-api",
+        ),
+        go=("github.com/bold-commerce/go-shopify", "github.com/r0busta/go-shopify-graphql"),
+        hex=("shopify",),
+        maven=("com.shopify.mobilebuysdk:buy3", "com.shopify:checkout-sheet-kit", "com.shopify:checkout-kit"),
+        pub=("shopify_flutter",),
+        rubygems=(
+            "shopify_api",
+            "shopify_app",
+            "omniauth-shopify-oauth2",
+            "shopify-cli",
+            "shopify_theme",
+            "shopify_graphql",
+        ),
+        swiftpm=(
+            "github.com/shopify/mobile-buy-sdk-ios",
+            "github.com/shopify/checkout-sheet-kit-swift",
+            "github.com/shopify/checkout-kit-swift",
+        ),
+    )
+
     supported_versions = (SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07)
     default_version = SHOPIFY_API_VERSION_2026_07
     api_docs_url = "https://shopify.dev/docs/api/release-notes"
@@ -68,6 +188,14 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     deprecated_versions = (VersionDeprecation(version=SHOPIFY_API_VERSION_2025_10, sunset_at=date(2026, 10, 16)),)
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    supports_row_filters = True
+
+    def row_filter_columns_for_schema(self, schema_name: str) -> tuple[RowFilterColumn, ...]:
+        endpoint_config = ENDPOINT_CONFIGS.get(resolve_schema_name(schema_name))
+        if endpoint_config is None or endpoint_config.created_at_search_field is None:
+            return ()
+        return (RowFilterColumn(name=CREATED_AT, data_type="timestamp", operators=CREATED_AT_FILTER_OPERATORS),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -327,4 +455,5 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            row_filters=inputs.row_filters,
         )

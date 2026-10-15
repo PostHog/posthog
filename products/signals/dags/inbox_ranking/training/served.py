@@ -1,25 +1,28 @@
-"""The served model's own birth-day scores, graded like the unseen ones.
+"""The scoring sweep's own birth-day scores, graded per model key.
 
-The unseen grade rescores the newborn pool inside the dag with the day's candidate and champion. It
-is not the score the inbox served. This module reads the scoring sweep's `inbox_ranking_report_scored`
-events for D's newborn pool and writes them in `SCORES_SCHEMA`, so `inbox_ranking_unseen_graded`
-grades them through the same path under `model_role = 'served'`.
+The sweep scores each report with every model the serving manifest names: the served champion, the
+served family's daily candidate, and the other families' champions. This module reads the sweep's
+`inbox_ranking_report_scored` events for D's newborn pool and writes them in `SCORES_SCHEMA`, so
+`inbox_ranking_unseen_graded` grades every model key on live scores through one path.
 
 Caveats:
 
 - The daily promotion can change the served model part of the way through D, so one day's cohort
-  can split across two versions. Grades stay per `(model_name, model_version, model_role)` and are
-  never pooled across versions.
+  can split across two versions, and one key can carry two roles. Grades stay per
+  `(model_name, model_version, model_role)` and are never pooled across versions.
+- The sweep scores a candidate only after a manifest names it, so a candidate's cohort starts the
+  day after it was trained, and a key added part of the way through D covers only part of D's pool.
+  `pool_coverage_by_model` makes that visible.
 - A report first scored after D ends, for example when its vector arrived late, is not in D's rows.
   `served_pool_coverage` makes that visible. A later score never fills it in.
-- The sweep scores with the vector current at scoring time. The unseen grade uses the end-of-day
-  vector. Served and candidate grades of one day are two reads, not one paired number.
+- The sweep scores with the vector current at scoring time, so two keys that scored one report at
+  different times did not always read the same vector.
 - A deployment where the sweep is off writes an empty object with coverage 0 and grades nothing.
 """
 
 import json
 import datetime
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Mapping
 from typing import Any
 
 import numpy as np
@@ -33,7 +36,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog import settings
 from posthog.models import Team
 
-from products.signals.backend.ranking.serving_manifest import SERVED_ROLE
+from products.signals.backend.ranking.serving_manifest import SERVED_ROLE, model_key
 from products.signals.backend.ranking.sinks import REPORT_SCORED_EVENT
 from products.signals.dags.inbox_ranking.common import (
     dataset_bucket,
@@ -50,6 +53,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import etl_workload, la
 from products.signals.dags.inbox_ranking.training.dag import COMMON_ASSET_KWARGS, load_snapshots
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
 from products.signals.dags.inbox_ranking.training.unseen import (
+    CANDIDATE_ROLE,
     POOL_NAME,
     SCORE_COLUMNS,
     SERVED_SCORES_TABLE,
@@ -59,8 +63,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     unseen_pool,
 )
 
-# The status filter is repeated in `served_score_rows`, which also keeps only the served role: the
-# role list is a JSON array, and the row builder is where a test can pin both rules.
+# The status filter is repeated in `served_score_rows`, where a test can pin it.
 SERVED_EVENTS_SQL = f"""
 SELECT timestamp, properties
 FROM events
@@ -110,33 +113,50 @@ def _properties(value: Any) -> dict[str, Any]:
     return json.loads(value) if isinstance(value, str) else dict(value or {})
 
 
+def event_model_key(properties: Mapping[str, Any]) -> str:
+    """The model key the sweep scored with. An event written before `model_key` existed falls back
+    to the key the manifest derives from the same identity."""
+    key = properties.get("model_key")
+    return str(key) if key else model_key(str(properties.get("model_name")), str(properties.get("model_version")))
+
+
+def event_model_role(properties: Mapping[str, Any]) -> str:
+    """One role per scored row: `served` when the model served the score, else the first role the
+    manifest gave it, else `candidate`."""
+    roles = list(properties.get("roles") or ())
+    if SERVED_ROLE in roles:
+        return SERVED_ROLE
+    return str(roles[0]) if roles else CANDIDATE_ROLE
+
+
 def served_score_rows(
     events: pd.DataFrame, pool: pd.DataFrame, labels: pd.DataFrame, *, snapshot_date: datetime.date
 ) -> pd.DataFrame:
-    """One row per (newborn report, head) in SCORE_COLUMNS order, from the report's earliest served
-    score in `events`.
+    """One row per (newborn report, model key, head) in SCORE_COLUMNS order, from the earliest score
+    of that report by that model key in `events`.
 
-    `classification_threshold` is the served model's own `threshold_<head>`, null when the event
-    carries none, so every later grade of the row uses the cut that was served. `label_at_scoring`
-    reads D's snapshot labels, as `score_pool` does.
+    `model_role` comes from the event's roles (`event_model_role`). `classification_threshold` is
+    the scoring model's own `threshold_<head>`, null when the event carries none, so every later
+    grade of the row uses the cut that model saved. `label_at_scoring` reads D's snapshot labels.
     """
     records = [
         (scored_at, properties)
         for scored_at, properties in zip(events["scored_at"], events["properties"])
-        if properties.get("status") == "scored"
-        and SERVED_ROLE in (properties.get("roles") or ())
-        and str(properties.get("report_id")) in pool.index
+        if properties.get("status") == "scored" and str(properties.get("report_id")) in pool.index
     ]
-    earliest: dict[str, tuple[pd.Timestamp, Mapping[str, Any]]] = {}
+    earliest: dict[tuple[str, str], tuple[pd.Timestamp, Mapping[str, Any]]] = {}
     for scored_at, properties in sorted(records, key=lambda record: pd.Timestamp(record[0])):
-        earliest.setdefault(str(properties["report_id"]), (pd.Timestamp(scored_at), properties))
+        earliest.setdefault(
+            (str(properties["report_id"]), event_model_key(properties)), (pd.Timestamp(scored_at), properties)
+        )
 
     aligned = labels.reindex(pool.index)
     labels_by_head = {name: head.label(aligned) for name, head in HEADS_BY_NAME.items()}
     rows: list[dict[str, object]] = []
-    for report_id, (scored_at, properties) in earliest.items():
+    for (report_id, _), (scored_at, properties) in earliest.items():
         created_at = pd.Timestamp(pool.at[report_id, "report_created_at"])
         readable = properties.get("readable_heads")
+        role = event_model_role(properties)
         for head_name in sorted(HEADS_BY_NAME):
             score = properties.get(f"p_{head_name}")
             if score is None:
@@ -151,7 +171,7 @@ def served_score_rows(
                     "pool": POOL_NAME,
                     "model_name": properties.get("model_name"),
                     "model_version": properties.get("model_version"),
-                    "model_role": SERVED_ROLE,
+                    "model_role": role,
                     # The event does not carry the feature contract version.
                     "feature_schema_version": None,
                     "head": head_name,
@@ -177,32 +197,33 @@ def _utc(value: pd.Timestamp) -> pd.Timestamp:
 
 
 def served_metadata(pool: pd.DataFrame, scores: pd.DataFrame) -> dict[str, dagster.MetadataValue]:
-    """Coverage of the pool, rows per model version, and the heads whose served model saved no
-    threshold."""
-    covered = scores["report_id"].nunique() if not scores.empty else 0
-    versions: Sequence[tuple[Any, int]] = (
-        [(key, len(group)) for key, group in scores.groupby(["model_name", "model_version"])]
-        if not scores.empty
-        else []
-    )
-    missing = scores[scores["classification_threshold"].isna()] if not scores.empty else scores
+    """Coverage of the pool by the served model and by each model key, rows per model version, and
+    the heads whose model saved no threshold."""
+    covered = scores.loc[scores["model_role"] == SERVED_ROLE, "report_id"].nunique()
+    versions = scores.groupby(["model_name", "model_version"]).size()
+    coverage_by_model = scores.groupby(["model_name", "model_version", "model_role"])["report_id"].nunique()
+    missing = scores.loc[scores["classification_threshold"].isna(), "head"]
     return {
         "unseen_pool": dagster.MetadataValue.int(len(pool)),
         "served_reports": dagster.MetadataValue.int(int(covered)),
         "served_pool_coverage": dagster.MetadataValue.float(covered / len(pool) if len(pool) else 0.0),
+        "pool_coverage_by_model": dagster.MetadataValue.json(
+            {
+                f"{name}@{version}/{role}": int(count) / len(pool)
+                for (name, version, role), count in coverage_by_model.items()
+            }
+        ),
         "rows_by_model_version": dagster.MetadataValue.json(
-            {f"{name}@{version}": int(count) for (name, version), count in versions}
+            {f"{name}@{version}": int(count) for (name, version), count in versions.items()}
         ),
-        "heads_without_threshold": dagster.MetadataValue.json(
-            sorted(missing["head"].unique().tolist()) if not missing.empty else []
-        ),
+        "heads_without_threshold": dagster.MetadataValue.json(sorted(missing.unique().tolist())),
     }
 
 
 @dagster.asset(name=SERVED_SCORES_TABLE, deps=[STATE_TABLE, LABELS_TABLE], **COMMON_ASSET_KWARGS)
 def inbox_ranking_served_scores(context: dagster.AssetExecutionContext) -> None:
-    """D's newborn pool with each report's earliest served score of D. See the module docstring for
-    the caveats every reader of these grades must keep."""
+    """D's newborn pool with each report's earliest score of D per model key. See the module
+    docstring for the caveats every reader of these grades must keep."""
     if skip_unconfigured(context):
         return
     partition_key = context.partition_key
@@ -231,7 +252,7 @@ def inbox_ranking_served_scores(context: dagster.AssetExecutionContext) -> None:
                 f"none, so writing would destroy the scores the dt=D+horizon grade reads. To replace the object "
                 f"deliberately, delete it by hand first."
             )
-        context.log.warning(f"no served score for dt={partition_key}: {len(pool)} newborn reports")
+        context.log.warning(f"no scored event for dt={partition_key}: {len(pool)} newborn reports")
     existing = read_parquet_if_exists(client, bucket, key)
     lost = families_lost_by_rewrite(existing.to_pandas(), scores) if existing is not None else []
     if lost:

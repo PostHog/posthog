@@ -156,15 +156,22 @@ describe('biSceneLogic', () => {
         }
     })
 
-    it('waits for Run after selecting a table unless auto update is enabled', async () => {
+    it('keeps a selected table blank until fields are added, including with auto update enabled', async () => {
         editor.actions.setDataSource({ table: 'events' })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.lastRunQuery).toBeNull()
         logic.actions.runQuery()
-        expect(logic.values.lastRunQuery?.source.query).toContain('count(*) AS count')
-        logic.actions.setLastRunQuery(null)
+        expect(logic.values.lastRunQuery).toBeNull()
         await expectLogic(editor, () => editor.actions.setAutoUpdate(true)).toFinishAllListeners()
+        expect(logic.values.lastRunQuery).toBeNull()
+        await expectLogic(editor, () => editor.actions.addFieldToShelf(eventField, 'columns')).toFinishAllListeners()
         expect(logic.values.lastRunQuery?.source.query).toContain('count(*) AS count')
+        const lastRun = logic.values.lastRunQuery
+        await expectLogic(editor, () => editor.actions.setAutoUpdate(false)).toFinishAllListeners()
+        await expectLogic(editor, () => editor.actions.setLimit(100)).toFinishAllListeners()
+        expect(logic.values.lastRunQuery).toBe(lastRun)
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.config.limit).toBe(100)
     })
 
     it('tracks the first successful chart once, without counting empty results or reruns', async () => {
@@ -218,8 +225,10 @@ describe('biSceneLogic', () => {
     })
 
     it('saves the wrapper and reopens the insight without a draft or SQL editor', async () => {
-        const node = worksheet()
+        const hierarchy = { id: 'event-time', name: 'Event timeline', levels: [eventField, timestampField] }
+        const node = worksheet({ ...config, hierarchies: [hierarchy] })
         node.chartSettings!.yAxis![0].settings = { formatting: { prefix: '$', suffix: '' } }
+        node.chartSettings!.goalLines = [{ label: 'Average', value: 0, calculation: 'mean', scope: 'series' }]
         logic.actions.restoreWorksheet(node)
         logic.actions.setName('Revenue worksheet')
         await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
@@ -234,8 +243,9 @@ describe('biSceneLogic', () => {
         logic = biSceneLogic({ tabId: 'reopened' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.worksheet.config).toEqual(config)
+        expect(logic.values.worksheet.config).toEqual({ ...config, hierarchies: [hierarchy] })
         expect(logic.values.worksheet.chartSettings?.yAxis?.[0].settings?.formatting?.prefix).toBe('$')
+        expect(logic.values.worksheet.chartSettings?.goalLines).toEqual(node.chartSettings!.goalLines)
         expect(logic.values.hasUnsavedChanges).toBe(false)
     })
 
@@ -252,7 +262,7 @@ describe('biSceneLogic', () => {
         expect(logic.values.hasUnsavedChanges).toBe(false)
         editor.actions.removeFieldFromShelf('rows', 0)
         expect(logic.values.worksheet.chartSettings?.seriesBreakdownColumn).toBeUndefined()
-        expect(logic.values.worksheet.chartSettings?.xAxis).toBeUndefined()
+        expect(logic.values.worksheet.chartSettings?.xAxis).toEqual({ column: 'timestamp' })
         logic.actions.discardChanges()
         expect(logic.values.worksheet.config).toEqual(config)
     })
@@ -395,6 +405,14 @@ describe('biSceneLogic', () => {
         expect(logic.values.config.limit).toBe(50000)
     })
 
+    it('restores saved source-only count charts with an explicit measure without mutating the saved query', () => {
+        const saved = worksheet({ ...config, rows: [], columns: [], values: [] })
+        logic.actions.restoreWorksheet(saved)
+        expect(saved.config.values).toEqual([])
+        expect(editor.values.config.values).toMatchObject([{ label: 'Count of rows', customExpression: 'count(*)' }])
+        expect(editor.values.generatedQuery?.query).toContain('count(*)')
+    })
+
     it('resets fields and results when switching connections', async () => {
         logic.actions.restoreWorksheet(worksheet())
         logic.actions.selectConnection('example-connection')
@@ -486,19 +504,52 @@ describe('biSceneLogic', () => {
         }
     )
 
-    it('clears cached results when clearing the worksheet', async () => {
-        logic.actions.restoreWorksheet(worksheet())
-        const data = dataNodeLogic({
-            key: logic.values.dataNodeKey,
-            query: logic.values.worksheet.source,
-            autoLoad: false,
-        })
-        data.mount()
-        data.actions.setResponse({ results: [[1]], columns: ['1'], types: ['Int64'] })
-        await expectLogic(editor, () => editor.actions.resetConfig()).toFinishAllListeners()
-        expect(data.values.response).toBeNull()
-        expect(data.values.queryCancelled).toBe(false)
-        expect(logic.values.lastRunQuery).toBeNull()
-        data.unmount()
-    })
+    it.each([undefined, 'example-connection'])(
+        'clears the view while keeping its source and local fields (%s)',
+        async (connectionId) => {
+            const source = { table: 'events', connectionId }
+            const localField = {
+                ...eventField,
+                source,
+                id: 'local-category',
+                name: 'Category',
+                expression: 'lower(event)',
+            }
+            const hierarchy = {
+                id: 'category-event',
+                name: 'Category events',
+                levels: [localField, { ...eventField, source }],
+            }
+            logic.actions.restoreWorksheet(
+                worksheet({ ...config, source, localFields: [localField], hierarchies: [hierarchy] })
+            )
+            logic.actions.recordWorksheet()
+            const data = dataNodeLogic({
+                key: logic.values.dataNodeKey,
+                query: logic.values.worksheet.source,
+                autoLoad: false,
+            })
+            data.mount()
+            data.actions.setResponse({ results: [[1]], columns: ['1'], types: ['Int64'] })
+            await expectLogic(editor, () => editor.actions.resetConfig()).toFinishAllListeners()
+            expect(data.values.response).toBeNull()
+            expect(data.values.queryCancelled).toBe(false)
+            expect(logic.values.lastRunQuery).toBeNull()
+            expect(logic.values.config).toMatchObject({
+                source,
+                localFields: [localField],
+                hierarchies: [hierarchy],
+                rows: [],
+                columns: [],
+                values: [],
+                filters: [],
+            })
+            expect(logic.values.generatedQuery).toBeNull()
+            const cleared = JSON.parse(localStorage.getItem('bi-worksheet-997-bi-test')!)
+            expect(cleared.config.source).toEqual(JSON.parse(JSON.stringify(source)))
+            logic.actions.undo()
+            expect(logic.values.config.rows).toEqual(config.rows)
+            data.unmount()
+        }
+    )
 })

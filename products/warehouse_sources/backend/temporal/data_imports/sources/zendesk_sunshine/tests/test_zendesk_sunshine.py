@@ -1,6 +1,6 @@
-from collections.abc import Iterable
+import base64
 from datetime import UTC, datetime, timedelta, timezone
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import pytest
 from unittest import mock
@@ -8,7 +8,18 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesksunshine import (
+    ZendeskSunshineSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.settings import (
     DEFAULT_QUERY_WINDOW_START,
     ZENDESK_SUNSHINE_ENDPOINTS,
@@ -16,6 +27,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_su
     ZENDESK_SUNSHINE_V2,
     ZENDESK_SUNSHINE_V2_ENDPOINTS,
     endpoints_for_version,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source import (
+    ZendeskSunshineSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.zendesk_sunshine import (
     SunshineLinksPaginator,
@@ -28,53 +42,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_su
     normalize_subdomain,
     to_query_datetime,
     validate_credentials,
-    zendesk_sunshine_source,
 )
 
 BASE_URL = "https://nibbles.zendesk.com/api/sunshine/"
 V2_BASE_URL = "https://nibbles.zendesk.com/api/v2/"
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.zendesk_sunshine"
 
 
-class _FakeResumeManager:
-    def __init__(self, state: Optional[dict[str, Any]] = None) -> None:
-        self._state = state
-        self.saved: list[dict[str, Any]] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> Optional[ZendeskSunshineResumeConfig]:
-        return ZendeskSunshineResumeConfig(state=self._state) if self._state is not None else None
-
-    def save_state(self, data: ZendeskSunshineResumeConfig) -> None:
-        self.saved.append(data.state)
-
-
-class _FakeResource:
-    def __init__(self, name: str, pages: Optional[list[list[dict[str, Any]]]] = None) -> None:
-        self.name = name
-        self.maps: list[Any] = []
-        self._pages = pages or []
-
-    def add_map(self, fn: Any) -> "_FakeResource":
-        self.maps.append(fn)
-        return self
-
-    def __iter__(self):
-        return iter(self._pages)
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        ZendeskSunshineSource(),
+        ZendeskSunshineSourceConfig(subdomain="nibbles", api_key="token", email_address="agent@example.com"),
+    )
 
 
 def _response(body: dict[str, Any]) -> mock.Mock:
     response = mock.Mock()
     response.json.return_value = body
     return response
-
-
-def _collect_pages(response: SourceResponse) -> list[list[dict[str, Any]]]:
-    items = response.items()
-    assert isinstance(items, Iterable)
-    return cast(list[list[dict[str, Any]]], list(items))
 
 
 class TestZendeskSunshineTransport:
@@ -313,10 +297,7 @@ class TestZendeskSunshineTransport:
     def test_validate_credentials_status_mapping(
         self, _name: str, status_code: int, expected_valid: bool, message_fragment: str | None
     ) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.Mock(status_code=status_code)
-
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
             is_valid, message = validate_credentials("nibbles", "token", "agent@example.com", ZENDESK_SUNSHINE_V1)
 
         assert is_valid is expected_valid
@@ -324,7 +305,8 @@ class TestZendeskSunshineTransport:
             assert message is None
         else:
             assert message is not None and message_fragment in message
-        assert session.get.call_args.kwargs["auth"] == ("agent@example.com/token", "token")
+        expected_auth = "Basic " + base64.b64encode(b"agent@example.com/token:token").decode()
+        assert network.requests_log[0].headers["authorization"] == expected_auth
 
     @parameterized.expand(
         [
@@ -335,38 +317,31 @@ class TestZendeskSunshineTransport:
     def test_validate_credentials_probes_version_specific_endpoint(
         self, _name: str, api_version: str, expected_url: str
     ) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.Mock(status_code=200)
-
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(json={}))) as network:
             validate_credentials("nibbles", "token", "agent@example.com", api_version)
 
-        assert session.get.call_args.args[0] == expected_url
+        assert network.requests_log[0].url.split("?")[0] == expected_url
 
     def test_list_object_type_keys_follows_pagination(self) -> None:
-        session = mock.MagicMock()
-        page1 = mock.Mock(status_code=200)
-        page1.json.return_value = {
-            "data": [{"key": "product"}, {"key": "order"}],
-            "links": {"next": "/api/sunshine/objects/types?page[after]=abc"},
-        }
-        page2 = mock.Mock(status_code=200)
-        page2.json.return_value = {"data": [{"key": "shipment"}], "links": {"next": None}}
-        session.get.side_effect = [page1, page2]
+        page1 = ScriptedResponse(
+            json={
+                "data": [{"key": "product"}, {"key": "order"}],
+                "links": {"next": "/api/sunshine/objects/types?page[after]=abc"},
+            }
+        )
+        page2 = ScriptedResponse(json={"data": [{"key": "shipment"}], "links": {"next": None}})
 
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([page1, page2]) as network:
             keys = list_object_type_keys("nibbles", "token", "agent@example.com", ZENDESK_SUNSHINE_V1)
 
         assert keys == ["product", "order", "shipment"]
-        second_call = session.get.call_args_list[1]
-        assert second_call.args[0] == "https://nibbles.zendesk.com/api/sunshine/objects/types?page[after]=abc"
-        assert second_call.kwargs["params"] is None
+        second_request = network.requests_log[1]
+        assert second_request.path == "/api/sunshine/objects/types"
+        # The next link carries its own query, so the original params are not sent again.
+        assert dict(second_request.query) == {"page[after]": ("abc",)}
 
 
 class TestZendeskSunshineSourceResponses:
-    def _fake_rest_api_resources(self, config: dict[str, Any], *args: Any, **kwargs: Any) -> list[_FakeResource]:
-        return [_FakeResource(resource["name"]) for resource in config["resources"]]
-
     @parameterized.expand(
         [
             ("object_types", ["key"], ["created_at"]),
@@ -380,24 +355,14 @@ class TestZendeskSunshineSourceResponses:
     def test_source_response_shape(
         self, endpoint: str, expected_primary_keys: list[str], expected_partition_keys: list[str] | None
     ) -> None:
-        with (
-            mock.patch(
-                f"{MODULE}.rest_api_resource",
-                side_effect=lambda config, *a, **k: _FakeResource(config["resources"][0]["name"]),
-            ),
-            mock.patch(f"{MODULE}.rest_api_resources", side_effect=self._fake_rest_api_resources),
-        ):
-            response = zendesk_sunshine_source(
-                subdomain="nibbles",
-                api_key="token",
-                email_address="agent@example.com",
-                endpoint=endpoint,
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=_FakeResumeManager(),  # type: ignore[arg-type]
-                api_version=ZENDESK_SUNSHINE_V1,
-            )
+        result = _driver().run(
+            endpoint,
+            always(ScriptedResponse(json={"data": [], "links": {"next": None}})),
+            api_version=ZENDESK_SUNSHINE_V1,
+        )
 
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_primary_keys
         assert response.sort_mode == "asc"
@@ -406,212 +371,208 @@ class TestZendeskSunshineSourceResponses:
             assert response.partition_mode == "datetime"
 
     def test_policies_rows_carry_object_type_from_parent(self) -> None:
-        with mock.patch(f"{MODULE}.rest_api_resources", side_effect=self._fake_rest_api_resources):
-            response = zendesk_sunshine_source(
-                subdomain="nibbles",
-                api_key="token",
-                email_address="agent@example.com",
-                endpoint="object_type_policies",
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=_FakeResumeManager(),  # type: ignore[arg-type]
-                api_version=ZENDESK_SUNSHINE_V1,
-            )
+        result = _driver().run(
+            "object_type_policies",
+            route(
+                {
+                    "/objects/types": [ScriptedResponse(json={"data": [{"key": "product"}], "links": {"next": None}})],
+                    "/objects/types/product/permissions": [
+                        ScriptedResponse(json={"data": {"rbac": {"admin": {"read": True}}}})
+                    ],
+                }
+            ),
+            api_version=ZENDESK_SUNSHINE_V1,
+        )
 
-        resource = response.items()
-        assert isinstance(resource, _FakeResource)
-        assert len(resource.maps) == 1
-        row = resource.maps[0]({"_object_types_key": "product", "rbac": {"admin": {"read": True}}})
-        assert row == {"object_type": "product", "rbac": {"admin": {"read": True}}}
+        assert result.rows == [{"object_type": "product", "rbac": {"admin": {"read": True}}}]
 
 
 class TestZendeskSunshineIncrementalObjectRecords:
     def _run(
         self,
-        manager: _FakeResumeManager,
+        resume_state: Optional[ZendeskSunshineResumeConfig] = None,
         db_incremental_field_last_value: Any = None,
         type_keys: Optional[list[str]] = None,
-        pages_by_type: Optional[dict[str, list[list[dict[str, Any]]]]] = None,
-    ) -> tuple[list[list[dict[str, Any]]], mock.MagicMock]:
-        pages_by_type = pages_by_type or {}
+    ) -> DriveResult:
+        keys = type_keys or ["alpha", "beta"]
 
-        def fake_rest_api_resource(config: dict[str, Any], *args: Any, **kwargs: Any) -> _FakeResource:
-            type_key = config["resources"][0]["endpoint"]["json"]["query"]["_type"]["$eq"]
-            return _FakeResource("object_records", pages_by_type.get(type_key, [[{"id": f"{type_key}-row"}]]))
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.method == "GET":
+                return ScriptedResponse(json={"data": [{"key": key} for key in keys], "links": {"next": None}})
+            type_key = request.json()["query"]["_type"]["$eq"]
+            return ScriptedResponse(json={"data": [{"id": f"{type_key}-row"}], "links": {"next": None}})
 
-        with (
-            mock.patch(f"{MODULE}.list_object_type_keys", return_value=type_keys or ["alpha", "beta"]),
-            mock.patch(f"{MODULE}.rest_api_resource", side_effect=fake_rest_api_resource) as mock_resource,
-        ):
-            response = zendesk_sunshine_source(
-                subdomain="nibbles",
-                api_key="token",
-                email_address="agent@example.com",
-                endpoint="object_records",
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=manager,  # type: ignore[arg-type]
-                api_version=ZENDESK_SUNSHINE_V1,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-            )
-            pages = _collect_pages(response)
-        return pages, mock_resource
+        return _driver().run(
+            "object_records",
+            respond,
+            resume_state=resume_state,
+            api_version=ZENDESK_SUNSHINE_V1,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+        )
+
+    @staticmethod
+    def _query_requests(result: DriveResult) -> list[RecordedRequest]:
+        return [request for request in result.requests if request.method == "POST"]
 
     def test_fresh_run_walks_every_type_and_checkpoints(self) -> None:
-        manager = _FakeResumeManager()
-        pages, mock_resource = self._run(manager)
+        result = self._run()
 
-        assert pages == [[{"id": "alpha-row"}], [{"id": "beta-row"}]]
-        assert mock_resource.call_count == 2
-        for call, type_key in zip(mock_resource.call_args_list, ["alpha", "beta"]):
-            body = call.args[0]["resources"][0]["endpoint"]["json"]
+        assert result.items == [[{"id": "alpha-row"}], [{"id": "beta-row"}]]
+        query_requests = self._query_requests(result)
+        assert len(query_requests) == 2
+        for request, type_key in zip(query_requests, ["alpha", "beta"]):
+            body = request.json()
             assert body["query"] == {"_type": {"$eq": type_key}}
             assert body["_updated_at"] == {"start": DEFAULT_QUERY_WINDOW_START}
 
         # A checkpoint lands after each completed type; the final one marks both done.
-        assert manager.saved[-1]["completed"] == ["alpha", "beta"]
-        assert manager.saved[-1]["current"] is None
-        assert manager.saved[-1]["child_state"] is None
+        final_state = result.saved_states[-1].state
+        assert final_state["completed"] == ["alpha", "beta"]
+        assert final_state["current"] is None
+        assert final_state["child_state"] is None
 
     def test_watermark_seeds_query_window(self) -> None:
-        manager = _FakeResumeManager()
-        _pages, mock_resource = self._run(
-            manager, db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
-        )
-        body = mock_resource.call_args_list[0].args[0]["resources"][0]["endpoint"]["json"]
+        result = self._run(db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC))
+
+        body = self._query_requests(result)[0].json()
         assert body["_updated_at"] == {"start": "2026-01-02 03:04:05.000"}
 
     def test_resume_skips_completed_types_and_seeds_child_state(self) -> None:
         child_state = {"next_url": f"{BASE_URL}q?cursor=x", "window_start": "2025-06-01 00:00:00.000"}
-        manager = _FakeResumeManager(
-            state={
-                "window_start": "2025-06-01 00:00:00.000",
-                "completed": ["alpha"],
-                "current": "beta",
-                "child_state": child_state,
-            }
-        )
-        pages, mock_resource = self._run(
-            manager,
+        result = self._run(
+            resume_state=ZendeskSunshineResumeConfig(
+                state={
+                    "window_start": "2025-06-01 00:00:00.000",
+                    "completed": ["alpha"],
+                    "current": "beta",
+                    "child_state": child_state,
+                }
+            ),
             # A newer watermark must NOT reshape the window mid-job: the saved window wins, so
             # types that had not started when the previous attempt died keep their history.
             db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
         )
 
-        assert pages == [[{"id": "beta-row"}]]
-        mock_resource.assert_called_once()
-        call = mock_resource.call_args
-        body = call.args[0]["resources"][0]["endpoint"]["json"]
+        assert result.items == [[{"id": "beta-row"}]]
+        query_requests = self._query_requests(result)
+        assert len(query_requests) == 1
+        request = query_requests[0]
+        body = request.json()
         assert body["query"] == {"_type": {"$eq": "beta"}}
         assert body["_updated_at"] == {"start": "2025-06-01 00:00:00.000"}
-        assert call.kwargs["initial_paginator_state"] == child_state
+        # The in-progress type continues from the saved next link rather than the query start.
+        assert request.path == "/api/sunshine/q"
+        assert request.param("cursor") == "x"
 
 
 class TestZendeskSunshineFrameworkIntegration:
-    """Drive the real rest_source framework against a mocked HTTP layer.
+    """Drive the real rest_source framework against scripted HTTP answers.
 
     Guards the declarative wiring the mocked tests can't: that the resolve placeholder
     binds into the path (including the query-string form), that fan-out children inherit
     parent fields, and that the incremental query POSTs the expected body.
     """
 
-    def _source_response(self, endpoint: str, manager: _FakeResumeManager, **kwargs: Any) -> Any:
-        kwargs.setdefault("api_version", ZENDESK_SUNSHINE_V1)
-        return zendesk_sunshine_source(
-            subdomain="nibbles",
-            api_key="token",
-            email_address="agent@example.com",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            **kwargs,
+    def test_relationship_records_fanout_binds_type_into_query_string(self) -> None:
+        result = _driver().run(
+            "relationship_records",
+            route(
+                {
+                    "/relationships/types": [
+                        ScriptedResponse(json={"data": [{"key": "order_rel"}], "links": {"next": None}})
+                    ],
+                    "/relationships/records": [
+                        ScriptedResponse(
+                            json={
+                                "data": [{"id": "r1", "relationship_type": "order_rel"}],
+                                "links": {"next": None},
+                            }
+                        )
+                    ],
+                }
+            ),
+            api_version=ZENDESK_SUNSHINE_V1,
         )
 
-    def test_relationship_records_fanout_binds_type_into_query_string(self, requests_mock: Any) -> None:
-        requests_mock.get(
-            f"{BASE_URL}relationships/types",
-            json={"data": [{"key": "order_rel"}], "links": {"next": None}},
-        )
-        requests_mock.get(
-            f"{BASE_URL}relationships/records",
-            json={"data": [{"id": "r1", "relationship_type": "order_rel"}], "links": {"next": None}},
-        )
+        assert result.rows == [{"id": "r1", "relationship_type": "order_rel"}]
+        records_request = next(r for r in result.requests if "relationships/records" in r.path)
+        assert records_request.param("type") == "order_rel"
+        assert records_request.param("per_page") == "1000"
 
-        response = self._source_response("relationship_records", _FakeResumeManager())
-        rows = [row for page in _collect_pages(response) for row in page]
-
-        assert rows == [{"id": "r1", "relationship_type": "order_rel"}]
-        records_request = next(r for r in requests_mock.request_history if "relationships/records" in r.path)
-        assert records_request.qs["type"] == ["order_rel"]
-        assert records_request.qs["per_page"] == ["1000"]
-
-    def test_policies_fanout_resolves_path_and_injects_parent_key(self, requests_mock: Any) -> None:
-        requests_mock.get(
-            f"{BASE_URL}objects/types",
-            json={"data": [{"key": "product"}], "links": {"next": None}},
-        )
-        requests_mock.get(
-            f"{BASE_URL}objects/types/product/permissions",
-            json={"data": {"rbac": {"admin": {"read": True}}}},
+    def test_policies_fanout_resolves_path_and_injects_parent_key(self) -> None:
+        result = _driver().run(
+            "object_type_policies",
+            route(
+                {
+                    "/objects/types": [ScriptedResponse(json={"data": [{"key": "product"}], "links": {"next": None}})],
+                    "/objects/types/product/permissions": [
+                        ScriptedResponse(json={"data": {"rbac": {"admin": {"read": True}}}})
+                    ],
+                }
+            ),
+            api_version=ZENDESK_SUNSHINE_V1,
         )
 
-        response = self._source_response("object_type_policies", _FakeResumeManager())
-        rows = [row for page in _collect_pages(response) for row in page]
+        assert result.rows == [{"rbac": {"admin": {"read": True}}, "object_type": "product"}]
 
-        assert rows == [{"rbac": {"admin": {"read": True}}, "object_type": "product"}]
-
-    def test_incremental_object_records_posts_windowed_query(self, requests_mock: Any) -> None:
-        requests_mock.get(
-            f"{BASE_URL}objects/types",
-            json={"data": [{"key": "product"}], "links": {"next": None}},
-        )
-        requests_mock.post(
-            f"{BASE_URL}objects/query",
-            json={"data": [{"id": "1", "updated_at": "2026-01-05T00:00:00.000Z"}], "links": {"next": None}},
-        )
-
-        manager = _FakeResumeManager()
-        response = self._source_response(
+    def test_incremental_object_records_posts_windowed_query(self) -> None:
+        result = _driver().run(
             "object_records",
-            manager,
+            route(
+                {
+                    "/objects/types": [ScriptedResponse(json={"data": [{"key": "product"}], "links": {"next": None}})],
+                    "/objects/query": [
+                        ScriptedResponse(
+                            json={
+                                "data": [{"id": "1", "updated_at": "2026-01-05T00:00:00.000Z"}],
+                                "links": {"next": None},
+                            }
+                        )
+                    ],
+                }
+            ),
+            api_version=ZENDESK_SUNSHINE_V1,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
         )
-        rows = [row for page in _collect_pages(response) for row in page]
 
-        assert rows == [{"id": "1", "updated_at": "2026-01-05T00:00:00.000Z"}]
-        query_request = next(r for r in requests_mock.request_history if r.method == "POST")
+        assert result.rows == [{"id": "1", "updated_at": "2026-01-05T00:00:00.000Z"}]
+        query_request = next(r for r in result.requests if r.method == "POST")
         assert query_request.json() == {
             "query": {"_type": {"$eq": "product"}},
             "sort_by": "_updated_at asc",
             "_updated_at": {"start": "2026-01-02 03:04:05.000"},
         }
-        assert query_request.qs["per_page"] == ["1000"]
+        assert query_request.param("per_page") == "1000"
         # The completed type is checkpointed so a retry skips it.
-        assert manager.saved[-1]["completed"] == ["product"]
+        assert result.saved_states[-1].state["completed"] == ["product"]
 
-    def test_v2_custom_object_records_fanout_uses_v2_paths_and_envelope(self, requests_mock: Any) -> None:
+    def test_v2_custom_object_records_fanout_uses_v2_paths_and_envelope(self) -> None:
         # v2 fans out over the custom objects list (envelope `custom_objects`) into each object's
         # records under `/api/v2/custom_objects/{key}/records` (envelope `custom_object_records`),
         # sorted by updated_at since v2 has no server-side updated_at filter.
-        requests_mock.get(
-            f"{V2_BASE_URL}custom_objects",
-            json={"custom_objects": [{"key": "product"}], "links": {"next": None}},
-        )
-        requests_mock.get(
-            f"{V2_BASE_URL}custom_objects/product/records",
-            json={
-                "custom_object_records": [{"id": "1", "updated_at": "2026-01-05T00:00:00.000Z"}],
-                "links": {"next": None},
-            },
+        result = _driver().run(
+            "custom_object_records",
+            route(
+                {
+                    "/custom_objects": [
+                        ScriptedResponse(json={"custom_objects": [{"key": "product"}], "links": {"next": None}})
+                    ],
+                    "/custom_objects/product/records": [
+                        ScriptedResponse(
+                            json={
+                                "custom_object_records": [{"id": "1", "updated_at": "2026-01-05T00:00:00.000Z"}],
+                                "links": {"next": None},
+                            }
+                        )
+                    ],
+                }
+            ),
+            api_version=ZENDESK_SUNSHINE_V2,
         )
 
-        response = self._source_response("custom_object_records", _FakeResumeManager(), api_version=ZENDESK_SUNSHINE_V2)
-        rows = [row for page in _collect_pages(response) for row in page]
-
-        assert rows == [{"id": "1", "updated_at": "2026-01-05T00:00:00.000Z"}]
-        records_request = next(r for r in requests_mock.request_history if "custom_objects/product/records" in r.path)
-        assert records_request.qs["sort"] == ["updated_at"]
-        assert records_request.qs["per_page"] == ["100"]
+        assert result.rows == [{"id": "1", "updated_at": "2026-01-05T00:00:00.000Z"}]
+        records_request = next(r for r in result.requests if "custom_objects/product/records" in r.path)
+        assert records_request.param("sort") == "updated_at"
+        assert records_request.param("per_page") == "100"

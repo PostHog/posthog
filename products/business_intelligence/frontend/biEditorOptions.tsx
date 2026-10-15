@@ -28,6 +28,11 @@ export const CHART_TYPE_OPTIONS: { value: ChartDisplayType; label: string; icon:
     { value: ChartDisplayType.ActionsLineGraph, label: 'Line chart', icon: <IconTrends /> },
     { value: ChartDisplayType.ActionsAreaGraph, label: 'Area chart', icon: <IconAreaChart /> },
     { value: ChartDisplayType.ActionsBar, label: 'Bar chart', icon: <IconGraph /> },
+    {
+        value: ChartDisplayType.ActionsBarValue,
+        label: 'Horizontal bar chart',
+        icon: <IconGraph className="rotate-90" />,
+    },
     { value: ChartDisplayType.ActionsStackedBar, label: 'Stacked bar chart', icon: <IconLifecycle /> },
     { value: ChartDisplayType.ActionsPie, label: 'Pie chart', icon: <IconPieChart /> },
     { value: ChartDisplayType.ActionsDonut, label: 'Donut chart', icon: <IconDonutChart /> },

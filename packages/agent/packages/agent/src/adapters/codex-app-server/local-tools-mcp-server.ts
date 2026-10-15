@@ -20,6 +20,11 @@ import {
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
 } from "@posthog/harness/extensions/local-tools";
+import {
+  MEMORY_KILL_HOOK_SERVER_OPTIONS,
+  MEMORY_KILL_HOOK_TOOL_NAME,
+  registerMemoryKillHook,
+} from "./memory-kill-hook";
 
 function die(message: string): never {
   process.stderr.write(`[local-tools-mcp-server] ${message}\n`);
@@ -60,14 +65,20 @@ const enabledNames = (process.env.POSTHOG_LOCAL_TOOLS_ENABLED ?? "")
   .split(",")
   .filter(Boolean);
 const tools = LOCAL_TOOLS.filter((t) => enabledNames.includes(t.name));
-if (tools.length === 0) {
+const memoryHookEnabled = enabledNames.includes(MEMORY_KILL_HOOK_TOOL_NAME);
+if (tools.length === 0 && !memoryHookEnabled) {
   die("POSTHOG_LOCAL_TOOLS_ENABLED listed no known tools");
 }
 
-const server = new McpServer({
-  name: LOCAL_TOOLS_MCP_NAME,
-  version: "1.0.0",
-});
+const server = new McpServer(
+  {
+    name: LOCAL_TOOLS_MCP_NAME,
+    version: "1.0.0",
+  },
+  memoryHookEnabled ? MEMORY_KILL_HOOK_SERVER_OPTIONS : undefined,
+);
+
+if (memoryHookEnabled) registerMemoryKillHook(server);
 
 for (const t of tools) {
   server.tool(t.name, t.description, t.schema, async (args) =>

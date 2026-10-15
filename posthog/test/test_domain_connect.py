@@ -8,6 +8,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 import dns.resolver
 from cryptography.hazmat.primitives import hashes as crypto_hashes
@@ -52,7 +53,7 @@ def _extract_template_variables(template: dict) -> set[str]:
     return variables
 
 
-class TestExtractRootDomainAndHost(BaseTest):
+class TestExtractRootDomainAndHost(SimpleTestCase):
     @parameterized.expand(
         [
             ("simple subdomain", "ph.example.com", ("example.com", "ph")),
@@ -72,7 +73,7 @@ class TestExtractRootDomainAndHost(BaseTest):
         self.assertEqual(domain_parts.host, expected[1], f"Failed host for {name}: {full_domain}")
 
 
-class TestGetServiceIdForRegion(BaseTest):
+class TestGetServiceIdForRegion(SimpleTestCase):
     @parameterized.expand(
         [
             ("US deployment", "US", "email-verification-us"),
@@ -87,7 +88,7 @@ class TestGetServiceIdForRegion(BaseTest):
             self.assertEqual(get_service_id_for_region("email-verification"), expected)
 
 
-class TestBuildSyncApplyUrl(BaseTest):
+class TestBuildSyncApplyUrl(SimpleTestCase):
     def test_basic_url(self) -> None:
         url = build_sync_apply_url(
             url_sync_ux="https://dns.provider.example/sync",
@@ -169,7 +170,7 @@ class TestBuildSyncApplyUrl(BaseTest):
         self.assertNotIn("key=", url)
 
 
-class TestSignQueryString(BaseTest):
+class TestSignQueryString(SimpleTestCase):
     def test_sign_and_verify(self) -> None:
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         public_key = private_key.public_key()
@@ -187,7 +188,7 @@ class TestSignQueryString(BaseTest):
         )
 
 
-class TestDiscoverDomainConnect(BaseTest):
+class TestDiscoverDomainConnect(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
@@ -235,7 +236,7 @@ class TestDiscoverDomainConnect(BaseTest):
         self.assertIsNone(result)
 
 
-class TestGetAvailableProviders(BaseTest):
+class TestGetAvailableProviders(SimpleTestCase):
     def test_returns_all_providers(self) -> None:
         with patch.dict(
             DOMAIN_CONNECT_PROVIDERS,
@@ -256,7 +257,7 @@ class TestGetAvailableProviders(BaseTest):
         self.assertEqual(providers, [])
 
 
-class TestGenerateApplyUrl(BaseTest):
+class TestGenerateApplyUrl(SimpleTestCase):
     def test_rejects_unknown_provider_endpoint(self) -> None:
         with self.assertRaises(ValueError, msg="Unsupported provider endpoint"):
             generate_apply_url(

@@ -241,6 +241,7 @@ export const TodayItemReasonEnumApi = {
  * * `open` - OPEN
  * * `done` - DONE
  * * `dismissed` - DISMISSED
+ * * `left` - LEFT
  */
 export type BriefingItemStateEnumApi = (typeof BriefingItemStateEnumApi)[keyof typeof BriefingItemStateEnumApi]
 
@@ -248,6 +249,7 @@ export const BriefingItemStateEnumApi = {
     Open: 'open',
     Done: 'done',
     Dismissed: 'dismissed',
+    Left: 'left',
 } as const
 
 export interface BriefingItemApi {
@@ -273,11 +275,12 @@ export interface BriefingItemApi {
     group: TodayItemGroupEnumApi
     source: TodayItemSourceEnumApi
     reason: TodayItemReasonEnumApi
-    /** `done` when the item was resolved since the briefing was written, `dismissed` when it was dismissed or suppressed, else `open`. Pull requests always stay `open`.
+    /** `done` when the item was resolved since the briefing was written, `dismissed` when it was dismissed or suppressed, `left` when the report no longer names the viewer as a suggested reviewer, else `open`. Pull requests always stay `open`.
      *
      * * `open` - OPEN
      * * `done` - DONE
-     * * `dismissed` - DISMISSED */
+     * * `dismissed` - DISMISSED
+     * * `left` - LEFT */
     state: BriefingItemStateEnumApi
 }
 

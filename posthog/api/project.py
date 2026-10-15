@@ -12,8 +12,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 import structlog
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -49,12 +48,13 @@ from posthog.api.team import (
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _format_serializer_errors,
-    get_or_mint_live_events_token,
     handle_experiments_config,
     handle_logs_config,
     handle_tracing_config,
     heatmaps_screenshot_secret_for_reader,
+    live_events_token_for_request,
     merge_conversations_settings_locked,
+    merge_modifiers,
     report_conversations_settings_changes,
     strip_managed_conversations_settings,
     team_event_ingestion_restrictions_view,
@@ -118,6 +118,7 @@ from posthog.session_recordings.data_retention import (
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
     get_field_access_control_map,
     resource_to_display_name,
@@ -542,6 +543,9 @@ def team_evaluation_context_suggestions_view(team: Team, request: request.Reques
     context_name = normalize_context_name(context_name)
     if not context_name:
         return response.Response({"error": "context_name is required"}, status=400)
+
+    if len(context_name) > 255:
+        return response.Response({"error": "context_name must be at most 255 characters"}, status=400)
 
     hidden = request.method == "POST"
 
@@ -987,7 +991,9 @@ class ProjectBackwardCompatSerializer(
             representation["default_data_theme"] = _default_data_color_theme_id()
         return representation
 
-    def get_user_access_level(self, obj: Model) -> Optional[str]:
+    def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
+        if isinstance(obj, ObjectAccessRef):
+            return super().get_user_access_level(obj)
         # The access-control system is keyed on the Team, so resolve through the passthrough Team
         return super().get_user_access_level(cast(Project, obj).passthrough_team)
 
@@ -1035,10 +1041,7 @@ class ProjectBackwardCompatSerializer(
         return cached_group_types_for_project(project)
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
-        team = project.passthrough_team
-        request = self.context.get("request")
-        user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
-        return get_or_mint_live_events_token(team, user_id)
+        return live_events_token_for_request(project.passthrough_team, self.context.get("request"))
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_heatmaps_screenshot_secret(self, project: Project) -> Optional[str]:
@@ -1146,6 +1149,18 @@ class ProjectBackwardCompatSerializer(
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.instance)
 
+        if "tags" in attrs:
+            project_tags.validate_group_change(
+                attrs["tags"],
+                current_groups=project_tags.group_tags(project_tags.current_names(self.instance))
+                if self.instance
+                else set(),
+                user=cast(User, self.context["request"].user),
+                organization_id=self.instance.organization_id
+                if self.instance
+                else self.context["view"].organization_id,
+            )
+
         if self.instance:
             field_mappings = get_field_access_control_map(Team)
             user_access_control = self.user_access_control
@@ -1165,6 +1180,23 @@ class ProjectBackwardCompatSerializer(
                             {field_name: f"You need {required_level} access to {display_name} to modify this field."}
                         )
         return super().validate(attrs)
+
+    def save(self, **kwargs: Any) -> Project:
+        if self.instance is None or "tags" not in self.validated_data:
+            return super().save(**kwargs)
+        with transaction.atomic():
+            project = get_object_or_404(
+                Project.objects.select_for_update(),
+                pk=self.instance.pk,
+                organization_id=self.instance.organization_id,
+            )
+            project_tags.validate_group_change(
+                self.validated_data["tags"],
+                current_groups=project_tags.group_tags(project_tags.current_names(project)),
+                user=cast(User, self.context["request"].user),
+                organization_id=project.organization_id,
+            )
+            return super().save(**kwargs)
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Project:
         # Analytics config sub-objects are created with the Team's defaults and only mutated via update;
@@ -1338,11 +1370,8 @@ class ProjectBackwardCompatSerializer(
             }
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
-        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
-            validated_data["modifiers"] = {
-                **(team.modifiers or {}),
-                **validated_data["modifiers"],
-            }
+        if "modifiers" in validated_data:
+            validated_data["modifiers"] = merge_modifiers(validated_data["modifiers"], team.modifiers)
 
         # Persist only the fields this request changes. A full-row save() writes back every
         # column from this request's snapshot of the team, so two concurrent PATCHes clobber
@@ -1526,12 +1555,15 @@ class ProjectViewSet(
         tags_before = project_tags.current_names(project) if "tags" in serializer.initial_data else None
         super().perform_update(serializer)
         if tags_before is not None:
+            tags_after = project_tags.current_names(project)
             project_tags.report_change(
                 user=cast(User, self.request.user),
                 project=project,
                 tags_before=tags_before,
-                tags_after=project_tags.current_names(project),
+                tags_after=tags_after,
             )
+            if tags_before != tags_after:
+                transaction.on_commit(lambda: _bump_org_serializer_cache_version(str(project.organization_id)))
 
     def _notify_org_admins_of_member_project_creation(self, project: Project) -> None:
         """When a member (below admin) creates a project, notify org admins/owners in-app. Best-effort."""
@@ -2039,15 +2071,7 @@ class ProjectViewSet(
     )
     @extend_schema(
         methods=["DELETE"],
-        parameters=[
-            OpenApiParameter(
-                name="context_name",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=True,
-                description="Name of the evaluation context to restore to suggestions.",
-            )
-        ],
+        parameters=[EvaluationContextSuggestionRequestSerializer],
         responses={200: EvaluationContextSuggestionResponseSerializer},
         extensions={"x-product": "feature_flags"},
     )

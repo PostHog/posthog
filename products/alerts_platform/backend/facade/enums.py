@@ -12,6 +12,14 @@ class PlatformAlertConfigurationSourceKind(LabeledStrEnum):
     """The product whose data an alert evaluates."""
 
     LOGS = "logs", "Logs"
+    INSIGHT = "insight", "Insight"
+
+
+class PlatformAlertOwner(LabeledStrEnum):
+    """The one stack that evaluates and delivers an alert, and the only one that writes it."""
+
+    SOURCE = "source", "Source"
+    PLATFORM = "platform", "Platform"
 
 
 class PlatformAlertState(LabeledStrEnum):

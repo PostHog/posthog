@@ -71,10 +71,31 @@ Two sources, highest-confidence first:
 For each watchlist flow whose cadence is due (default: re-score daily flows ~daily, weekly cohorts ~weekly), score the **latest complete window** against the flow's trailing baseline:
 
 - **Funnels** — `query-funnel` over the latest complete window (e.g. last 7 complete days), then the same query over each of the prior N comparable windows (prior weeks, same weekday span) for the baseline. The metric is **step-to-step conversion %**, not step counts. Compare the latest overall + per-step conversion to the baseline band (median + MAD, or a simple delta with floors). A step whose conversion dropped while its entrant count held is the signal.
-- **Retention** — `query-retention` and compare the latest cohort's day-1 / day-7 / day-N return rate to the prior cohorts' rates for the same day-offset. A retention _cliff_ is a cohort whose curve sits clearly below the prior cohorts' band.
+- **Retention** — `query-retention` and compare, for each offset (day-1 / day-7 / day-N), the latest cohort whose cell at that offset is mature (see return-interval maturity below) to the prior cohorts' mature rates for the same offset. A retention _cliff_ is a cohort whose curve sits clearly below the prior cohorts' band.
 - **Lifecycle / stickiness** — `query-lifecycle` (new / returning / resurrecting / dormant composition) and `query-stickiness`; a composition tilting toward dormant, or stickiness dropping, against the trailing baseline.
 
 **Always score only the latest _complete_ window.** The in-progress day/week is partial and will always look like a drop.
+
+**Retention needs a second check: return-interval maturity.**
+A complete acquisition cohort does not make its return cells complete.
+Each retention cell (cohort, offset) counts returns inside its own return interval, and that interval ends after the cohort ends.
+A cell whose return interval is still open shows a low rate with a steady cohort size.
+That is the same shape as a real retention cliff.
+
+- With `insight-get`, read the saved `retentionFilter`: `period` (default `Day`), `timeWindowMode`, `retentionCustomBrackets` and `cumulative`.
+  With `project-get`, read the project timezone. Calendar periods start in that timezone, and weeks start on the project's week start day.
+- Set the observation cutoff to now minus an ingestion buffer: at least 1 hour for `Hour` retention, at least 6 hours for other periods.
+- Find the end of each cell's return interval. P is one period, C is the cohort start, and k is the offset (k = 0 is the cohort period):
+  - **Calendar mode** (`timeWindowMode` absent or `strict_calendar_dates`): offset k is the calendar period C + k·P to C + (k+1)·P. The cell ends at C + (k+1)·P.
+  - **Rolling mode** (`24_hour_windows`): offset k for each person is t₀ + k·P to t₀ + (k+1)·P, where t₀ is that person's first qualifying event. P is 1 hour, 24 hours, 7 days or 30 days. The last person can enter at the cohort end, so the cell ends at C + (k+2)·P.
+  - **Custom brackets**: offset k (k ≥ 1) covers brackets 1..k, so in calendar mode the cell ends at C + (1 + b₁ + … + bₖ)·P. Add one period in rolling mode.
+  - **Cumulative**: a cumulative cell counts every return at offset k or later in the query, so it grows until the cohort's last offset ends. Score a cumulative cell only when the cohort's last queried offset is mature.
+- A cell is mature only when its return interval ends at or before the cutoff. Exclude every immature cell from scoring. Apply the same rule to every baseline cell.
+  The newest mature cohort differs per offset: day-1 has a newer mature cohort than day-7.
+- Example, calendar weekly retention with weeks that start on Monday: the cohort week is Mon 1 – Sun 7. On Wed 10 the cohort is complete, but its week-1 cell (Mon 8 – Sun 14) has run for only 3 of 7 days. That cell becomes mature after Sun 14 ends, plus the buffer.
+- Example, rolling weekly retention for the same cohort: a person who enters Sun 7 at 23:00 has a week-1 interval of Sun 14 23:00 – Sun 21 23:00. The week-1 cell becomes mature only after that interval ends, plus the buffer: one week later than in calendar mode.
+- In every retention verdict (report `evidence`, `baseline:` and `dedupe:` entries), record the cohort dates, the offset, the return-interval end of the scored cell, the cutoff, the window mode and the timezone.
+- A rate that rises as an open cell fills is accumulation, not recovery. Claim a recovery only from mature cells.
 
 **Attribute before deciding.** When a rate moves, re-run the flow with a breakdown (platform, country, browser, plan) or add a `GROUP BY`, and confirm the entrant volume. A drop isolated to one known segment ramping down is usually expected (→ `noise:`/`addressed:` memory); a drop broad across segments with steady entrants is a real regression. If the entrants themselves collapsed, it's not your signal (Disqualifiers).
 
@@ -114,6 +135,7 @@ One paragraph: which flows you scored, what you added, which reports you authore
 - **Flow-definition change, not behavior.** If someone edited the funnel's steps, the retention event, or the date range, the rate "moved" because the measurement did. Read the insight's recent `last_modified_at` and query JSON before trusting a delta.
 - **Seasonal swings** — weekday/weekend, business-hours rhythm, end-of-month. Real only once the move clears the seasonality-matched baseline (compare same-weekday windows).
 - **The current partial window** — never score the in-progress day/week.
+- **An immature retention cell** — never score a retention cell whose return interval has not ended at the observation cutoff, even when its acquisition cohort is complete.
 - **Low-volume flows** — funnels/cohorts whose entrant counts are too small for a stable rate (enforce a minimum-entrants floor; a few users' movement is not signal).
 - **Single known internal/test cohort** — a conversion change driven only by internal distinct_ids or a `dev`/`test` environment segment.
 - **Known launches / migrations / backfills** the team already knows about — if a `noise:` / `addressed:` entry names it, skip.

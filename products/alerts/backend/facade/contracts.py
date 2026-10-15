@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Final
 
-from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
-
 from products.alerts_platform.backend.facade.contracts import DestinationType
+from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 # The internal event an insight alert's destinations fire on. Do not take it from
 # `posthog.tasks.alerts.utils` instead, because that module imports this product's facade.

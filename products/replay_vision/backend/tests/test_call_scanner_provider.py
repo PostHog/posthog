@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, cast
 
 import pytest
@@ -60,7 +60,7 @@ class _Resp:
 
 
 class _FakeModels:
-    def __init__(self, responses: list[_Resp]) -> None:
+    def __init__(self, responses: Sequence[_Resp | Exception]) -> None:
         self._it = iter(responses)
         self.calls: list[dict[str, Any]] = []
 
@@ -68,11 +68,14 @@ class _FakeModels:
         # Snapshot `contents` — the driver mutates the same list across turns, so a live reference would
         # show every call the final length.
         self.calls.append({**kwargs, "contents": list(kwargs["contents"])})
-        return next(self._it)
+        response = next(self._it)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class _FakeClient:
-    def __init__(self, responses: list[_Resp]) -> None:
+    def __init__(self, responses: Sequence[_Resp | Exception]) -> None:
         self.models = _FakeModels(responses)
 
 
@@ -243,12 +246,47 @@ async def test_step_survives_a_response_with_no_candidates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_step_re_prompts_once_on_invalid_json() -> None:
+@pytest.mark.parametrize(
+    "first,correction",
+    [
+        (_Resp(text="not json"), "Respond with raw JSON only"),
+        (
+            ValueError("Exceeds the limit (4300 digits) for integer string conversion: value has 16266 digits"),
+            "Respond with raw JSON only",
+        ),
+        (_Resp(text='{"verdict":"conclu\\u0000"}'), "never as \\u escapes"),
+    ],
+)
+async def test_step_re_prompts_once_on_invalid_json(first: _Resp | Exception, correction: str) -> None:
     steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
-    client = _FakeClient([_Resp(text="not json"), _Resp(text='{"verdict":"yes"}')])
+    client = _FakeClient([first, _Resp(text='{"verdict":"yes"}')])
     out = await _run(client, steps)
     assert out["core"].verdict == "yes"
     assert len(client.models.calls) == 2  # initial + one re-prompt
+    assert correction in client.models.calls[1]["contents"][-1].text
+
+
+@pytest.mark.asyncio
+async def test_control_characters_left_after_the_re_prompt_are_dropped_not_the_answer() -> None:
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    client = _FakeClient(
+        [
+            _Resp(text='{"verdict":"a\\u0001\\u0000"}'),
+            _Resp(text='{"verdict":"nenhuma a\\u0000"}'),
+            _Resp(text='{"verdict":"yes"}'),
+        ]
+    )
+    out = await _run(client, [*steps, MissionStep(name="side", instruction="s", response_model=_Core)])
+    assert out["core"].verdict == "nenhuma a"
+    assert '"verdict": "nenhuma a"' in str(client.models.calls[2]["contents"])
+
+
+@pytest.mark.asyncio
+async def test_an_unrelated_value_error_still_fails_the_step() -> None:
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    client = _FakeClient([ValueError("bad request config")])
+    with pytest.raises(ValueError, match="bad request config"):
+        await _run(client, steps)
 
 
 @pytest.mark.asyncio
@@ -264,25 +302,40 @@ async def test_non_required_step_failure_is_skipped_not_raised() -> None:
     assert "side" not in out
 
 
+# The render cut 10s-40s of the session, so video second 15 shows session second 45.
+_CUT_CLOCK = VideoClock(
+    spans=(
+        ActiveSpan(session_from_s=0, session_to_s=10, video_from_s=0, video_to_s=10),
+        ActiveSpan(session_from_s=40, session_to_s=60, video_from_s=10, video_to_s=30),
+    )
+)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "duration_seconds,end_times,expected_end",
+    "duration_seconds,clock,end_times,expected_end,limit",
     [
-        (10.9, [10], 10),
-        (10.0, [10], 10),
-        (0.9, [0], 0),
-        (10.9, [11, 11], None),
-        (10.9, [11, 10], 10),
-        (None, [0, 0], None),
-        (0.0, [0, 0], None),
-        (-1.0, [0, 0], None),
-        (float("nan"), [0, 0], None),
-        (float("inf"), [0, 0], None),
-        (None, [None], None),
+        (10.9, _IDENTITY_CLOCK, [10], 10, 10),
+        (10.0, _IDENTITY_CLOCK, [10], 10, 10),
+        (0.9, _IDENTITY_CLOCK, [0], 0, 0),
+        (10.9, _IDENTITY_CLOCK, [11, 11], None, 10),
+        (10.9, _IDENTITY_CLOCK, [11, 10], 10, 10),
+        (None, _IDENTITY_CLOCK, [0, 0], None, None),
+        (0.0, _IDENTITY_CLOCK, [0, 0], None, None),
+        (-1.0, _IDENTITY_CLOCK, [0, 0], None, None),
+        (float("nan"), _IDENTITY_CLOCK, [0, 0], None, None),
+        (float("inf"), _IDENTITY_CLOCK, [0, 0], None, None),
+        (None, _IDENTITY_CLOCK, [None], None, None),
+        # A cut render bounds signals by the video's length, not the longer session's.
+        (60.0, _CUT_CLOCK, [45, 30], 30, 30),
     ],
 )
 async def test_signal_timestamps_use_recording_duration(
-    duration_seconds: float | None, end_times: list[int | None], expected_end: int | None
+    duration_seconds: float | None,
+    clock: VideoClock,
+    end_times: list[int | None],
+    expected_end: int | None,
+    limit: int | None,
 ) -> None:
     scanner = MonitorScanner(prompt="Did the dialog block input?", emits_signals=True)
     snapshot = ScannerSnapshot(
@@ -328,7 +381,7 @@ async def test_signal_timestamps_use_recording_duration(
             scanner=scanner,
             snapshot=snapshot,
             video_part=_VIDEO,
-            video_clock=_IDENTITY_CLOCK,
+            video_clock=clock,
             preamble_text="PRE",
             team_id=1,
             llm_inputs=MagicMock(metadata=MagicMock(duration_seconds=duration_seconds)),
@@ -340,15 +393,8 @@ async def test_signal_timestamps_use_recording_duration(
     assert outcome.thumbnail_video_s == 7
     assert outcome.key_moment_video_s == 5
     assert len(client.models.calls) == 2 + len(end_times)
-
-
-# The render cut 10s-40s of the session, so video second 15 shows session second 45.
-_CUT_CLOCK = VideoClock(
-    spans=(
-        ActiveSpan(session_from_s=0, session_to_s=10, video_from_s=0, video_to_s=10),
-        ActiveSpan(session_from_s=40, session_to_s=60, video_from_s=10, video_to_s=30),
-    )
-)
+    signals_instruction = client.models.calls[2]["contents"][-1].text
+    assert (f"The video ends at second {limit}," in signals_instruction) is (limit is not None)
 
 
 @pytest.mark.parametrize(
@@ -584,8 +630,8 @@ async def test_video_cache_creation_is_best_effort() -> None:
 
 @pytest.mark.asyncio
 async def test_apply_experiment_scan_context_injects_into_experiment_scanners_only() -> None:
-    # The injected fields are exclude=True, so this per-scan context is the only way the prompt
-    # ever learns the variant; a broken injection silently degrades every experiment scan.
+    # The injected field is exclude=True, so this per-scan context is the only way the prompt
+    # ever learns the experiment; a broken injection silently degrades every experiment scan.
     from uuid import uuid4
 
     from products.replay_vision.backend.temporal.activities.call_scanner_provider import _apply_experiment_scan_context
@@ -612,9 +658,10 @@ async def test_apply_experiment_scan_context_injects_into_experiment_scanners_on
     experiment_scanner = ExperimentScanner(prompt="p", experiment_id=42)
     injected = await _apply_experiment_scan_context(experiment_scanner, inputs)
     assert isinstance(injected, ExperimentScanner)
-    assert injected.session_variant == "test"
     assert injected.experiment_context is not None and injected.experiment_context["name"] == "Checkout CTA copy"
-    assert "`test` variant" in injected.core_steps()[0].instruction
+    instruction = injected.core_steps()[0].instruction
+    assert "Checkout CTA copy" in instruction
+    assert "`test`" not in instruction
 
     monitor = MonitorScanner(prompt="p")
     assert await _apply_experiment_scan_context(monitor, inputs) is monitor
@@ -635,9 +682,14 @@ async def test_evaluation_calls_fall_back_to_the_persisted_attribution() -> None
     )
     with patch(
         "products.replay_vision.backend.temporal.activities.call_scanner_provider._load_persisted_experiment_context",
-        return_value=("control", None),
+        return_value={
+            "name": "Checkout CTA copy",
+            "description": "",
+            "feature_flag_key": "checkout-cta",
+            "variants": [],
+        },
     ):
         injected = await _apply_experiment_scan_context(ExperimentScanner(prompt="p", experiment_id=42), inputs)
 
     assert isinstance(injected, ExperimentScanner)
-    assert injected.session_variant == "control"
+    assert injected.experiment_context is not None and injected.experiment_context["name"] == "Checkout CTA copy"

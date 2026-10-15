@@ -14,7 +14,7 @@ from django.utils.dateparse import parse_datetime
 
 import re2
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from opentelemetry import trace
 from pydantic import (
     RootModel as PydanticRootModel,
@@ -41,6 +41,7 @@ from posthog.schema import (
     SourceMap,
 )
 
+from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import TeamBasicSerializer
@@ -69,6 +70,7 @@ from posthog.models.event_ingestion_restriction_config import (
 )
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
+from posthog.models.integration.model import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntentSerializer,
@@ -99,9 +101,10 @@ from posthog.permissions import (
     UserCanCreateProjectPermission,
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
     posthog_feature_flag_enabled,
 )
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes import APIScopeObjectOrNotSupported, scopes_not_covered
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
     parse_feature_to_entitlement,
@@ -129,7 +132,7 @@ from products.customer_analytics.backend.facade.account_property_pins import (
     validate_pinned_account_properties,
 )
 from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
-from products.customer_analytics.backend.facade.enums import ACCOUNT_PROPERTY_PIN_KIND_CHOICES
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -325,12 +328,7 @@ class TeamTracingConfigSerializer(serializers.ModelSerializer):
         if error:
             raise exceptions.ValidationError(error)
 
-        # Traces reuse the Logs retention entitlement.
-        required_feature = required_logs_retention_feature(value)
-        if required_feature and (organization is None or not organization.is_feature_available(required_feature)):
-            raise exceptions.PermissionDenied(
-                f"This organization does not have permission to set traces retention to {value} days."
-            )
+        _check_traces_retention_entitlement(value, organization)
 
         throttle_error = retention_update_throttle_error(
             self.instance.retention_last_updated if self.instance is not None else None
@@ -359,7 +357,24 @@ def handle_tracing_config(request: request.Request, team: Team) -> response.Resp
             config, data=request.data, partial=True, context={"request": request, "team": team}
         )
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        with transaction.atomic():
+            locked_config = TeamTracingConfig.objects.select_for_update().get(team=team)
+            retention = serializer.validated_data.get("retention_days")
+            if retention is not None and retention != locked_config.retention_days:
+                throttle_error = retention_update_throttle_error(locked_config.retention_last_updated)
+                if throttle_error:
+                    raise exceptions.ValidationError({"retention_days": throttle_error})
+                if locked_config.retention_days != config.retention_days:
+                    # Entitlement resets do not set retention_last_updated, so the throttle cannot see them.
+                    raise exceptions.ValidationError(
+                        {"retention_days": "Retention changed. Reload the settings and retry."}
+                    )
+                # Billing can revoke the entitlement after validation read the organization.
+                _check_traces_retention_entitlement(
+                    retention, Organization.objects.only("available_product_features").get(id=team.organization_id)
+                )
+            serializer.instance = locked_config
+            serializer.save()
         return response.Response(serializer.data)
 
     return response.Response(TeamTracingConfigSerializer(config).data)
@@ -491,6 +506,9 @@ def handle_evaluation_context_suggestions(request: request.Request, team: Team) 
     context_name = normalize_context_name(context_name)
     if not context_name:
         return response.Response({"error": "context_name is required"}, status=400)
+
+    if len(context_name) > 255:
+        return response.Response({"error": "context_name must be at most 255 characters"}, status=400)
 
     hidden = request.method == "POST"
 
@@ -992,6 +1010,36 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             f"{MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY}."
         ),
     )
+    marketing_frequency_cap_max_messages = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=1000,
+        help_text=(
+            "Most marketing messages one person can get in the window, across all workflows. "
+            "Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off."
+        ),
+    )
+    marketing_frequency_cap_window_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=30,
+        help_text=(
+            "Length of the rolling frequency cap window in days. "
+            "Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off."
+        ),
+    )
+
+    default_email_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ID of the verified email integration that new broadcasts and workflow email steps use as "
+            "their sender. Null means no default. Set automatically when the project's first email "
+            "sender is verified, and cleared when that integration is deleted."
+        ),
+    )
 
     class Meta:
         model = TeamWorkflowsConfig
@@ -1000,6 +1048,9 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "email_tracking_consent_mode",
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
+            "default_email_integration_id",
+            "marketing_frequency_cap_max_messages",
+            "marketing_frequency_cap_window_days",
         ]
 
     def _enforce_self_serve_ceiling(self, field: str, value: int | None, ceiling: int) -> int | None:
@@ -1030,6 +1081,42 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "workflow_task_team_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY
         )
 
+    def validate_default_email_integration_id(self, value: int | None) -> int | None:
+        if self.parent or value is None:
+            return value
+        sender = (
+            Integration.objects.filter(team_id=self.instance.team_id, kind="email", id=value).only("config").first()
+            if self.instance is not None
+            else None
+        )
+        if sender is None:
+            raise serializers.ValidationError("Choose an email sender from this project.")
+        if not sender.config.get("verified"):
+            raise serializers.ValidationError("Verify this sender's domain before making it the default.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # As a nested field of the team serializer there is no stored row to merge a partial update with.
+        # validate_team_workflows_config runs this serializer again with the row, and that run does the check.
+        if self.parent:
+            return attrs
+        cap_fields = ("marketing_frequency_cap_max_messages", "marketing_frequency_cap_window_days")
+        cap = {field: attrs[field] for field in cap_fields if field in attrs}
+        if len(cap) == 1 and self.instance is not None:
+            # Read the stored row, because `Team.workflows_config` is a cached_property on the Team instance
+            # and can hold values from before an earlier update.
+            stored = TeamWorkflowsConfig.objects.filter(pk=self.instance.pk).values(*cap_fields).first() or {}
+            cap = {**stored, **cap}
+        # The worker treats either null as no cap, so a half-set cap would save but never apply.
+        if cap:
+            missing = [field for field in cap_fields if cap.get(field) is None]
+            if len(missing) == 1:
+                other = next(field for field in cap_fields if field != missing[0])
+                raise serializers.ValidationError(
+                    {missing[0]: f"Set this together with {other}, or set both to null to turn the frequency cap off."}
+                )
+        return attrs
+
 
 def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | None) -> dict[str, Any] | None:
     if value is None:
@@ -1059,7 +1146,7 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
 
 class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
-        choices=ACCOUNT_PROPERTY_PIN_KIND_CHOICES,
+        choices=AccountPropertyPinKind.choices,
         help_text="Definition type for this default pinned account property.",
     )
     id = serializers.UUIDField(help_text="Project-scoped custom property or relationship definition UUID.")
@@ -1360,6 +1447,15 @@ def _custom_retention_flag_enabled(organization: Organization | None, user: Any,
     return _flag_enabled_for_caller(LOGS_CUSTOM_RETENTION_FLAG, organization, user, team)
 
 
+def _check_traces_retention_entitlement(days: int, organization: Organization | None) -> None:
+    # Traces reuse the Logs retention entitlement.
+    required_feature = required_logs_retention_feature(days)
+    if required_feature and (organization is None or not organization.is_feature_available(required_feature)):
+        raise exceptions.PermissionDenied(
+            f"This organization does not have permission to set traces retention to {days} days."
+        )
+
+
 def _custom_logs_retention_enabled(serializer: serializers.BaseSerializer, team: Team | None) -> bool:
     request = serializer.context.get("request")
     return _custom_retention_flag_enabled(
@@ -1370,6 +1466,26 @@ def _custom_logs_retention_enabled(serializer: serializers.BaseSerializer, team:
 @extend_schema_field(OpenApiTypes.OBJECT)
 class ConversationsSettingsField(serializers.JSONField):
     pass
+
+
+def merge_modifiers(requested: dict | None, existing: object) -> dict | None:
+    # Django admin can store a scalar or list here. Treat it as empty rather than raising.
+    stored = existing if isinstance(existing, dict) else {}
+    if requested is not None:
+        return {**stored, **requested}
+    # PostHog staff set useNewEventsSchema per project, so a client that clears its modifiers keeps it.
+    if "useNewEventsSchema" in stored:
+        return {"useNewEventsSchema": stored["useNewEventsSchema"]}
+    return None
+
+
+def live_events_token_for_request(team: Team, request: request.Request | None) -> str | None:
+    if request is None or not request.user.is_authenticated:
+        return None
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["query:read"]):
+        return None
+    return get_or_mint_live_events_token(team, request.user.id)
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
@@ -1511,9 +1627,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @tracer.start_as_current_span("team_serializer.live_events_token")
     def get_live_events_token(self, team: Team) -> str | None:
-        request = self.context.get("request")
-        user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
-        return get_or_mint_live_events_token(team, user_id)
+        return live_events_token_for_request(team, self.context.get("request"))
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_heatmaps_screenshot_secret(self, team: Team) -> str | None:
@@ -2353,11 +2467,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             }
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
-        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
-            validated_data["modifiers"] = {
-                **(instance.modifiers or {}),
-                **validated_data["modifiers"],
-            }
+        if "modifiers" in validated_data:
+            validated_data["modifiers"] = merge_modifiers(validated_data["modifiers"], instance.modifiers)
 
         # Persist only the fields this request changes. A full-row save() writes back every
         # column from this request's snapshot of the team, so two concurrent PATCHes clobber
@@ -2963,15 +3074,7 @@ class TeamViewSet(
     )
     @extend_schema(
         methods=["DELETE"],
-        parameters=[
-            OpenApiParameter(
-                name="context_name",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=True,
-                description="Name of the evaluation context to restore to suggestions.",
-            )
-        ],
+        parameters=[EvaluationContextSuggestionRequestSerializer],
         responses={200: EvaluationContextSuggestionResponseSerializer},
         extensions={"x-product": "feature_flags"},
     )
@@ -3381,6 +3484,20 @@ def validate_team_attrs(
                     "Only organization admins can set these settings on project creation: "
                     + ", ".join(sorted(admin_fields_touched))
                 )
+
+    # A new team has no warehouse tables yet, so only an update can reach a denied one.
+    if "test_account_filters" in attrs and instance is not None:
+        team = instance if isinstance(instance, Team) else instance.passthrough_team
+        denied_table = table_blocking_property_filters(
+            cast(User, view.request.user), team, attrs["test_account_filters"]
+        )
+        if denied_table:
+            raise exceptions.ValidationError(
+                {
+                    "test_account_filters": f"This filter uses the table '{denied_table}', which you don't have access to."
+                },
+                code="permission_denied",
+            )
 
     if "primary_dashboard" in attrs:
         if not instance:

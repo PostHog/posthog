@@ -76,7 +76,8 @@ const experimentArchive = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/archive/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -453,7 +454,8 @@ const experimentDuplicate = (): ToolBase<ReturnType<typeof ExperimentDuplicateSc
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/duplicate/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, ['health']) as typeof result
+        return filtered
     },
 })
 
@@ -500,7 +502,8 @@ const experimentEnd = (): ToolBase<ReturnType<typeof ExperimentEndSchema>, WithP
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/end/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -527,7 +530,8 @@ const experimentFreezeExposure = (): ToolBase<
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/freeze_exposure/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -551,7 +555,7 @@ const experimentGet = (): ToolBase<ReturnType<typeof ExperimentGetSchema>, WithP
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
             })
-            const filtered = omitResponseFields(result, ['saved_metrics.*.effective_query']) as typeof result
+            const filtered = omitResponseFields(result, ['saved_metrics.*.effective_query', 'health']) as typeof result
             return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
@@ -959,7 +963,8 @@ const experimentMigrate = (): ToolBase<
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/migrate/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -983,7 +988,8 @@ const experimentPause = (): ToolBase<ReturnType<typeof ExperimentPauseSchema>, W
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/pause/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -1022,7 +1028,8 @@ const experimentReset = (): ToolBase<ReturnType<typeof ExperimentResetSchema>, W
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/reset/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -1046,7 +1053,8 @@ const experimentResume = (): ToolBase<ReturnType<typeof ExperimentResumeSchema>,
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/resume/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -1311,7 +1319,8 @@ const experimentShipVariant = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/ship_variant/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -1394,7 +1403,8 @@ const experimentUnarchive = (): ToolBase<
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/unarchive/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -1421,7 +1431,8 @@ const experimentUnfreezeExposure = (): ToolBase<
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/unfreeze_exposure/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 

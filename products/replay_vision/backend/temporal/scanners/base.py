@@ -142,6 +142,13 @@ class SignalsResponse(BaseModel, frozen=True):
         return self
 
 
+def render_signals_instruction(last_video_second: int | None = None) -> str:
+    """The signals turn's instruction, naming the last citable video second when the scan knows it."""
+    return render_prompt(
+        "signals_step.jinja", min_signal_confidence=MIN_SIGNAL_CONFIDENCE, last_video_second=last_video_second
+    )
+
+
 @dataclass(frozen=True)
 class MissionStep:
     """One structured turn in a scanner's conversation: an instruction, the schema the model must answer with,
@@ -354,9 +361,10 @@ class BaseScanner(BaseModel, frozen=True):
         return steps
 
     def _signals_step(self) -> MissionStep:
-        instruction = render_prompt("signals_step.jinja", min_signal_confidence=MIN_SIGNAL_CONFIDENCE)
         # Best-effort: a side-mission failure must not sink the whole scan.
-        return MissionStep(name=STEP_SIGNALS, instruction=instruction, response_model=SignalsResponse, required=False)
+        return MissionStep(
+            name=STEP_SIGNALS, instruction=render_signals_instruction(), response_model=SignalsResponse, required=False
+        )
 
     def _validate_core(self, parsed: BaseModel) -> str | None:
         """Run the scanner's semantic checks against a finalized version of the core response."""

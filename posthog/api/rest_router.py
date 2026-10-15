@@ -8,6 +8,7 @@ from posthog.api import (
     metalytics,
     my_notifications,
     project,
+    terminal_netplay,
     user_integration,
     user_push_token,
 )
@@ -124,6 +125,12 @@ projects_router.register(
     r"my_notifications",
     my_notifications.MyNotificationsViewSet,
     "project_my_notifications",
+    ["project_id"],
+)
+projects_router.register(
+    r"terminal_netplay",
+    terminal_netplay.TerminalNetplayViewSet,
+    "project_terminal_netplay",
     ["project_id"],
 )
 
@@ -471,16 +478,8 @@ projects_router.register(
 projects_router.register(r"sessions", SessionViewSet, "project_sessions", ["team_id"])
 
 if EE_AVAILABLE:
-    from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
     from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
 
-    projects_router.register(r"groups", GroupsViewSet, "project_groups", ["team_id"])
-    group_types_router = projects_router.register(
-        r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"]
-    )
-    group_types_router.register(
-        r"metrics", GroupUsageMetricViewSet, "project_groups_metrics", ["project_id", "group_type_index"]
-    )
     projects_router.register(r"persons", EnterprisePersonViewSet, "project_persons", ["team_id"])
     router.register(r"person", LegacyEnterprisePersonViewSet, "persons")
     vercel_installations_router = router.register(

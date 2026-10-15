@@ -11,7 +11,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Actions: () => import('../../products/actions/frontend/pages/Actions'),
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
-    AIGateway: () => import('../../products/ai_gateway/frontend/AIGatewayScene'),
     AIObservability: () => import('../../products/ai_observability/frontend/AIObservabilityScene'),
     AIObservabilityTrace: () => import('../../products/ai_observability/frontend/AIObservabilityTraceScene'),
     AIObservabilitySession: () => import('../../products/ai_observability/frontend/AIObservabilitySessionScene'),
@@ -46,6 +45,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIObservabilityCluster: () =>
         import('../../products/ai_observability/frontend/clusters/AIObservabilityClusterScene'),
     Alerts: () => import('../../products/alerts/frontend/AlertsScene'),
+    PlatformAlerts: () => import('../../products/alerts_platform/frontend/PlatformAlertsScene'),
+    PlatformAlert: () => import('../../products/alerts_platform/frontend/PlatformAlertScene'),
     PrecomputeDebug: () => import('../../products/analytics_platform/frontend/PrecomputeDebugScene'),
     Annotations: () => import('../../products/annotations/frontend/pages/Annotations'),
     Autoresearch: () => import('../../products/autoresearch/frontend/AutoresearchScene'),
@@ -105,6 +106,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsScene'),
     EngineeringAnalyticsPullRequest: () =>
         import('../../products/engineering_analytics/frontend/scenes/PullRequestDetailScene'),
+    EngineeringAnalyticsCIExplorer: () =>
+        import('../../products/engineering_analytics/frontend/scenes/CIExplorerScene'),
     EngineeringAnalyticsWorkflowRun: () =>
         import('../../products/engineering_analytics/frontend/scenes/WorkflowRunDetailScene'),
     EngineeringAnalyticsWorkflowRuns: () =>
@@ -152,6 +155,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     McpGatewayAgent: () => import('../../products/mcp_store/frontend/gateway/GatewayAgentScene'),
     McpGatewayMember: () => import('../../products/mcp_store/frontend/gateway/GatewayMemberScene'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
+    MetricsDashboardReview: () => import('../../products/metrics/frontend/dashboardReview/MetricsDashboardReviewScene'),
     DecisionPlayground: () => import('../../products/ml_inference/frontend/DecisionPlaygroundScene'),
     ReusableWidget: () => import('../../products/notebooks/frontend/ReusableWidget/ReusableWidgetScene'),
     Person: () => import('../../products/persons/frontend/pages/PersonScene'),

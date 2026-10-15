@@ -23,6 +23,7 @@ from uuid import UUID
 
 import structlog
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
@@ -39,6 +40,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.lifecycle import (
+    NOTIFICATION_EVENT_KINDS,
     PLATFORM_LOGS_ALERT_POLICY,
     AlertCheckOutcome,
     AlertSnapshot,
@@ -73,6 +75,8 @@ from products.logs.backend.alert_check_query import (
 )
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.alert_error_classifier import classify as classify_alert_error
+from products.logs.backend.alert_evaluation_key import WINDOW_MARKER
+from products.logs.backend.models import LogsAlertConfiguration
 
 # Private to the production activity. Reimplementing either would let this path drift from
 # what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
@@ -100,19 +104,53 @@ MAX_QUERY_SECONDS = 20
 # Below this there is no point starting another query; the cohort keeps its due time instead.
 MIN_QUERY_SECONDS = 2
 
-# A check that announced nothing is a CHECK even when it moved the alert; the row's two states
-# carry the move. `AlertEventKind`'s other four values are the `EventKind` strings the destination
-# config is keyed on, so this is also the only table mapping an action to a destination.
-_NOTIFICATION_OUTCOME_KINDS: dict[NotificationAction, AlertEventKind] = {
-    NotificationAction.NONE: AlertEventKind.CHECK,
-    NotificationAction.FIRE: AlertEventKind.FIRING,
-    NotificationAction.RESOLVE: AlertEventKind.RESOLVED,
-    NotificationAction.ERROR: AlertEventKind.ERRORED,
-    NotificationAction.BROKEN: AlertEventKind.BROKEN,
-}
+
+@frozen
+class LogsAlertCondition:
+    """The logs bound, which the platform keeps under `source_config["condition"]`."""
+
+    threshold_count: int
+    threshold_operator: str
+    window_minutes: int
+
+    def __post_init__(self) -> None:
+        # `_derive_breaches` reads any operator but `above` as `below`, so an unknown one would
+        # decide the alert against the wrong side of its bound instead of failing.
+        if self.threshold_operator not in LogsAlertConfiguration.ThresholdOperator.values:
+            raise ValueError(f"Unknown threshold operator {self.threshold_operator!r}")
+        # A threshold of 0 is valid: with `above` it fires on any matching log, as the logs API documents.
+        for name, minimum in (("threshold_count", 0), ("window_minutes", 1)):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise ValueError(f"{name} must be an integer of at least {minimum}, got {value!r}")
+
+    @classmethod
+    def of(cls, check: PlatformAlertCheckInput) -> "LogsAlertCondition":
+        condition = check.condition
+        return cls(
+            threshold_count=condition["threshold_count"],
+            threshold_operator=condition["threshold_operator"],
+            window_minutes=condition["window_minutes"],
+        )
+
+    def as_source_config(self) -> dict[str, int | str]:
+        return {
+            "threshold_count": self.threshold_count,
+            "threshold_operator": self.threshold_operator,
+            "window_minutes": self.window_minutes,
+        }
 
 
-_WINDOW_MARKER = "window:"
+def _broken_condition(check: PlatformAlertCheckInput) -> str | None:
+    """A bound the cohort query cannot read. Caught here, because the cohort key reads it for
+    every check in the batch, so one malformed row would otherwise stop the whole batch."""
+    try:
+        LogsAlertCondition.of(check)
+    except (KeyError, TypeError):
+        return "The alert's threshold is missing from its configuration"
+    except ValueError as error:
+        return f"The alert's threshold is invalid: {error}"
+    return None
 
 
 def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime) -> str:
@@ -127,30 +165,40 @@ def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime) -> str
     shape across sources. Both parts are read before anything is written, so a retry recomputes
     the same key.
     """
-    return f"slot:{slot_of(check.next_check_at, window_end)}|{_WINDOW_MARKER}{window_end.isoformat()}"
+    return f"slot:{slot_of(check.next_check_at, window_end)}|{WINDOW_MARKER}{window_end.isoformat()}"
 
 
-def window_end_of(evaluation_key: str) -> datetime | None:
-    """The window end `_evaluation_key` put in a key, for a reader that has only the key.
+@frozen
+class _QueryShape:
+    """The part of `_cohort_key` a configuration fixes. Checks that differ here never share a query."""
 
-    The inverse lives next to the minter so a change to one breaks the round trip rather than
-    silently returning None to a reader in another module.
-    """
-    _, marker, tail = evaluation_key.rpartition(_WINDOW_MARKER)
-    if not marker:
-        return None
-    try:
-        return datetime.fromisoformat(tail)
-    except ValueError:
-        return None
+    window_minutes: object
+    evaluation_periods: int
+    projection_eligible: bool
+
+    @classmethod
+    def of(cls, check: PlatformAlertCheckInput) -> "_QueryShape":
+        return cls(
+            window_minutes=check.condition.get("window_minutes"),
+            evaluation_periods=check.evaluation_periods,
+            projection_eligible=is_projection_eligible(check.source_config),
+        )
+
+
+def _schedule_group(check: PlatformAlertCheckInput) -> str:
+    # The platform puts a team's checks with one group in one slot and spreads different groups
+    # across slots, so one batch rarely holds more cohorts than `MAX_COHORTS_PER_CYCLE`.
+    shape = _QueryShape.of(check)
+    return f"{shape.window_minutes}:{shape.evaluation_periods}:{shape.projection_eligible}"
 
 
 def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
+    shape = _QueryShape.of(check)
     return (
-        check.window_minutes,
-        check.evaluation_periods,
+        shape.window_minutes,
+        shape.evaluation_periods,
         check.check_interval_minutes,
-        is_projection_eligible(check.source_config),
+        shape.projection_eligible,
         resolve_alert_date_to(check.next_check_at or now, checkpoint),
     )
 
@@ -285,6 +333,8 @@ def _recorded(
         query_duration_ms=query_duration_ms,
         muted_notification=muted_notification,
         disable=disable,
+        # A broken alert is never discovered again, so its slot does not matter.
+        schedule_group=None if outcome.new_state == AlertState.BROKEN else _schedule_group(check),
     )
 
 
@@ -302,7 +352,7 @@ def _delivery(
         check,
         outcome=outcome,
         evaluation_key=_evaluation_key(check, window_end),
-        kind=_NOTIFICATION_OUTCOME_KINDS[outcome.notification],
+        kind=NOTIFICATION_EVENT_KINDS[outcome.notification],
         notified=outcome.update_last_notified_at,
         now=now,
         value=value,
@@ -346,6 +396,7 @@ def _request(
         # Logs does not group, so its one row has the empty grouping key.
         incident_actions={"": incident_action} if incident_action is not None else {},
         sends_messages=sends_messages,
+        owned_by_platform=check.owned_by_platform,
     )
 
 
@@ -377,8 +428,9 @@ _EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
 def _evaluate_one(
     check: PlatformAlertCheckInput, buckets: list[BucketedCount], *, now: datetime, muted: bool
 ) -> AlertCheckOutcome:
+    condition = LogsAlertCondition.of(check)
     current_breached, *prior_windows_breached = _derive_breaches(
-        buckets, check.threshold_count, check.threshold_operator, check.evaluation_periods
+        buckets, condition.threshold_count, condition.threshold_operator, check.evaluation_periods
     ) or (False,)
     return _verdict(
         check,
@@ -456,6 +508,7 @@ def _evaluate_cohort(
             date_to=date_to,
             projection_eligible=projection_eligible,
             max_execution_time=query_seconds,
+            ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS,
         ).execute_rolling_checks(date_to, window_minutes, cadence_minutes, evaluation_periods)
     except Exception as error:
         # One cohort's query must not end the batch, which is how the production cohort runner
@@ -510,7 +563,7 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
     evaluable: list[PlatformAlertCheckInput] = []
     muted_ids: set[UUID] = set()
     for check in checks:
-        broken_reason = _detect_broken_filter_config(check.source_config)
+        broken_reason = _detect_broken_filter_config(check.source_config) or _broken_condition(check)
         if broken_reason is not None:
             logger.warning(
                 "Marking a logs alert BROKEN for an invalid filter config",
@@ -587,7 +640,7 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     # One checkpoint for the pass, matching the production discovery activity. A failure falls
     # back to wall-clock rather than ending the batch.
     try:
-        checkpoint = fetch_live_logs_checkpoint(team)
+        checkpoint = fetch_live_logs_checkpoint(team, ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS)
     except Exception as error:
         logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock", error=str(error))
         checkpoint = None

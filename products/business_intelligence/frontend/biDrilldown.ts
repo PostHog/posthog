@@ -11,7 +11,7 @@ import {
 import { escapeHogQLString } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-import { BI_COMPARISON_EMPTY_LABEL, getBIComparisonDateExpression } from './biComparison'
+import { decodeBIComparisonCategory, decodeBIComparisonSeries, getBIComparisonDateExpression } from './biComparison'
 import {
     buildBIQuery,
     buildBIRowsQuery,
@@ -87,7 +87,12 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             continue
         }
         const displayValue = value
-        if (config.totals?.rows || config.totals?.columns || config.totals?.subtotals) {
+        if (
+            config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
+            config.totals?.rows ||
+            config.totals?.columns ||
+            config.totals?.subtotals
+        ) {
             if (value === 'Total') {
                 continue
             }
@@ -166,15 +171,19 @@ export function getBIChartRecord(
         }
         if (config.compareFilter?.compare) {
             record.bi_comparison = breakdown
-            const dimension = getBIResultDimensions(config).find((dimension) => dimension.column !== xColumn)
-            if (dimension && /^(Current|Previous|Comparison) period · /.test(breakdown)) {
+            const dimensions = getBIResultDimensions(config).filter((dimension) => dimension.column !== xColumn)
+            if (dimensions.length && /^(Current|Previous|Comparison) period · /.test(breakdown)) {
                 const category = breakdown.replace(/^(Current|Previous|Comparison) period · /, '')
-                record[dimension.column] =
-                    category === BI_COMPARISON_EMPTY_LABEL
-                        ? null
-                        : category.startsWith(BI_COMPARISON_EMPTY_LABEL) && category.endsWith(' (category)')
-                          ? category.slice(0, -11)
-                          : category
+                if (dimensions.length > 1) {
+                    const categories = decodeBIComparisonSeries(category)
+                    if (categories.length === dimensions.length) {
+                        dimensions.forEach((dimension, index) => {
+                            record[dimension.column] = categories[index]
+                        })
+                    }
+                } else {
+                    record[dimensions[0].column] = decodeBIComparisonCategory(category)
+                }
             }
         }
     }
@@ -218,17 +227,18 @@ export function getBIDrillQueries(
               }
             : {}),
         topN: undefined,
+        ...(selection.previous
+            ? { comparisonPeriod: 'previous' as const, compareFilter: { ...saved.compareFilter, compare: false } }
+            : {}),
     }
-    const source = buildBIRowsQuery(config, selection.previous)
+    const source = buildBIRowsQuery(config)
     if (!source) {
         return null
     }
     source.filters = { ...source.filters, ...node.source.filters }
     source.variables = node.source.variables
     const generated =
-        selection.previous || (config.rowFilterGroup && !isBIConditionGroup(config.rowFilterGroup))
-            ? null
-            : buildBIQuery(config)?.node
+        config.rowFilterGroup && !isBIConditionGroup(config.rowFilterGroup) ? null : buildBIQuery(config)?.node
     const worksheet: BIVisualizationNode | null = generated
         ? { ...generated, kind: NodeKind.BIVisualizationNode, config }
         : null

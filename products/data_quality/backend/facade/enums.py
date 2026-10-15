@@ -7,6 +7,8 @@ share. Internal-only constants stay in the implementation.
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 
 class CreatedSource(StrEnum):
     """Who authored a check, for review context."""
@@ -86,16 +88,13 @@ class SubjectType(StrEnum):
     POSTHOG_TABLE = "posthog_table"
 
 
-class ScheduleInterval(StrEnum):
-    ONE_HOUR = "1hour"
-    SIX_HOURS = "6hour"
-    TWELVE_HOURS = "12hour"
-    DAILY = "24hour"
-    WEEKLY = "7day"
-
-
-def schedule_interval_choices() -> list[str]:
-    return [interval.value for interval in ScheduleInterval]
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class DataQualityScheduleInterval(LabeledStrEnum):
+    ONE_HOUR = "1hour", "1hour"
+    SIX_HOURS = "6hour", "6hour"
+    TWELVE_HOURS = "12hour", "12hour"
+    DAILY = "24hour", "24hour"
+    WEEKLY = "7day", "7day"
 
 
 def subject_type_choices() -> dict[str, str]:

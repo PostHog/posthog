@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import * as path from 'path'
 import { mergeConfig, type Rollup } from 'vite'
 
+import { zodJitlessPlugin } from '../../../frontend/plugins/vite-zod-jitless-plugin.ts'
 import { frontendResolvePlugin } from './plugins/vite-frontend-resolve-plugin.ts'
 import { moduleGraphPlugin } from './plugins/vite-module-graph-plugin.ts'
 import { sqlRawPlugin } from './plugins/vite-sql-raw-plugin.ts'
@@ -70,7 +71,13 @@ const config: StorybookConfig = {
 
     viteFinal: (viteConfig) =>
         mergeConfig(viteConfig, {
-            plugins: [frontendResolvePlugin(REPO_ROOT), tailwindcss(), sqlRawPlugin(), moduleGraphPlugin(REPO_ROOT)],
+            plugins: [
+                frontendResolvePlugin(REPO_ROOT),
+                tailwindcss(),
+                sqlRawPlugin(),
+                moduleGraphPlugin(REPO_ROOT),
+                zodJitlessPlugin(),
+            ],
             resolve: {
                 dedupe: SINGLETON_PACKAGES,
                 alias: {
@@ -104,6 +111,14 @@ const config: StorybookConfig = {
                     '@posthog/shared-onboarding': path.resolve(REPO_ROOT, 'docs', 'onboarding'),
                     '@posthog/quill': path.resolve(REPO_ROOT, 'packages', 'quill', 'packages', 'quill', 'src'),
                     '@posthog/quill-charts': path.resolve(REPO_ROOT, 'packages', 'quill', 'packages', 'charts', 'src'),
+                    '@posthog/agent-contracts': path.resolve(
+                        REPO_ROOT,
+                        'packages',
+                        'agent',
+                        'packages',
+                        'agent-contracts',
+                        'src'
+                    ),
                 },
             },
             define: {
@@ -116,6 +131,9 @@ const config: StorybookConfig = {
                 // pure ESM, so serving it unbundled is safe, and Vite's build handles the URL
                 // pattern natively.
                 exclude: ['@posthog/brand'],
+                rolldownOptions: {
+                    plugins: [zodJitlessPlugin()],
+                },
             },
             build: {
                 rollupOptions: {

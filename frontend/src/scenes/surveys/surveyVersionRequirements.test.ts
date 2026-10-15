@@ -39,4 +39,13 @@ describe('SURVEY_SDK_REQUIREMENTS', () => {
 
         expect(features.includes('Event filters using ≥ or ≤')).toBe(warns)
     })
+
+    it.each([
+        ['an intro that renders', { displayIntroScreen: true, introScreenHeader: 'Welcome' }, true],
+        ['an intro with no header or description', { displayIntroScreen: true }, false],
+    ])('flags the Intro screen requirement for %s', (_name, appearance, expected) => {
+        const requirement = SURVEY_SDK_REQUIREMENTS.find((req) => req.feature === 'Intro screen')
+
+        expect(requirement?.check({ appearance } as Survey)).toBe(expected)
+    })
 })

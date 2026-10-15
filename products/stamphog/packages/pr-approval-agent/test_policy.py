@@ -1,6 +1,7 @@
 """Tests for the declarative policy loader, resolver, and prompt recomposition."""
 
 import sys
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -83,8 +84,7 @@ OLD_DENY_PATTERN_DEFS = {
             "k8s",
             "dockerfile",
             "docker-compose",
-            "\\.github/workflows",
-            "\\.depot/workflows",
+            "\\.(github|depot)/workflows/(ci-security|codeql|auto-assign-reviewers)",
             "\\.github/pr-deploy",
             "iam",
             "cloudflare",
@@ -93,6 +93,12 @@ OLD_DENY_PATTERN_DEFS = {
             "(?:^|/)bin/deploy",
             "deploy\\.sh",
         ],
+    },
+    "ci_workflows": {
+        "paths": [
+            "\\.github/workflows",
+            "\\.depot/workflows",
+        ]
     },
     "billing": {"any": ["billing", "payment", "stripe", "invoice", "pricing"]},
     "public_api": {"any": ["openapi", "api_schema", "swagger", "public_api"]},
@@ -283,6 +289,10 @@ def _ownership_wrong_locator_for_format(d: dict) -> None:
     d["ownership"]["sources"][0] = {"format": "hogli-resolver", "glob": "products/*/product.yaml"}
 
 
+def _set_deny_exceptions(d: dict, *, raw: object) -> None:
+    d["deny_exceptions"] = raw
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -301,6 +311,76 @@ def _ownership_wrong_locator_for_format(d: dict) -> None:
         _ownership_empty_sources,
         _ownership_path_escapes_repo,
         _ownership_wrong_locator_for_format,
+        *[
+            pytest.param(partial(_set_deny_exceptions, raw=raw), id=f"deny-exceptions-{name}")
+            for name, raw in [
+                ("null", None),
+                ("not-mapping", []),
+                ("unknown-category", {"billling": [{"path_prefixes": ["apps/"]}]}),
+                ("self-governance", {"stamphog_policy": [{"path_prefixes": [".stamphog/"]}]}),
+                ("self-governance-empty", {"stamphog_policy": []}),
+                ("rules-not-list", {"billing": {"path_prefixes": ["apps/"]}}),
+                ("empty-rules", {"billing": []}),
+                ("rule-not-mapping", {"billing": ["apps/"]}),
+                ("missing-prefixes", {"billing": [{"keyword": "billing"}]}),
+                ("unknown-rule-key", {"billing": [{"path_prefixes": ["apps/"], "extension": [".yaml"]}]}),
+                ("mixed-rule-keys", {"billing": [{"path_prefixes": ["apps/"], None: True, "bogus": True}]}),
+                ("invented-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": "subscription"}]}),
+                ("title-only-keyword", {"auth": [{"path_prefixes": ["apps/"], "keyword": "authorized"}]}),
+                ("regex-keyword", {"auth": [{"path_prefixes": ["apps/"], "keyword": "two[_-]?factor"}]}),
+                ("null-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": None}]}),
+                ("non-string-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": 1}]}),
+                ("empty-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": ""}]}),
+                ("non-ascii-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": "billíng"}]}),
+            ]
+        ],
+        *[
+            pytest.param(
+                partial(_set_deny_exceptions, raw={"billing": [{"path_prefixes": prefixes}]}),
+                id=f"deny-exceptions-prefix-{name}",
+            )
+            for name, prefixes in [
+                ("not-list", "apps/"),
+                ("empty-list", []),
+                ("non-string", [1]),
+                ("empty", [""]),
+                ("absolute", ["/apps/"]),
+                ("missing-slash", ["apps"]),
+                ("dot-segment", ["apps/./"]),
+                ("parent-segment", ["apps/../shared/"]),
+                ("repeated-slash", ["apps//billing/"]),
+                ("backslash", ["apps\\billing/"]),
+                ("wildcard", ["apps/*/"]),
+                ("regex", ["apps/(billing|payment)/"]),
+                ("whitespace", ["apps /"]),
+                ("control", ["apps\x00/"]),
+                ("invalid-second-entry", ["apps/", "../"]),
+            ]
+        ],
+        *[
+            pytest.param(
+                partial(
+                    _set_deny_exceptions, raw={"billing": [{"path_prefixes": ["apps/"], "extensions": extensions}]}
+                ),
+                id=f"deny-exceptions-extension-{name}",
+            )
+            for name, extensions in [
+                ("not-list", ".yaml"),
+                ("empty-list", []),
+                ("non-string", [1]),
+                ("empty", [""]),
+                ("missing-dot", ["yaml"]),
+                ("empty-suffix", ["."]),
+                ("empty-compound-segment", [".tar..gz"]),
+                ("slash", [".yaml/"]),
+                ("backslash", [".yaml\\"]),
+                ("wildcard", [".*"]),
+                ("regex", [".(yaml|yml)"]),
+                ("whitespace", [".yaml "]),
+                ("control", [".yaml\x00"]),
+                ("invalid-second-entry", [".yaml", "."]),
+            ]
+        ],
     ],
 )
 def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
@@ -321,6 +401,28 @@ def test_server_owned_digest_section_is_allowed_and_ignored(tmp_path: Path) -> N
     path.write_text(yaml.safe_dump(data))
     loaded = load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
     assert loaded.version == 1
+
+
+@pytest.mark.parametrize(
+    "match, keyword",
+    [
+        ({"titles": ["billing"]}, "billing"),
+        ({"paths": ["payment"]}, "billing"),
+        ({"any": ["billing.*"]}, "billing"),
+        ({"paths": ["[Bb]illing"]}, "billing"),
+        ({"paths": [r"\bbilling\b"]}, "billing"),
+    ],
+)
+def test_deny_exception_keyword_requires_effective_path_literal(
+    tmp_path: Path, match: dict[str, list[str]], keyword: str
+) -> None:
+    data = _valid_policy_dict()
+    data["deny"]["billing"]["match"] = match
+    data["deny_exceptions"] = {"billing": [{"keyword": keyword, "path_prefixes": ["apps/"]}]}
+    path = tmp_path / "policy.yml"
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(PolicyError, match="path-capable literal pattern"):
+        load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
 
 
 # ── 3. Folder-override resolution ──
@@ -690,10 +792,10 @@ def test_reviewer_system_composes_guidance_and_scaffold() -> None:
     # Wording changes are governed by human review (stamphog_policy deny), not a
     # frozen snapshot; this only guards the composition seam itself.
     guidance = reviewer._load_review_guidance()
-    assert reviewer.REVIEWER_SYSTEM == guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert reviewer.REVIEWER_SYSTEM == reviewer._AUDIT_HEAD + guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
     assert guidance.startswith(policy.review_guidance_path().read_text())
     assert "showstoppers" in guidance
-    assert "Verdicts:" in reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert "Facts to report:" in reviewer._AUDIT_HEAD
 
 
 # ── 6. Folder prose is sanitized and capped ──

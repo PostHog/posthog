@@ -39,7 +39,8 @@ interface SectionCountStub {
 const COUNT_BY_FILTER: SectionCountStub[] = [
     { match: (p) => p.get('has_implementation_pr') === 'true', count: 4 },
     { match: (p) => p.get('view') === 'needs_decision', count: 7 },
-    { match: (p) => (p.get('status') ?? '').includes('suppressed'), count: 2 },
+    { match: (p) => p.get('view') === 'dismissed', count: 2 },
+    { match: (p) => p.get('view') === 'held_back', count: 1 },
 ]
 
 // Only `ready` + `not_actionable` reports: the pipeline's actionability judgment leaves the status
@@ -136,8 +137,8 @@ describe('ReportsTab', () => {
         await waitFor(() => {
             const viewed = (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === INBOX_EVENTS.VIEWED)
             expect(viewed).toHaveLength(1)
-            // Needs decision + Review and merge + Resolved + Dismissed. Not actionable is staff-only triage.
-            expect(viewed[0][1]).toMatchObject({ tab: 'reports', total_count: 13, is_empty: false })
+            // Needs decision + Review and merge + Resolved + Dismissed + Held back. Not actionable is staff-only triage.
+            expect(viewed[0][1]).toMatchObject({ tab: 'reports', total_count: 14, is_empty: false })
         })
     })
 

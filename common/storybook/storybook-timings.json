@@ -1147,7 +1147,7 @@
         "chromium": 12.572,
         "webkit": 2.779
     },
-    "frontend/src/scenes/saved-insights/SavedInsights.stories.tsx": {
+    "products/product_analytics/frontend/insights/savedInsights/SavedInsights.stories.tsx": {
         "chromium": 14.968,
         "webkit": 3.172
     },
@@ -1470,10 +1470,6 @@
     "products/actions/mcp/apps/Actions.stories.tsx": {
         "chromium": 9.681,
         "webkit": 2.302
-    },
-    "products/ai_gateway/frontend/AIGateway.stories.tsx": {
-        "chromium": 9.754,
-        "webkit": 3.155
     },
     "products/ai_observability/frontend/AIObservabilityTraceScene.stories.tsx": {
         "chromium": 13.557,
