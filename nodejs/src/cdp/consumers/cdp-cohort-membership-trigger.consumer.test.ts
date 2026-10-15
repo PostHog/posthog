@@ -65,6 +65,15 @@ describe('CdpCohortMembershipTriggerConsumer', () => {
         expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
     })
 
+    it('fails the batch when loading workflows fails, so the change is retried', async () => {
+        jest.spyOn(processor['hogFlowManager'], 'getHogFlowsForTeam').mockRejectedValue(
+            new Error('canceling statement due to conflict with recovery')
+        )
+        const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+
+        await expect(processor._parseKafkaBatch([createKafkaMessage(change)])).rejects.toThrow('conflict with recovery')
+    })
+
     it.each(['seed', 'reconcile'])('starts no run for a %s message', async (origin) => {
         await insertHogFlow(hub.postgres, cohortFlow(42, 'entered'))
         const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered', origin })

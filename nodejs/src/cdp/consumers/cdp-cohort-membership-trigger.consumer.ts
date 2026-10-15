@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '~/common/config/kafka-topics'
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
+import { KafkaConsumerInterface, START_AT_LATEST, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -15,7 +15,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { CohortMembershipChangeSchema } from './cdp-cohort-membership.consumer'
+import { CohortMembershipChange, CohortMembershipChangeSchema } from './cdp-cohort-membership.consumer'
 import { counterParseError } from './metrics'
 
 // pinned: stored as the event of every cohort-triggered run, which workflow steps and logs read
@@ -53,10 +53,11 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps, jobQueues: { hogflowQueue: JobQueue }) {
         super(config, deps)
         this.hogflowQueue = jobQueues.hogflowQueue
-        this.kafkaConsumer = createKafkaConsumer({
-            groupId: 'cdp-cohort-membership-trigger-consumer',
-            topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
-        })
+        // A fresh group starts at the tip. Replaying the retained topic would start runs for old changes.
+        this.kafkaConsumer = createKafkaConsumer(
+            { groupId: 'cdp-cohort-membership-trigger-consumer', topic: KAFKA_COHORT_MEMBERSHIP_CHANGED },
+            START_AT_LATEST
+        )
         this.hogFlowPipeline = new HogFlowInvocationPipeline(config, {
             hogFlowManager: this.hogFlowManager,
             hogFlowExecutor: this.hogFlowExecutor,
@@ -111,49 +112,47 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
         const events: HogFunctionInvocationGlobals[] = []
         await Promise.all(
             messages.map(async (message) => {
+                let change: CohortMembershipChange
                 try {
-                    const change = CohortMembershipChangeSchema.parse(parseJSON(message.value!.toString()))
-
-                    // Seed and reconcile messages restate membership the cohort already had. Starting runs
-                    // on them would put every existing member through the workflow when a cohort is built.
-                    if (change.origin) {
-                        counterCohortMembershipTriggerSkipped.labels({ reason: 'backfill' }).inc()
-                        return
-                    }
-
-                    const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(change.team_id)
-                    const triggered = teamHogFlows.some(
-                        (flow) => flow.trigger.type === 'cohort' && flow.trigger.cohort_id === change.cohort_id
-                    )
-                    if (!triggered) {
-                        return
-                    }
-
-                    const team = await this.deps.teamManager.getTeam(change.team_id)
-                    if (!team) {
-                        return
-                    }
-
-                    const globals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
-                        team,
-                        personId: change.person_id,
-                        siteUrl: this.config.SITE_URL,
-                    })
-                    globals.event = {
-                        ...globals.event,
-                        event: COHORT_MEMBERSHIP_CHANGED_EVENT,
-                        properties: { cohort_id: change.cohort_id, status: change.status },
-                    }
-                    events.push(globals)
+                    change = CohortMembershipChangeSchema.parse(parseJSON(message.value!.toString()))
                 } catch (e) {
-                    // A dependency outage is not a poison message. Rethrowing fails the batch so the
-                    // offsets stay put and the consumer retries.
-                    if (e?.isRetriable === true) {
-                        throw e
-                    }
                     logger.error('Error parsing cohort membership change', e)
                     counterParseError.labels({ error: e.message }).inc()
+                    return
                 }
+
+                // Seed and reconcile messages restate membership the cohort already had. Starting runs
+                // on them would put every existing member through the workflow when a cohort is built.
+                if (change.origin) {
+                    counterCohortMembershipTriggerSkipped.labels({ reason: 'backfill' }).inc()
+                    return
+                }
+
+                // Load errors propagate, so the batch fails, the offsets stay put and the consumer retries.
+                const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(change.team_id)
+                const triggered = teamHogFlows.some(
+                    (flow) => flow.trigger.type === 'cohort' && flow.trigger.cohort_id === change.cohort_id
+                )
+                if (!triggered) {
+                    return
+                }
+
+                const team = await this.deps.teamManager.getTeam(change.team_id)
+                if (!team) {
+                    return
+                }
+
+                const globals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
+                    team,
+                    personId: change.person_id,
+                    siteUrl: this.config.SITE_URL,
+                })
+                globals.event = {
+                    ...globals.event,
+                    event: COHORT_MEMBERSHIP_CHANGED_EVENT,
+                    properties: { cohort_id: change.cohort_id, status: change.status },
+                }
+                events.push(globals)
             })
         )
 
