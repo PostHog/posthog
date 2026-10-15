@@ -14,12 +14,14 @@ export function TaskRepositoryCombobox({
     showNoneOption = false,
     placeholder,
     excluded = [],
+    ariaLabel,
 }: {
     value: string
     onChange: (repository: string | null) => void
     showNoneOption?: boolean
     placeholder?: string
     excluded?: string[]
+    ariaLabel?: string
 }): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
     const githubIntegrations = getIntegrationsByKind(['github'])
@@ -77,6 +79,7 @@ export function TaskRepositoryCombobox({
                 showNoneOption={showNoneOption}
                 placeholder={placeholder}
                 repositoryFilter={(repository) => !excluded.includes(repository.full_name)}
+                ariaLabel={ariaLabel}
             />
         </>
     )

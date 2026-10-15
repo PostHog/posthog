@@ -155,6 +155,29 @@ describe('CyclotronJobInputsValidation', () => {
             })
 
             it.each([
+                ['a picked repository', 'example-org/api', undefined],
+                [
+                    'a template with allowed repositories',
+                    { template: '{event.properties.repository}', allowed: ['example-org/api'] },
+                    undefined,
+                ],
+                ['a blank template', { template: ' ', allowed: ['example-org/api'] }, 'Enter a repository template'],
+                [
+                    'a template without allowed repositories',
+                    { template: '{event.properties.repository}', allowed: [] },
+                    'Add at least one allowed repository',
+                ],
+            ])('validates a task repository given %s', (_name, value, expected) => {
+                const schema: CyclotronJobInputSchemaType[] = [
+                    { key: 'repository', type: 'task_repository', label: 'Repository' },
+                ]
+
+                const result = CyclotronJobInputsValidation.validate({ repository: { value } }, schema)
+
+                expect(result.errors.repository).toBe(expected)
+            })
+
+            it.each([
                 ['the integration was deleted', [{ id: 2 }], MISSING_INTEGRATION_ERROR],
                 ['the integration exists', [{ id: 1 }, { id: 2 }], undefined],
                 ['integrations have not loaded', null, undefined],

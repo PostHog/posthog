@@ -1385,9 +1385,7 @@ class HogFlowActionSerializer(serializers.Serializer):
         if not str(repository.get("template") or "").strip():
             raise serializers.ValidationError({"inputs": {"repository": "Enter a repository template."}})
         if not allowed:
-            raise serializers.ValidationError(
-                {"inputs": {"repository": "List the repositories the template may name."}}
-            )
+            raise serializers.ValidationError({"inputs": {"repository": "Add at least one allowed repository."}})
         malformed = [name for name in allowed if not REPOSITORY_NAME.fullmatch(name)]
         if malformed:
             raise serializers.ValidationError(
