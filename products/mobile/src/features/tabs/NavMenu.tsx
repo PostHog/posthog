@@ -6,7 +6,7 @@ import { ProjectSheet } from '@/features/projects/ProjectSheet'
 import { track } from '@/lib/analytics'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { ChevronUpDownIcon } from '@/ui/icons/ChevronUpDownIcon'
-import { InboxIcon } from '@/ui/icons/InboxIcon'
+import { GripIcon } from '@/ui/icons/GripIcon'
 import { SettingsIcon } from '@/ui/icons/SettingsIcon'
 import { SignOutIcon } from '@/ui/icons/SignOutIcon'
 import type { IconProps } from '@/ui/icons/types'
@@ -15,11 +15,13 @@ import { colors, iconSizes, radii, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { SignOutConfirm } from '../settings/SignOutConfirm'
+import type { TabHeaderSlot } from './tabHeaderStore'
 
 interface NavMenuProps {
     visible: boolean
-    unreadCount?: number
     projectName: string
+    /** The focused tab's Edit pins row, in its own section above Settings. Null leaves the section out. */
+    editPins: TabHeaderSlot['editPins']
     onClose: () => void
     onSettings: () => void
     onSignOut: () => void
@@ -32,38 +34,33 @@ interface NavMenuProps {
 
 interface MenuRowProps {
     label: string
-    count?: number
     Icon: ComponentType<IconProps>
-    selected?: boolean
+    disabled?: boolean
     onPress: () => void
     testID: string
 }
 
-function MenuRow({ label, count = 0, Icon, selected = false, onPress, testID }: MenuRowProps): ReactElement {
+function MenuRow({ label, Icon, disabled = false, onPress, testID }: MenuRowProps): ReactElement {
     return (
         <Pressable44
             onPress={onPress}
-            accessibilityState={{ selected }}
-            accessibilityLabel={count > 0 ? `${label}, ${count} unread` : label}
+            disabled={disabled}
+            accessibilityLabel={label}
+            accessibilityState={{ disabled }}
             pressedBackground={colors.sunken}
-            style={[styles.row, selected && styles.selected]}
+            style={styles.row}
             testID={testID}
         >
-            <Icon size={iconSizes.control} />
-            <Text style={styles.rowLabel}>{label}</Text>
-            {count > 0 ? (
-                <Text style={styles.unreadCount} testID="nav-inbox-unread">
-                    {count}
-                </Text>
-            ) : null}
+            <Icon size={iconSizes.control} color={disabled ? colors.disabled : undefined} />
+            <Text style={[styles.rowLabel, disabled && styles.rowLabelDisabled]}>{label}</Text>
         </Pressable44>
     )
 }
 
 export function NavMenu({
     visible,
-    unreadCount = 0,
     projectName,
+    editPins,
     onClose,
     onSettings,
     onSignOut,
@@ -128,14 +125,18 @@ export function NavMenu({
                     />
                 ) : (
                     <>
-                        <MenuRow
-                            count={unreadCount}
-                            label="Inbox"
-                            Icon={InboxIcon}
-                            selected
-                            onPress={onClose}
-                            testID="nav-inbox"
-                        />
+                        {editPins ? (
+                            <>
+                                <MenuRow
+                                    label="Edit pins"
+                                    Icon={GripIcon}
+                                    onPress={editPins.onPress}
+                                    disabled={editPins.disabled}
+                                    testID="views-edit-pins"
+                                />
+                                <View style={[styles.divider, styles.sectionDivider]} />
+                            </>
+                        ) : null}
                         <MenuRow label="Settings" Icon={SettingsIcon} onPress={onSettings} testID="nav-settings" />
                         <MenuRow label="Sign out" Icon={SignOutIcon} onPress={onSignOut} testID="nav-sign-out" />
                     </>
@@ -175,6 +176,9 @@ const styles = StyleSheet.create({
         marginHorizontal: 4,
         marginBottom: 6,
     },
+    sectionDivider: {
+        marginTop: 6,
+    },
     row: {
         minHeight: 52,
         paddingVertical: 12,
@@ -184,14 +188,13 @@ const styles = StyleSheet.create({
         paddingHorizontal: 14,
         borderRadius: radii.menuRow,
     },
-    selected: {
-        backgroundColor: colors.sunken,
-    },
-    unreadCount: { ...type.meta, color: colors.secondary },
     rowLabel: {
         ...type.menuRow,
         color: colors.ink,
         flex: 1,
+    },
+    rowLabelDisabled: {
+        color: colors.disabled,
     },
     confirm: {
         paddingHorizontal: 14,

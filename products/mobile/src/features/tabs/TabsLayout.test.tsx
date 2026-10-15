@@ -1,4 +1,4 @@
-import { fireEvent, renderRouter, screen, within } from 'expo-router/testing-library'
+import { act, fireEvent, renderRouter, screen, within } from 'expo-router/testing-library'
 import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
 
@@ -6,7 +6,14 @@ import { setAnalyticsClient } from '@/lib/analytics'
 import { OverlayPortal } from '@/ui/OverlayPortal'
 
 import { TabsLayout } from './TabsLayout'
+import { type TabHeaderSlot, useTabHeader } from './tabHeaderStore'
 
+jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))
+// The router's testing library mocks Reanimated with this module after the hoisted mocks run, so the patch goes here.
+jest.mock('react-native-reanimated/mock', () => ({
+    ...jest.requireActual('react-native-reanimated/mock'),
+    useReducedMotion: () => true,
+}))
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 )
@@ -21,6 +28,32 @@ function ChatsStub(): ReactElement {
 }
 
 function ViewsStub(): ReactElement {
+    return <View testID="views-screen" />
+}
+
+const LIST_SLOT: TabHeaderSlot = {
+    refresh: { state: 'idle', onPress: () => undefined },
+    status: null,
+    editing: null,
+    editPins: null,
+}
+
+function PublishingInboxStub(): ReactElement {
+    useTabHeader('inbox', LIST_SLOT)
+    return <View testID="inbox-screen" />
+}
+
+function PublishingChatsStub(): ReactElement {
+    useTabHeader('chats', LIST_SLOT)
+    return <View testID="chats-screen" />
+}
+
+function PublishingViewsStub(): ReactElement {
+    useTabHeader('views', {
+        ...LIST_SLOT,
+        status: 'Updated 2 min ago',
+        editPins: { disabled: false, onPress: () => undefined },
+    })
     return <View testID="views-screen" />
 }
 
@@ -75,6 +108,45 @@ describe('TabsLayout', () => {
             ['mobile_chats_opened', undefined],
             ['mobile_inbox_opened', undefined],
         ])
+    })
+
+    test('keeps one More button across tabs, and its menu offers Edit pins only on Views', () => {
+        renderRouter(
+            {
+                '(tabs)/_layout': TabsLayout,
+                '(tabs)/inbox': PublishingInboxStub,
+                '(tabs)/chats': PublishingChatsStub,
+                '(tabs)/views': PublishingViewsStub,
+            },
+            { initialUrl: '/inbox' }
+        )
+        const more = screen.getByTestId('tabs-more')
+        const menuItems = (): { editPins: boolean; inbox: boolean } => {
+            fireEvent.press(screen.getByTestId('tabs-more'))
+            const menu = screen.getByTestId('nav-menu')
+            const items = {
+                editPins: within(menu).queryByTestId('views-edit-pins') !== null,
+                inbox: within(menu).queryByTestId('nav-inbox') !== null,
+            }
+            fireEvent.press(within(menu).getByLabelText('Close', { includeHiddenElements: true }))
+            act(() => jest.runOnlyPendingTimers())
+            expect(screen.queryByTestId('nav-menu')).toBeNull()
+            return items
+        }
+
+        expect(menuItems()).toEqual({ editPins: false, inbox: false })
+
+        fireEvent.press(screen.getByTestId('inbox-nav-views'))
+
+        expect(screen.getByTestId('tabs-title').props.children).toBe('Views')
+        expect(screen.getByTestId('tabs-more')).toBe(more)
+        expect(menuItems()).toEqual({ editPins: true, inbox: false })
+
+        fireEvent.press(screen.getByTestId('inbox-nav-chat'))
+
+        expect(screen.getByTestId('tabs-title').props.children).toBe('Chats')
+        expect(screen.getByTestId('tabs-more')).toBe(more)
+        expect(menuItems()).toEqual({ editPins: false, inbox: false })
     })
 
     test('draws a screen overlay outside the tab scene, so it covers the bar', () => {

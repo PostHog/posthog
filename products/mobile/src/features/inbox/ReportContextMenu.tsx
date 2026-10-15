@@ -18,8 +18,8 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { colors, iconSizes, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
+import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
 import { placeContextMenu, type RowAnchor } from './contextMenuPlacement'
-import { INBOX_HEADER_BOTTOM } from './InboxHeader'
 
 /** The bottom bar's design inset, the same one the inbox list pads its content by. */
 const BOTTOM_BAR_ZONE = 120
@@ -136,7 +136,7 @@ export function ReportContextMenu({
         rowTop: anchor.y,
         rowBottom: anchor.y + anchor.height,
         menuHeight: height ?? 0,
-        topLimit: topOffset(insets, INBOX_HEADER_BOTTOM),
+        topLimit: topOffset(insets, TABS_HEADER_BOTTOM),
         bottomLimit: screenHeight - bottomOffset(insets, BOTTOM_BAR_ZONE),
     })
     // Until the first layout the card sits off screen, so it never shows at a spot picked without its height.

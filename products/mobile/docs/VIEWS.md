@@ -68,7 +68,7 @@ The third slot of the bottom bar opens the Views tab (`app/(tabs)/views.tsx`, `s
 It replaced the Products slot, which opened the web app's product library. `mobile_products_opened` went with it; the bar now sends `mobile_views_opened` when the tab is selected, with the pin count from the cached pin list.
 
 The screen is one `SectionList`: a search field, Pinned, Recent and Browse.
-The header shows the status line and the refresh hint from `useViewsList().refresh`, the refresh button and a More menu with "Edit pins".
+The screen publishes its header state to the shared tabs header (`useTabHeader('views', …)`, see DESIGN.md, "Tabs header"): the status line and the refresh hint from `useViewsList().refresh`, the refresh button's state, and the "Edit pins" row of the More menu.
 Loading, the pin list error and the sign-in state are separate screens. The sign-in state (`views-reauth`) shows when `useViewsAccess()` is not `ok`. When the last sign-in asked for a Views scope and the server still left it out, it shows "Views isn't available yet" (`views-unavailable`) without a sign-in button, because a new sign-in gets the same grant ([AUTH.md](AUTH.md), "Server-side ceiling").
 
 ### Pins
@@ -101,7 +101,7 @@ A pin whose tile is gone (its insight answers 404, or the cached dashboard no lo
 - Long press a Recent, Browse or search row for Pin to Views (or Unpin) and Open.
 - Swipe a row left for Pin or Unpin. Chart pins have no swipe, because their plot takes horizontal drags.
 - Every Recent, Browse and search row has a pin button.
-- "Edit pins" (More menu, or Edit next to Pinned) lists the pins with a remove button, a Row, Number and Chart toggle, and a drag handle. Screen readers move a pin with the handle's actions.
+- "Edit pins" (the More menu's Views section, or Edit next to Pinned) lists the pins with a remove button, a Row, Number and Chart toggle, and a drag handle. Screen readers move a pin with the handle's actions.
 
 Order and modes go to the device-local prefs through `usePinActions` (`move`, `reorder`, `setDisplayMode`, `chooseTile`). The app never writes the server's `order`.
 Pin and unpin show a toast with Undo, from the list, Browse and a view's pin button alike (`ViewsToast` and `useToasts`). The toast draws through the nearest `OverlayHost`, so it sits above the tab bar and any open sheet.

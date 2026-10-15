@@ -18,7 +18,7 @@ steps:
     - assert: { text: { in: { id: views-pin-dashboard-demo-dash-kpis }, contains: Product KPIs } }
 
     - echo: On Views. Open Edit pins and show Signups as a number. Expect the big value
-    - tap: { id: views-menu }
+    - tap: { id: tabs-more }
     - tap: { id: views-edit-pins }
     - await: { visible: { id: edit-pins-sheet } }
     - tap: { id: edit-pin-mode-number-insight-demo-ins-signups }
@@ -159,7 +159,7 @@ steps:
     - await: { idle: true }
 
     - echo: On the inbox. Open the menu. Expect Settings in it
-    - tap: { id: inbox-more }
+    - tap: { id: tabs-more }
     - await: { visible: { id: nav-settings } }
     - await: { idle: true }
 

@@ -92,7 +92,13 @@ Sizing a glyph does not change its button's tap target, which stays at least 44p
 
 ## Screens and states
 
-- **Inbox**: header with Refresh and More, rows (source · `#123` PR tag when the report has a PR, green when open, purple when merged, gray otherwise · time),
+- **Tabs header** (`features/tabs/TabsHeader.tsx`): Inbox, Chats and Views share one header that the
+  tabs layout draws once, like the bottom bar. The logomark and the tab's title sit at the same spot on
+  every tab. The pill on the right holds Refresh and More on every tab; Views in Edit pins swaps it for Done.
+  A tab may add a status line under the title (Views does); it and the refresh hint are absolutely
+  positioned, so they never move the title row. Each screen publishes its refresh state, status line and
+  menu rows to its own slot in `tabHeaderStore` with `useTabHeader`, and the header reads the focused tab's slot.
+- **Inbox**: rows (source · `#123` PR tag when the report has a PR, green when open, purple when merged, gray otherwise · time),
   pull to refresh, floating nav pill (Home selected,
   Chats, Products) and the Chat button. Chats in the pill opens the Chats screen; the Chat button
   opens a new chat sheet. Products opens the project's product library in the web app, and is
@@ -109,14 +115,14 @@ Sizing a glyph does not change its button's tap target, which stays at least 44p
   does not wait for report details.
   The other actions work like the report's action pill, without leaving the inbox.
   Loading, empty and error states are separate screens.
-- **Chats**: the mobile port of the web app's Chats pane. Header with the logomark, "Chats" and a
-  New chat button. A search field above the list filters titles on the device. Rows are grouped
+- **Chats**: the mobile port of the web app's Chats pane. A search field above the list filters titles on the device. Rows are grouped
   under day labels (Today, Yesterday, a weekday, a date, Earlier) and use the inbox row geometry:
   a chat bubble tile for a PostHog AI chat, a branch tile for a report hand-off or another session,
   and an origin label, a status dot and the time under the title. A row opens the chat sheet on that
   task: the agent's thread, its PR card, and a pending decision above the composer. The nav pill
   shows Chats selected. Loading, error, empty and "No matches" are separate screens.
-- **Nav menu**: project name (opens the Project card), Inbox (selected), Settings, Sign out.
+- **Nav menu** (More in the tabs header): project name (opens the Project card), then on Views a section with
+  Edit pins, then Settings and Sign out.
 - **Report**: top chrome, headline, the byline with the Owner and Priority chips (`ReportMeta`), lede,
   evidence (trace, quotes, replay), facts, the observation card, impact tiles, charts,
   activity, and the action bar.

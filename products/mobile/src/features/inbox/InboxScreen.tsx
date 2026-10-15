@@ -2,9 +2,7 @@ import { useFocusEffect, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
 import { FlatList, RefreshControl, StyleSheet, View } from 'react-native'
 
-import { useAuthStore } from '@/auth/authStore'
 import { useBootGate } from '@/auth/bootGate'
-import { useViewer } from '@/auth/useViewer'
 import { useNow } from '@/lib/useNow'
 import type { InboxItem } from '@/model/types'
 import { InboxIcon } from '@/ui/icons/InboxIcon'
@@ -13,14 +11,13 @@ import { LoadingView, StateView } from '@/ui/StateView'
 import { colors, iconSizes, layout } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
-import { useExitDemo, useSignOutAction } from '../settings/useSignOut'
+import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
+import { useTabHeader } from '../tabs/tabHeaderStore'
 import type { RowAnchor } from './contextMenuPlacement'
 import { useInboxItems, useSetReportRead } from './hooks'
-import { INBOX_HEADER_BOTTOM, InboxHeader } from './InboxHeader'
 import { InboxListFooter } from './InboxListFooter'
 import { InboxRow } from './InboxRow'
 import { InboxRowActions, type RowMenuTarget } from './InboxRowActions'
-import { NavMenu } from './NavMenu'
 import { usePrefetchReports } from './usePrefetchReports'
 
 function keyFor(item: InboxItem): string {
@@ -31,7 +28,6 @@ export function InboxScreen(): ReactElement {
     const router = useRouter()
     const insets = useScreenInsets()
     const now = useNow()
-    const viewer = useViewer()
     const [focused, setFocused] = useState(false)
     useFocusEffect(
         useCallback(() => {
@@ -41,11 +37,6 @@ export function InboxScreen(): ReactElement {
     )
     const query = useInboxItems({ refreshWhileVisible: focused })
     const prefetch = usePrefetchReports(query.data)
-    const signedIn = useAuthStore((state) => state.signedIn)
-    const exitDemo = useExitDemo()
-    const signOut = useSignOutAction()
-    const [menuOpen, setMenuOpen] = useState(false)
-    const [confirmingSignOut, setConfirmingSignOut] = useState(false)
     const [rowMenu, setRowMenu] = useState<RowMenuTarget | null>(null)
     const listRef = useRef<FlatList<InboxItem>>(null)
 
@@ -76,24 +67,15 @@ export function InboxScreen(): ReactElement {
         listRef.current?.scrollToOffset({ offset: 0, animated: true })
         refresh()
     }
-    const closeMenu = (): void => {
-        if (signOut.pending) {
-            return
-        }
-        setMenuOpen(false)
-        setConfirmingSignOut(false)
-    }
-    const startSignOut = (): void => {
-        if (signedIn) {
-            setConfirmingSignOut(true)
-            return
-        }
-        setMenuOpen(false)
-        exitDemo()
-    }
+    useTabHeader('inbox', {
+        refresh: { state: query.isRefetching ? 'busy' : 'idle', onPress: refreshFromHeader },
+        status: null,
+        editing: null,
+        editPins: null,
+    })
 
     // The header floats over the list, so the content starts below it and the pull-to-refresh spinner shows under it.
-    const contentTop = topOffset(insets, INBOX_HEADER_BOTTOM)
+    const contentTop = topOffset(insets, TABS_HEADER_BOTTOM)
 
     const renderItem = useCallback(
         ({ item }: { item: InboxItem }) => (
@@ -153,26 +135,6 @@ export function InboxScreen(): ReactElement {
                         progressViewOffset={contentTop}
                     />
                 }
-            />
-            <InboxHeader
-                onRefresh={refreshFromHeader}
-                refreshing={query.isRefetching}
-                onOpenMenu={() => setMenuOpen(true)}
-            />
-            <NavMenu
-                visible={menuOpen}
-                unreadCount={(query.data ?? []).filter((item) => !item.read).length}
-                projectName={viewer.projectName}
-                onClose={closeMenu}
-                onSettings={() => {
-                    setMenuOpen(false)
-                    router.push('/settings')
-                }}
-                onSignOut={startSignOut}
-                confirmingSignOut={confirmingSignOut}
-                signOutPending={signOut.pending}
-                onCancelSignOut={() => setConfirmingSignOut(false)}
-                onConfirmSignOut={() => void signOut.run()}
             />
             <InboxRowActions target={rowMenu} onClose={() => setRowMenu(null)} />
         </View>

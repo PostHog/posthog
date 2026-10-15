@@ -9,13 +9,14 @@ import { ChartCanvasBudget, useCanvasBudgetViewport } from '@/ui/chart/budget/Ch
 import { ChartSelectionProvider, useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
 import type { ChartTooltipPoint } from '@/ui/chart/types'
 import { Eyebrow } from '@/ui/Eyebrow'
-import { GripIcon } from '@/ui/icons/GripIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { StateView } from '@/ui/StateView'
 import { colors, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
+import { TABS_HEADER_BOTTOM_WITH_STATUS } from '../../tabs/TabsHeader'
+import { useTabHeader } from '../../tabs/tabHeaderStore'
 import { type PinSource, trackViewOpenedInWeb } from '../analytics'
 import { useViewsSearch } from '../browseHooks'
 import { refreshHintText } from '../freshness'
@@ -38,8 +39,7 @@ import { PinCard } from './PinCard'
 import { SwipeRow } from './SwipeRow'
 import { usePinFlows } from './usePinFlows'
 import { type GroupPosition, groupPosition, ViewRow } from './ViewRow'
-import { VIEWS_HEADER_BOTTOM, ViewsHeader } from './ViewsHeader'
-import { MenuCard, MenuItem, PinMenu, RowMenu } from './ViewsMenu'
+import { PinMenu, RowMenu } from './ViewsMenu'
 import { ViewsSearchField } from './ViewsSearchField'
 import { ViewsSkeleton } from './ViewsSkeleton'
 import { pinTargetFor, relativeDay, viewTypeLabel } from './viewMeta'
@@ -76,7 +76,6 @@ function matchKey(view: Pick<ListView, 'kind' | 'ref'>): string {
 type MenuState =
     | { kind: 'pin'; shortcutId: string; anchor: RowAnchor }
     | { kind: 'row'; view: ListView; entry: ViewEntry; anchor: RowAnchor }
-    | { kind: 'overflow' }
 
 /** The Views tab: pinned views first, then Recent and Browse, with search over all of them. */
 export function ViewsScreen(): ReactElement {
@@ -101,17 +100,20 @@ export function ViewsScreen(): ReactElement {
 
 function ViewsReauth({ access }: { access: ViewsAccess }): ReactElement {
     const insets = useScreenInsets()
+    useTabHeader('views', { refresh: null, status: null, editing: null, editPins: { disabled: true, onPress: noop } })
     return (
         <View style={styles.screen} testID="views-screen">
             <View
                 style={[
                     styles.fill,
-                    { paddingTop: topOffset(insets, VIEWS_HEADER_BOTTOM), paddingBottom: bottomOffset(insets, 120) },
+                    {
+                        paddingTop: topOffset(insets, TABS_HEADER_BOTTOM_WITH_STATUS),
+                        paddingBottom: bottomOffset(insets, 120),
+                    },
                 ]}
             >
                 <ViewsReauthState access={access} />
             </View>
-            <ViewsHeader editing={false} status={null} refresh={null} onMore={noop} onDone={noop} />
         </View>
     )
 }
@@ -477,11 +479,30 @@ function ViewsBody(): ReactElement {
         []
     )
 
-    const contentTop = topOffset(insets, VIEWS_HEADER_BOTTOM)
+    const contentTop = topOffset(insets, TABS_HEADER_BOTTOM_WITH_STATUS)
     const contentBottom = bottomOffset(insets, 120)
     const { refresh } = list
     const loading = list.pins.data === undefined && !list.pins.isError
     const status = loading ? 'Loading…' : refresh.status.kind === 'hidden' ? null : refresh.status.text
+    useTabHeader('views', {
+        refresh: loading
+            ? null
+            : {
+                  state: refresh.button,
+                  onPress: refresh.onButton,
+                  blockedLabel: refresh.hint ?? refreshHintText(refresh.blocked.until),
+                  hint: refresh.hint,
+              },
+        status: editing ? 'Changes save as you go' : status,
+        editing: editing ? { title: 'Edit pins', onDone: () => setEditing(false) } : null,
+        editPins: {
+            disabled: pins.length === 0,
+            onPress: () => {
+                setText('')
+                setEditing(true)
+            },
+        },
+    })
     const menuPin = menu?.kind === 'pin' ? pins.find((pin) => pin.shortcutId === menu.shortcutId) : undefined
     const menuPinIndex = menuPin ? pins.indexOf(menuPin) : -1
 
@@ -559,41 +580,6 @@ function ViewsBody(): ReactElement {
     return (
         <View style={styles.fill}>
             {body}
-            <ViewsHeader
-                editing={editing}
-                status={status}
-                refresh={
-                    loading
-                        ? null
-                        : {
-                              state: refresh.button,
-                              onPress: refresh.onButton,
-                              blockedLabel: refresh.hint ?? refreshHintText(refresh.blocked.until),
-                              hint: refresh.hint,
-                          }
-                }
-                onMore={() => setMenu({ kind: 'overflow' })}
-                onDone={() => setEditing(false)}
-            />
-            <MenuCard
-                visible={menu?.kind === 'overflow'}
-                anchor="top-right"
-                onClose={() => setMenu(null)}
-                accessibilityLabel="Views actions"
-                testID="views-overflow"
-            >
-                <MenuItem
-                    label="Edit pins"
-                    onPress={() => {
-                        setMenu(null)
-                        setText('')
-                        setEditing(true)
-                    }}
-                    disabled={pins.length === 0}
-                    trailing={<GripIcon size={18} color={pins.length === 0 ? colors.disabled : colors.ink} />}
-                    testID="views-edit-pins"
-                />
-            </MenuCard>
             {menu?.kind === 'pin' && menuPin ? (
                 <PinMenuFor
                     pin={menuPin}

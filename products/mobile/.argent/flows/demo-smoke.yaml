@@ -114,7 +114,7 @@ steps:
     - await: { idle: true }
 
     - echo: On the inbox. Open the menu. Expect Settings in it
-    - tap: { id: inbox-more }
+    - tap: { id: tabs-more }
     - await: { visible: { id: nav-settings } }
     - await: { idle: true }
 

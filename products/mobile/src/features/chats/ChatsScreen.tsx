@@ -15,8 +15,9 @@ import { LoadingView, StateView } from '@/ui/StateView'
 import { colors, iconSizes, layout } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
+import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
+import { useTabHeader } from '../tabs/tabHeaderStore'
 import { ChatRow } from './ChatRow'
-import { CHATS_HEADER_BOTTOM, ChatsHeader } from './ChatsHeader'
 import { ChatsSearchField } from './ChatsSearchField'
 import { filterChats, groupChats } from './chatGroups'
 import { sessionListKeys, useChatList } from './hooks'
@@ -65,6 +66,12 @@ export function ChatsScreen(): ReactElement {
     const refresh = (): void => {
         void query.refetch()
     }
+    useTabHeader('chats', {
+        refresh: { state: query.isRefetching ? 'busy' : 'idle', onPress: refresh },
+        status: null,
+        editing: null,
+        editPins: null,
+    })
 
     const hasItems = (query.data?.length ?? 0) > 0
     const sections = useMemo<ChatSection[]>(
@@ -77,7 +84,7 @@ export function ChatsScreen(): ReactElement {
     )
 
     // The header floats over the list, so the content starts below it and the pull-to-refresh spinner shows under it.
-    const contentTop = topOffset(insets, CHATS_HEADER_BOTTOM)
+    const contentTop = topOffset(insets, TABS_HEADER_BOTTOM)
 
     const renderItem = useCallback(
         ({ item }: { item: ChatListItem }) => <ChatRow item={item} now={now} onOpen={openChat} />,
@@ -151,7 +158,6 @@ export function ChatsScreen(): ReactElement {
                     />
                 }
             />
-            <ChatsHeader />
         </View>
     )
 }

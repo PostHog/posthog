@@ -33,8 +33,9 @@ products/mobile/
                           demoMode.ts (zustand store), hooks.ts (demo query hooks),
                           sessionThreads.ts (demo session run logs)
     features/
-      tabs/               TabsLayout (Inbox and Chats tab navigator, Products link), BottomBar (rendered once)
-      inbox/              InboxScreen, InboxRow, InboxHeader, InboxListFooter, NavMenu, hooks,
+      tabs/               TabsLayout (Inbox, Chats and Views tab navigator), BottomBar and TabsHeader (each
+                          rendered once), tabHeaderStore (each tab's header state), NavMenu (the More menu)
+      inbox/              InboxScreen, InboxRow, InboxListFooter, hooks,
                           prefetchPlan (prefetch window and queue), usePrefetchReports
       report/             ReportScreen, TopChrome, Headline, ReportMeta, Evidence*, ReplayRow, Facts, Activity,
                           hooks, queries (query options shared by the screen and the inbox prefetch)
@@ -53,7 +54,7 @@ products/mobile/
         session/          useSession (create, follow, send, resume, stop, answer), sessionRun (request bodies
                           and the set_config_option plan), sessionReducer, sessionDisplay, SessionThread and its
                           rows, SessionDecisionPanel
-      chats/              ChatsScreen, ChatsHeader, ChatsSearchField, ChatRow,
+      chats/              ChatsScreen, ChatsSearchField, ChatRow,
                           chatGroups (day labels, grouping, search), sessionStatus, hooks
       notifications/      pushSupport, pushStore, pushRegistration, usePushRegistration,
                           notificationRouting, taskLookup, useNotificationRouting

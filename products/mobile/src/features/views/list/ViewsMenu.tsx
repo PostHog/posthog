@@ -13,8 +13,8 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { colors, layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
+import { TABS_HEADER_BOTTOM_WITH_STATUS } from '../../tabs/TabsHeader'
 import { ModeSegment } from './ModeSegment'
-import { VIEWS_HEADER_BOTTOM } from './ViewsHeader'
 
 /** The bottom bar's design inset, the same one the list pads its content by. */
 const BOTTOM_BAR_ZONE = 120
@@ -23,8 +23,7 @@ const MENU_WIDTH = 268
 
 interface MenuCardProps {
     visible: boolean
-    /** The row to place the menu next to, or `top-right` for the header's More menu. */
-    anchor: RowAnchor | 'top-right'
+    anchor: RowAnchor
     onClose: () => void
     accessibilityLabel: string
     testID: string
@@ -56,26 +55,19 @@ export function MenuCard({
             setOpens(opens + 1)
         }
     }
-    const topLimit = topOffset(insets, VIEWS_HEADER_BOTTOM)
-    const placement =
-        anchor === 'top-right'
-            ? { top: topLimit - 18, side: 'below' as const }
-            : placeContextMenu({
-                  rowTop: anchor.y,
-                  rowBottom: anchor.y + anchor.height,
-                  menuHeight: height ?? 0,
-                  topLimit,
-                  bottomLimit: screenHeight - bottomOffset(insets, BOTTOM_BAR_ZONE),
-              })
+    const placement = placeContextMenu({
+        rowTop: anchor.y,
+        rowBottom: anchor.y + anchor.height,
+        menuHeight: height ?? 0,
+        topLimit: topOffset(insets, TABS_HEADER_BOTTOM_WITH_STATUS),
+        bottomLimit: screenHeight - bottomOffset(insets, BOTTOM_BAR_ZONE),
+    })
     const top = height === null ? -screenHeight : placement.top
-    const horizontal =
-        anchor === 'top-right'
-            ? { left: windowWidth - layout.inboxGutter - MENU_WIDTH }
-            : { left: Math.max(layout.inboxGutter, Math.min(anchor.x, windowWidth - layout.inboxGutter - MENU_WIDTH)) }
+    const left = Math.max(layout.inboxGutter, Math.min(anchor.x, windowWidth - layout.inboxGutter - MENU_WIDTH))
     const onLayout = (event: LayoutChangeEvent): void => {
         setHeight(event.nativeEvent.layout.height + CARD_BORDER * 2)
     }
-    const origin = anchor === 'top-right' ? 'top right' : placement.side === 'below' ? 'top left' : 'bottom left'
+    const origin = placement.side === 'below' ? 'top left' : 'bottom left'
     return (
         <FloatingCard
             visible={visible}
@@ -83,7 +75,7 @@ export function MenuCard({
             transformOrigin={origin}
             accessibilityLabel={accessibilityLabel}
             testID={testID}
-            style={[styles.card, horizontal, { top }]}
+            style={[styles.card, { left, top }]}
         >
             <View key={opens} style={styles.content} onLayout={onLayout}>
                 {children}
