@@ -43,11 +43,20 @@ describe('alertsLogic', () => {
         updateSpy?.mockRestore()
     })
 
-    it('stores the creator in the URL and removes it for all users', async () => {
-        router.actions.push(urls.alerts(), { tab: 'insights', alert_id: alert.id }, { section: 'alerts' })
+    it('keeps the creator filter and URL in sync', async () => {
+        router.actions.push(
+            urls.alerts(),
+            { tab: 'insights', alert_id: alert.id, created_by: 'creator-from-link' },
+            { section: 'alerts' }
+        )
         const logic = alertsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters.createdBy).toEqual('creator-from-link')
+        expect(listSpy).toHaveBeenLastCalledWith(
+            undefined,
+            expect.objectContaining({ created_by: 'creator-from-link' })
+        )
 
         await expectLogic(logic, () => logic.actions.setFilters({ createdBy: 'creator-1' })).toFinishAllListeners()
         expect(router.values.searchParams).toEqual({
@@ -61,16 +70,6 @@ describe('alertsLogic', () => {
         await expectLogic(logic, () => logic.actions.setFilters({ createdBy: 'All users' })).toFinishAllListeners()
         expect(router.values.searchParams).toEqual({ tab: 'insights', alert_id: alert.id })
         expect(listSpy.mock.lastCall?.[1]).not.toHaveProperty('created_by')
-        logic.unmount()
-    })
-
-    it('restores the creator from a link and follows URL changes', async () => {
-        router.actions.push(urls.alerts(), { created_by: 'creator-1' })
-        const logic = alertsLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.filters.createdBy).toEqual('creator-1')
-        expect(listSpy).toHaveBeenLastCalledWith(undefined, expect.objectContaining({ created_by: 'creator-1' }))
 
         await expectLogic(logic, () => router.actions.push(urls.alerts(), { created_by: 'creator-2' }))
             .toFinishAllListeners()
