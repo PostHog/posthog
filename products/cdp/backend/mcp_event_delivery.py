@@ -1,3 +1,4 @@
+import ssl
 import hmac
 import json
 import time
@@ -8,10 +9,12 @@ import binascii
 from typing import Final
 from urllib.parse import urlsplit
 
-import requests
+import httpx
 from rest_framework.exceptions import ValidationError
 
-from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
+from posthog.security.pinned_httpx import pinned_client
+from posthog.security.pinned_requests import SSRFBlockedError
+from posthog.security.url_validation import validate_url_and_pin_ips
 
 from products.cdp.backend.facade.mcp_event_types import MCPCallbackError
 
@@ -61,30 +64,32 @@ def verify_callback(*, subscription_id: str, url: str, secret: str) -> None:
     headers = signed_headers(
         subscription_id=subscription_id, webhook_id=secrets.token_hex(16), body=body, secret=secret
     )
-    deadline = time.monotonic() + 10
     try:
-        with pinned_session(url) as session:
-            with session.post(
-                url, data=body, headers=headers, timeout=10, allow_redirects=False, stream=True
-            ) as response:
-                if not 200 <= response.status_code < 300:
-                    raise MCPCallbackError("http_4xx" if response.status_code < 500 else "http_5xx")
-                response_body = bytearray()
-                for chunk in response.iter_content(chunk_size=1):
-                    if time.monotonic() > deadline:
-                        raise MCPCallbackError("timeout")
-                    response_body.extend(chunk)
-                    if len(response_body) > 8192:
-                        raise MCPCallbackError("challenge_failed")
-                result = json.loads(response_body)
-                echoed = result.get("challenge") if isinstance(result, dict) else None
-                if not isinstance(echoed, str) or not hmac.compare_digest(echoed.encode(), challenge.encode()):
-                    raise MCPCallbackError("challenge_failed")
-    except requests.Timeout:
+        verdict = validate_url_and_pin_ips(url)
+        if not verdict.allowed:
+            raise SSRFBlockedError
+        with pinned_client(
+            url, verdict.pinned_ips, total_timeout=10, max_response_bytes=8192, timeout=10, follow_redirects=False
+        ) as client:
+            response = client.post(url, content=body, headers=headers)
+            if not 200 <= response.status_code < 300:
+                raise MCPCallbackError("http_4xx" if response.status_code < 500 else "http_5xx")
+            result = response.json()
+            echoed = result.get("challenge") if isinstance(result, dict) else None
+            if not isinstance(echoed, str) or not hmac.compare_digest(echoed.encode(), challenge.encode()):
+                raise MCPCallbackError("challenge_failed")
+    except httpx.TimeoutException:
         raise MCPCallbackError("timeout") from None
-    except requests.exceptions.SSLError:
-        raise MCPCallbackError("tls_error") from None
-    except (requests.RequestException, SSRFBlockedError):
+    except httpx.DecodingError:
+        raise MCPCallbackError("challenge_failed") from None
+    except httpx.HTTPError as error:
+        cause: BaseException | None = error
+        while cause is not None:
+            if isinstance(cause, ssl.SSLError):
+                raise MCPCallbackError("tls_error") from None
+            cause = cause.__cause__
+        raise MCPCallbackError("connection_failed") from None
+    except SSRFBlockedError:
         raise MCPCallbackError("connection_failed") from None
     except (ValueError, UnicodeDecodeError):
         raise MCPCallbackError("challenge_failed") from None

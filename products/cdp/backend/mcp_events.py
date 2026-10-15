@@ -35,8 +35,10 @@ from products.cdp.backend.mcp_event_envelope import MCPEventEnvelopeSerializer
 from products.cdp.backend.mcp_event_filters import MCPEventFilterAccessValidator
 from products.cdp.backend.mcp_event_properties import MCPEventPropertyAccess
 from products.cdp.backend.models.mcp_event_subscription import MCPEventSubscription
+from products.cdp.backend.tasks.mcp_events import expire_mcp_event_subscriptions
 from products.cdp.backend.validation import HogFunctionFiltersSerializer
 
+EXPIRY_BATCH_SIZE: Final = 500
 MAX_SUBSCRIPTIONS_PER_USER: Final = 20
 MAX_SUBSCRIPTIONS_PER_PROJECT: Final = 100
 MAX_TTL_MS: Final = 24 * 60 * 60 * 1000
@@ -257,7 +259,7 @@ class MCPEventSubscriptions:
             MCPEventSubscription.objects.unscoped()
             .filter(active=True, expires_at__lte=timezone.now())
             .order_by("expires_at")
-            .values_list("team_id", "id")[:500]
+            .values_list("team_id", "id")[:EXPIRY_BATCH_SIZE]
         )
         count = 0
         for team_id, subscription_id in candidates:
@@ -278,6 +280,8 @@ class MCPEventSubscriptions:
                     subscription.hog_function.save(update_fields=["enabled", "updated_at"])
                     cls._reload_after_commit(subscription)
                 count += 1
+        if len(candidates) == EXPIRY_BATCH_SIZE:
+            expire_mcp_event_subscriptions.delay()
         return count
 
     def authorize_delivery(
