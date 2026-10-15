@@ -52,6 +52,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
     get_entity_key,
+    multivariate_flag_response_expr,
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -69,7 +70,9 @@ _UNKNOWN = "unknown"
 _MATCHED_REASON = "^Matched condition set ([0-9]+)$"
 # The scan runs without the reader, so it can't apply a reader's property access rules. A reader denied one of
 # these gets no share instead of counts derived from it.
-_SCANNED_PROPERTIES = frozenset({"$feature_flag", "$feature_flag_reason", "$feature_flag_version"})
+_SCANNED_PROPERTIES = frozenset(
+    {"$feature_flag", "$feature_flag_response", "$feature_flag_reason", "$feature_flag_version"}
+)
 _MAX_CONDITION_SETS = 1000
 
 
@@ -117,6 +120,7 @@ def query_condition_set_traffic(
             WHERE event IN {flag_call_events}
                 AND timestamp >= {window_start} AND timestamp < {window_end}
                 AND properties.$feature_flag = {flag_key}
+                AND {returned_variant}
             GROUP BY entity
         )
         GROUP BY condition_set
@@ -130,6 +134,9 @@ def query_condition_set_traffic(
             "window_start": ast.Constant(value=window_start),
             "window_end": ast.Constant(value=window_end),
             "flag_key": ast.Constant(value=flag.key),
+            # A call that returned no variant, such as "Out of rollout bound", put nobody in the experiment, so it
+            # must not count toward the share of calls that name a set.
+            "returned_variant": multivariate_flag_response_expr(),
             # One row per condition set, plus one for people without a matched set. HogQL adds LIMIT 100 otherwise.
             "max_rows": ast.Constant(value=_MAX_CONDITION_SETS + 1),
         },

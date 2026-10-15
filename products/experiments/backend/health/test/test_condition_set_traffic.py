@@ -46,6 +46,7 @@ TOO_FEW_PEOPLE = ConditionSetTraffic(
     calls=100,
     remotely_evaluated_calls=100,
 )
+_NO_VARIANT_REASONS = frozenset({"Out of rollout bound", "No matching condition set"})
 _STAFF_PINNED_TO_TEST: dict[str, Any] = {
     "properties": [{"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}],
     "rollout_percentage": 100,
@@ -184,12 +185,12 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
                 ({2: 1}, 3, 1),
             ),
             (
-                "reasons_that_match_no_set",
+                "calls_that_return_no_variant_do_not_count",
                 [
                     ("person-1", "Out of rollout bound", FLAG_VERSION, 1),
                     ("person-2", "Matched condition set 2", FLAG_VERSION, 1),
                 ],
-                ({2: 1}, 2, 2),
+                ({2: 1}, 1, 1),
             ),
             (
                 "person_counts_once_under_the_latest_set",
@@ -260,7 +261,10 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
         *,
         event: str = "$feature_flag_called",
     ) -> None:
-        properties: dict[str, Any] = {"$feature_flag": FLAG_KEY, "$feature_flag_response": "test"}
+        properties: dict[str, Any] = {
+            "$feature_flag": FLAG_KEY,
+            "$feature_flag_response": False if reason in _NO_VARIANT_REASONS else "test",
+        }
         if reason is not None:
             properties["$feature_flag_reason"] = reason
         if version is not None:

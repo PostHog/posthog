@@ -96,8 +96,9 @@ class ConditionSetTraffic:
     # People by the number of the condition set that served their latest call of the flag's current version.
     # Only calls that carry a "Matched condition set N" reason count.
     people_by_set: Mapping[int, int]
-    # The calls of any version, and those that the flag service evaluated. Only those carry the flag's version
-    # and name a set. Local evaluation in a server SDK and a bootstrapped value name none.
+    # The calls that returned a variant, of any version, and those of them that the flag service evaluated. Only
+    # those carry the flag's version and name a set. Local evaluation in a server SDK and a bootstrapped value
+    # name none.
     calls: int
     remotely_evaluated_calls: int
 
