@@ -61,3 +61,25 @@ export const EditBlocked: Story = {
         />
     ),
 }
+
+export const LockedFromDetails: Story = {
+    render: () => (
+        <OpenModal
+            blocking={{
+                action: 'view',
+                workflows: {
+                    results: [
+                        { id: '0190a1b2-0000-0000-0000-000000000001', name: 'Welcome series', status: 'active' },
+                        {
+                            id: '0190a1b2-0000-0000-0000-000000000002',
+                            name: 'Win back churned users',
+                            status: 'active',
+                        },
+                    ],
+                    total: 2,
+                    has_more: false,
+                },
+            }}
+        />
+    ),
+}

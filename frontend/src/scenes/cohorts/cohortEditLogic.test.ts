@@ -115,6 +115,15 @@ describe('cohortEditLogic', () => {
             expect(logic.values.usedIn).toEqual(mockUsedInResponse)
         })
 
+        it('treats a used-in response without a workflows block as no workflows', async () => {
+            const { workflows: _, ...olderResponse } = mockUsedInResponse
+            useMocks({ get: { '/api/projects/:team_id/cohorts/:id/used_in/': olderResponse } })
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
+        })
+
         it('swallows used-in 404s without reporting them', async () => {
             useMocks({
                 get: {

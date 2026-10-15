@@ -3,7 +3,8 @@ import posthog from 'posthog-js'
 
 import type { CohortUsedInWorkflowsBlockApi } from 'products/cohorts/frontend/generated/api.schemas'
 
-export type CohortBlockedAction = 'delete' | 'edit'
+// `view` opens the modal from the cohort's details, before anything is blocked.
+export type CohortBlockedAction = 'delete' | 'edit' | 'view'
 
 export interface CohortBlockingWorkflows {
     action: CohortBlockedAction
@@ -47,6 +48,9 @@ export const cohortBlockingWorkflowsModalLogic = kea<cohortBlockingWorkflowsModa
     }),
     listeners({
         openBlockingWorkflowsModal: ({ blocking }) => {
+            if (blocking.action === 'view') {
+                return
+            }
             // pinned: analytics event name, renaming breaks dashboards
             posthog.capture('cohort change blocked by workflows', {
                 action: blocking.action,

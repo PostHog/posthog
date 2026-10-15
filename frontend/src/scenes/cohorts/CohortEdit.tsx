@@ -119,16 +119,6 @@ function UsedInSummary({ usedIn, isExpanded, setIsExpanded }: UsedInSummaryProps
                 label: c.name,
             })),
         },
-        {
-            title: 'Active workflows',
-            noun: 'active workflow',
-            block: usedIn.workflows,
-            items: usedIn.workflows.results.map((workflow) => ({
-                key: `workflow-${workflow.id}`,
-                url: urls.workflow(workflow.id, 'workflow'),
-                label: workflow.name || 'Untitled workflow',
-            })),
-        },
     ].filter((section) => section.items.length > 0)
 
     if (sections.length === 0) {
@@ -227,6 +217,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         setStaticCohortMode,
         setActiveTab,
         setUsedInExpanded,
+        openBlockingWorkflowsModal,
         submitCohort,
     } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
@@ -531,6 +522,24 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 <Tooltip title="Create a new cohort to use a different type of cohort.">
                                                     <IconInfo className="text-secondary text-base" />
                                                 </Tooltip>
+                                                {usedIn && usedIn.workflows.total > 0 && (
+                                                    <>
+                                                        <span className="text-secondary">·</span>
+                                                        <Link
+                                                            className="text-sm"
+                                                            onClick={() =>
+                                                                openBlockingWorkflowsModal({
+                                                                    action: 'view',
+                                                                    workflows: usedIn.workflows,
+                                                                })
+                                                            }
+                                                            data-attr="cohort-used-in-workflows"
+                                                        >
+                                                            Used in {usedIn.workflows.total}{' '}
+                                                            {usedIn.workflows.total === 1 ? 'workflow' : 'workflows'}
+                                                        </Link>
+                                                    </>
+                                                )}
                                             </div>
                                         )}
 

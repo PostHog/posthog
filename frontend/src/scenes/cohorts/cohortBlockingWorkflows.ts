@@ -17,7 +17,8 @@ export async function loadBlockingWorkflows(
 ): Promise<CohortUsedInWorkflowsBlockApi | null> {
     try {
         const usedIn = await cohortsUsedInRetrieve(String(projectId), cohortId)
-        return usedIn.workflows.total > 0 ? usedIn.workflows : null
+        // A backend from before the workflows block returns no `workflows` key during a deploy.
+        return usedIn.workflows?.total ? usedIn.workflows : null
     } catch (error) {
         posthog.captureException(error, { feature: 'cohort-blocking-workflows' })
         return null

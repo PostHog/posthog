@@ -4,7 +4,13 @@ import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { cohortBlockingWorkflowsModalLogic } from './cohortBlockingWorkflowsModalLogic'
+import { CohortBlockedAction, cohortBlockingWorkflowsModalLogic } from './cohortBlockingWorkflowsModalLogic'
+
+const BLOCKING_COPY: Record<CohortBlockedAction, string> = {
+    delete: 'These workflows trigger on this cohort or branch on it. Remove the cohort from each workflow, or disable the workflow, then delete the cohort.',
+    edit: 'This change would stop the cohort updating in real time, and these workflows need real-time updates. Remove the cohort from each workflow, or disable the workflow, then save your change.',
+    view: "These workflows trigger on this cohort or branch on it, so the cohort is locked. You can't delete it or make a change that stops real-time updates. Remove the cohort from each workflow, or disable the workflow, to unlock it.",
+}
 
 export function CohortBlockingWorkflowsModal(): JSX.Element {
     const { blocking } = useValues(cohortBlockingWorkflowsModalLogic)
@@ -25,11 +31,7 @@ export function CohortBlockingWorkflowsModal(): JSX.Element {
         >
             {blocking && (
                 <div className="flex flex-col gap-y-3" data-attr="cohort-blocking-workflows">
-                    <p className="mb-0">
-                        {blocking.action === 'delete'
-                            ? 'These workflows trigger on this cohort or branch on it. Remove the cohort from each workflow, or disable the workflow, then delete the cohort.'
-                            : 'This change would stop the cohort updating in real time, and these workflows need real-time updates. Remove the cohort from each workflow, or disable the workflow, then save your change.'}
-                    </p>
+                    <p className="mb-0">{BLOCKING_COPY[blocking.action]}</p>
                     {blocking.workflows.results.length > 0 && (
                         <ul className="list-disc pl-4 mb-0">
                             {blocking.workflows.results.map((workflow) => (
