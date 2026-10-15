@@ -26,8 +26,8 @@ describe('oob-domains', () => {
         ['a fullwidth host that IDNA maps onto a listed one', 'ｏａｓｔ．ｍｅ', 'oast.me'],
         ['a host that only ends in the same letters', 'notoast.me', null],
         ['a listed name used as a prefix', 'oast.me.evil.example', null],
-        ['a listed name in userinfo', 'user@oast.me', null],
-        ['a raw URL', 'https://oast.me/path', null],
+        ['a listed name behind userinfo', 'user@abc.oast.me', null],
+        ['a raw URL whose path ends in a listed name', 'https://evil.example/abc.oast.me', null],
         ['an unlisted host', 'example.com', null],
         ['an empty host', '', null],
     ])('matches %s', (_description, host, expected) => {
