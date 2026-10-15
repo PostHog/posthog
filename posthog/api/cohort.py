@@ -1862,6 +1862,8 @@ def get_insights_using_cohort(cohort: Cohort) -> QuerySet[Insight]:
 
 def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
     """Return other cohorts that include this cohort as criteria."""
+    # Legacy groups can store the cohort id as a string.
+    path_vars = json.dumps({"id": cohort.id, "id_text": str(cohort.id)})
     return (
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         Cohort.objects.filter(
@@ -1871,9 +1873,10 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
         .exclude(id=cohort.id)
         .extra(
             where=[
-                """jsonb_path_exists(filters, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)"""
+                # Cohort.properties reads groups only when filters is empty.
+                """jsonb_path_exists(COALESCE(NULLIF(filters, '{}'::jsonb), groups), '$.** ? (@.type == "cohort" && (@.value == $id || @.value == $id_text))', %s::jsonb)"""
             ],
-            params=[cohort.id, cohort.id],
+            params=[path_vars],
         )
         .order_by("id")
     )

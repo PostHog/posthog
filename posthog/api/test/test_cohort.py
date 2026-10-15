@@ -6136,9 +6136,19 @@ email@example.org,
             response.json()["detail"],
         )
 
+    @parameterized.expand(
+        [
+            ("filters", "filters", int, status.HTTP_400_BAD_REQUEST),
+            ("legacy_groups", "groups", int, status.HTTP_400_BAD_REQUEST),
+            ("legacy_groups_with_string_id", "groups", str, status.HTTP_400_BAD_REQUEST),
+            ("legacy_groups_beside_filters", "groups_beside_filters", int, status.HTTP_200_OK),
+        ]
+    )
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_cannot_delete_cohort_used_in_another_cohort(self, patch_calculate_cohort, patch_capture):
+    def test_cannot_delete_cohort_used_in_another_cohort(
+        self, _name: str, field: str, id_type: type, expected_status: int, patch_calculate_cohort, patch_capture
+    ) -> None:
         # Create base cohort
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -6146,18 +6156,19 @@ email@example.org,
         )
         base_cohort_id = response.json()["id"]
 
-        # Create dependent cohort that references the base cohort
-        dependent_response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts",
-            data={
-                "name": "Dependent Cohort",
-                "filters": {
-                    "properties": {
-                        "type": "AND",
-                        "values": [{"type": "cohort", "key": "id", "value": base_cohort_id}],
-                    }
-                },
+        reference = {"type": "cohort", "key": "id", "value": id_type(base_cohort_id)}
+        email_filter = {"type": "person", "key": "email", "operator": "icontains", "value": "@example.com"}
+        criteria: dict[str, Any] = {
+            "filters": {"filters": {"properties": {"type": "AND", "values": [reference]}}},
+            "groups": {"groups": [{"properties": [reference]}]},
+            # Cohort.properties ignores groups when filters is set.
+            "groups_beside_filters": {
+                "filters": {"properties": {"type": "AND", "values": [email_filter]}},
+                "groups": [{"properties": [reference]}],
             },
+        }[field]
+        dependent_response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts", data={"name": "Dependent Cohort", **criteria}
         )
         self.assertEqual(dependent_response.status_code, status.HTTP_201_CREATED)
 
@@ -6167,11 +6178,12 @@ email@example.org,
             data={"deleted": True},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(
-            "This cohort is used as criteria in 1 other cohort(s): Dependent Cohort",
-            response.json()["detail"],
-        )
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertIn(
+                "This cohort is used as criteria in 1 other cohort(s): Dependent Cohort",
+                response.json()["detail"],
+            )
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
