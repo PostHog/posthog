@@ -20,6 +20,7 @@ axum = { workspace = true }
 chrono = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
+metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }

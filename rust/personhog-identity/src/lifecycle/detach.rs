@@ -1,6 +1,10 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use personhog_common::grpc::{
+    current_caller_tag, current_client_name, current_method_name, CALLER_TAG, CLIENT_NAME,
+    METHOD_NAME,
+};
 use tokio::sync::Semaphore;
 use tokio::task::JoinError;
 use tokio_util::task::TaskTracker;
@@ -15,24 +19,18 @@ pub struct DetachedDrives {
     permits: Arc<Semaphore>,
 }
 
-struct InFlight {
-    tracker: TaskTracker,
-}
+struct InFlight;
 
 impl InFlight {
-    fn new(tracker: TaskTracker) -> Self {
-        common_metrics::gauge(DRIVES_IN_FLIGHT, &[], tracker.len() as f64);
-        Self { tracker }
+    fn new() -> Self {
+        metrics::gauge!(DRIVES_IN_FLIGHT).increment(1.0);
+        Self
     }
 }
 
 impl Drop for InFlight {
     fn drop(&mut self) {
-        common_metrics::gauge(
-            DRIVES_IN_FLIGHT,
-            &[],
-            self.tracker.len().saturating_sub(1) as f64,
-        );
+        metrics::gauge!(DRIVES_IN_FLIGHT).decrement(1.0);
     }
 }
 
@@ -62,12 +60,19 @@ impl DetachedDrives {
             &[("mode".to_string(), "detached".to_string())],
             1,
         );
-        let in_flight = InFlight::new(self.tracker.clone());
+        let in_flight = InFlight::new();
         let task = async move {
             let _permit = permit;
             let _in_flight = in_flight;
             drive.await
         };
+        let task = CLIENT_NAME.scope(
+            current_client_name(),
+            CALLER_TAG.scope(
+                current_caller_tag(),
+                METHOD_NAME.scope(current_method_name(), task),
+            ),
+        );
         self.tracker
             .spawn(task.instrument(tracing::Span::current()))
             .await
@@ -97,6 +102,9 @@ mod tests {
     use tokio::time::timeout;
 
     use super::DetachedDrives;
+    use personhog_common::grpc::{
+        current_client_name, current_method_name, CLIENT_NAME, METHOD_NAME,
+    };
 
     fn flag_after(
         flag: &Arc<AtomicBool>,
@@ -177,6 +185,23 @@ mod tests {
         release.send(()).expect("the first drive is still waiting");
         assert!(wait_for(&first).await);
         assert_eq!(drives.free_slots(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_detached_drive_keeps_the_requests_metric_attribution() {
+        let drives = DetachedDrives::new(4);
+        let seen = CLIENT_NAME
+            .scope(
+                Arc::from("router"),
+                METHOD_NAME.scope(
+                    Arc::from("MergePersons"),
+                    drives.run(async { (current_client_name(), current_method_name()) }),
+                ),
+            )
+            .await
+            .expect("the drive joins");
+        assert_eq!(&*seen.0, "router");
+        assert_eq!(&*seen.1, "MergePersons");
     }
 
     #[tokio::test]
