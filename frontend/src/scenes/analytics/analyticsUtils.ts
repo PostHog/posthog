@@ -2,6 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
+import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { fileSystemTypes, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import type { InsightShortId, UserBasicType } from '~/types'
@@ -206,6 +207,35 @@ export function fileSystemBaseType(type: string | undefined): string {
  * An analytics item from its file system row, for the folder tree and recents. The row knows the
  * creator and the person's own last view, but no tags and no project-wide access time.
  */
+/** The file system folder every product files new objects under until someone moves them. */
+export const UNFILED_FOLDER = 'Unfiled'
+
+/** The space an entry sits in: its top-level folder, or null when it is still unfiled (personal). */
+export function analyticsSpaceOfPath(path: string): string | null {
+    const [top] = splitPath(path)
+    return top && top !== UNFILED_FOLDER ? top : null
+}
+
+const SPACE_COLORS = [
+    'var(--color-product-product-analytics-light)',
+    'var(--color-product-dashboards-light)',
+    'var(--color-product-notebooks-light)',
+    'var(--color-product-feature-flags-light)',
+    'var(--color-product-experiments-light)',
+    'var(--color-product-surveys-light)',
+    'var(--color-product-web-analytics-light)',
+    'var(--color-product-session-replay-light)',
+]
+
+/** A stable colour for a space, from its name, so the same space looks the same everywhere. */
+export function analyticsSpaceColor(name: string): string {
+    let hash = 0
+    for (const char of name) {
+        hash = (hash * 31 + char.charCodeAt(0)) | 0
+    }
+    return SPACE_COLORS[Math.abs(hash) % SPACE_COLORS.length]
+}
+
 export function fileSystemEntryToAnalytics(
     entry: FileSystemEntry,
     users: Pick<UserBasicType, 'id' | 'uuid' | 'first_name' | 'last_name' | 'email'>[] = []
@@ -226,16 +256,16 @@ export function fileSystemEntryToAnalytics(
         id: entry.ref,
         name: fileSystemEntryName(entry),
         href,
-        timestamp: entry.last_viewed_at ?? entry.created_at ?? null,
-        timestampLabel: entry.last_viewed_at ? 'Viewed' : 'Created',
+        timestamp: entry.created_at ?? null,
+        timestampLabel: 'Created',
         createdAt: entry.created_at ?? null,
-        lastAccessedAt: null,
+        lastAccessedAt: entry.last_viewed_at ?? null,
         createdBy: creator
             ? { uuid: creator.uuid, first_name: creator.first_name, last_name: creator.last_name, email: creator.email }
             : null,
         tags: [],
-        spaceId: null,
-        spaceName: null,
+        spaceId: analyticsSpaceOfPath(entry.path),
+        spaceName: analyticsSpaceOfPath(entry.path),
         firstBuildTaskId: null,
     }
 }

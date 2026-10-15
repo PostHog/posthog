@@ -5,6 +5,8 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
+    IconStack,
+    IconStackItem,
     ItemContent,
     ItemDescription,
     ItemTitle,
@@ -21,7 +23,7 @@ interface NewAnalyticsMenuProps {
     children?: React.ReactNode
 }
 
-/** Asks which type of analytics to create, then hands off to that type's own create flow. */
+/** Asks which type of analysis to create, then hands off to that type's own create flow. */
 export function NewAnalyticsMenu({ trigger, source, children }: NewAnalyticsMenuProps): JSX.Element {
     const { pickNewAnalyticsType } = useActions(newAnalyticsLogic)
 
@@ -32,11 +34,15 @@ export function NewAnalyticsMenu({ trigger, source, children }: NewAnalyticsMenu
                 {ANALYTICS_TYPES.map((info) => (
                     <DropdownMenuItem
                         key={info.type}
-                        className="h-auto cursor-pointer items-start py-1.5 whitespace-normal [&>svg]:mt-1.5"
+                        className="h-auto cursor-pointer items-start py-1.5 whitespace-normal"
                         onClick={() => pickNewAnalyticsType(info.type, source)}
                         data-attr={`analytics-new-${info.type}`}
                     >
-                        <AnalyticsTypeIcon type={info.type} />
+                        <IconStack className="mt-0.5 shrink-0">
+                            <IconStackItem color={info.color}>
+                                <AnalyticsTypeIcon type={info.type} />
+                            </IconStackItem>
+                        </IconStack>
                         <ItemContent variant="menuItem">
                             <ItemTitle>{info.label}</ItemTitle>
                             <ItemDescription>{info.description}</ItemDescription>

@@ -59,6 +59,8 @@ export const DEFAULT_ANALYTICS_LIST_FILTERS: AnalyticsListFilters = {
 }
 
 export type AnalyticsListMode = 'feed' | 'folder'
+/** `all` lists what the project shares; `mine` lists everything the person created, shared or not. */
+export type AnalyticsListScope = 'all' | 'mine'
 
 export interface FolderContents {
     entries: FileSystemEntry[]
@@ -148,7 +150,9 @@ export interface analyticsListLogicValues {
     loading: boolean
     mode: AnalyticsListMode
     narrowingFiltersActive: boolean
+    scope: AnalyticsListScope
     searchInput: string
+    showPersonal: boolean
     shownQuery: AnalyticsFeedQuery | null
     subfolders: FolderRow[]
 }
@@ -216,8 +220,14 @@ export interface analyticsListLogicActions {
     setFiltersFromUrl: (filters: AnalyticsListFilters) => {
         filters: AnalyticsListFilters
     }
+    setScope: (scope: AnalyticsListScope) => {
+        scope: AnalyticsListScope
+    }
     setSearchInput: (search: string) => {
         search: string
+    }
+    setShowPersonal: (show: boolean) => {
+        show: boolean
     }
     setShownQuery: (query: AnalyticsFeedQuery) => {
         query: AnalyticsFeedQuery
@@ -233,7 +243,8 @@ export interface analyticsListLogicMeta {
         creator: (
             filters: AnalyticsListFilters,
             user: UserType | null,
-            meFirstMembers: OrganizationMemberType[]
+            meFirstMembers: OrganizationMemberType[],
+            scope: any
         ) => AnalyticsCreator | null
         feedQuery: (
             filters: AnalyticsListFilters,
@@ -259,7 +270,9 @@ export interface analyticsListLogicMeta {
             feed: AnalyticsFeed,
             folderContents: FolderContents | null,
             filters: AnalyticsListFilters,
-            user: UserType | null
+            user: UserType | null,
+            scope: any,
+            showPersonal: any
         ) => AnalyticsItem[]
         subfolders: (
             mode: AnalyticsListMode,
@@ -313,6 +326,8 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
         ],
     })),
     actions({
+        setScope: (scope: AnalyticsListScope) => ({ scope }),
+        setShowPersonal: (show: boolean) => ({ show }),
         setFilters: (filters: Partial<AnalyticsListFilters>) => ({ filters }),
         setFiltersFromUrl: (filters: AnalyticsListFilters) => ({ filters }),
         clearFilters: true,
@@ -343,6 +358,9 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
         ],
     })),
     reducers({
+        scope: ['all' as AnalyticsListScope, { setScope: (_, { scope }) => scope }],
+        // Personal rows are the unfiled ones. They stay out of the shared list until asked for.
+        showPersonal: [false, { setShowPersonal: (_, { show }) => show, setScope: () => false }],
         filters: [
             DEFAULT_ANALYTICS_LIST_FILTERS,
             {
@@ -385,12 +403,16 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             (filters: AnalyticsListFilters): boolean => analyticsListFiltersActive({ ...filters, folder: null }),
         ],
         creator: [
-            (s) => [s.filters, s.user, s.meFirstMembers],
+            (s) => [s.filters, s.user, s.meFirstMembers, s.scope],
             (
                 filters: AnalyticsListFilters,
                 user: UserType | null,
-                meFirstMembers: OrganizationMemberType[]
+                meFirstMembers: OrganizationMemberType[],
+                scope: AnalyticsListScope
             ): AnalyticsCreator | null => {
+                if (scope === 'mine') {
+                    return user ? { uuid: user.uuid, id: user.id } : null
+                }
                 if (!filters.createdBy) {
                     return null
                 }
@@ -445,16 +467,23 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             (currentFeed: AnalyticsFeed, feed: AnalyticsFeed): boolean => !currentFeed.initialized && feed.initialized,
         ],
         items: [
-            (s) => [s.mode, s.feed, s.folderContents, s.filters, s.user],
+            (s) => [s.mode, s.feed, s.folderContents, s.filters, s.user, s.scope, s.showPersonal],
             (
                 mode: AnalyticsListMode,
                 feed: AnalyticsFeed,
                 folderContents: FolderContents | null,
                 filters: AnalyticsListFilters,
-                user: UserType | null
+                user: UserType | null,
+                scope: AnalyticsListScope,
+                showPersonal: boolean
             ): AnalyticsItem[] => {
                 if (mode === 'feed') {
-                    return feed.items
+                    // A personal row belongs to its creator alone; the shared list hides them unless asked.
+                    return feed.items.filter(
+                        (item) =>
+                            item.spaceName !== null ||
+                            (item.createdBy?.uuid === user?.uuid && (scope === 'mine' || showPersonal))
+                    )
                 }
                 const entries = folderContents?.entries ?? []
                 const items = entries.flatMap((entry) => {
@@ -586,7 +615,9 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                     cache.visitStartedAt === undefined &&
                     !values.currentFeed.initialized &&
                     !values.currentFeed.loading &&
-                    removeProjectIdIfPresent(router.values.location.pathname) === urls.analyticsList()
+                    [urls.analyticsList(), urls.analyticsMine()].includes(
+                        removeProjectIdIfPresent(router.values.location.pathname)
+                    )
                 ) {
                     actions.loadList()
                 }
@@ -645,17 +676,23 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
         }
     }),
     actionToUrl(({ values }) => {
-        const toUrl = (): string => urls.analyticsList(analyticsListUrlParams(values.filters))
+        const toUrl = (): string =>
+            values.scope === 'mine'
+                ? urls.analyticsMine(analyticsListUrlParams(values.filters))
+                : urls.analyticsList(analyticsListUrlParams(values.filters))
         return {
             setFilters: toUrl,
             clearFilters: toUrl,
         }
     }),
-    urlToAction(({ actions, values }) => ({
-        [urls.analyticsList()]: (_, searchParams) => {
+    urlToAction(({ actions, values }) => {
+        const open = (scope: AnalyticsListScope, searchParams: Record<string, any>): void => {
             // The scene renders nothing without the flag, so it must not load anything either.
             if (!values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
                 return
+            }
+            if (values.scope !== scope) {
+                actions.setScope(scope)
             }
             const filters = analyticsListFiltersFromUrl(searchParams)
             if (JSON.stringify(filters) !== JSON.stringify(values.filters) || !values.currentFeed.initialized) {
@@ -664,6 +701,10 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             if (values.mode === 'feed' && !values.currentFeed.initialized) {
                 actions.loadList()
             }
-        },
-    })),
+        }
+        return {
+            [urls.analyticsList()]: (_, searchParams) => open('all', searchParams),
+            [urls.analyticsMine()]: (_, searchParams) => open('mine', searchParams),
+        }
+    }),
 ])

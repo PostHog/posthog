@@ -2,12 +2,15 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { analyticsShareLogic } from 'scenes/analytics/analyticsShareLogic'
+import { ShareToSpaceModal } from 'scenes/analytics/ShareToSpaceModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -83,6 +86,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const metricsAlertsEnabled = useFeatureFlag('METRICS')
+    const spacesEnabled = useFeatureFlag('TODAY_RAIL_NAV')
+    const { openShareToSpace } = useActions(analyticsShareLogic)
     const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
 
@@ -181,6 +186,38 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </LemonButton>
                         )}
 
+                        {insightMode !== ItemMode.Edit && isPersistedInsight && spacesEnabled && (
+                            <LemonMenu
+                                items={[
+                                    {
+                                        label: 'Share into a space',
+                                        icon: <IconShare />,
+                                        onClick: () =>
+                                            openShareToSpace({
+                                                type: 'insight',
+                                                ref: insight.short_id!,
+                                                name: insight.name || insight.derived_name || 'Untitled insight',
+                                            }),
+                                        'data-attr': 'insight-share-into-space',
+                                    },
+                                    {
+                                        label: 'Share publicly or embed',
+                                        onClick: () => push(urls.insightSharing(insight.short_id!)),
+                                        'data-attr': 'insight-share-publicly',
+                                    },
+                                ]}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconShare />}
+                                    data-attr="insight-share-menu"
+                                >
+                                    Share
+                                </LemonButton>
+                            </LemonMenu>
+                        )}
+
                         {insightMode !== ItemMode.Edit && isPersistedInsight && (
                             <InsightSubscribeProminentButton
                                 insightShortId={insight.short_id!}
@@ -255,6 +292,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     </>
                 }
             />
+            <ShareToSpaceModal />
         </>
     )
 }

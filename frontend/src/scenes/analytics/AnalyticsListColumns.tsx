@@ -1,28 +1,33 @@
-import { Chip, ChipGroup, DataTableProps, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { useActions } from 'kea'
+
+import { IconShare } from '@posthog/icons'
+import { Button, DataTableProps, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { AnalyticsOwner } from './AnalyticsOwner'
+import { analyticsShareLogic } from './analyticsShareLogic'
+import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
 import { ANALYTICS_TYPE_INFO, AnalyticsItem, analyticsOpenHref } from './analyticsUtils'
-
-// Two chips fit the fixed tags column; the rest fold into a count.
-const VISIBLE_TAGS = 2
 
 export type AnalyticsListColumns = DataTableProps<AnalyticsItem, unknown>['columns']
 
 function TimeCell({ time, label }: { time: string | null; label?: string }): JSX.Element {
     if (!time) {
         return (
-            <Text size="sm" variant="muted">
+            <Text size="xs" variant="muted">
                 –
             </Text>
         )
     }
     return (
         <Tooltip>
-            <TooltipTrigger render={<span className="text-sm whitespace-nowrap" translate="no" />}>
+            <TooltipTrigger
+                render={<span className="text-xs whitespace-nowrap text-muted-foreground" translate="no" />}
+            >
                 {label ? `${label} ${dayjs(time).fromNow()}` : dayjs(time).fromNow()}
             </TooltipTrigger>
             <TooltipContent>{dayjs(time).format('LLL')}</TooltipContent>
@@ -30,41 +35,51 @@ function TimeCell({ time, label }: { time: string | null; label?: string }): JSX
     )
 }
 
-function TagsCell({ tags }: { tags: string[] }): JSX.Element {
-    if (!tags.length) {
+function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
+    const { openShareToSpace } = useActions(analyticsShareLogic)
+    if (!item.spaceName) {
         return (
-            <Text size="sm" variant="muted">
-                –
-            </Text>
+            <Tooltip>
+                <TooltipTrigger
+                    render={
+                        <Button
+                            variant="link-muted"
+                            size="xs"
+                            className="h-auto gap-1 px-0 text-xs"
+                            onClick={() => openShareToSpace({ type: item.type, ref: item.id, name: item.name })}
+                            data-attr="analytics-list-row-share"
+                        />
+                    }
+                >
+                    Personal
+                    <IconShare className="size-3" />
+                </TooltipTrigger>
+                <TooltipContent>Share into a space</TooltipContent>
+            </Tooltip>
         )
     }
-    const hidden = tags.length - VISIBLE_TAGS
     return (
-        <ChipGroup className="flex-nowrap overflow-hidden">
-            {tags.slice(0, VISIBLE_TAGS).map((tag) => (
-                <Chip key={tag} size="xs" className="max-w-24 truncate">
-                    {tag}
-                </Chip>
-            ))}
-            {hidden > 0 && (
-                <Text size="xs" variant="muted">
-                    {`+${hidden}`}
-                </Text>
-            )}
-        </ChipGroup>
+        <LinkPrimitive
+            to={urls.analyticsList({ folder: item.spaceName })}
+            className="flex min-w-0 items-center gap-1.5 text-xs text-foreground"
+            data-attr="analytics-list-row-space"
+        >
+            <AnalyticsSpaceGlyph name={item.spaceName} />
+            <span className="truncate">{item.spaceName}</span>
+        </LinkPrimitive>
     )
 }
 
 /**
  * The list's columns. Every column but the title has a fixed width, so the title always gets the same
- * remainder and the table does not resize as the rows change.
+ * remainder and the table does not resize as the rows change. The type shows as the title's icon.
  */
 export function analyticsListColumns({
     backUrl,
-    showType,
+    showSpace,
 }: {
     backUrl: string
-    showType: boolean
+    showSpace: boolean
 }): AnalyticsListColumns {
     return [
         {
@@ -74,9 +89,20 @@ export function analyticsListColumns({
             enableSorting: false,
             cell: ({ row }) => (
                 <span className="flex min-w-48 items-center gap-2 overflow-hidden">
-                    <span className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4" aria-hidden>
-                        <AnalyticsTypeIcon type={row.original.type} />
-                    </span>
+                    <Tooltip>
+                        <TooltipTrigger
+                            render={
+                                <span
+                                    className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ color: ANALYTICS_TYPE_INFO[row.original.type].color }}
+                                />
+                            }
+                        >
+                            <AnalyticsTypeIcon type={row.original.type} />
+                        </TooltipTrigger>
+                        <TooltipContent>{ANALYTICS_TYPE_INFO[row.original.type].label}</TooltipContent>
+                    </Tooltip>
                     <LinkPrimitive
                         to={analyticsOpenHref(row.original, backUrl)}
                         className="truncate font-semibold text-foreground"
@@ -84,44 +110,28 @@ export function analyticsListColumns({
                     >
                         {row.original.name}
                     </LinkPrimitive>
-                    {row.original.spaceName && (
-                        <Text size="xs" variant="muted" className="shrink-0 truncate">
-                            {`#${row.original.spaceName}`}
-                        </Text>
-                    )}
                 </span>
             ),
         },
-        {
-            id: 'owner',
-            header: 'Owner',
-            enableSorting: false,
-            cell: ({ row }) => <AnalyticsOwner owner={row.original.createdBy} className="w-32" />,
-        },
-        // A single-type list repeats the type on every row, so the column goes and the title gets the room.
-        ...(showType
+        ...(showSpace
             ? ([
                   {
-                      id: 'type',
-                      header: 'Type',
+                      id: 'space',
+                      header: 'Space',
                       enableSorting: false,
                       cell: ({ row }) => (
-                          <Text size="sm" className="block w-20">
-                              {ANALYTICS_TYPE_INFO[row.original.type].label}
-                          </Text>
+                          <div className="w-36">
+                              <SpaceCell item={row.original} />
+                          </div>
                       ),
                   },
               ] satisfies AnalyticsListColumns)
             : []),
         {
-            id: 'tags',
-            header: 'Tags',
+            id: 'owner',
+            header: 'Owner',
             enableSorting: false,
-            cell: ({ row }) => (
-                <div className="w-36 overflow-hidden">
-                    <TagsCell tags={row.original.tags} />
-                </div>
-            ),
+            cell: ({ row }) => <AnalyticsOwner owner={row.original.createdBy} className="w-36" />,
         },
         {
             id: 'created',
@@ -135,16 +145,11 @@ export function analyticsListColumns({
         },
         {
             id: 'accessed',
-            header: 'Last accessed',
+            header: 'Last viewed',
             enableSorting: false,
-            // Only dashboards and insights record a project-wide access time, so the others show their best-known time.
             cell: ({ row }) => (
                 <div className="w-28">
-                    {row.original.lastAccessedAt ? (
-                        <TimeCell time={row.original.lastAccessedAt} />
-                    ) : (
-                        <TimeCell time={row.original.timestamp} label={row.original.timestampLabel} />
-                    )}
+                    <TimeCell time={row.original.lastAccessedAt} />
                 </div>
             ),
         },

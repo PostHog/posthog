@@ -1,25 +1,18 @@
-import { canvasesList } from 'products/canvas/frontend/generated/api'
-import { dashboardsList } from 'products/dashboards/frontend/generated/api'
-import { notebooksList } from 'products/notebooks/frontend/generated/api'
-import type { NotebooksListParams } from 'products/notebooks/frontend/generated/api.schemas'
-import { insightsList } from 'products/product_analytics/frontend/generated/api'
-import type { InsightsListParams } from 'products/product_analytics/frontend/generated/api.schemas'
+import api from 'lib/api'
+
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import {
     ANALYTICS_TYPES,
     AnalyticsItem,
     AnalyticsType,
     AnalyticsTypeFilter,
-    LISTED_CANVAS_KIND,
-    canvasToAnalytics,
-    dashboardToAnalytics,
-    insightToAnalytics,
-    notebookToAnalytics,
+    fileSystemEntryToAnalytics,
 } from './analyticsUtils'
 
 export const ANALYTICS_FEED_PAGE_SIZE = 50
 
-/** A creator, by both identifiers: the insights API filters on `id`, the notebooks API and the rows on `uuid`. */
+/** A creator, by both identifiers: some product APIs filter on `id`, the file system rows carry `uuid`. */
 export interface AnalyticsCreator {
     uuid: string
     /** Null until the member list resolves it; the rows are then narrowed on the client instead. */
@@ -81,82 +74,36 @@ export function matchesAnalyticsQuery(item: AnalyticsItem, query: AnalyticsFeedQ
     )
 }
 
+// Insights file as `insight` or under a subtype such as `insight/trends`, so they match on the prefix.
+export function fileSystemTypeParams(type: AnalyticsType): { type?: string; type__startswith?: string } {
+    return type === 'insight' ? { type__startswith: 'insight' } : { type }
+}
+
+/** One page of a type's rows from the project file system, newest first, with the row's space. */
 export async function fetchAnalyticsSourcePage(
-    projectId: string,
+    _projectId: string,
     type: AnalyticsType,
     query: AnalyticsFeedQuery,
     offset: number
 ): Promise<AnalyticsSourcePage> {
     const limit = ANALYTICS_FEED_PAGE_SIZE
-    const search = query.search.trim() || undefined
-    const page = (items: AnalyticsItem[], fetched: number, next: string | null | undefined): AnalyticsSourcePage => ({
-        items: items.filter((item) => matchesAnalyticsQuery(item, query)),
-        fetched,
-        hasMore: !!next && fetched > 0,
+    const result = await api.fileSystem.list({
+        ...fileSystemTypeParams(type),
+        search: query.search.trim() || undefined,
+        orderBy: '-created_at',
+        limit,
+        offset,
     })
-    if (type === 'canvas') {
-        // Canvases carry no tags, so a tag filter cannot match one.
-        if (query.tags.length) {
-            return { items: [], fetched: 0, hasMore: false }
-        }
-        const result = await canvasesList(projectId, {
-            kind: LISTED_CANVAS_KIND,
-            search,
-            ordering: '-updated_at',
-            limit,
-            offset,
-        })
-        return page(
-            result.results.map((canvas) => canvasToAnalytics(canvas, {})),
-            result.results.length,
-            result.next
-        )
-    }
-    if (type === 'notebook') {
-        if (query.tags.length) {
-            return { items: [], fetched: 0, hasMore: false }
-        }
-        // The notebooks endpoint filters on `search`, but its schema does not declare the parameter.
-        const params: NotebooksListParams & { search?: string } = {
-            limit,
-            offset,
-            search,
-            created_by: query.createdBy?.uuid,
-        }
-        const result = await notebooksList(projectId, params)
-        return page(
-            result.results.filter((notebook) => !notebook.deleted).map(notebookToAnalytics),
-            result.results.length,
-            result.next
-        )
-    }
-    if (type === 'insight') {
-        // The insights endpoint sorts on `order`, but its schema does not declare the parameter.
-        const params: InsightsListParams & { order: string } = {
-            basic: true,
-            saved: true,
-            search,
-            created_by: query.createdBy?.id != null ? JSON.stringify([query.createdBy.id]) : undefined,
-            tags: query.tags.length ? JSON.stringify(query.tags) : undefined,
-            order: '-last_modified_at',
-            limit,
-            offset,
-        }
-        const result = await insightsList(projectId, params)
-        return page(result.results.map(insightToAnalytics), result.results.length, result.next)
-    }
-    const result = await dashboardsList(projectId, { search, ordering: '-last_viewed_at', limit, offset })
-    return page(
-        result.results.filter((dashboard) => !dashboard.deleted).map(dashboardToAnalytics),
-        result.results.length,
-        result.next
-    )
+    const items = result.results.flatMap((entry: FileSystemEntry) => {
+        const item = fileSystemEntryToAnalytics(entry, result.users ?? [])
+        return item && matchesAnalyticsQuery(item, query) ? [item] : []
+    })
+    return { items, fetched: result.results.length, hasMore: !!result.next && result.results.length > 0 }
 }
 
 export function analyticsTime(item: AnalyticsItem): number {
     return item.timestamp ? new Date(item.timestamp).getTime() : 0
 }
-
 export function mergeAnalyticsSources(sources: (AnalyticsSourceState | undefined)[]): {
     items: AnalyticsItem[]
     blocking: AnalyticsSourceState[]

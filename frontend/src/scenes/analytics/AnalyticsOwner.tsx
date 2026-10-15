@@ -25,7 +25,7 @@ export function AnalyticsOwner({
 }): JSX.Element {
     if (!owner) {
         return (
-            <Text size="sm" variant="muted" className={className}>
+            <Text size="xs" variant="muted" className={className}>
                 –
             </Text>
         )
@@ -36,7 +36,7 @@ export function AnalyticsOwner({
             <Avatar size="xs">
                 <AvatarFallback>{initials(owner)}</AvatarFallback>
             </Avatar>
-            <Text size="sm" className="truncate">
+            <Text size="xs" className="truncate">
                 {name}
             </Text>
         </span>

@@ -109,6 +109,7 @@ export enum Scene {
     Library = 'Library',
     Analytics = 'Analytics',
     AnalyticsList = 'AnalyticsList',
+    AnalyticsSpaces = 'AnalyticsSpaces',
     Tools = 'Tools',
     Activity = 'Activity',
     LiveEvents = 'LiveEvents',

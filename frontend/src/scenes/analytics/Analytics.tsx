@@ -154,7 +154,7 @@ function RecentSection(): JSX.Element {
                         render={<LinkPrimitive to={urls.analyticsList()} />}
                         data-attr="analytics-home-recent-browse"
                     >
-                        Browse all analytics
+                        Browse all analyses
                     </Button>
                 </Empty>
             ) : (
