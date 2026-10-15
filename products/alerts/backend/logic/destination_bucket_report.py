@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Collection, Iterable, Iterator
-from uuid import UUID
 
-from products.alerts.backend.facade.contracts import BucketedDestination, DestinationEligibility
+from products.alerts.backend.facade.contracts import BucketedDestination
 from products.alerts.backend.logic.destination_eligibility import (
     bucket_for,
-    classify_alert_destinations,
+    classify_destinations_by_alert,
     classify_unbound_alert_destinations,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -18,26 +17,23 @@ from products.alerts.backend.models.alert import AlertConfiguration
 def bucketed_destinations(
     team_alerts: Iterable[tuple[int, str]], *, allowed_event_ids: Collection[str]
 ) -> Iterator[BucketedDestination]:
-    """Each alert's destinations, and once per team the destinations bound to no single alert."""
-    unbound_ids_by_team: dict[int, set[UUID]] = {}
+    """Per team, the destinations bound to no single alert, then each alert's own destinations."""
+    alert_ids_by_team: dict[int, list[str]] = {}
     for team_id, alert_id in team_alerts:
-        groups: list[tuple[str | None, tuple[DestinationEligibility, ...]]] = []
-        if team_id not in unbound_ids_by_team:
-            unbound = classify_unbound_alert_destinations(team_id=team_id, allowed_event_ids=allowed_event_ids)
-            unbound_ids_by_team[team_id] = {eligibility.hog_function_id for eligibility in unbound}
-            groups.append((None, unbound))
-        groups.append(
-            (
-                alert_id,
-                classify_alert_destinations(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids),
-            )
+        alert_ids_by_team.setdefault(team_id, []).append(alert_id)
+    for team_id, alert_ids in alert_ids_by_team.items():
+        unbound = classify_unbound_alert_destinations(team_id=team_id, allowed_event_ids=allowed_event_ids)
+        for eligibility in unbound:
+            yield BucketedDestination(team_id=team_id, alert_id=None, eligibility=eligibility)
+        unbound_ids = {eligibility.hog_function_id for eligibility in unbound}
+        by_alert = classify_destinations_by_alert(
+            team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids
         )
-        for group_alert_id, eligibilities in groups:
+        for alert_id, eligibilities in by_alert.items():
             for eligibility in eligibilities:
-                # A function that excludes this alert also matches its id, but it is unbound and reported once.
-                if group_alert_id is not None and eligibility.hog_function_id in unbound_ids_by_team[team_id]:
-                    continue
-                yield BucketedDestination(team_id=team_id, alert_id=group_alert_id, eligibility=eligibility)
+                # A function that excludes this alert also names its id, but it is unbound and reported once.
+                if eligibility.hog_function_id not in unbound_ids:
+                    yield BucketedDestination(team_id=team_id, alert_id=alert_id, eligibility=eligibility)
 
 
 def enabled_insight_alerts(*, team_id: int | None = None) -> Iterator[tuple[int, str]]:

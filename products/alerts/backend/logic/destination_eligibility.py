@@ -16,7 +16,7 @@ later edit can still be customized.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
@@ -67,6 +67,9 @@ _BUCKET_BY_HOLD_BACK: Final = {
 _BUCKET_ORDER: Final = tuple(DestinationBucket)
 
 
+# The alert-id match is an OR of JSON containment clauses, so a team's alerts are read in batches.
+_ALERT_BATCH_SIZE: Final = 200
+
 # Only these receive alert events. Any other function on the same event id reads captured events.
 _RECEIVES_ALERT_EVENTS: Final = {"type": "internal_destination", "filters__source": "internal-events"}
 
@@ -83,6 +86,26 @@ def classify_alert_destinations(
         .order_by("created_at", "id")
     )
     return _classify(team_id, functions)
+
+
+def classify_destinations_by_alert(
+    *, team_id: int, alert_ids: Sequence[str], allowed_event_ids: Collection[str]
+) -> dict[str, tuple[DestinationEligibility, ...]]:
+    """The destination functions of several alerts of one team, keyed by alert id."""
+    by_alert: dict[str, list[DestinationEligibility]] = {alert_id: [] for alert_id in alert_ids}
+    for start in range(0, len(alert_ids), _ALERT_BATCH_SIZE):
+        batch = set(alert_ids[start : start + _ALERT_BATCH_SIZE])
+        functions = list(
+            owned_alert_destinations_qs(
+                team_id=team_id, alert_ids=batch, allowed_event_ids=allowed_event_ids, known_templates_only=False
+            )
+            .filter(**_RECEIVES_ALERT_EVENTS)
+            .order_by("created_at", "id")
+        )
+        for function, eligibility in zip(functions, _classify(team_id, functions)):
+            for alert_id in _named_alert_ids(function.filters) & batch:
+                by_alert[alert_id].append(eligibility)
+    return {alert_id: tuple(eligibilities) for alert_id, eligibilities in by_alert.items()}
 
 
 def classify_unbound_alert_destinations(
@@ -144,6 +167,16 @@ def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[st
         .values_list("id", "filters")
     )
     return tuple(function_id for function_id, filters in candidates if not _bound_to_one_alert(filters))
+
+
+def _named_alert_ids(filters: Any) -> set[str]:
+    # Matches `owned_alert_destinations_qs`, which reads an alert id under any operator.
+    properties = filters.get("properties") if isinstance(filters, dict) else None
+    return {
+        prop["value"]
+        for prop in properties or ()
+        if isinstance(prop, dict) and prop.get("key") == "alert_id" and isinstance(prop.get("value"), str)
+    }
 
 
 def _bound_to_one_alert(filters: Any) -> bool:
