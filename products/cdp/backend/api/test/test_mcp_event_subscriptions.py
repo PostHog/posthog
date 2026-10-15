@@ -388,16 +388,26 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         self.assertFalse(function.enabled)
         self.assertFalse(function.encrypted_inputs)
 
-    def test_list_is_paginated_without_hiding_older_active_subscriptions(self) -> None:
-        subscription = self.subscribe()
+    def test_list_pages_keep_all_subscriptions_with_tied_creation_times(self) -> None:
+        first = self.subscribe()
+        self.payload["arguments"] = {
+            "project_id": self.team.pk,
+            "filters": {"events": [{"id": "second_event", "type": "events"}]},
+        }
+        second = self.subscribe()
+        MCPEventSubscription.objects.for_team(self.team.pk).filter(id__in=[first.pk, second.pk]).update(
+            created_at=timezone.now()
+        )
         response = self.client.get(self.url + "?limit=1", HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"])
         self.assertEqual(response.status_code, 200, response.json())
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(subscription.pk))
-        response = self.client.get(
-            self.url + "?limit=1&offset=1", HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"]
-        )
-        self.assertEqual(response.json()["results"], [])
+        page = response.json()
+        self.assertEqual(page["count"], 2)
+        self.assertIsNotNone(page["next"])
+        next_page = self.client.get(page["next"], HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"])
+        self.assertEqual(next_page.status_code, 200, next_page.json())
+        rows = page["results"] + next_page.json()["results"]
+        self.assertEqual([row["id"] for row in rows], sorted([str(first.pk), str(second.pk)], reverse=True))
+        self.assertIsNone(next_page.json()["next"])
 
     def test_worker_reload_is_scheduled_after_commit(self) -> None:
         with patch("products.cdp.backend.mcp_events.reload_hog_functions_on_workers") as reload:

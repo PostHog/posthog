@@ -4,7 +4,7 @@
 # To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: MCP events
 feature: cdp
-url_prefix: /pipeline/destinations
+url_prefix: /data-management/destinations
 ui_apps: {}
 tools:
     mcp-events-preview:

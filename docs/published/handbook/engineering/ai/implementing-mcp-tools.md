@@ -639,7 +639,7 @@ Delivery uses the source event UUID for both `eventId` and `webhook-id`, sends o
 
 Delivery authorization uses a separate rate-limit budget from client API requests. Queued deliveries carry the compiled filter that matched; authorization checks its recorded property dependencies against the subscriber’s current permissions. A changed compiled filter requires subscription renewal. Nested restricted properties and feature-flag aliases are removed before signing. Deleting a subscriber disables the managed destination.
 
-Workers queue managed deliveries as `mcp_event`, so workers without this operation cannot send them. The subscribing credential stays out of resolved invocation globals. Authorization retries honor `Retry-After`, and authorization time counts toward async execution limits.
+Workers queue managed deliveries as `mcp_event`, so workers without this operation cannot send them. The subscribing credential stays out of resolved invocation globals. Authorization retries honor `Retry-After`, and authorization time counts toward async execution limits. Connection failures return to the queue for fresh authorization before another send. Operator logs record sanitized authorization failure categories and invocation identifiers.
 
 The backend implementation lives under `products/cdp/backend/`; protocol adaptation lives in `services/mcp/src/hono/event-subscriptions.ts`. Generated tooling is configured in `products/cdp/mcp/tools.yaml`. The wire contract follows the [OpenAI MCP Events integration](https://developers.openai.com/plugins/build/mcp-events).
 

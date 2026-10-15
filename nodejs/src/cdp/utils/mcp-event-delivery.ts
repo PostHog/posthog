@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import type { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
 import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 import { internalFetch } from '~/common/utils/request'
 
 import type { CyclotronJobInvocationHogFunction } from '../types'
@@ -16,6 +17,37 @@ export type McpEventDeliveryResult =
     | { ok: true; body: string; headers: Record<string, string> }
     | { ok: false; status: number; retryAfterMs?: number }
 
+type AuthorizationFailureCategory = 'dns' | 'connection' | 'timeout' | 'network' | 'invalid_response'
+
+function authorizationFailureCategory(error: unknown): AuthorizationFailureCategory {
+    const cause = error instanceof Error && error.cause ? error.cause : error
+    const code = (cause as { code?: unknown } | null)?.code
+    const name = (cause as { name?: unknown } | null)?.name
+    if (name === 'SyntaxError') {
+        return 'invalid_response'
+    }
+    if (
+        name === 'TimeoutError' ||
+        name === 'AbortError' ||
+        [
+            'ETIMEDOUT',
+            'ABORT_ERR',
+            'UND_ERR_CONNECT_TIMEOUT',
+            'UND_ERR_HEADERS_TIMEOUT',
+            'UND_ERR_BODY_TIMEOUT',
+        ].includes(typeof code === 'string' ? code : '')
+    ) {
+        return 'timeout'
+    }
+    if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
+        return 'dns'
+    }
+    if (['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'UND_ERR_SOCKET'].includes(typeof code === 'string' ? code : '')) {
+        return 'connection'
+    }
+    return 'network'
+}
+
 export async function prepareMcpEventDelivery({
     invocation,
     params,
@@ -26,6 +58,16 @@ export async function prepareMcpEventDelivery({
     internalApiBaseUrl: string
 }): Promise<McpEventDeliveryResult> {
     const subscription = params.mcp_event_subscription
+    const logFailure = (category: AuthorizationFailureCategory | 'http_error', status?: number): void => {
+        logger.warn('[MCP event delivery] Authorization request failed', {
+            invocationId: invocation.id,
+            teamId: invocation.teamId,
+            hogFunctionId: invocation.hogFunction.id,
+            subscriptionId: subscription?.id,
+            category,
+            status,
+        })
+    }
     const credential = resolveHogFunctionInputValue(invocation.hogFunction, 'mcp_credential')
     if (!subscription || typeof credential !== 'string' || !credential) {
         return { ok: false, status: 403 }
@@ -49,6 +91,7 @@ export async function prepareMcpEventDelivery({
             }
         )
         if (response.status !== 200) {
+            logFailure('http_error', response.status)
             const retryAfter = response.headers?.['retry-after']
             const rawRetryAfter = Array.isArray(retryAfter) ? retryAfter[0] : retryAfter
             const parsedDelay = rawRetryAfter
@@ -70,10 +113,12 @@ export async function prepareMcpEventDelivery({
         }
         const parsed = DeliveryResponse.safeParse(parseJSON(await response.text()))
         if (!parsed.success) {
+            logFailure('invalid_response', response.status)
             return { ok: false, status: 503 }
         }
         return { ok: true, ...parsed.data }
-    } catch {
+    } catch (error) {
+        logFailure(authorizationFailureCategory(error))
         return { ok: false, status: 503 }
     }
 }
