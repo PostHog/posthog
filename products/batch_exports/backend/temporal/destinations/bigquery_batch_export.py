@@ -1322,9 +1322,7 @@ class BigQueryConsumer(Consumer):
             buffer_size=buffer_size,
         )
 
-        # Release the buffer's memory now: a reference to it can outlive the load (for example,
-        # through an exception traceback), and then the memory stays until the cyclic garbage
-        # collector runs.
+        # Release buffer in case a reference is kept by anybody else
         self.current_buffer.close()
         self.current_buffer = io.BytesIO()
 
