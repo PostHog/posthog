@@ -1120,6 +1120,24 @@ class TestWorkspaceCreation:
         else:
             coder.update_workspace("devbox-test-user")
 
+    def test_clone_workspace_forwards_source_and_creation_flags(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
+
+        coder.clone_workspace("devbox-test-user-copy", source_instance_id="i-0abc", disk_size=200, region="us-east-1")
+
+        args = captured["args"]
+        assert args[:3] == ["coder", "create", "devbox-test-user-copy"]
+        assert _flag_value(args, "--preset") == "none"
+        assert "--use-parameter-defaults" in args
+        assert _flag_value(args, "--automatic-updates") == "always"
+        assert "--yes" in args
+        assert _parse_parameter_flags(args) == {
+            "clone_source_instance_id": "i-0abc",
+            "disk_size": "200",
+            "workspace_region": "us-east-1",
+        }
+
     @pytest.mark.parametrize(
         "start_app, expected",
         [(True, "true"), (False, "false"), (None, None)],
