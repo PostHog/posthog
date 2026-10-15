@@ -1,0 +1,216 @@
+from datetime import UTC, date, datetime
+from typing import Any, Literal
+
+import pytest
+import time_machine
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.everflow.everflow import (
+    EverflowResumeConfig,
+    flatten_entity_row,
+    validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.everflow.source import EverflowSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.everflow import (
+    EverflowSourceConfig,
+)
+
+NOW = datetime(2026, 10, 15, 12, tzinfo=UTC)
+
+
+def _run(endpoint: str, script: Any, region: Literal["us", "eu"] = "us", **inputs: Any) -> DriveResult:
+    config = EverflowSourceConfig(api_key="ef_key", region=region, currency_code=None)
+    return SourceDriver(EverflowSource(), config).run(endpoint, script, **inputs)
+
+
+def _table_page(key: str, rows: list[dict[str, Any]], total: int) -> ScriptedResponse:
+    return ScriptedResponse(json={key: rows, "paging": {"page": 1, "page_size": 2000, "total_count": total}})
+
+
+def _entity_row(offer_id: str, affiliate_id: str, clicks: int) -> dict[str, Any]:
+    return {
+        "columns": [
+            {"column_type": "offer", "id": offer_id, "label": f"Offer {offer_id}"},
+            {"column_type": "affiliate", "id": affiliate_id, "label": f"Partner {affiliate_id}"},
+        ],
+        "reporting": {"total_click": clicks, "cv": 1, "payout": 2.5, "revenue": 4.0},
+    }
+
+
+class TestTables:
+    @pytest.mark.parametrize(("region", "host"), [("us", "api.eflow.team"), ("eu", "api-eu.eflow.team")])
+    def test_walks_pages_until_total_count_is_read(self, region: Literal["us", "eu"], host: str) -> None:
+        result = _run(
+            "offers",
+            [
+                _table_page("offers", [{"network_offer_id": 1}], total=2500),
+                _table_page("offers", [{"network_offer_id": 2}], total=2500),
+            ],
+            region=region,
+        )
+
+        assert result.raised is None
+        assert {request.origin for request in result.requests} == {f"https://{host}"}
+        assert [request.method for request in result.requests] == ["POST", "POST"]
+        assert result.paths == ["/v1/networks/offerstable"] * 2
+        assert result.params("page") == ["1", "2"]
+        assert result.params("page_size") == ["2000", "2000"]
+        assert result.requests[0].headers["x-eflow-api-key"] == "ef_key"
+        assert [row["network_offer_id"] for row in result.rows] == [1, 2]
+        assert result.saved_states == [EverflowResumeConfig(next_page=2)]
+
+    def test_a_rejected_key_fails_the_run_with_the_status_the_error_map_matches(self) -> None:
+        result = _run(
+            "affiliates", always(ScriptedResponse(status=401, json={"Error": "Unable to authenticate request"}))
+        )
+
+        assert result.raised is not None
+        assert "401 Client Error: Unauthorized for url" in str(result.raised)
+
+
+class TestConversions:
+    @time_machine.travel(NOW, tick=False)
+    @pytest.mark.parametrize(
+        ("incremental_field", "last_value", "expected_from"),
+        [
+            (None, None, "2025-10-15"),
+            ("conversion_unix_timestamp", int(datetime(2026, 9, 1, 23, tzinfo=UTC).timestamp()), "2026-09-01"),
+            ("conversion_unix_timestamp", int(datetime(2024, 1, 1, tzinfo=UTC).timestamp()), "2025-10-15"),
+        ],
+    )
+    def test_requests_a_window_inside_the_reports_365_day_reach(
+        self, incremental_field: str | None, last_value: Any, expected_from: str
+    ) -> None:
+        inputs: dict[str, Any] = {"db_incremental_field_last_value": last_value}
+        if incremental_field:
+            inputs["incremental_field"] = incremental_field
+        result = _run("conversions", [_table_page("conversions", [{"conversion_id": "c1"}], total=1)], **inputs)
+
+        assert result.raised is None
+        assert result.params("page_size") == ["500"]
+        assert result.requests[0].json() == {
+            "from": expected_from,
+            "to": "2026-10-15",
+            "timezone_id": 67,
+            "show_conversions": True,
+            "show_events": True,
+        }
+        assert result.response is not None and result.response.sort_mode == "desc"
+
+    @time_machine.travel(NOW, tick=False)
+    def test_resume_keeps_the_interrupted_window_and_page(self) -> None:
+        result = _run(
+            "conversions",
+            [_table_page("conversions", [], total=0)],
+            resume_state=EverflowResumeConfig(next_page=4, window_start="2026-08-01"),
+            incremental_field="conversion_unix_timestamp",
+            db_incremental_field_last_value=int(datetime(2026, 10, 1, tzinfo=UTC).timestamp()),
+        )
+
+        assert result.raised is None
+        assert result.params("page") == ["4"]
+        assert result.requests[0].json()["from"] == "2026-08-01"
+
+
+class TestDailyPerformance:
+    @time_machine.travel(NOW, tick=False)
+    def test_requests_one_day_at_a_time_and_stages_the_next_day(self) -> None:
+        result = _run(
+            "daily_performance",
+            [
+                ScriptedResponse(json={"table": [_entity_row("882", "102", 7)], "incomplete_results": False}),
+                ScriptedResponse(json={"table": []}),
+                ScriptedResponse(json={"table": [_entity_row("882", "103", 2)]}),
+            ],
+            incremental_field="date",
+            db_incremental_field_last_value=date(2026, 10, 13),
+        )
+
+        assert result.raised is None
+        assert [(request.json()["from"], request.json()["to"]) for request in result.requests] == [
+            ("2026-10-13", "2026-10-13"),
+            ("2026-10-14", "2026-10-14"),
+            ("2026-10-15", "2026-10-15"),
+        ]
+        assert result.requests[0].json()["currency_id"] == "USD"
+        assert [(row["date"], row["network_affiliate_id"], row["total_click"]) for row in result.rows] == [
+            ("2026-10-13", 102, 7),
+            ("2026-10-15", 103, 2),
+        ]
+        assert result.saved_states == [
+            EverflowResumeConfig(next_day="2026-10-14"),
+            EverflowResumeConfig(next_day="2026-10-15"),
+        ]
+        # The empty day still commits its cursor through the safe point.
+        assert EverflowResumeConfig(next_day="2026-10-15") in result.committed_states
+
+    @time_machine.travel(NOW, tick=False)
+    def test_resume_starts_at_the_saved_day(self) -> None:
+        result = _run(
+            "daily_performance",
+            [ScriptedResponse(json={"table": []})],
+            resume_state=EverflowResumeConfig(next_day="2026-10-15"),
+        )
+
+        assert result.raised is None
+        assert [request.json()["from"] for request in result.requests] == ["2026-10-15"]
+
+
+class TestFlattenEntityRow:
+    @pytest.mark.parametrize(
+        ("row", "expected"),
+        [
+            (
+                _entity_row("882", "102", 3),
+                {
+                    "date": "2026-10-01",
+                    "network_offer_id": 882,
+                    "offer_name": "Offer 882",
+                    "network_affiliate_id": 102,
+                    "affiliate_name": "Partner 102",
+                    "total_click": 3,
+                    "cv": 1,
+                    "payout": 2.5,
+                    "revenue": 4.0,
+                },
+            ),
+            (
+                {"columns": None, "reporting": None},
+                {"date": "2026-10-01", "network_offer_id": None, "network_affiliate_id": None},
+            ),
+        ],
+    )
+    def test_flattens_columns_and_metrics(self, row: dict[str, Any], expected: dict[str, Any]) -> None:
+        assert flatten_entity_row(row, "2026-10-01") == expected
+
+
+class TestValidateCredentials:
+    @pytest.mark.parametrize(
+        ("response", "expected_valid", "message_fragment"),
+        [
+            (ScriptedResponse(json={"offers": [], "paging": {"total_count": 0}}), True, None),
+            (
+                ScriptedResponse(status=401, json={"Error": "Unable to authenticate request"}),
+                False,
+                "rejected the API key",
+            ),
+            (ScriptedResponse(status=403, body=b"Out of realm"), False, "network API key"),
+            (ConnectionError("boom"), False, "Could not connect"),
+        ],
+    )
+    def test_maps_the_probe_result(self, response: Any, expected_valid: bool, message_fragment: str | None) -> None:
+        with scripted_network(always(response)) as network:
+            is_valid, message = validate_credentials("ef_key", "us")
+
+        assert is_valid is expected_valid
+        if message_fragment is None:
+            assert message is None
+        else:
+            assert message is not None and message_fragment in message
+        assert {request.path for request in network.requests_log} == {"/v1/networks/offerstable"}
