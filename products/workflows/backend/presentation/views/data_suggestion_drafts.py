@@ -9,11 +9,11 @@ from rest_framework.exceptions import ValidationError
 from posthog.event_usage import EventSource
 from posthog.models import Team, User
 
+from products.workflows.backend.facade.activity import log_workflow_activity
 from products.workflows.backend.facade.contracts import WorkflowActor
+from products.workflows.backend.facade.writes import create_workflow
 from products.workflows.backend.presentation.views.graph_validation import validate_graph
 from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
-from products.workflows.backend.services.hog_flow_activity import log_workflow_activity
-from products.workflows.backend.services.hog_flow_writes import create_workflow
 
 logger = structlog.get_logger(__name__)
 
