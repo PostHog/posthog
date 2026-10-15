@@ -18,6 +18,7 @@ from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.dispatcher import SeriesEvaluation
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_source_cycle import (
@@ -36,6 +37,8 @@ from products.alerts_platform.backend.facade.api import record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertBatchKey,
     AlertEventKind,
+    Grouping,
+    GroupingMode,
     PlatformAlertOutcome,
     PlatformConfigurationSnapshot,
     SourceEvaluationInputs,
@@ -56,7 +59,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     def _alert(self, **overrides: Any) -> AlertConfiguration:
         return create_insight_alert(self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), **overrides})
 
-    def _copy(self, alert: AlertConfiguration | None) -> PlatformConfigurationSnapshot:
+    def _copy(self, alert: AlertConfiguration | None, **overrides: Any) -> PlatformConfigurationSnapshot:
         with team_scope(self.team.id):
             return platform_testing.create_configuration(
                 team_id=self.team.id,
@@ -67,7 +70,48 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 recurrence_unit="day",
                 next_check_at=CUTOFF - timedelta(minutes=1),
                 legacy_configuration_id=alert.id if alert else None,
+                **overrides,
             )
+
+    def _evaluate_per_series(
+        self, configuration: PlatformConfigurationSnapshot, values: dict[str, float]
+    ) -> PlatformAlertOutcome:
+        slot = slot_of(configuration.next_check_at, CUTOFF)
+        expires_at = time.time() + 3600
+        assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(configuration.id),)
+        evaluated = tuple(
+            SeriesEvaluation(
+                label=label, result=AlertEvaluationResult(value=value, breaches=["above 100"] if value > 100 else [])
+            )
+            for label, value in values.items()
+        )
+        with patch(f"{_MODULE}.check_alert_per_series", return_value=evaluated):
+            evaluation = evaluate_insight_check(
+                self.team.id, slot, CUTOFF, str(configuration.id), held_until=expires_at, evaluation_id="test"
+            )
+        assert evaluation is not None
+        (outcome,) = evaluation.outcomes
+        return outcome
+
+    def test_each_breakdown_value_fires_and_resolves_on_its_own(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
+        configuration = self._copy(self._alert(), grouping=grouping.to_stored())
+
+        fired = self._evaluate_per_series(configuration, {"Chrome": 150.0, "Safari": 40.0, "Firefox": 120.0})
+        record_outcomes(self.team.id, (fired,), CUTOFF)
+        assert {group.grouping_key: group.kind for group in fired.groups} == {
+            "Chrome": AlertEventKind.FIRING,
+            "Firefox": AlertEventKind.FIRING,
+        }
+
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
+        resolved = self._evaluate_per_series(configuration, {"Chrome": 150.0})
+
+        assert {group.grouping_key: group.new_state for group in resolved.groups} == {
+            "Chrome": "firing",
+            "Firefox": "not_firing",
+        }
 
     def _evaluate(
         self, configuration: PlatformConfigurationSnapshot, *, result: Any = None
@@ -94,7 +138,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert get_query_tags().ch_user == ClickHouseUser.ALERTS_PLATFORM_INSIGHT
         record_outcomes(self.team.id, (outcome,), CUTOFF)
 
-        assert (outcome.kind, outcome.value, outcome.evaluation_key) == (
+        assert (outcome.groups[0].kind, outcome.groups[0].value, outcome.evaluation_key) == (
             AlertEventKind.FIRING,
             150.0,
             f"slot:{slot_of(configuration.next_check_at, CUTOFF)}",
@@ -158,7 +202,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         query.assert_not_called()
         assert outcome is not None
-        assert (outcome.kind, outcome.new_state, outcome.disable) == (AlertEventKind.CHECK, state, False)
+        assert (outcome.groups[0].kind, outcome.groups[0].new_state, outcome.disable) == (
+            AlertEventKind.CHECK,
+            state,
+            False,
+        )
 
     def test_a_copy_whose_production_alert_is_gone_is_disabled(self) -> None:
         outcome, query = self._evaluate(self._copy(None))
@@ -176,7 +224,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         outcome, _ = self._evaluate(self._copy(self._alert()), result=error)
 
         assert outcome is not None
-        assert (outcome.kind, outcome.new_state, outcome.error_message, outcome.disable) == (
+        assert (outcome.groups[0].kind, outcome.groups[0].new_state, outcome.error_message, outcome.disable) == (
             AlertEventKind.CHECK,
             "not_firing",
             CAPACITY_REJECTED,
@@ -187,7 +235,12 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         outcome, _ = self._evaluate(self._copy(self._alert()), result=AlertExtractionError("bad query shape"))
 
         assert outcome is not None
-        assert (outcome.kind, outcome.new_state, outcome.disable) == (AlertEventKind.ERRORED, "errored", True)
+        assert outcome.failure is not None and outcome.groups == ()
+        assert (outcome.failure.kind, outcome.failure.new_state, outcome.disable) == (
+            AlertEventKind.ERRORED,
+            "errored",
+            True,
+        )
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_the_pool_defers_what_it_cannot_hold_until_a_check_frees_its_slot(self) -> None:

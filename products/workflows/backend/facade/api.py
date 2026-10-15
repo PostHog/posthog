@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from typing import Any
 from uuid import UUID
 
@@ -9,6 +9,7 @@ from posthog.ingress.contracts import WebhookDelivery
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
+    CohortDependentWorkflow,
     EmailDomainDnsRecord,
     EmailDomainVerification,
     RecentWorkflow,
@@ -89,6 +90,7 @@ def search_workflows(
     if include_archived:
         statuses.append(HogFlow.State.ARCHIVED)
     queryset = access_control.filter_queryset_by_access_level(
+        # nosemgrep: environment-model-scoped-by-project -- keeps the project-wide scope core /api/search used for workflows before the facade move; owners decide whether search narrows to one environment
         HogFlow.objects.filter(team__project_id=project_id, status__in=statuses)
     )
 
@@ -219,6 +221,20 @@ def get_active_workflows_using_integration(*, team_id: int, integration_id: int)
     return [
         WorkflowSummary(id=str(flow.id), name=flow.name or "", status=flow.status)
         for flow in get_active_hog_flows_using_integration(team_id=team_id, integration_id=integration_id)
+    ]
+
+
+def get_active_workflows_using_realtime_cohort(
+    *, team_id: int, cohort_ids: Collection[int]
+) -> list[CohortDependentWorkflow]:
+    # Deferred to keep the cdp filter compiler, and the HogQL schema it loads, off the django.setup() path.
+    from products.workflows.backend.services.cohort_usage import (  # noqa: PLC0415
+        get_active_hog_flows_using_realtime_cohort,
+    )
+
+    return [
+        CohortDependentWorkflow(id=str(flow.id), name=flow.name or "", status=flow.status)
+        for flow in get_active_hog_flows_using_realtime_cohort(team_id=team_id, cohort_ids=cohort_ids)
     ]
 
 

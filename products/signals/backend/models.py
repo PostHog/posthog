@@ -1264,6 +1264,9 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
     review_decision = models.CharField(max_length=20, choices=ReviewDecision, null=True, blank=True)
     merged_at = models.DateTimeField(null=True, blank=True)
     checked_at = models.DateTimeField(null=True, blank=True)
+    participant_ids = ArrayField(models.PositiveBigIntegerField(), null=True, blank=True)
+    participant_logins = ArrayField(models.CharField(max_length=255), null=True, blank=True)
+    participants_synced_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1271,6 +1274,7 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "repository", "number"], name="signals_pr_identity_unique"),
         ]
+        indexes = [models.Index(fields=["team", "merged_at"], name="signals_pr_team_merged_idx")]
 
 
 class SignalEmissionRecord(UUIDModel):
@@ -3492,9 +3496,8 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
 class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
     """Deterministic snapshot of "what's true about this project" — agent orientation surface.
 
-    One row per (team, computed_at). Time-series so Phase 7 can diff a new profile against
-    the previous row to populate `payload.deltas`. v1 (Phase 4a) writes inventory only;
-    Phase 7 layers on deltas, activity_notes, and an LLM narrative section.
+    One row per (team, computed_at). The payload holds the inventory layer only. The last
+    few rows per team are kept for debugging.
 
     Profile is the *deterministic ground truth* about a project (computed from authoritative
     tables). Distinct from `SignalScratchpad`, which is the *agent's inferred learnings* (possibly
@@ -3511,16 +3514,14 @@ class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
         related_name="signal_project_profiles",
     )
     computed_at = models.DateTimeField(auto_now_add=True)
-    # Soft TTL — `get_project_profile` treats rows past expiry as cache misses and recomputes.
-    # Aligned to the coordinator tick (`PROFILE_TTL`) so an active team's agent runs see
-    # ground-truth that's at most one tick stale. Callers that know the underlying data
+    # Soft TTL (`PROFILE_TTL`) — `get_project_profile` treats rows past expiry as cache misses
+    # and recomputes for the scout. Read-only callers still get an expired row, marked stale. Callers that know the underlying data
     # just changed can punch through the cache via `get_project_profile(force_refresh=True)`.
     expires_at = models.DateTimeField()
     # Bumps when the inventory schema changes meaningfully so `get_project_profile` can
     # invalidate stale rows without a manual backfill.
     source_version = models.CharField(max_length=40)
-    # Structured payload: `{inventory: {...}}` in v1; `deltas`, `activity_notes`, `narrative`
-    # slots reserved for Phase 7. Stored as jsonb because the payload is written by one
+    # Structured payload: `{inventory: {...}}`. Stored as jsonb because the payload is written by one
     # builder, read whole, and never field-queried — relational columns would buy no query
     # benefit and a migration per section as coverage grows. Not schemaless, though:
     # `build_inventory` returns a validated `Inventory` model (see

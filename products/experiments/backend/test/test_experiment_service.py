@@ -3905,7 +3905,7 @@ class TestExperimentService(APIBaseTest):
                 "launch_endpoint",
                 lambda self: self._create_launchable_experiment(name="Path L", feature_flag_key="path-launch-flag"),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 0, [], [])],
+                [("launch_endpoint", 0, [], [], [])],
             ),
             (
                 "launch_endpoint_with_a_qa_override",
@@ -3919,6 +3919,7 @@ class TestExperimentService(APIBaseTest):
                         0,
                         ["forced_variant_release_condition"],
                         ["forced_variant_release_condition:some_conditions_pinned"],
+                        ["forced_variant_release_condition:some_conditions_pinned:info:"],
                     )
                 ],
             ),
@@ -3928,7 +3929,7 @@ class TestExperimentService(APIBaseTest):
                     timedelta(days=3, hours=2), name="Path O", feature_flag_key="path-older-flag"
                 ),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 266400, [], [])],
+                [("launch_endpoint", 266400, [], [], [])],
             ),
             (
                 "create_with_start_date",
@@ -3939,7 +3940,7 @@ class TestExperimentService(APIBaseTest):
                     start_date=timezone.now(),
                     event_source=EventSource.API,
                 ),
-                [("create_request", 0, ["no_metric"], [])],
+                [("create_request", 0, ["no_metric"], [], ["no_metric::warning:"])],
             ),
             (
                 "create_draft",
@@ -3955,7 +3956,7 @@ class TestExperimentService(APIBaseTest):
                 lambda service, experiment, request: service.update_experiment(
                     experiment, {"start_date": timezone.now()}, event_source=EventSource.API
                 ),
-                [("update_start_date", 0, [], [])],
+                [("update_start_date", 0, [], [], [])],
             ),
             (
                 "update_moves_start_date_of_running",
@@ -3985,6 +3986,7 @@ class TestExperimentService(APIBaseTest):
                 event["flag_age_seconds"],
                 event["health_finding_codes"],
                 event["health_finding_subcodes"],
+                event["health_findings"],
             )
             for event in launched
         ] == expected
@@ -6810,6 +6812,33 @@ class TestExperimentService(APIBaseTest):
             service.update_experiment(experiment, {"metrics": [stale, fresh]})
 
         assert "999999" in str(ctx.exception.detail)
+
+    @parameterized.expand([("inline",), ("saved_metric",)])
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_metric_action_needs_viewer_access_unless_already_referenced(self, placement: str):
+        action = Action.objects.create(team=self.team, name="restricted action", created_by=self.user)
+        AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
+        metric = {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
+        definition: dict = {"metrics": [metric], "metrics_secondary": []}
+        if placement == "saved_metric":
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=self.team, name="Restricted", query={**metric, "uuid": "restricted-sm"}, created_by=self.user
+            )
+            definition = {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": "primary"}}]}
+        experiment = self._service().create_experiment(
+            name="Restricted Action", feature_flag_key=f"restricted-action-{placement}", **definition
+        )
+        member_service = ExperimentService(team=self.team, user=self._create_user("experiment-member@example.com"))
+
+        with self.assertRaises(PermissionDenied):
+            member_service.create_experiment(
+                name="Member Restricted Action", feature_flag_key=f"member-restricted-action-{placement}", **definition
+            )
+        member_service.update_experiment(experiment, definition)
+
+        assert len(experiment.metrics or []) + experiment.experimenttosavedmetric_set.count() == 1
 
     def test_funnel_metric_with_empty_series_raises(self):
         # The experiment exposure event is prepended as step_0 at query time, so an

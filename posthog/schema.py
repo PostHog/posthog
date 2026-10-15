@@ -270,6 +270,7 @@ from posthog.schema_enums import (
     RecordingOrder as RecordingOrder,
     RecordingOrderDirection as RecordingOrderDirection,
     RedditAdsDefaultSources as RedditAdsDefaultSources,
+    ReferenceLines as ReferenceLines,
     RefreshType as RefreshType,
     ResultCustomizationBy as ResultCustomizationBy,
     RetentionDashboardDisplayType as RetentionDashboardDisplayType,
@@ -521,10 +522,7 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
     displayType: DisplayType | None = Field(
         default=None,
         description=(
-            "Override how this individual series is rendered, independent of the"
-            " chart-level `display` type. Use this to mix series types — e.g. plot one"
-            " series as `bar` and overlay another as `line`. `auto` follows the"
-            " chart-level display type."
+            "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type."
         ),
     )
     label: str | None = Field(
@@ -984,6 +982,14 @@ class BIConditionGroup(BaseModel):
     operator: Operator1
 
 
+class Alias(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: str | None = None
+
+
 class BIDataSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1009,6 +1015,7 @@ class BILocalFieldDefinition2(BaseModel):
     groups: list[BICategoryGroup]
     kind: Literal["groups"] = "groups"
     other: str
+    preserveUngrouped: bool | None = None
 
 
 class BILocalFieldDefinition3(BaseModel):
@@ -1019,6 +1026,24 @@ class BILocalFieldDefinition3(BaseModel):
     kind: Literal["bins"] = "bins"
     origin: float
     width: float
+
+
+class BIPaneSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: list[str] = Field(
+        ...,
+        description=("Ordered dimension IDs used to split returned groups into separate charts."),
+    )
+    independentAxes: bool | None = Field(
+        default=None,
+        description=("Use a separate value scale for each pane instead of a shared primary scale."),
+    )
+    referenceLines: ReferenceLines | None = Field(
+        default=None,
+        description=("Calculate reference lines from each pane or from all returned worksheet marks."),
+    )
 
 
 class BITotals(BaseModel):
@@ -4067,6 +4092,11 @@ class AssistantElementPropertyFilter5(BaseModel):
     )
 
 
+class AssistantEventsQuery(BaseModel):
+    kind: Literal["EventsQuery"] = "EventsQuery"
+    select: list[str] = Field(..., description="Event columns as HogQL expressions.")
+
+
 class AssistantForm(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5162,6 +5192,7 @@ class BIFilter(BaseModel):
     customExpression: str | None = None
     enabled: bool | None = None
     field: BIField
+    label: str | None = None
     operator: BIFilterOperator
     value: str
     valueTo: str | None = None
@@ -5183,6 +5214,7 @@ class BIResultFilter(BaseModel):
     )
     enabled: bool | None = None
     id: str
+    label: str | None = None
     measureIndex: conint(ge=0)
     operator: Operator2
     value: str
@@ -6293,6 +6325,16 @@ class HogQLQueryModifiers(BaseModel):
         ),
     )
     sessionTableVersion: SessionTableVersion | None = None
+    sessionTimestampBufferMinutes: int | None = Field(
+        default=None,
+        description=(
+            "Padding, in minutes, on each side of the event time range when it filters"
+            " the sessions table by session start. Defaults to 3 days. It can only"
+            " narrow the range: values above the default are ignored. Lower it only for"
+            " a query that keeps just the sessions that start inside its own time"
+            " range."
+        ),
+    )
     sessionsV2JoinMode: SessionsV2JoinMode | None = None
     timings: bool | None = None
     typeAwareCastSimplification: bool | None = Field(
@@ -6304,6 +6346,17 @@ class HogQLQueryModifiers(BaseModel):
         ),
     )
     useMaterializedViews: bool | None = None
+    useNewEventsCluster: bool | None = Field(
+        default=None,
+        description=(
+            "Read this query from the native events cluster and native JSON events"
+            " table (`true`), or keep its existing connection (`false` or unset). This"
+            " is an internal rollout switch for eligible projects. PostHog staff manage"
+            " eligibility through instance settings. Each query must opt in; project"
+            " defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons"
+            " are supported."
+        ),
+    )
     useNewEventsSchema: bool | None = Field(
         default=None,
         description=(
@@ -6911,6 +6964,13 @@ class MaxRecordingEventFilter(BaseModel):
     )
     id: str = Field(..., description="Name of the event.")
     name: str | None = Field(default=None, description="Optional display name for this event.")
+    negation: bool | None = Field(
+        default=None,
+        description=(
+            "Set to true to match sessions that did NOT contain this event. Only set it"
+            " when the tool description says excluding sessions by event is supported."
+        ),
+    )
     properties: (
         list[
             AssistantCohortPropertyFilter
@@ -10200,6 +10260,11 @@ class AssistantBehavioralPropertyFilter(BaseModel):
     value: InlineBehavioralType
 
 
+class AssistantDataTableNode(BaseModel):
+    kind: Literal["DataTableNode"] = "DataTableNode"
+    source: AssistantEventsQuery
+
+
 class AssistantDataVisualizationNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10211,18 +10276,13 @@ class AssistantDataVisualizationNode(BaseModel):
     display: AssistantDataVisualizationDisplayType | None = Field(
         default=None,
         description=(
-            "Visualization type. Defaults to `ActionsTable` when"
-            " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
-            " row) → `BoldNumber`.\n- Headline number with its change over time (KPI,"
-            " scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Parts of one whole → `ActionsPie`, `ActionsDonut`"
-            " or `ActionsProportionBar`.\n- Categorical comparison → `ActionsBar` or"
-            " `ActionsStackedBar`.\n- Ranking of categories by one value (top N,"
-            " horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation →"
-            " `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures,"
-            " one point per row → `ScatterPlot`.\n- Distribution summaries from"
-            " pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n-"
-            " Otherwise → `ActionsTable`."
+            "Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` ="
+            " KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie`"
+            " / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` /"
+            " `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal"
+            " rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two"
+            " measures; `BoxPlot` = distribution summaries with"
+            " `chartSettings.boxPlot`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
@@ -11395,6 +11455,24 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
     )
 
 
+class HierarchyDrillPathItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filterIds: list[str]
+    hierarchyId: str
+    nextField: BIField
+    previousField: BIField
+
+
+class MemberAliase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aliases: list[Alias]
+    field: BIField
+
+
 class BIConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11417,13 +11495,19 @@ class BIConfig(BaseModel):
         default=None,
         description=("Named dimension sequences saved with the worksheet; imports are independent copies."),
     )
+    hierarchyDrillPath: list[HierarchyDrillPathItem] | None = None
     limit: BIQueryLimit
     localFields: list[BIField] | None = Field(
         default=None, description="Reusable expressions owned by this worksheet only."
     )
+    memberAliases: list[MemberAliase] | None = None
     missingDates: MissingDates | None = Field(
         default=None,
         description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
+    )
+    panes: BIPaneSettings | None = Field(
+        default=None,
+        description=("Split the returned groups into charts using these ordered dimension IDs."),
     )
     resultFilterGroup: BIConditionGroup | None = None
     resultFilters: list[BIResultFilter] | None = None
@@ -18974,10 +19058,22 @@ class InsightActorsQueryBase(BaseModel):
 
 class InsightQuery(
     RootModel[
-        AssistantInsightVizNode | AssistantDataVisualizationNode | AssistantBareInsightQuery | AssistantBareHogQLQuery
+        AssistantDataTableNode
+        | AssistantInsightVizNode
+        | AssistantDataVisualizationNode
+        | AssistantBareInsightQuery
+        | AssistantBareHogQLQuery
+        | AssistantEventsQuery
     ]
 ):
-    root: AssistantInsightVizNode | AssistantDataVisualizationNode | AssistantBareInsightQuery | AssistantBareHogQLQuery
+    root: (
+        AssistantDataTableNode
+        | AssistantInsightVizNode
+        | AssistantDataVisualizationNode
+        | AssistantBareInsightQuery
+        | AssistantBareHogQLQuery
+        | AssistantEventsQuery
+    )
 
 
 class IsolationForestDetectorConfig(BaseModel):

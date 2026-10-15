@@ -2372,6 +2372,20 @@
             "required": ["type", "key", "value", "operator"],
             "type": "object"
         },
+        "AssistantDataTableNode": {
+            "additionalProperties": {},
+            "properties": {
+                "kind": {
+                    "const": "DataTableNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantEventsQuery"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "AssistantDataVisualizationAxis": {
             "additionalProperties": false,
             "properties": {
@@ -2395,7 +2409,7 @@
                     "type": "string"
                 },
                 "displayType": {
-                    "description": "Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.",
+                    "description": "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type.",
                     "enum": ["auto", "line", "bar", "area"],
                     "type": "string"
                 },
@@ -2630,7 +2644,7 @@
                 },
                 "display": {
                     "$ref": "#/definitions/AssistantDataVisualizationDisplayType",
-                    "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Headline number with its change over time (KPI, scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Parts of one whole → `ActionsPie`, `ActionsDonut` or `ActionsProportionBar`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`."
+                    "description": "Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures; `BoxPlot` = distribution summaries with `chartSettings.boxPlot`."
                 },
                 "kind": {
                     "const": "DataVisualizationNode",
@@ -2967,6 +2981,24 @@
         "AssistantEventType": {
             "enum": ["status", "message", "conversation", "notebook", "update", "approval", "sandbox"],
             "type": "string"
+        },
+        "AssistantEventsQuery": {
+            "additionalProperties": {},
+            "properties": {
+                "kind": {
+                    "const": "EventsQuery",
+                    "type": "string"
+                },
+                "select": {
+                    "description": "Event columns as HogQL expressions.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "select"],
+            "type": "object"
         },
         "AssistantFlagPropertyFilter": {
             "additionalProperties": false,
@@ -5149,6 +5181,7 @@
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
                 "marketing_suggest_utm_mappings",
+                "compare_replay_vision_variants",
                 "draft_replay_vision_scanner_prompt",
                 "search_replay_vision_observations",
                 "scan_replay_vision_sessions",
@@ -6192,6 +6225,31 @@
                     },
                     "type": "array"
                 },
+                "hierarchyDrillPath": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "filterIds": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "hierarchyId": {
+                                "type": "string"
+                            },
+                            "nextField": {
+                                "$ref": "#/definitions/BIField"
+                            },
+                            "previousField": {
+                                "$ref": "#/definitions/BIField"
+                            }
+                        },
+                        "required": ["hierarchyId", "previousField", "nextField", "filterIds"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
                 "limit": {
                     "$ref": "#/definitions/BIQueryLimit"
                 },
@@ -6202,10 +6260,43 @@
                     },
                     "type": "array"
                 },
+                "memberAliases": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "aliases": {
+                                "items": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "label": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "type": ["string", "null"]
+                                        }
+                                    },
+                                    "required": ["value", "label"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "field": {
+                                "$ref": "#/definitions/BIField"
+                            }
+                        },
+                        "required": ["field", "aliases"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
                 "missingDates": {
                     "description": "Fill missing date buckets before table calculations. Unset preserves observed points only.",
                     "enum": ["gap", "zero"],
                     "type": "string"
+                },
+                "panes": {
+                    "$ref": "#/definitions/BIPaneSettings",
+                    "description": "Split the returned groups into charts using these ordered dimension IDs."
                 },
                 "resultFilterGroup": {
                     "$ref": "#/definitions/BIConditionGroup"
@@ -6329,6 +6420,9 @@
                 "field": {
                     "$ref": "#/definitions/BIField"
                 },
+                "label": {
+                    "type": "string"
+                },
                 "operator": {
                     "$ref": "#/definitions/BIFilterOperator"
                 },
@@ -6422,6 +6516,9 @@
                         },
                         "other": {
                             "type": "string"
+                        },
+                        "preserveUngrouped": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["kind", "expression", "groups", "other"],
@@ -6449,6 +6546,29 @@
                 }
             ]
         },
+        "BIPaneSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "description": "Ordered dimension IDs used to split returned groups into separate charts.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "independentAxes": {
+                    "description": "Use a separate value scale for each pane instead of a shared primary scale.",
+                    "type": "boolean"
+                },
+                "referenceLines": {
+                    "description": "Calculate reference lines from each pane or from all returned worksheet marks.",
+                    "enum": ["pane", "worksheet"],
+                    "type": "string"
+                }
+            },
+            "required": ["fields"],
+            "type": "object"
+        },
         "BIQueryLimit": {
             "enum": [100, 1000, 10000, 50000],
             "type": "number"
@@ -6460,6 +6580,9 @@
                     "type": "boolean"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "label": {
                     "type": "string"
                 },
                 "measureIndex": {
@@ -30289,6 +30412,10 @@
                     "enum": ["auto", "v1", "v2", "v3"],
                     "type": "string"
                 },
+                "sessionTimestampBufferMinutes": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range."
+                },
                 "sessionsV2JoinMode": {
                     "enum": ["string", "uuid"],
                     "type": "string"
@@ -30301,6 +30428,10 @@
                     "type": "boolean"
                 },
                 "useMaterializedViews": {
+                    "type": "boolean"
+                },
+                "useNewEventsCluster": {
+                    "description": "Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.",
                     "type": "boolean"
                 },
                 "useNewEventsSchema": {
@@ -30863,6 +30994,9 @@
         "InsightQuery": {
             "anyOf": [
                 {
+                    "$ref": "#/definitions/AssistantDataTableNode"
+                },
+                {
                     "$ref": "#/definitions/AssistantInsightVizNode"
                 },
                 {
@@ -30873,6 +31007,9 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantBareHogQLQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantEventsQuery"
                 }
             ]
         },
@@ -39233,6 +39370,10 @@
                 "name": {
                     "description": "Optional display name for this event.",
                     "type": "string"
+                },
+                "negation": {
+                    "description": "Set to true to match sessions that did NOT contain this event. Only set it when the tool description says excluding sessions by event is supported.",
+                    "type": "boolean"
                 },
                 "properties": {
                     "description": "Optional property filters for this event only.",

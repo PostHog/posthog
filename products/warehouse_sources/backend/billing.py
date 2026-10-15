@@ -28,6 +28,10 @@ FREE_PERIOD_START = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
 FREE_PERIOD_END = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
 
 
+def is_in_free_historical_window(source_created_at: datetime) -> bool:
+    return source_created_at >= datetime.now(UTC) - FREE_HISTORICAL_WINDOW
+
+
 def billed_usage_for_job(job: ExternalDataJob) -> tuple[str, int] | None:
     """The meter and row count one finished job bills, or None if it bills nothing.
 
