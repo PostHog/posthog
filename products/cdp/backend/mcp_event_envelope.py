@@ -5,7 +5,6 @@ from typing import cast
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from drf_spectacular.utils import extend_schema_field
 from pydantic import JsonValue
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -14,21 +13,6 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from products.cdp.backend.facade.mcp_event_types import MCPEventData, MCPEventEnvelope
 
 
-@extend_schema_field(
-    {
-        "type": "object",
-        "additionalProperties": {
-            "nullable": True,
-            "oneOf": [
-                {"type": "string"},
-                {"type": "number"},
-                {"type": "boolean"},
-                {"type": "object", "additionalProperties": True},
-                {"type": "array", "items": {}},
-            ],
-        },
-    }
-)
 class MCPEventPropertiesField(serializers.JSONField):
     def to_internal_value(self, data: object) -> dict[str, JsonValue]:
         if not isinstance(data, dict):
@@ -53,16 +37,15 @@ class _StrictDataclassSerializer(DataclassSerializer):
 
 
 class MCPEventDataSerializer(_StrictDataclassSerializer):
-    properties = MCPEventPropertiesField(help_text="Event properties the subscriber is allowed to read.")
+    properties = MCPEventPropertiesField()
 
     class Meta:
         dataclass = MCPEventData
         extra_kwargs = {
-            "event": {"allow_blank": True, "trim_whitespace": False, "help_text": "Original captured event name."},
+            "event": {"allow_blank": True, "trim_whitespace": False},
             "distinct_id": {
                 "allow_blank": True,
                 "trim_whitespace": False,
-                "help_text": "Distinct ID attached to the captured event.",
             },
         }
 
@@ -81,8 +64,8 @@ class _AwareDateTimeField(serializers.DateTimeField):
 
 
 class MCPEventEnvelopeSerializer(_StrictDataclassSerializer):
-    timestamp = _AwareDateTimeField(help_text="Event occurrence time, including its timezone.")
-    cursor = serializers.JSONField(allow_null=True, help_text="Null because replay is unavailable.")
+    timestamp = _AwareDateTimeField()
+    cursor = serializers.JSONField(allow_null=True)
 
     class Meta:
         dataclass = MCPEventEnvelope
@@ -91,14 +74,12 @@ class MCPEventEnvelopeSerializer(_StrictDataclassSerializer):
                 "min_length": 1,
                 "max_length": 255,
                 "trim_whitespace": False,
-                "help_text": "Stable source event ID used to deduplicate deliveries.",
             },
-            "name": {"help_text": "Subscribed MCP event type."},
         }
 
     def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
-        fields["data"] = MCPEventDataSerializer(help_text="Captured event data.")
+        fields["data"] = MCPEventDataSerializer()
         return fields
 
     def validate_cursor(self, value: object) -> None:
