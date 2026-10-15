@@ -1676,7 +1676,7 @@ async fn test_filtered_drop_restriction_rejects_otel_batch() {
 // ============================================================================
 // OverflowLimiter coverage for the OTEL endpoint
 // ============================================================================
-// `otel::identity::extract_distinct_id` returns one distinct_id per request, so all spans in a request share one `token:distinct_id` key.
+// `make_three_span_request` sets `posthog.distinct_id` only on the resource, so all its spans share one `token:distinct_id` key.
 
 fn make_three_span_request() -> ExportTraceServiceRequest {
     ExportTraceServiceRequest {
