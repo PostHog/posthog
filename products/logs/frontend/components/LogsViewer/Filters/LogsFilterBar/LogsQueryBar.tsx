@@ -37,7 +37,7 @@ export const LogsQueryBar = ({
                         <FilterHistoryDropdown />
                         {showSavedViewsButton && <SavedViewsButton id={id} iconOnly />}
                     </div>
-                    <div className="flex shrink-0 gap-1.5">
+                    <div className="flex gap-1.5 min-w-0">
                         <LogsQueryControls />
                         {showFullScreenButton && <LogsFullScreenButton id={id} scope={scope} />}
                     </div>

@@ -39,13 +39,13 @@ const inputGroupAddonVariants = cva(
     }
 )
 
-function InputGroupAddon({
-    className,
-    align = 'inline-start',
-    ...props
-}: React.ComponentProps<'div'> & VariantProps<typeof inputGroupAddonVariants>): React.ReactElement {
+const InputGroupAddon = React.forwardRef<
+    HTMLDivElement,
+    React.ComponentProps<'div'> & VariantProps<typeof inputGroupAddonVariants>
+>(function InputGroupAddon({ className, align = 'inline-start', ...props }, ref) {
     return (
         <div
+            ref={ref}
             role="group"
             data-slot="input-group-addon"
             data-align={align}
@@ -59,7 +59,7 @@ function InputGroupAddon({
             {...props}
         />
     )
-}
+})
 
 const inputGroupButtonVariants = cva('quill-input-group__button flex items-center gap-2', {
     variants: {
@@ -95,9 +95,12 @@ const InputGroupButton = React.forwardRef<
 })
 InputGroupButton.displayName = 'InputGroupButton'
 
-function InputGroupText({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return <span className={cn('quill-input-group__text flex items-end gap-2', className)} {...props} />
-}
+const InputGroupText = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(function InputGroupText(
+    { className, ...props },
+    ref
+) {
+    return <span ref={ref} className={cn('quill-input-group__text flex items-end gap-2', className)} {...props} />
+})
 
 const InputGroupInput = React.forwardRef<HTMLInputElement, React.ComponentProps<'input'>>(
     ({ className, ...props }, ref) => {
@@ -113,40 +116,41 @@ const InputGroupInput = React.forwardRef<HTMLInputElement, React.ComponentProps<
 )
 InputGroupInput.displayName = 'InputGroupInput'
 
-function InputGroupTextarea({ className, ...props }: React.ComponentProps<'textarea'>): React.ReactElement {
-    return (
-        <Textarea
-            data-slot="input-group-control"
-            className={cn('quill-input-group__control quill-input-group__control--textarea', className)}
-            {...props}
-        />
-    )
-}
+const InputGroupTextarea = React.forwardRef<React.ComponentRef<typeof Textarea>, React.ComponentProps<'textarea'>>(
+    function InputGroupTextarea({ className, ...props }, ref) {
+        return (
+            <Textarea
+                ref={ref}
+                data-slot="input-group-control"
+                className={cn('quill-input-group__control quill-input-group__control--textarea', className)}
+                {...props}
+            />
+        )
+    }
+)
 
 interface InputGroupNumberInputProps extends Omit<NumberField.Root.Props, 'className' | 'children'> {
     className?: string
     inputRef?: React.Ref<HTMLInputElement>
 }
 
-function InputGroupNumberInput({
-    className,
-    inputRef,
-    ...rootProps
-}: InputGroupNumberInputProps): React.ReactElement {
-    return (
-        <NumberField.Root {...rootProps}>
-            <NumberField.ScrubArea data-slot="input-group-scrub-area" className="cursor-ew-resize">
-                <NumberField.Input
-                    ref={inputRef}
-                    data-slot="input-group-control"
-                    className={cn(
-                        'quill-input-group__control h-8 w-full min-w-0 px-2 py-0.5 text-[length:var(--text-ui,0.8125rem)] tabular-nums text-center outline-none placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
-                        className
-                    )}
-                />
-            </NumberField.ScrubArea>
-        </NumberField.Root>
-    )
-}
+const InputGroupNumberInput = React.forwardRef<React.ComponentRef<typeof NumberField.Root>, InputGroupNumberInputProps>(
+    function InputGroupNumberInput({ className, inputRef, ...rootProps }, ref) {
+        return (
+            <NumberField.Root ref={ref} {...rootProps}>
+                <NumberField.ScrubArea data-slot="input-group-scrub-area" className="cursor-ew-resize">
+                    <NumberField.Input
+                        ref={inputRef}
+                        data-slot="input-group-control"
+                        className={cn(
+                            'quill-input-group__control h-8 w-full min-w-0 px-2 py-0.5 text-[length:var(--text-ui,0.8125rem)] tabular-nums text-center outline-none placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
+                            className
+                        )}
+                    />
+                </NumberField.ScrubArea>
+            </NumberField.Root>
+        )
+    }
+)
 
 export { InputGroup, InputGroupAddon, InputGroupButton, InputGroupText, InputGroupInput, InputGroupNumberInput, InputGroupTextarea }

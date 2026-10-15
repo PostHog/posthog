@@ -42,6 +42,10 @@ from posthog.temporal.ai.slack_app.activities.task_creation import (
     forward_posthog_code_followup_activity,
 )
 from posthog.temporal.ai.slack_app.activities.thread import collect_posthog_code_thread_messages_activity
+from posthog.temporal.ai.slack_app.activities.unfurl_charts import (
+    post_slack_unfurl_charts_activity,
+    prepare_slack_unfurl_charts_activity,
+)
 from posthog.temporal.ai.slack_app.activities.user_resolution import resolve_posthog_code_slack_command_user_activity
 
 __all__ = [
@@ -78,4 +82,6 @@ __all__ = [
     "classify_slack_app_model_router_activity",
     "run_posthog_slack_inbox_onboarding",
     "run_posthog_slack_inbox_onboarding_activity",
+    "post_slack_unfurl_charts_activity",
+    "prepare_slack_unfurl_charts_activity",
 ]

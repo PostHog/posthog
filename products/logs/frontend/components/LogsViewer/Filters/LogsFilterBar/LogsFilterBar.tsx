@@ -40,6 +40,7 @@ import {
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import { LogsDateRangePicker } from '../LogsDateRangePicker/LogsDateRangePicker'
+import { LogsNaturalLanguageSearch } from '../LogsNaturalLanguageSearch/LogsNaturalLanguageSearch'
 
 const taxonomicFilterLogicKey = 'logs'
 const taxonomicGroupTypes = [
@@ -62,7 +63,8 @@ export const LogsQueryControls = (): JSX.Element => {
     const { dateRange } = filters
 
     return (
-        <div className="flex shrink-0 gap-1.5">
+        // Shrinks rather than overflowing, so a long absolute range fits a narrow pane by truncating.
+        <div className="flex gap-1.5 min-w-0">
             <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />
 
             <LemonButton
@@ -198,6 +200,7 @@ export const LogsFilterSearch = (): JSX.Element => {
             <LemonDropdown
                 overlay={
                     <div className="w-[400px] md:w-[600px]">
+                        <LogsNaturalLanguageSearch onApplied={onClose} />
                         <InfiniteSelectResults
                             focusInput={() => searchInputRef.current?.focus()}
                             taxonomicFilterLogicProps={taxonomicFilterLogicProps}

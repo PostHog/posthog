@@ -661,7 +661,10 @@ def _has_completed_research(report: SignalReport) -> bool:
     """
     if report.researched_signal_count == 0:
         return False
-    return report.signals_researched is not None or report.status == SignalReport.Status.READY
+    return report.signals_researched is not None or report.status in {
+        SignalReport.Status.READY,
+        SignalReport.Status.MONITORING,
+    }
 
 
 def _researched_summary(team_id: int, report_id: str) -> str | None:
@@ -869,7 +872,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # has), so we start a fresh report and link it to the resolved report via a
                 # `recurrence_of` report link. The research agent is later handed that
                 # resolved report as context (see report.py).
-                if report.status == SignalReport.Status.RESOLVED or dismissed_as_fixed_at is not None:
+                if report.effective_status == SignalReport.Status.RESOLVED or dismissed_as_fixed_at is not None:
                     parent_report = report
                     inherit_content = not _is_safety_suppressed(str(parent_report.id), input.team_id)
                     report = SignalReport.objects.create(
