@@ -281,9 +281,10 @@ describe('llmPlaygroundRunLogic', () => {
         const apiError = new ApiError('fallback message', 400, undefined, {
             error: 'Thinking is not supported for this model',
         })
-        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
-            options.onError?.(apiError)
-        })
+        const retried = jest.fn()
+        const streamSpy = jest
+            .spyOn(api, 'stream')
+            .mockImplementation(mockStreamWithRetryContract((options) => options.onError(apiError), retried))
         const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
 
         const logic = llmPlaygroundRunLogic()
@@ -299,8 +300,10 @@ describe('llmPlaygroundRunLogic', () => {
         const items = llmPlaygroundRunLogic.values.comparisonItems
         expect(items).toHaveLength(1)
         expect(items[0].error).toBe(true)
-        expect(items[0].response).toContain('**Error:** Thinking is not supported for this model')
+        expect(items[0].response.match(/\*\*Error:\*\* Thinking is not supported for this model/g)).toHaveLength(1)
         expect(items[0].response).not.toContain('Stream Connection Error')
+        expect(retried).not.toHaveBeenCalled()
+        expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
         expect(captureExceptionSpy).toHaveBeenCalledWith(
             apiError,
             expect.objectContaining({ tag: 'llma-playground-prompt-run', status: 400 })
@@ -399,6 +402,58 @@ describe('llmPlaygroundRunLogic', () => {
         captureSpy.mockRestore()
         captureExceptionSpy.mockRestore()
         toastSpy.mockRestore()
+    })
+
+    describe('when a streaming run is interrupted', () => {
+        let streamSignal: AbortSignal | undefined
+        let streamSpy: jest.SpyInstance
+        let captureSpy: jest.SpyInstance
+
+        const completedEvents = (): unknown[] =>
+            captureSpy.mock.calls
+                .filter(([event]) => event === 'llma playground prompt completed')
+                .map(([, properties]) => properties)
+
+        beforeEach(async () => {
+            streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
+                streamSignal = options.signal
+                options.onMessage({ data: JSON.stringify({ type: 'text', text: 'partial' }) })
+                // fetch-event-source resolves, rather than rejects, when its signal aborts.
+                await new Promise((resolve) => options.signal.addEventListener('abort', resolve))
+            })
+            captureSpy = jest.spyOn(posthog, 'capture')
+
+            llmPlaygroundRunLogic.mount()
+            await expectLogic(llmPlaygroundRunLogic).toFinishAllListeners()
+            llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+            llmPlaygroundRunLogic.actions.submitPrompt()
+            await expectLogic(llmPlaygroundRunLogic).toDispatchActions(['addToComparison'])
+        })
+
+        afterEach(() => {
+            streamSpy.mockRestore()
+            captureSpy.mockRestore()
+        })
+
+        it('marks the run as stopped when the user stops it', async () => {
+            llmPlaygroundRunLogic.actions.abortRun()
+            await expectLogic(llmPlaygroundRunLogic).toFinishAllListeners()
+
+            expect(llmPlaygroundRunLogic.values.comparisonItems[0].response).toBe('partial\n\n*Generation stopped.*')
+            expect(llmPlaygroundRunLogic.values.submitting).toBe(false)
+            expect(completedEvents()).toEqual([expect.objectContaining({ aborted: true, success: true })])
+
+            llmPlaygroundRunLogic.unmount()
+        })
+
+        it('ends the stream silently when the user leaves the playground', async () => {
+            llmPlaygroundRunLogic.unmount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(streamSignal?.aborted).toBe(true)
+            expect(completedEvents()).toEqual([])
+        })
     })
 
     it('captures exceptions thrown before the stream opens', async () => {
