@@ -80,4 +80,42 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "metric_results": "Metric evaluation results recorded for this execution.",
         },
     },
+    "workflow_deployment_releases": {
+        "description": "Release history of each workflow deployment in the environment the API key is scoped to. One row per release, keyed by the parent workflow deployment and the release id.",
+        "docs_url": "https://docs.vellum.ai/developers/client-sdk/workflows/deployments/list-releases",
+        "columns": {
+            "workflow_deployment_id": "ID of the workflow deployment this release belongs to (injected by PostHog during the fan-out).",
+            "id": "Vellum-generated ID that uniquely identifies this release.",
+            "created": "Timestamp representing when this release was created.",
+            "environment": "The environment this release was made to: its `id`, `name`, and `label`.",
+            "created_by": "The user who created this release. Null when no user is recorded.",
+            "workflow_version": "The workflow version this release shipped, with its input and output variables.",
+            "deployment": "The workflow deployment this release belongs to: its `id` and `name`.",
+            "description": "A human-readable description of the release.",
+            "release_tags": "The release tags that point to this release.",
+            "reviews": "The reviews recorded against this release.",
+        },
+    },
+    "workflow_deployment_release_tags": {
+        "description": "Release tags of each workflow deployment, and the release each tag points to. One row per tag, keyed by the parent workflow deployment and the tag name.",
+        "docs_url": "https://docs.vellum.ai/developers/client-sdk/workflows/deployments/list-release-tags",
+        "columns": {
+            "workflow_deployment_id": "ID of the workflow deployment this release tag belongs to (injected by PostHog during the fan-out).",
+            "name": "The name of the release tag, for example LATEST or PRODUCTION. Unique within its deployment.",
+            "source": "How the release tag was originally created (SYSTEM or USER).",
+            "release": "The release this tag points to: its `id` and `timestamp`.",
+            "history_item": "Deprecated. Reference the `release` field instead.",
+        },
+    },
+    "prompt_deployment_release_tags": {
+        "description": "Release tags of each prompt deployment, and the release each tag points to. One row per tag, keyed by the parent prompt deployment and the tag name.",
+        "docs_url": "https://docs.vellum.ai/developers/client-sdk/prompts/deployments/list-release-tags",
+        "columns": {
+            "prompt_deployment_id": "ID of the prompt deployment this release tag belongs to (injected by PostHog during the fan-out).",
+            "name": "The name of the release tag, for example LATEST or PRODUCTION. Unique within its deployment.",
+            "source": "How the release tag was originally created (SYSTEM or USER).",
+            "release": "The release this tag points to: its `id` and `timestamp`.",
+            "history_item": "Deprecated. Reference the `release` field instead.",
+        },
+    },
 }

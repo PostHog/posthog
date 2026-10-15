@@ -91,7 +91,8 @@ impl Packer {
     /// hold. A class at the target goes out at once. Ready messages below
     /// the target wait for the latency budget, counted from the first action
     /// that finds a free slot for them, or go out at once when `draining`.
-    /// Replays go out at once, because they already waited out a retry delay.
+    /// Replays go out at once, because they already waited out a retry delay
+    /// or a worker's time budget.
     /// Classes go in `KeyQueues::ready_sizes` order, and a later class goes
     /// ahead only while every earlier one waits below the target.
     pub fn pack(

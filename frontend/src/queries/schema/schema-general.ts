@@ -525,6 +525,8 @@ export interface HogQLQueryModifiers {
     optimizeJoinedFilters?: boolean
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean
+    /** Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range. */
+    sessionTimestampBufferMinutes?: integer
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
     sessionPropertyPreAggregation?: boolean
     /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
@@ -545,6 +547,8 @@ export interface HogQLQueryModifiers {
     useMaterializedViews?: boolean
     /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
     useNewEventsSchema?: boolean
+    /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
+    useNewEventsCluster?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
     /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */

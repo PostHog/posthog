@@ -68,6 +68,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self._direct_engine: str | None = None
         self._managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         super().__init__(*args, **kwargs)
+        if self.query.connectionId and self.modifiers.useNewEventsCluster:
+            raise ExposedHogQLError("Native events cluster queries cannot use a warehouse connection.")
 
     # Treat SQL query caching like day insight
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:

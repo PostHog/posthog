@@ -56,7 +56,11 @@ import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters, HogFlowPropertyFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
 import { inboxReportAccessLogic } from '../registry/triggers/inboxReportAccessLogic'
-import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
+import {
+    PERSON_FREQUENCY_OPTIONS,
+    TriggerFrequencyOption,
+    getRegisteredTriggerTypes,
+} from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
@@ -899,15 +903,6 @@ function StepTriggerConfigurationTrackingPixel({
     )
 }
 
-const MASKING_HASH_PER_PERSON_PER_DAY = "{concat(toString(person.id), '-', formatDateTime(now(), '%Y-%m-%d'))}"
-const CALENDAR_DAY_TTL = 24 * 60 * 60
-
-const FREQUENCY_OPTIONS: TriggerFrequencyOption[] = [
-    { value: null, label: 'Every time the trigger fires' },
-    { value: '{person.id}', label: 'One time' },
-    { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day', fixedTtl: CALENDAR_DAY_TTL },
-]
-
 const TTL_OPTIONS = [
     { value: null, label: 'indefinitely' },
     { value: 5 * 60, label: '5 minutes' },
@@ -942,7 +937,7 @@ function TTLSelect({
 }
 
 function FrequencySection({
-    options = FREQUENCY_OPTIONS,
+    options = PERSON_FREQUENCY_OPTIONS,
     description = 'Limit how often users can enter this workflow',
 }: {
     options?: TriggerFrequencyOption[]

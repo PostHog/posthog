@@ -189,7 +189,10 @@ class ExperimentMetricDefinitionField(serializers.JSONField):
 @extend_schema_field(
     {
         "type": "object",
-        "additionalProperties": {"oneOf": [{"type": "string"}, {"type": "number"}], "nullable": True},
+        "additionalProperties": {
+            "oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}],
+            "nullable": True,
+        },
     }
 )
 class ExperimentHealthEvidenceField(serializers.DictField):
