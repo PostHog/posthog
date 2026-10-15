@@ -1,24 +1,16 @@
 """
 Loads the `$feature_flag_called` events of a running experiment's flag in the last days, by the release condition
 set that served each person. The forced-variant check grades its finding by the share of people that the pinned
-conditions served.
+sets served.
 
-The flag service writes the set on the event as the reason "Matched condition set N", numbered from 1 in the
-stored order of the conditions (`get_reason_description` in rust/feature-flags/src/api/types.rs). Only events of
-the flag's current version count, so the numbers match the conditions that the check reads. A save of the flag
-raises the version, so the scan starts at the last save: no earlier event can carry the current version.
+The flag service names the set in the reason "Matched condition set N", numbered from 1 in the stored order of the
+conditions (`get_reason_description` in rust/feature-flags/src/api/types.rs). Only calls of the flag's current
+version count, so the numbers match the conditions that the check reads. No call before the flag's last save can
+carry that version, so the scan starts there at the earliest.
 
-An organization on FLAG_EVALUATIONS_ONLY writes no `$feature_flag_called` to events for the teams in the ingestion
-allowlist. Ingestion copies each multivariate call as `$experiment_exposure` with every property, the reason and the
-version included, so the scan reads the copy for such an organization too.
-
-The scan does not apply the filter for internal and test users. That filter often reads person properties or
-cohorts, which makes the scan too slow for a request, and it can read tables that each reader may or may not
-query, so no cached answer for it is safe to share. Internal users change the share only where they are a large
-part of the flag's traffic.
-
-The answer is cached per flag version and shared by every reader, so the scan runs about once a day, not on every
-load of the experiment page. A failed scan is cached as unknown too.
+The scan runs without the reader, and every reader shares its cached answer. So it skips the filter for internal
+and test users: that filter often reads person properties or cohorts, which is too slow for a request, and it can
+read tables that a reader may not query.
 """
 
 import json
@@ -154,19 +146,26 @@ def query_condition_set_traffic(
             # A profile that breaks on timeout returns partial counts, which would read as a smaller share.
             settings=HogQLGlobalSettings(max_execution_time=QUERY_TIMEOUT_SECONDS, timeout_overflow_mode="throw"),
         )
-    rows = response.results or []
+    people_by_set: dict[int, int] = {}
+    calls = remotely_evaluated_calls = 0
+    for condition_set, people, set_calls, set_remotely_evaluated_calls in response.results or []:
+        if condition_set:
+            people_by_set[int(condition_set)] = int(people)
+        calls += int(set_calls)
+        remotely_evaluated_calls += int(set_remotely_evaluated_calls)
     return ConditionSetTraffic(
         since=window_start,
         team_timezone=team.timezone,
-        people_by_set={int(condition_set): int(people) for condition_set, people, _, _ in rows if condition_set},
-        calls=sum(int(calls) for _, _, calls, _ in rows),
-        remotely_evaluated_calls=sum(int(remotely_evaluated) for _, _, _, remotely_evaluated in rows),
+        people_by_set=people_by_set,
+        calls=calls,
+        remotely_evaluated_calls=remotely_evaluated_calls,
     )
 
 
 def _reads_exposure_copies(organization_id: UUID) -> bool:
-    # Ingestion holds the allowlist, so a team of the organization can still write the call, the copy or both. A
-    # call and its copy are two rows of one person, and each person counts once under their latest set.
+    # On FLAG_EVALUATIONS_ONLY, events hold no `$feature_flag_called` for the teams in ingestion's allowlist. The
+    # `$experiment_exposure` copy carries every property, the reason and the version included. A team can still
+    # write both, and then each person counts once under their latest set.
     return get_organization_flag_evaluations_mode(organization_id) == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
 
 
