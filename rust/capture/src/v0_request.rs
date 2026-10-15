@@ -11,6 +11,7 @@ use crate::{
     config::CaptureMode,
     event_restrictions::Pipeline,
     ingestion_warnings::SdkAttribution,
+    kind::OverflowBudget,
     payload::{decompress_payload, Compression},
 };
 
@@ -291,12 +292,6 @@ impl DataType {
             | Self::AiEvents => None,
         }
     }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum OverflowBudget {
-    Analytics,
-    Ai,
 }
 
 #[derive(Debug, Clone)]

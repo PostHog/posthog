@@ -29,12 +29,13 @@ use crate::{
         emit_distinct_id_truncated_warning, emit_rate_limit_warning,
         legacy::{emit_processing_abort_warning, request_context},
     },
+    kind::OverflowBudget,
     outputs::OutputRegistry,
     prometheus::{report_clock_skew, report_dropped_events, report_timestamp_path},
     router,
     utils::uuid_v7_from_datetime,
     v0_request::{
-        exceeds_max_ai_event_bytes, DataType, OverflowBudget, OverflowReason, ProcessedEvent,
+        exceeds_max_ai_event_bytes, DataType, OverflowReason, ProcessedEvent,
         ProcessedEventMetadata, ProcessingContext,
     },
 };
