@@ -2482,14 +2482,18 @@ def _rrf_fuse(
     return [cid for cid, _score in fused]
 
 
-def _safe_chunks_qs(team_id: int) -> QuerySet[KnowledgeChunk]:
+def _safe_chunks_qs(team_id: int, *, crawled_pages_only: bool = False) -> QuerySet[KnowledgeChunk]:
     """Base queryset for searchable/readable chunks: team-scoped + all safety gates."""
-    return KnowledgeChunk.objects.filter(
+    qs = KnowledgeChunk.objects.filter(
         team_id=team_id,
         source__status=SourceStatus.READY,
         document__tombstoned_at__isnull=True,
         document__safety_verdict=SafetyVerdict.SAFE,
     )
+    if crawled_pages_only:
+        # Public web pages only. Text and file sources and learned support answers stay private to the team.
+        qs = qs.filter(source__source_type=SourceType.URL, source__is_generated=False)
+    return qs
 
 
 @dataclass(frozen=True)
@@ -2533,6 +2537,7 @@ def search_knowledge(
     limit: int = 10,
     use_semantic: bool = False,
     query_embedding: list[float] | None = None,
+    crawled_pages_only: bool = False,
 ) -> list[KnowledgeSearchResult]:
     """
     Hybrid (lexical + semantic) relevance search over BK chunks.
@@ -2554,7 +2559,7 @@ def search_knowledge(
         processed = processed.replace(" & ", " | ")
         search_query = SearchQuery(processed, config="english", search_type="raw")
         fts_anchors = list(
-            _safe_chunks_qs(team_id)
+            _safe_chunks_qs(team_id, crawled_pages_only=crawled_pages_only)
             .filter(content_search_vector=search_query)
             .annotate(rank=SearchRank(F("content_search_vector"), search_query))
             .only("id", "document_id", "ordinal", "char_count")
@@ -2579,7 +2584,9 @@ def search_knowledge(
         # re-join against Postgres with all safety filters and trim after.
         fetch_limit = limit * BK_SEMANTIC_OVERFETCH
         anchor_chunks = list(
-            _safe_chunks_qs(team_id).filter(id__in=fused_ids[:fetch_limit]).only("id", "document_id", "ordinal")
+            _safe_chunks_qs(team_id, crawled_pages_only=crawled_pages_only)
+            .filter(id__in=fused_ids[:fetch_limit])
+            .only("id", "document_id", "ordinal")
         )
         if not anchor_chunks:
             return []
@@ -2608,7 +2615,7 @@ def search_knowledge(
     )
 
     chunks = (
-        _safe_chunks_qs(team_id)
+        _safe_chunks_qs(team_id, crawled_pages_only=crawled_pages_only)
         .filter(window_filter)
         .select_related("source", "document")
         .only(
@@ -2648,6 +2655,7 @@ def search_knowledge_for_team(
     *,
     trace: RetrievalTrace,
     limit: int = 10,
+    crawled_pages_only: bool = False,
 ) -> list[KnowledgeSearchResult]:
     """
     Sync orchestration of hybrid BK search: embed the query, then call
@@ -2663,7 +2671,14 @@ def search_knowledge_for_team(
         _capture_query_embedding(team.id, response, trace)
     except Exception:
         logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
-    return search_knowledge(team.id, query, limit=limit, use_semantic=embedding is not None, query_embedding=embedding)
+    return search_knowledge(
+        team.id,
+        query,
+        limit=limit,
+        use_semantic=embedding is not None,
+        query_embedding=embedding,
+        crawled_pages_only=crawled_pages_only,
+    )
 
 
 async def async_search_knowledge_for_team(
@@ -2691,6 +2706,34 @@ async def async_search_knowledge_for_team(
         use_semantic=embedding is not None,
         query_embedding=embedding,
     )
+
+
+_POSTHOG_DOCS_HOST = "posthog.com"
+
+
+def _is_posthog_docs_url(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower()
+    return host == _POSTHOG_DOCS_HOST or host.endswith(f".{_POSTHOG_DOCS_HOST}")
+
+
+def search_posthog_docs(query: str, *, limit: int = 10) -> list[KnowledgeSearchResult] | None:
+    """Search the PostHog docs crawled into the docs team's business knowledge, for any caller.
+
+    This is a deliberate cross-team read: the team comes from settings, never from the request.
+    Only crawled posthog.com pages are returned, so nothing private to the docs team leaks.
+    Returns None when no docs team is configured, so the caller can keep using Inkeep.
+    """
+    team_id = settings.BUSINESS_KNOWLEDGE_DOCS_TEAM_ID
+    if not team_id:
+        return None
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        logger.warning("bk_posthog_docs_team_missing", team_id=team_id)
+        return None
+    results = search_knowledge_for_team(
+        team, query, trace=RetrievalTrace(surface="posthog_docs"), limit=limit, crawled_pages_only=True
+    )
+    return [result for result in results if _is_posthog_docs_url(result.url)]
 
 
 _RERANK_CHUNK_ID_PATTERN = re.compile(

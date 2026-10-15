@@ -12,7 +12,9 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.business_knowledge.backend.logic import get_always_on_context
 from products.conversations.backend.ai.suggest import _build_ticket_context
+from products.conversations.backend.events import analytics_distinct_id_for_ticket
 from products.conversations.backend.models import Ticket
+from products.conversations.backend.playbook import is_posthog_docs_source
 from products.conversations.backend.temporal.ai_reply.constants import (
     LEARNED_CHUNK_LABEL,
     LEARNED_CHUNK_NOTE,
@@ -21,6 +23,8 @@ from products.conversations.backend.temporal.ai_reply.constants import (
 )
 from products.conversations.backend.temporal.ai_reply.publish import channel_allows_bot_reply
 from products.conversations.backend.temporal.ai_reply.schemas import BuildContextOutput, SupportReplyInput
+
+from ee.hogai.utils.feature_flags import is_inkeep_docs_search_disabled
 
 if TYPE_CHECKING:
     from products.business_knowledge.backend.logic import KnowledgeSearchResult
@@ -83,6 +87,9 @@ def _build_context_sync(team_id: int, ticket_id: str, clarification_round: int =
     diagnostics_allowed = bool(settings_dict.get("ai_diagnostics_enabled", False))
     raw_docs_source = settings_dict.get("docs_source")
     docs_source = raw_docs_source if isinstance(raw_docs_source, str) else ""
+    docs_search_disabled = is_posthog_docs_source(docs_source) and is_inkeep_docs_search_disabled(
+        team, analytics_distinct_id_for_ticket(ticket, team)
+    )
     raw_custom = settings_dict.get("ai_reply_custom_instructions")
     custom_instructions = raw_custom if isinstance(raw_custom, str) else ""
 
@@ -106,4 +113,5 @@ def _build_context_sync(team_id: int, ticket_id: str, clarification_round: int =
         followup_cancelled=followup_cancelled,
         docs_source=docs_source,
         custom_instructions=custom_instructions,
+        docs_search_disabled=docs_search_disabled,
     )

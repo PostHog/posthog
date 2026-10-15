@@ -1,5 +1,6 @@
 from typing import Literal
 from urllib.parse import urlparse
+from uuid import UUID
 
 from django.conf import settings
 
@@ -14,13 +15,19 @@ from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.business_knowledge.backend.logic import RetrievalTrace, async_search_knowledge_for_team, has_ready_sources
+from products.business_knowledge.backend.logic import (
+    KnowledgeSearchResult,
+    RetrievalTrace,
+    async_search_knowledge_for_team,
+    has_ready_sources,
+    search_posthog_docs,
+)
 
 from ee.hogai.context.entity_search.context import EntityKind
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.full_text_search.tool import EntitySearchTool
-from ee.hogai.utils.feature_flags import has_business_knowledge_feature_flag
+from ee.hogai.utils.feature_flags import has_business_knowledge_feature_flag, is_inkeep_docs_search_disabled
 from ee.hogai.utils.helpers import sanitize_for_system_reminder
 
 logger = structlog.get_logger(__name__)
@@ -315,7 +322,32 @@ def format_inkeep_docs_response(rag_context_raw: dict | None, *, include_system_
                 continue
             text = doc.source.content[0].text if doc.source.content else ""
             docs.append(DOC_ITEM_TEMPLATE.format(title=doc.title, url=doc.url, text=text))
+    return _format_docs(docs, include_system_reminder=include_system_reminder)
 
+
+def format_bk_docs_response(results: list[KnowledgeSearchResult], *, include_system_reminder: bool = True) -> str:
+    """Format business knowledge docs chunks as the same pages an Inkeep result produces.
+
+    Chunks of one page arrive together and in order, so each page becomes one item. No
+    drill-down handles: they belong to the docs team and do not resolve in the caller's project.
+    """
+    pages: dict[UUID, list[KnowledgeSearchResult]] = {}
+    for result in results:
+        if is_community_question_url(result.url):
+            continue
+        pages.setdefault(result.document_id, []).append(result)
+    docs = [
+        DOC_ITEM_TEMPLATE.format(
+            title=sanitize_for_system_reminder(chunks[0].document_title or chunks[0].heading_path or "Untitled"),
+            url=sanitize_for_system_reminder(chunks[0].url),
+            text=sanitize_for_system_reminder("\n\n".join(chunk.content for chunk in chunks)),
+        )
+        for chunks in pages.values()
+    ]
+    return _format_docs(docs, include_system_reminder=include_system_reminder)
+
+
+def _format_docs(docs: list[str], *, include_system_reminder: bool) -> str:
     if not docs:
         return DOCS_SEARCH_NO_RESULTS_TEMPLATE if include_system_reminder else "No documentation found."
 
@@ -327,6 +359,12 @@ def format_inkeep_docs_response(rag_context_raw: dict | None, *, include_system_
 
 class InkeepDocsSearchTool(MaxSubtool):
     async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
+        if await database_sync_to_async(is_inkeep_docs_search_disabled, thread_sensitive=False)(
+            self._team, str(self._user.distinct_id)
+        ):
+            results = await database_sync_to_async(search_posthog_docs, thread_sensitive=False)(query)
+            if results is not None:
+                return format_bk_docs_response(results), None
         return await perform_inkeep_docs_search(query, team=self._team), None
 
 

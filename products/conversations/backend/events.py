@@ -335,6 +335,33 @@ def _resolve_person_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict |
     return False, None
 
 
+def analytics_distinct_id_for_ticket(ticket: Ticket, team: Team) -> str:
+    """The requester's analytics distinct_id, so person and cohort flag conditions match them.
+
+    Email, Slack and Teams tickets store the sender's email as ``distinct_id``. The person
+    behind a provider-verified email carries the distinct_ids those conditions resolve. The
+    widget already stores a real distinct_id, and its email trait is attacker-controlled.
+    """
+    if ticket.channel_source not in _EMAIL_FALLBACK_CHANNELS or _has_unverified_relayed_identity(ticket):
+        return ticket.distinct_id
+    email = (ticket.anonymous_traits or {}).get("email") or ticket.email_from
+    if not email:
+        return ticket.distinct_id
+
+    from products.conversations.backend.person_lookup import (  # noqa: PLC0415 — keeps the HogQL layer off the django.setup() import path
+        _get_persons_by_email,
+    )
+
+    try:
+        person = _get_persons_by_email(team, [email], distinct_id_limit=1).get(email.lower())
+    except Exception:
+        logger.exception("ticket_analytics_distinct_id_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
+        return ticket.distinct_id
+    if person is None or not person.distinct_ids:
+        return ticket.distinct_id
+    return person.distinct_ids[0]
+
+
 def _resolve_groups_from_slack_channel(team: Team, slack_channel_id: str) -> dict | None:
     """Attribute the ticket to the customer analytics account bound to its Slack channel.
 

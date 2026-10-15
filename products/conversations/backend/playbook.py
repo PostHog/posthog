@@ -55,18 +55,29 @@ Business knowledge:
 - TEAM POLICY overrides generic documentation on any conflict.
 """
 
-POSTHOG_SUPPORT_REPLY_INSTRUCTIONS = """\
-This team supports PostHog.
-
-Use official PostHog documentation via docs-search for product features, billing, setup, SDKs, and APIs.
-
+_POSTHOG_SKILLS = """\
 When the ticket matches a bundled skill, read and follow that skill:
 - diagnosing-missing-recordings: session replay is missing or blank
 - diagnosing-sdk-health: events or identify calls are not arriving
 - investigating-error-issue: an exception or error-tracking issue
 - diagnosing-stacktrace-symbolication: unsymbolicated or wrong stack traces
+"""
 
+POSTHOG_SUPPORT_REPLY_INSTRUCTIONS = f"""\
+This team supports PostHog.
+
+Use official PostHog documentation via docs-search for product features, billing, setup, SDKs, and APIs.
+
+{_POSTHOG_SKILLS}
 Do not invent PostHog product behavior that docs-search and those skills do not support.
+"""
+
+# Same overlay for a run with docs-search excluded. Telling the agent to use a tool the run lacks makes it refuse.
+POSTHOG_SUPPORT_REPLY_INSTRUCTIONS_WITHOUT_DOCS_SEARCH = f"""\
+This team supports PostHog.
+
+{_POSTHOG_SKILLS}
+Some skills call docs-search. This run does not have it, so do those steps with business-knowledge-documents-search.
 """
 
 
@@ -97,8 +108,14 @@ def is_posthog_docs_source(docs_source: str | None) -> bool:
     return docs_source == DOCS_SOURCE_POSTHOG
 
 
-def mcp_exclude_tools_for_docs_source(docs_source: str | None) -> tuple[str, ...]:
-    if is_posthog_docs_source(docs_source):
+def has_docs_search(docs_source: str | None, *, docs_search_disabled: bool = False) -> bool:
+    return is_posthog_docs_source(docs_source) and not docs_search_disabled
+
+
+def mcp_exclude_tools_for_docs_source(
+    docs_source: str | None, *, docs_search_disabled: bool = False
+) -> tuple[str, ...]:
+    if has_docs_search(docs_source, docs_search_disabled=docs_search_disabled):
         return ()
     return (DOCS_SEARCH_TOOL_NAME,)
 
@@ -127,6 +144,13 @@ def _as_custom_addendum(custom: str, inherited_text: str) -> str | None:
     return custom
 
 
+def _inherited_text(*, posthog: bool, overlay: str) -> str:
+    parts = [DEFAULT_SUPPORT_REPLY_INSTRUCTIONS.strip()]
+    if posthog:
+        parts.append(overlay.strip())
+    return "\n\n".join(parts)
+
+
 def _normalize_custom_instructions(custom_instructions: object) -> tuple[str | None, tuple[str, ...]]:
     if custom_instructions is None:
         return None, ()
@@ -145,6 +169,7 @@ def compose_support_playbook(
     *,
     docs_source: str | None = None,
     custom_instructions: object = None,
+    docs_search_disabled: bool = False,
 ) -> PlaybookComposition:
     """Compose the effective playbook: generic default, optional PostHog overlay, then team custom.
 
@@ -152,14 +177,18 @@ def compose_support_playbook(
     repo layers and records a warning so a bad settings row cannot stop ticket processing.
     """
     posthog = is_posthog_docs_source(docs_source)
+    overlay = (
+        POSTHOG_SUPPORT_REPLY_INSTRUCTIONS
+        if has_docs_search(docs_source, docs_search_disabled=docs_search_disabled)
+        else POSTHOG_SUPPORT_REPLY_INSTRUCTIONS_WITHOUT_DOCS_SEARCH
+    )
     custom, warnings = _normalize_custom_instructions(custom_instructions)
 
-    inherited_parts = [DEFAULT_SUPPORT_REPLY_INSTRUCTIONS.strip()]
-    if posthog:
-        inherited_parts.append(POSTHOG_SUPPORT_REPLY_INSTRUCTIONS.strip())
-    inherited_text = "\n\n".join(inherited_parts)
+    inherited_text = _inherited_text(posthog=posthog, overlay=overlay)
     if custom is not None:
-        custom = _as_custom_addendum(custom, inherited_text)
+        # Settings saves snapshots of the docs-search overlay. Strip that one even when this run has no docs-search.
+        saved_inherited_text = _inherited_text(posthog=posthog, overlay=POSTHOG_SUPPORT_REPLY_INSTRUCTIONS)
+        custom = _as_custom_addendum(custom, saved_inherited_text)
         # Cap the addendum, not a pasted copy of the inherited playbook.
         if custom is not None and len(custom) > MAX_CUSTOM_INSTRUCTIONS_CHARS:
             custom = None
@@ -176,7 +205,7 @@ def compose_support_playbook(
         delimited.append(
             _layer_block(
                 LAYER_POSTHOG,
-                POSTHOG_SUPPORT_REPLY_INSTRUCTIONS,
+                overlay,
                 POSTHOG_SUPPORT_REPLY_INSTRUCTIONS_VERSION,
             )
         )
@@ -196,5 +225,5 @@ def compose_support_playbook(
         content_hash=content_hash,
         warnings=warnings,
         docs_source=DOCS_SOURCE_POSTHOG if posthog else None,
-        mcp_exclude_tools=mcp_exclude_tools_for_docs_source(docs_source),
+        mcp_exclude_tools=mcp_exclude_tools_for_docs_source(docs_source, docs_search_disabled=docs_search_disabled),
     )

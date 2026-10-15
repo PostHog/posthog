@@ -27,10 +27,13 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
 
+from products.business_knowledge.backend.logic import search_posthog_docs
+
 from ee.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolError, MaxToolErrorType
 from ee.hogai.tools.docs_search_shadow import fetch_inkeep_with_shadow
-from ee.hogai.tools.search import format_inkeep_docs_response
+from ee.hogai.tools.search import format_bk_docs_response, format_inkeep_docs_response
+from ee.hogai.utils.feature_flags import is_inkeep_docs_search_disabled
 
 logger = get_logger(__name__)
 
@@ -113,10 +116,9 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise _DocsSearchUnavailable()
 
         query = cast(dict, request.validated_data)["query"]
-        client = AsyncOpenAI(base_url="https://api.inkeep.com/v1/", api_key=settings.INKEEP_API_KEY)
 
         try:
-            content = async_to_sync(_run_inkeep_docs_search)(client, query, self.team)
+            content = _search_docs(self.team, cast(User, request.user), query)
         except Exception as e:
             logger.exception("Error running docs_search", extra={"error": str(e)})
             capture_exception(e, properties={"tag": "mcp", "tool_name": "docs_search"})
@@ -216,3 +218,12 @@ async def _run_inkeep_docs_search(client: AsyncOpenAI, query: str, team: Team) -
         surface="mcp",
     )
     return format_inkeep_docs_response(payload, include_system_reminder=False)
+
+
+def _search_docs(team: Team, user: User, query: str) -> str:
+    if is_inkeep_docs_search_disabled(team, str(user.distinct_id)):
+        results = search_posthog_docs(query)
+        if results is not None:
+            return format_bk_docs_response(results, include_system_reminder=False)
+    client = AsyncOpenAI(base_url="https://api.inkeep.com/v1/", api_key=settings.INKEEP_API_KEY)
+    return async_to_sync(_run_inkeep_docs_search)(client, query, team)

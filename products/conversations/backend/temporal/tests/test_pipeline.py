@@ -764,6 +764,7 @@ async def test_workflow_records_playbook_provenance(
         ticket_title="Install",
         docs_source="posthog",
         custom_instructions="Be brief.",
+        docs_search_disabled=True,
     )
     mock_safety.return_value = SafetyFilterOutput(safe=True)
     mock_classify.return_value = ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=["q"])
@@ -794,6 +795,8 @@ async def test_workflow_records_playbook_provenance(
     draft_input = mock_draft.call_args[0][0]
     assert draft_input.docs_source == "posthog"
     assert draft_input.custom_instructions == "Be brief."
+    assert draft_input.docs_search_disabled is True
+    assert mock_record_triage.call_args_list[0][0][0].patch["docs_search_disabled"] is True
     last_triage = mock_record_triage.call_args_list[-1][0][0].patch
     assert last_triage["playbook"] == {
         "layers": ["default", "posthog", "custom"],
@@ -1936,9 +1939,15 @@ class TestBuildContextAutoPublish:
             channel_source="widget",
         )
 
-        output = _build_context_sync(team.id, str(ticket.id))
+        with patch(
+            "products.conversations.backend.temporal.ai_reply.activities.build_context.is_inkeep_docs_search_disabled",
+            return_value=True,
+        ) as flag:
+            output = _build_context_sync(team.id, str(ticket.id))
         assert output.docs_source == "posthog"
         assert output.custom_instructions == "Be brief."
+        assert output.docs_search_disabled is True
+        assert flag.call_args.args[1] == "test-user"
 
 
 class TestStripJsonFence:
@@ -2400,11 +2409,13 @@ class TestDiagnosticScopes:
         assert "You do not have docs-search" in prompt
         assert "docs-search: searches the official PostHog" not in prompt
 
+    @parameterized.expand([("docs_search_on", False, ()), ("docs_search_disabled", True, ("docs-search",))])
     @pytest.mark.asyncio
-    async def test_posthog_mode_keeps_docs_search(self):
-        prompt, _ = await self._run_draft(docs_source="posthog")
-        assert self._captured["exclude_tools"] == ()
-        assert "docs-search: searches the official PostHog" in prompt
+    async def test_posthog_mode_docs_search_follows_flag(self, _name, disabled, expected_exclude):
+        prompt, _ = await self._run_draft(docs_source="posthog", docs_search_disabled=disabled)
+        assert self._captured["exclude_tools"] == expected_exclude
+        assert ("docs-search: searches the official PostHog" in prompt) is (not disabled)
+        assert "diagnosing-missing-recordings" in prompt
 
     @pytest.mark.asyncio
     async def test_playbook_sits_below_security_and_above_untrusted_ticket(self):

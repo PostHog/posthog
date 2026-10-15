@@ -3,7 +3,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import Future
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,6 +13,8 @@ from django.test import SimpleTestCase, override_settings
 from langchain_core import messages
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
+
+from products.business_knowledge.backend.logic import KnowledgeSearchResult
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
@@ -28,6 +30,29 @@ from ee.hogai.tools.search import (
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
+
+
+def _bk_docs_chunk(url: str, content: str, document_id: UUID) -> KnowledgeSearchResult:
+    return KnowledgeSearchResult(
+        chunk_id=uuid4(),
+        source_id=uuid4(),
+        source_name="Docs",
+        source_type="url",
+        document_id=document_id,
+        document_title="Feature flags",
+        heading_path="",
+        ordinal=0,
+        content=content,
+        url=url,
+    )
+
+
+_FLAGS_PAGE = uuid4()
+_BK_DOCS_CHUNKS = [
+    _bk_docs_chunk("https://posthog.com/docs/feature-flags", "Flags gate features.", _FLAGS_PAGE),
+    _bk_docs_chunk("https://posthog.com/docs/feature-flags", "Roll out by percentage.", _FLAGS_PAGE),
+    _bk_docs_chunk("https://posthog.com/questions/old-flags", "An outdated community answer.", uuid4()),
+]
 
 
 class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -143,6 +168,38 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(mock_llm_class.call_args.kwargs["base_url"], "https://api.inkeep.com/v1/")
         self.assertEqual(mock_llm_class.call_args.kwargs["api_key"], "test-inkeep-key")
         self.assertEqual(mock_llm_class.call_args.kwargs["streaming"], False)
+
+    @parameterized.expand(
+        [
+            (
+                "docs_team_configured",
+                _BK_DOCS_CHUNKS,
+                DOCS_SEARCH_RESULTS_TEMPLATE.format(
+                    count=1,
+                    docs=DOC_ITEM_TEMPLATE.format(
+                        title="Feature flags",
+                        url="https://posthog.com/docs/feature-flags",
+                        text="Flags gate features.\n\nRoll out by percentage.",
+                    ),
+                ),
+                0,
+            ),
+            ("no_docs_team", None, DOCS_SEARCH_NO_RESULTS_TEMPLATE, 1),
+        ]
+    )
+    @override_settings(INKEEP_API_KEY="test-inkeep-key")
+    @patch("ee.hogai.tools.search.is_inkeep_docs_search_disabled", return_value=True)
+    @patch("ee.hogai.tools.search.ChatOpenAI")
+    async def test_disabled_flag_serves_docs_from_business_knowledge(
+        self, _name, bk_results, expected, inkeep_calls, mock_llm_class, _flag
+    ):
+        mock_llm_class.return_value = FakeChatOpenAI(responses=[messages.AIMessage(content='{"content": []}')])
+
+        with patch("ee.hogai.tools.search.search_posthog_docs", return_value=bk_results):
+            result, _ = await self.tool.execute("how do flags work", "test-tool-call-id")
+
+        self.assertEqual(result, expected)
+        self.assertEqual(mock_llm_class.call_count, inkeep_calls)
 
 
 class TestFormatInkeepDocsResponse(SimpleTestCase):

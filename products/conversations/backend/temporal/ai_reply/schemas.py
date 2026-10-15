@@ -69,6 +69,8 @@ class BuildContextOutput:
     # Passed through to draft so playbook compose stays out of Temporal history.
     docs_source: str = ""
     custom_instructions: str = ""
+    # disable-inkeep-docs-search for the ticket author. Evaluated here so a retried draft keeps the same arm.
+    docs_search_disabled: bool = False
 
 
 @dataclass
@@ -142,6 +144,7 @@ class DraftInput:
     clarification_round: int = 0
     docs_source: str = ""
     custom_instructions: str = ""
+    docs_search_disabled: bool = False
 
 
 @dataclass(frozen=False)

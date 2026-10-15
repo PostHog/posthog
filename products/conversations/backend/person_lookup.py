@@ -34,6 +34,8 @@ def _get_persons_by_email(
     team: Team,
     emails: list[str],
     modifiers: HogQLQueryModifiers | None = None,
+    *,
+    distinct_id_limit: int | None = None,
 ) -> dict[str, Person]:
     """Batch look up persons by their properties.email value via ClickHouse.
 
@@ -67,7 +69,7 @@ def _get_persons_by_email(
                 email_to_uuid[lower] = str(person_uuid)
 
     with personhog_caller_tag("conversations/email-person-lookup"):
-        persons = get_persons_by_uuids(team.pk, list(email_to_uuid.values()))
+        persons = get_persons_by_uuids(team.pk, list(email_to_uuid.values()), distinct_id_limit=distinct_id_limit)
     uuid_to_person: dict[str, Person] = {str(p.uuid): p for p in persons}
 
     result: dict[str, Person] = {}

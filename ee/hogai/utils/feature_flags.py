@@ -151,6 +151,17 @@ def get_llm_gateway_variant(team: Team, user: User) -> LlmGatewayVariant:
     return "control"
 
 
+def is_inkeep_docs_search_disabled(team: Team, distinct_id: str) -> bool:
+    # docs-search then reads the PostHog docs business knowledge instead of Inkeep.
+    # A team's own business knowledge stays on product-business-knowledge.
+    return feature_enabled_or_false(
+        "disable-inkeep-docs-search",
+        distinct_id,
+        groups={"organization": str(team.organization_id), "project": str(team.uuid)},
+        send_feature_flag_events=False,
+    )
+
+
 def has_business_knowledge_feature_flag(team: Team) -> bool:
     # Canonical check lives in the owning product; kept as a delegate so existing
     # ee call sites and test patches don't move.
