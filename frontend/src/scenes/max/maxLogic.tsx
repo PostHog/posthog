@@ -1106,14 +1106,17 @@ export const maxLogic = kea<maxLogicType>([
     }),
 ])
 
-/** The side panel chat logic. The first call mounts it for the rest of the session. */
+/**
+ * The side panel chat logic. The first call holds a mount for the rest of the session, so the open chat
+ * survives when the panel closes and unmounts its React tree. The hold is separate from any mount React
+ * already has, because that mount ends when the panel closes.
+ */
 export function sidePanelMaxLogic(): ReturnType<typeof maxLogic.build> {
-    const mounted = maxLogic.findMounted({ panelId: SIDE_PANEL_PANEL_ID })
-    if (mounted) {
-        return mounted
-    }
     const logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
-    logic.mount()
+    if (!logic.cache.sessionMountHeld) {
+        logic.mount()
+        logic.cache.sessionMountHeld = true
+    }
     return logic
 }
 
