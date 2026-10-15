@@ -9,12 +9,12 @@ from django.core.cache import cache
 
 import structlog
 
-from posthog.models.integration import Integration
 from posthog.models.team import Team
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.token_bucket import BucketDecision, Budget, consume
 
-from .commands import DispatchOutcome
+from .commands import DispatchOutcome, SubjectRef
+from .subjects import candidate_team_ids, rollout_key
 
 logger = structlog.get_logger(__name__)
 
@@ -26,34 +26,29 @@ _REQUESTER_BUDGET = Budget(burst=5, per_hour=30)
 
 def rolled_out_team_ids(
     flag: str,
-    installation_id: str,
+    subject: SubjectRef,
     organization_ids: Collection[str] | None = None,
     *,
     only_evaluate_locally: bool = False,
 ) -> tuple[int, ...]:
-    """Projects on the installation whose organization is in the rollout, oldest integration first.
+    """The subject's candidate projects whose organization is in the rollout, in the subject's order.
 
     ``organization_ids`` narrows them, for a channel that may reach only some organizations. A caller
     inside a webhook passes ``only_evaluate_locally``, so a flag that cannot be evaluated locally
     reads as off instead of costing a remote call per project.
     """
-    team_ids = list(
-        dict.fromkeys(
-            Integration.objects.filter(kind="github", integration_id=installation_id)
-            .order_by("id")
-            .values_list("team_id", flat=True)
-        )
-    )
+    team_ids = candidate_team_ids(subject)
     teams = Team.objects.filter(id__in=team_ids).only("id", "organization_id")
     if organization_ids is not None:
         teams = teams.filter(organization_id__in=organization_ids)
+    distinct_id = f"{flag}-{rollout_key(subject)}"
     rolled_out = {
         team.id
         for team in teams
         if posthog_feature_flag_enabled(
             flag,
             # The rollout targets organizations, so the person behind the request does not matter yet.
-            f"{flag}-installation-{installation_id}",
+            distinct_id,
             organization_id=team.organization_id,
             team_id=team.id,
             only_evaluate_locally=only_evaluate_locally,

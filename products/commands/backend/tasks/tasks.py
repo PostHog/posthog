@@ -5,6 +5,7 @@ from celery import shared_task
 from ..channels.github.comments import dispatch_comment_command
 from ..channels.github.intake import CommentCommandRequest
 from ..channels.slack.mentions import SlackCommandRequest, dispatch_slack_command
+from ..logic.subjects import subject_from_payload
 
 
 # No retries: a command that fails tells the commenter so in a reply, and a silent second attempt
@@ -42,10 +43,8 @@ def run_comment_command(
 @shared_task(ignore_result=True, max_retries=0)
 def run_slack_command(
     *,
-    installation_id: str,
+    subject: dict[str, str | int],
     team_ids: list[int],
-    repository: str,
-    pr_number: int,
     verb: str,
     argument: str,
     slack_team_id: str,
@@ -59,10 +58,8 @@ def run_slack_command(
 ) -> None:
     dispatch_slack_command(
         SlackCommandRequest(
-            installation_id=installation_id,
+            subject=subject_from_payload(subject),
             team_ids=tuple(team_ids),
-            repository=repository,
-            pr_number=pr_number,
             verb=verb,
             argument=argument,
             slack_team_id=slack_team_id,

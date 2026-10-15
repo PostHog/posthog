@@ -29,6 +29,8 @@ from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 from posthog.dataclasses import frozen
 from posthog.scopes import APIScopeObject
 
+from .commands import SubjectKind
+
 SCHEMA_VERSION = 1
 
 MENTION = "@posthog"
@@ -238,6 +240,7 @@ class CommandDeclaration[A]:
     dispatches_to: str | None
     aliases: tuple[str, ...] = ()
     access: ResourceAccess | None = None
+    subject_kinds: tuple[SubjectKind, ...] = ("pull_request",)
     # A fork's head is code nobody with write access has vetted. Commands that run or approve it
     # must refuse forks; only a command that reads nothing from the head may allow them.
     allows_forks: bool = False

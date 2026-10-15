@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from products.commands.backend.channels.slack.parsing import SlackPullRequestCommand, parse_slack_command
+from products.commands.backend.channels.slack.parsing import PullRequestUrl, SlackCommand, parse_slack_command
 
 URL = "https://github.com/acme/widgets/pull/7"
 
@@ -17,8 +17,8 @@ URL = "https://github.com/acme/widgets/pull/7"
     ]
 )
 def test_reads_a_pull_request_command(_name: str, text: str, verb: str, argument: str) -> None:
-    assert parse_slack_command(text) == SlackPullRequestCommand(
-        repository="acme/widgets", pr_number=7, verb=verb, argument=argument
+    assert parse_slack_command(text) == SlackCommand(
+        subject=PullRequestUrl(repository="acme/widgets", number=7), verb=verb, argument=argument
     )
 
 
