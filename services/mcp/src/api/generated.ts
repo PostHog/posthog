@@ -30164,6 +30164,13 @@ export namespace Schemas {
       step_outline: DataSuggestionStepKindEnum[];
     }
 
+    export interface DataSuggestionAcceptRequest {
+      /** The id of the suggestion the draft was built from. */
+      suggestion_id: string;
+      /** The draft workflow created from the built suggestion. It must still be a draft and not linked to another suggestion. */
+      hog_flow_id: string;
+    }
+
     export interface DataSuggestionBuildRequest {
       /** The id of a suggestion from the list endpoint. */
       suggestion_id: string;
@@ -30214,6 +30221,16 @@ export namespace Schemas {
       workflow_id: string | null;
       /** With status ready: the settings the draft leaves blank, which must be filled before it is enabled. */
       missing_inputs: DataSuggestionMissingInput[];
+    }
+
+    export interface DataSuggestionDismissRequest {
+      /** The id of a suggestion from the list endpoint. */
+      suggestion_id: string;
+      /**
+         * Optional reason the person gave.
+         * @maxLength 2000
+         */
+      reason?: string;
     }
 
     export interface DataSuggestionGenerateRequest {

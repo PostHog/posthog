@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { loadEntrySource } from '../../Broadcasts/broadcastUsage'
 import {
     hogFlowsCreate,
+    workflowDataSuggestionsAccept,
     workflowDataSuggestionsBuild,
     workflowDataSuggestionsCurrent,
     workflowDataSuggestionsGenerate,
@@ -18,6 +19,7 @@ import { workflowDataSuggestionsLogic } from './workflowDataSuggestionsLogic'
 
 jest.mock('../../generated/api', () => ({
     hogFlowsCreate: jest.fn(),
+    workflowDataSuggestionsAccept: jest.fn(() => Promise.resolve()),
     workflowDataSuggestionsBuild: jest.fn(),
     workflowDataSuggestionsCurrent: jest.fn(),
     workflowDataSuggestionsGenerate: jest.fn(),
@@ -108,6 +110,11 @@ describe('workflowDataSuggestionsLogic', () => {
         expect(hogFlowsCreate).toHaveBeenCalledWith(
             expect.any(String),
             expect.objectContaining({ name: 'Welcome new users', status: 'draft' }),
+            expect.objectContaining({ signal: expect.anything() })
+        )
+        expect(workflowDataSuggestionsAccept).toHaveBeenCalledWith(
+            expect.any(String),
+            { suggestion_id: card.suggestionId, hog_flow_id: 'workflow-1' },
             expect.objectContaining({ signal: expect.anything() })
         )
         expect(router.values.location.pathname).toContain('workflow-1')

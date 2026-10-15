@@ -2070,6 +2070,13 @@ export interface BlastRadiusApi {
     confirm_token: string
 }
 
+export interface DataSuggestionAcceptRequestApi {
+    /** The id of the suggestion the draft was built from. */
+    suggestion_id: string
+    /** The draft workflow created from the built suggestion. It must still be a draft and not linked to another suggestion. */
+    hog_flow_id: string
+}
+
 export interface DataSuggestionBuildRequestApi {
     /** The id of a suggestion from the list endpoint. */
     suggestion_id: string
@@ -2229,6 +2236,16 @@ export interface DataSuggestionsResponseApi {
     suggestions: DataSuggestionApi[]
     /** Whether the project has a verified email sender. Without one, an email workflow can be saved as a draft but cannot send until a sending domain is added and verified. */
     readonly email_sender_ready: boolean
+}
+
+export interface DataSuggestionDismissRequestApi {
+    /** The id of a suggestion from the list endpoint. */
+    suggestion_id: string
+    /**
+     * Optional reason the person gave.
+     * @maxLength 2000
+     */
+    reason?: string
 }
 
 export interface DataSuggestionGenerateRequestApi {

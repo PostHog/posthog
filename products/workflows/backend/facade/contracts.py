@@ -735,3 +735,41 @@ class EmailDraft:
     text: str
     generated_by: EmailDraftOrigin
     fallback_reason: EmailDraftFallbackReason | None = None
+
+
+@frozen
+class NewWorkflowIdea:
+    """A workflow to suggest to a project. `definition` holds a draft in the workflow create shape, once there is one."""
+
+    key: str
+    title: str
+    rationale: str
+    definition: dict[str, Any]
+    evidence: dict[str, Any]
+
+
+@frozen
+class WorkflowIdeaRecord:
+    id: UUID
+    team_id: int
+    key: str
+    title: str
+    rationale: str
+    status: str
+    evidence: dict[str, Any]
+    definition: dict[str, Any]
+    created_at: datetime
+    hog_flow_id: UUID | None
+    resolved_at: datetime | None
+
+
+class WorkflowIdeaNotFound(Exception):
+    pass
+
+
+class WorkflowIdeaAlreadyResolved(Exception):
+    pass
+
+
+class WorkflowIdeaWorkflowMismatch(Exception):
+    pass
