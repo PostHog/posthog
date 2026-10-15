@@ -72,7 +72,7 @@ def build_access_control_guard(
         creator_exempt=creator_field is not None and creator_field in table.fields,
         user_access_control=user_access_control,
     )
-    guard = filter_to_expr(result, id_field, table_type, creator_field, user_id)
+    guard = _resource_ids_to_expr(result, id_field, table_type, creator_field, user_id)
     if guard is None:
         return None
 
@@ -84,7 +84,7 @@ def build_access_control_guard(
     return guard
 
 
-def filter_to_expr(
+def _resource_ids_to_expr(
     result: "ResourceIds",
     id_field: str,
     table_type: ast.TableOrSelectType,
