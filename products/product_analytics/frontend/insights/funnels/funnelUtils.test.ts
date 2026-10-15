@@ -31,6 +31,7 @@ import {
     getMeanAndStandardDeviation,
     getReferenceStep,
     getStepBreakdownSeries,
+    getStepLegendSeries,
     getVisibilityKey,
     hasBreakdown,
     isFunnelWithEnoughSteps,
@@ -1100,6 +1101,43 @@ describe('getStepBreakdownSeries', () => {
         },
     ])('$scenario', ({ step, breakdownFilter, expected }) => {
         expect(getStepBreakdownSeries(step as any, breakdownFilter as any)).toBe(expected)
+    })
+})
+
+describe('getStepLegendSeries', () => {
+    const breakdownFilter = { breakdown: '$os', breakdown_type: 'event' }
+    const ios = { breakdown_value: ['iOS'], count: 251 }
+    const android = { breakdown_value: ['Android'], count: 37 }
+    it.each([
+        {
+            scenario: 'one visible breakdown value → that value',
+            nested: [ios],
+            breakdownFilter,
+            expected: { legend: 'series', showsTotals: false },
+        },
+        {
+            scenario: 'several visible values → step totals, labeled as totals',
+            nested: [ios, android],
+            breakdownFilter,
+            expected: { legend: 'step', showsTotals: true },
+        },
+        {
+            scenario: 'compare periods of one value → step, not labeled',
+            nested: [{ ...ios, compare_label: 'current' }],
+            breakdownFilter,
+            expected: { legend: 'step', showsTotals: false },
+        },
+        {
+            scenario: 'no breakdown → step, not labeled',
+            nested: [ios, android],
+            breakdownFilter: null,
+            expected: { legend: 'step', showsTotals: false },
+        },
+    ])('$scenario', ({ nested, breakdownFilter, expected }) => {
+        const step = { count: 288, nested_breakdown: nested } as any
+        const { legendStep, showsTotals } = getStepLegendSeries(step, breakdownFilter as any)
+        expect(legendStep).toBe(expected.legend === 'series' ? nested[0] : step)
+        expect(showsTotals).toBe(expected.showsTotals)
     })
 })
 

@@ -1017,6 +1017,28 @@ export function getStepBreakdownSeries(
     return single
 }
 
+// The top-level step always holds the totals across every breakdown value, hidden ones included.
+// The step legend shows the single visible series instead, or marks the numbers as totals.
+export function getStepLegendSeries(
+    step: FunnelStepWithConversionMetrics,
+    breakdownFilter: BreakdownFilter | null | undefined
+): {
+    legendStep: FunnelStepWithConversionMetrics
+    visibleSeries: FunnelStepWithConversionMetrics | null
+    showsTotals: boolean
+} {
+    // Compare series are scaled per period, so their rates do not fit the legend.
+    if (!breakdownFilter?.breakdown || step.nested_breakdown?.some((b) => b.compare_label != null)) {
+        return { legendStep: step, visibleSeries: null, showsTotals: false }
+    }
+    const visibleSeries = getStepBreakdownSeries(step, breakdownFilter)
+    return {
+        legendStep: visibleSeries ?? step,
+        visibleSeries,
+        showsTotals: !visibleSeries && (step.nested_breakdown?.length ?? 0) > 1,
+    }
+}
+
 export function isFunnelWithEnoughSteps(series: FunnelsQuery['series'] | null | undefined): boolean {
     return (series?.length || 0) > 1
 }
