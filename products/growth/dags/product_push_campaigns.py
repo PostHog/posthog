@@ -255,7 +255,7 @@ def product_push_campaigns_job():
 
 @dagster.schedule(
     job=product_push_campaigns_job,
-    cron_schedule="0 6 * * *",
+    cron_schedule="21 6 * * *",
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.STOPPED,
 )

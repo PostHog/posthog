@@ -4,8 +4,10 @@ The layer that knows a transport exists. `dispatch.deliver` handles one destinat
 is what decides which destinations there are and which transport each one takes.
 """
 
+import json
+from collections.abc import Callable
 from dataclasses import replace
-from typing import Final
+from typing import Any, Final
 
 import structlog
 import posthoganalytics
@@ -13,33 +15,51 @@ import posthoganalytics
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.alerts_platform.backend.delivery import legacy_webhook
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
+from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import deliver
+from products.alerts_platform.backend.delivery.email import EmailTransport
+from products.alerts_platform.backend.delivery.in_app import InAppTransport
+from products.alerts_platform.backend.delivery.message import AlertMessage
+from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport
 from products.alerts_platform.backend.delivery.slack import SlackTransport
-from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
-from products.alerts_platform.backend.delivery.transport import DeliveryTransport
+from products.alerts_platform.backend.delivery.teams import TeamsTransport
+from products.alerts_platform.backend.delivery.telemetry import record_delivery
+from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport
+from products.alerts_platform.backend.delivery.webhook import WebhookTransport
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
     AnnouncedTransition,
     DestinationType,
     EvaluationAnnouncement,
+    IncidentAction,
 )
 from products.alerts_platform.backend.logic.platform_alert_events import announcement
 
 logger = structlog.get_logger(__name__)
 
-# Whether the platform may contact a team's destinations. Only the platform reads it: the
-# production logs path keeps delivering regardless, so a team with this on receives the legacy
-# message and the native one. Flipping a team from one deliverer to the other is the cutover,
-# and it is not this.
+# Whether the platform may contact a team's destinations for an alert its source still owns. Only
+# the platform reads it: the source keeps delivering regardless, so a team with this on receives
+# the legacy message and the native one. An alert the platform owns never reads it, because the
+# source sends nothing for that alert and a flag-eval failure would silence it.
 LIVE_DELIVERY_FLAG: Final = "alert-platform-live-delivery"
 
 # A destination type with no entry here has no native transport, and delivery skips it. Make a
 # team live only when its alerts use no such type. Nothing checks this in code, and one alert
-# delivering natively to Slack and through a HogFunction to Discord would send two differently
-# worded messages for one event.
-_TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {DestinationType.SLACK: SlackTransport}
+# delivering natively to one destination and through a HogFunction to another would send two
+# differently worded messages for one event.
+_TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {
+    DestinationType.SLACK: SlackTransport,
+    DestinationType.WEBHOOK: WebhookTransport,
+    DestinationType.TEAMS: TeamsTransport,
+    DestinationType.DISCORD: DiscordTransport,
+    DestinationType.PAGERDUTY: PagerDutyTransport,
+    DestinationType.EMAIL: EmailTransport,
+    DestinationType.IN_APP: InAppTransport,
+}
 
 
 @frozen
@@ -58,19 +78,7 @@ def destinations_are_live(team: Team) -> bool:
     is where everything was before this existed. Reading a blip the other way starts sending.
     """
     try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                LIVE_DELIVERY_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                # This runs in a Temporal activity, where a captured event is silently dropped.
-                send_feature_flag_events=False,
-            )
-        )
+        return bool(_team_flag_enabled(LIVE_DELIVERY_FLAG, team))
     except Exception:
         logger.warning(
             "alerts_platform_live_delivery_flag_check_failed_defaulting_off",
@@ -80,55 +88,188 @@ def destinations_are_live(team: Team) -> bool:
         return False
 
 
+def _team_flag_enabled(flag: str, team: Team) -> bool | None:
+    """None when the flag could not be evaluated: the SDK logs and swallows a failed lookup, and it
+    answers None for a flag that does not exist too."""
+    return posthoganalytics.feature_enabled(
+        flag,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            # Both regions read flags from one PostHog project, and project ids repeat across
+            # regions. A condition on the uuid names one team in one region.
+            "project": {"id": str(team.id), "uuid": str(team.uuid)},
+        },
+        # This runs in a Temporal activity, where a captured event is silently dropped.
+        send_feature_flag_events=False,
+    )
+
+
+class _WebhookTransports:
+    """The webhook transport for one evaluation, with the legacy body when the team keeps it.
+
+    The flag is read once, and only when a webhook destination is about to be sent to. Unlike the
+    live-delivery flag, a failed read is a failed delivery: a guess either way sends a body some
+    receiver cannot parse, and a retry costs only time.
+    """
+
+    def __init__(self, team: Team, request: AlertDeliveryRequest, announced: EvaluationAnnouncement) -> None:
+        self._team = team
+        self._request = request
+        self._announced = announced
+        self._transport: WebhookTransport | None = None
+        self._failure: DeliveryError | None = None
+
+    def get(self) -> WebhookTransport:
+        # A failed read is kept too, so a flags outage costs one lookup per evaluation rather than
+        # one per webhook, inside an activity whose time is shared by every destination.
+        if self._failure is not None:
+            raise self._failure
+        if self._transport is None:
+            try:
+                self._transport = WebhookTransport(legacy_body=self._legacy_body())
+            except DeliveryError as error:
+                self._failure = error
+                raise
+        return self._transport
+
+    def _legacy_body(self) -> Callable[[AlertMessage], dict[str, Any]] | None:
+        body = legacy_webhook.body_for(self._request.source)
+        if body is None:
+            return None
+        try:
+            keeps_legacy_body = _team_flag_enabled(legacy_webhook.LEGACY_WEBHOOK_BODY_FLAG, self._team)
+        except Exception as error:
+            raise DeliveryError("Could not read which webhook body this team receives.") from error
+        if keeps_legacy_body is None:
+            raise DeliveryError("Could not read which webhook body this team receives.")
+        if not keeps_legacy_body:
+            return None
+        team_id = self._team.id
+        alert_id = self._request.destination_alert_id
+        consecutive_failures = self._announced.consecutive_failures
+        return lambda message: body(
+            project_id=team_id,
+            alert_id=alert_id,
+            alert_name=message.alert_name,
+            consecutive_failures=consecutive_failures,
+            transition=message.transition,
+        )
+
+
 def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     """Sends what one evaluation decided, to every destination configured for it."""
     team = Team.objects.filter(id=request.team_id).first()
-    if team is None or not destinations_are_live(team):
+    if team is None or not (request.owned_by_platform or destinations_are_live(team)):
         return DeliveryOutcome(live=False, sent=0, skipped_without_transport=0)
 
-    announced = announcement(request.team_id, request.configuration_id, request.evaluation_key)
+    announced = announcement(
+        request.team_id,
+        request.configuration_id,
+        request.evaluation_key,
+        source=request.source,
+        incident_grouping_keys=request.incident_actions.keys(),
+    )
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
 
     thread_store = DatabaseThreadStore(request.team_id)
     sent = 0
     skipped = 0
+    busy: list[str] = []
+    failures: list[str] = []
+    first_refusal: DeliveryError | None = None
     # Per subscription rather than per destination. A destination subscribes to some of the
     # kinds an alert can announce, so one that asked for firings must not be handed the resolve
     # that another group produced in the same evaluation.
+    action_by_event_id = {
+        event_id: IncidentAction(action) for action, event_id in request.event_ids_by_incident_action.items()
+    }
+    webhook_transports = _WebhookTransports(team, request, announced)
+    message_event_ids = set(request.event_ids_by_kind.values())
+    # Destinations already told about the overflow, so each hears it once, on its first message.
+    noticed: set[str] = set()
     for event_id, transitions in _by_subscription(request, announced).items():
         for target in _destinations(request, event_id):
+            overflowed = 0
+            destination = json.dumps(target, sort_keys=True)
+            if request.overflowed and event_id in message_event_ids and destination not in noticed:
+                overflowed = request.overflowed
+                noticed.add(destination)
             transport_class = _TRANSPORTS.get(target["type"])
             if transport_class is None:
                 skipped += 1
                 continue
-            deliver(
-                transport=transport_class(),
-                thread_store=thread_store,
-                team_id=request.team_id,
-                configuration_id=request.configuration_id,
-                evaluation_key=request.evaluation_key,
-                target=target,
-                announcement=replace(announced, transitions=transitions),
-            )
-            sent += 1
+            try:
+                transport = webhook_transports.get() if transport_class is WebhookTransport else transport_class()
+            except DeliveryError as error:
+                # Fails before a send starts, where `deliver` counts its failures, so it is counted here.
+                for _ in transitions:
+                    record_delivery(
+                        team_id=request.team_id,
+                        configuration_id=request.configuration_id,
+                        provider=WebhookTransport.provider,
+                        succeeded=False,
+                    )
+                failures.append(str(error))
+                first_refusal = first_refusal or error
+                continue
+            try:
+                deliver(
+                    transport=transport,
+                    thread_store=thread_store,
+                    team_id=request.team_id,
+                    configuration_id=request.configuration_id,
+                    evaluation_key=request.evaluation_key,
+                    target=target,
+                    announcement=replace(announced, transitions=transitions, overflowed=overflowed),
+                    incident_action=action_by_event_id.get(event_id),
+                    source_alert_url=request.source_alert_url,
+                )
+            except ThreadBusy as error:
+                busy.append(str(error))
+            # A destination that refuses every send, such as a deleted channel, must not cost the
+            # destinations after it their message on every attempt. Temporal records the message
+            # and the cause chain, and a transport words its own refusals safely. Any other
+            # exception's text can carry a credential URL, so it is named by class and not chained.
+            except DeliveryError as error:
+                failures.append(str(error))
+                first_refusal = first_refusal or error
+            except Exception as error:
+                failures.append(type(error).__name__)
+            else:
+                sent += 1
+    # A held thread wins over a failure. The workflow waits a held thread out and then runs the
+    # whole delivery again, which retries the failed destinations too. A failure raised instead
+    # spends the activity's retries inside the claim's TTL, and the held message is lost.
+    if busy:
+        # The failures ride along, so a wait that ends still says which destinations refused.
+        raise ThreadBusy("; ".join([*busy, *failures]))
+    if failures:
+        raise DeliveryError(f"{len(failures)} destination(s) failed: " + "; ".join(failures)) from first_refusal
     return DeliveryOutcome(live=True, sent=sent, skipped_without_transport=skipped)
 
 
 def _by_subscription(
     request: AlertDeliveryRequest, announced: EvaluationAnnouncement
 ) -> dict[str, tuple[AnnouncedTransition, ...]]:
-    """The transitions this evaluation announced, grouped by the event a destination subscribes to.
+    """The transitions this evaluation announced or moved an incident with, grouped by the event a
+    destination subscribes to.
 
     A kind the source does not map to an event id reaches nobody: no destination can have asked
-    for it.
+    for it. Nor does a message on a delivery the source did not announce, which exists only for
+    its incident actions. An incident event is set apart from every message event, so a chat
+    destination never hears about an incident and an incident manager never gets a message.
     """
     grouped: dict[str, list[AnnouncedTransition]] = {}
     for transition in announced.transitions:
-        event_id = request.event_ids_by_kind.get(transition.kind.value)
-        if event_id is None:
-            continue
-        grouped.setdefault(event_id, []).append(transition)
+        message_event = request.event_ids_by_kind.get(transition.kind.value) if request.sends_messages else None
+        action = request.incident_actions.get(transition.grouping_key)
+        incident_event = request.event_ids_by_incident_action.get(action.value) if action else None
+        for event_id in (message_event, incident_event):
+            if event_id is not None:
+                grouped.setdefault(event_id, []).append(transition)
     return {event_id: tuple(transitions) for event_id, transitions in grouped.items()}
 
 

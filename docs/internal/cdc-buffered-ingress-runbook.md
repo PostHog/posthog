@@ -59,6 +59,9 @@ Recovery clears the flag once the slot is back, and so does any read that succee
 A resync, a table-mode switch, re-enabling a table's sync, and Repair CDC use the same key: when a sync of the table can still hand over, they pause its schedule and leave the reset to capture, which also starts the new snapshot.
 They then start a capture run right away, and recreate the capture schedule if it is gone, so the reset does not wait for the next tick. A source that is marked broken, or whose capture is paused after a non-retryable error, is left alone: Repair CDC or resuming capture restarts it.
 A table edit or a sync frequency change rewrites the capture schedule too, and it keeps the pause, so it does not restart capture on such a source either.
+A table edit leaves the table's own schedule as it is while a broken marker holds the source's tables for Repair CDC: turning the table's sync on does not unpause it, and a frequency change keeps whatever pause the schedule has.
+Self-managed critical lag and a billing stop that kept the slot do not pause table schedules, so an edit under those markers leaves them running.
+While a repair holds the source's lock, an edit gets no such hold, because the repair has already listed the tables it will resume.
 Once slot-invalidation recovery has recreated the slot, it removes the markers of the lost slot (`auto_dropped_critical_lag`, `slot_missing`, `publication_missing`), so its tables stop reading as halted. A failed recreation keeps them.
 Each write that stages a reset gives the key a new `generation`, so capture drops only the reset it finished, even when a request stages the same reset again while that snapshot starts.
 The admin resync refuses instead, because it starts its own non-billable run, so it asks the operator to retry once the sync stops.
@@ -241,6 +244,13 @@ confirmed position. Micro-batch boundaries are not stable across attempts, so th
 same positions with differently-shaped files. Before its first write per schema, it removes every
 file that reaches the position it restarted from (`end_seq >= restart_seq`), because it is about to
 re-emit all of those positions.
+
+A worker that shuts down does not kill the attempt.
+Capture stops at the next page boundary, after the slot has advanced past every change in the buffer, and records the run as completed.
+If backlog is left and a retry remains, it raises `WorkerShuttingDownError` so Temporal continues the read on another worker.
+That retry starts at the first unread change, so it has no files to remove.
+On the last attempt it returns instead, and the next scheduled run reads the backlog.
+The log line is `cdc_read_stopped_for_worker_shutdown`.
 
 One file can straddle that position. A micro-flush is cut per event, so it can carry the head of a
 transaction; the slot then advances only to the previous transaction's end, and the retry re-reads

@@ -35,6 +35,7 @@ import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-comp
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import NOTEBOOK_RUN from '@/templates/sections/notebook-run.md'
+import NOTEBOOK_SQL from '@/templates/sections/notebook-sql.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import SKILLS_FIRST from '@/templates/sections/skills-first.md'
@@ -84,13 +85,32 @@ function businessKnowledgeSearchLine(execSyntax: boolean): string {
 
 const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
 
-/** Knowledge search never reads the team's GitHub repositories, so code questions need the repo tools.
+/** Document search does not read GitHub. Code questions and an empty document search use the repo tools.
  *  The exec line stays short to keep the exec description under Claude Code's 2048-char cap. */
 function businessKnowledgeRepoSearchLine(execSyntax: boolean): string {
     if (execSyntax) {
-        return `- For this team's code: \`call ${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL} <json_input>\`.`
+        return `- Code or doc misses: \`call ${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL} <json_input>\`.`
     }
-    return `- For a question about this team's code, call \`${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL}\` with file names or identifiers, not a sentence. Read a hit with \`business-knowledge-repositories-file-retrieve\` and cite its permalink.`
+    return `- For this team's code, or when document search returns no chunks, call \`${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL}\` with file names or topic words, not a sentence. Each repository includes its description. When a description names a handbook or docs, search that repository for those words, read the file, and cite its permalink.`
+}
+
+/** The SQL section's bullets that name a tool. Each one is left out when the connection
+ *  lacks a tool it names, so the guidance never sends the agent to a name it cannot call. */
+function notebookSqlVars(ctx: InstructionsContext): Record<string, string> {
+    const available = (tool: string): boolean => ctx.tools?.some(({ name }) => name === tool) ?? false
+    const runAll = available('notebooks-run') ? ', or all at once with `notebooks-run`' : ''
+    return {
+        throwaway_checks: available('execute-sql')
+            ? " Use `execute-sql` only for throwaway checks the notebook does not rely on, like confirming a table's columns."
+            : '',
+        fix_in_place:
+            available('notebooks-update-cell') && available('notebooks-delete-cell')
+                ? '- Fix a failing or wrong query in the same cell with `notebooks-update-cell`, and remove dead ends with `notebooks-delete-cell`, so the notebook keeps only the steps the conclusion rests on.'
+                : '',
+        run_later: available('notebooks-run-cell')
+            ? `- To lay out dependent cells before running them, add them with \`run: false\`, then run them in order with \`notebooks-run-cell\`${runAll}.`
+            : '',
+    }
 }
 
 /** Resolve the field, falling back to the advertised tool list for callers that
@@ -161,12 +181,12 @@ export class InstructionsFormatter {
     }
 
     /** Artifact-choice guidance: notebook vs dashboard vs insight, plus the
-     *  Python-goes-in-a-cell rule when the notebook cell tools are available, and
+     *  SQL-and-Python-go-in-cells rules when the notebook cell tools are available, and
      *  the refresh-a-notebook rule when the run tool is. */
     private artifactSections(ctx: InstructionsContext): string[] {
         return [
             ANALYSIS_ARTIFACTS,
-            ...(ctx.notebookCellsEnabled ? [NOTEBOOK_PYTHON] : []),
+            ...(ctx.notebookCellsEnabled ? [formatPrompt(NOTEBOOK_SQL, notebookSqlVars(ctx)), NOTEBOOK_PYTHON] : []),
             ...(ctx.notebookRunEnabled ? [NOTEBOOK_RUN] : []),
         ]
     }

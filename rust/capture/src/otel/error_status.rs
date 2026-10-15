@@ -1,7 +1,17 @@
+use metrics::counter;
+use opentelemetry_proto::tonic::common::v1::{any_value, KeyValue};
 use opentelemetry_proto::tonic::trace::v1::{span, status::StatusCode, Span};
 use serde_json::{Map, Value};
 
 use super::fan_out::attributes_to_map;
+
+const ERROR_MESSAGE_KEYS: &[(&str, &str)] = &[
+    ("exception.type", "exception.message"),
+    ("error.type", "error.message"),
+];
+
+const MISSING_ERROR_MESSAGE: &str =
+    "Span reported an error without a message. Record an exception event, or set exception.message on the span.";
 
 const HTTP_STATUS_KEYS: &[&str] = &[
     "$ai_http_status",
@@ -152,19 +162,34 @@ fn latest_exception_event(span: &Span) -> Option<&span::Event> {
     })
 }
 
-fn error_message_from_exception(event: &span::Event) -> Option<String> {
-    let attrs = attributes_to_map(&event.attributes);
-    let message = attrs.get("exception.message").and_then(Value::as_str);
-    let error_type = attrs.get("exception.type").and_then(Value::as_str);
+fn non_empty_string_attr<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
+    attrs
+        .iter()
+        .rev()
+        .filter(|kv| kv.key == key)
+        .find_map(|kv| match kv.value.as_ref()?.value.as_ref()? {
+            any_value::Value::StringValue(value) if !value.is_empty() => Some(value.as_str()),
+            _ => None,
+        })
+}
 
-    match (error_type, message) {
-        (Some(error_type), Some(message)) if !error_type.is_empty() && !message.is_empty() => {
-            Some(format!("{error_type}: {message}"))
-        }
-        (_, Some(message)) if !message.is_empty() => Some(message.to_string()),
-        (Some(error_type), _) if !error_type.is_empty() => Some(error_type.to_string()),
-        _ => None,
-    }
+fn error_message_from_attrs(attrs: &[KeyValue]) -> Option<String> {
+    ERROR_MESSAGE_KEYS
+        .iter()
+        .find_map(|(type_key, message_key)| {
+            let message = non_empty_string_attr(attrs, message_key)?;
+            Some(match non_empty_string_attr(attrs, type_key) {
+                Some(error_type) => format!("{error_type}: {message}"),
+                None => message.to_string(),
+            })
+        })
+}
+
+fn error_type_from_attrs(attrs: &[KeyValue]) -> Option<String> {
+    ERROR_MESSAGE_KEYS
+        .iter()
+        .find_map(|(type_key, _)| non_empty_string_attr(attrs, type_key))
+        .map(str::to_string)
 }
 
 pub fn apply_error_status_properties(span: &Span, properties: &mut Map<String, Value>) {
@@ -180,9 +205,19 @@ pub fn apply_error_status_properties(span: &Span, properties: &mut Map<String, V
 
     if !properties.contains_key("$ai_error") {
         let error = latest_exception_event(span)
-            .and_then(error_message_from_exception)
+            .map(|event| event.attributes.as_slice())
+            .and_then(|attrs| {
+                error_message_from_attrs(attrs).or_else(|| error_type_from_attrs(attrs))
+            })
+            .or_else(|| error_message_from_attrs(&span.attributes))
             .or_else(|| (!status.message.is_empty()).then(|| status.message.clone()))
-            .unwrap_or_else(|| "OpenTelemetry span status error".to_string());
+            // A span attribute that holds only the error type is a class name such as
+            // `RateLimitError`. The status message describes the failure, so it goes first.
+            .or_else(|| error_type_from_attrs(&span.attributes))
+            .unwrap_or_else(|| {
+                counter!("capture_ai_otel_error_message_missing").increment(1);
+                MISSING_ERROR_MESSAGE.to_string()
+            });
         properties.insert("$ai_error".to_string(), Value::String(error));
     }
 
@@ -206,7 +241,7 @@ pub fn apply_error_status_properties(span: &Span, properties: &mut Map<String, V
 #[cfg(test)]
 mod tests {
     use super::*;
-    use opentelemetry_proto::tonic::common::v1::{any_value, AnyValue, KeyValue};
+    use opentelemetry_proto::tonic::common::v1::AnyValue;
     use opentelemetry_proto::tonic::trace::v1::Status;
 
     fn make_kv(key: &str, value: any_value::Value) -> KeyValue {
@@ -276,6 +311,92 @@ mod tests {
             Value::String("provider failed".to_string())
         );
         assert_eq!(properties["$ai_http_status"], Value::Number(500.into()));
+    }
+
+    #[test]
+    fn test_error_status_reads_error_details_from_span_attributes() {
+        let cases: [(Vec<KeyValue>, &str, &str); 6] = [
+            (
+                vec![
+                    make_kv(
+                        "exception.type",
+                        any_value::Value::StringValue("ToolExecutionError".to_string()),
+                    ),
+                    make_kv(
+                        "exception.message",
+                        any_value::Value::StringValue("schema validation failed".to_string()),
+                    ),
+                ],
+                "",
+                "ToolExecutionError: schema validation failed",
+            ),
+            (
+                vec![make_kv(
+                    "error.message",
+                    any_value::Value::StringValue("upstream refused the request".to_string()),
+                )],
+                "",
+                "upstream refused the request",
+            ),
+            (
+                vec![make_kv(
+                    "exception.message",
+                    any_value::Value::StringValue("context window exceeded".to_string()),
+                )],
+                "Error",
+                "context window exceeded",
+            ),
+            (
+                vec![make_kv(
+                    "error.type",
+                    any_value::Value::StringValue("RateLimitError".to_string()),
+                )],
+                "Error code: 429 - rate limit reached",
+                "Error code: 429 - rate limit reached",
+            ),
+            (
+                vec![make_kv(
+                    "error.type",
+                    any_value::Value::StringValue("RateLimitError".to_string()),
+                )],
+                "",
+                "RateLimitError",
+            ),
+            (vec![], "", MISSING_ERROR_MESSAGE),
+        ];
+
+        for (attributes, status_message, expected) in cases {
+            let mut span = make_span(attributes);
+            span.status = Some(Status {
+                code: StatusCode::Error as i32,
+                message: status_message.to_string(),
+            });
+            let mut properties = attributes_to_map(&span.attributes);
+
+            apply_error_status_properties(&span, &mut properties);
+
+            assert_eq!(properties["$ai_error"], Value::String(expected.to_string()));
+        }
+    }
+
+    #[test]
+    fn test_error_status_ignores_error_details_from_resource_attributes() {
+        let mut span = make_span(vec![]);
+        span.status = Some(Status {
+            code: StatusCode::Error as i32,
+            message: "provider failed".to_string(),
+        });
+        let mut properties = Map::from_iter([(
+            "exception.message".to_string(),
+            Value::String("an unrelated resource level failure".to_string()),
+        )]);
+
+        apply_error_status_properties(&span, &mut properties);
+
+        assert_eq!(
+            properties["$ai_error"],
+            Value::String("provider failed".to_string())
+        );
     }
 
     #[test]

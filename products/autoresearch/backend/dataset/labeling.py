@@ -14,13 +14,20 @@ the target event fires in [T0, T0 + horizon_days). Random T0 (rather than
 most-recent-feasible) keeps T0s spread across the full lookback so the model
 generalises across time, not just the trailing horizon window.
 
+Every T0 falls on a UTC midnight, and the anchor every training window ends at is
+snapped to one, because every scoring run cuts off at the start of the prediction
+date in UTC. A T0 at a random second would show the features part-day activity and
+a cutoff hour that scoring never has, so the holdout score would not predict the
+scoring score.
+
 Per-user T0 cascades through the rest of the ML pipeline:
 - Feature SQL must read events with `timestamp < cutoff_ts` per user, where
   cutoff_ts comes from a joined anchors table (the labeled_anchors CTE at
   training time, build_inference_anchors_sql at scoring time).
 - Holdout split is by user (fold = hash(person_id) % 5) so the same person
   never appears in both train and holdout.
-- Inference re-uses the same feature SQL with anchors = (person_id, now()).
+- Inference re-uses the same feature SQL with anchors = (person_id, cutoff), where
+  a scoring run's cutoff is the start of the prediction date in UTC.
 
 Integer handling notes:
 - toUnixTimestamp returns UInt32; we cast to Int64 via toInt so subtractions
@@ -67,6 +74,16 @@ TARGET_RELATIVE_KINDS = frozenset({"active_not_performed_target", "ever_performe
 # population-agnostic.
 IDENTIFIED_USERS_ONLY = True
 
+SECONDS_PER_DAY = 86400
+
+# Models record this in metrics["anchor_alignment"]. A champion without it trained on
+# T0s at any second, so its holdout score is not comparable with a model trained here.
+ANCHOR_ALIGNMENT = "utc_day"
+
+# The start of the current UTC day, without a timezone-aware function that HogQL could
+# resolve in the project timezone.
+_UTC_DAY_START_OF_NOW = "fromUnixTimestamp(intDiv(toInt(toUnixTimestamp(now())), 86400) * 86400)"
+
 # The builders here read identity and person properties from `raw_persons` (see
 # `_person_rows_sql`), never from `person.*` on an events scan, so these modifiers join no
 # persons table into them. They pin how `person_id` resolves, so the anchors and the agent's
@@ -76,6 +93,11 @@ IDENTIFIED_USERS_ONLY = True
 LABELER_QUERY_MODIFIERS = HogQLQueryModifiers(
     personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
 )
+
+
+def utc_day_start(ts: int) -> int:
+    """The UTC midnight at or before ``ts`` (unix seconds)."""
+    return ts - ts % SECONDS_PER_DAY
 
 
 def _identified_users_and_clause() -> str:
@@ -89,6 +111,8 @@ def _identified_users_and_clause() -> str:
 # activity scan that counted it would keep a person eligible forever on nothing but their
 # own predictions, and would count the prediction as the first or last thing they did.
 PREDICTION_EVENT_NAME = "autoresearch_prediction"
+# The `$autoresearch_model_role` of a prediction a shadow-set model emits next to the champion's.
+SHADOW_MODEL_ROLE = "shadow"
 
 
 def _own_events_excluded_clause(alias: str = "") -> str:
@@ -191,19 +215,25 @@ class RollingSelection:
     scored_lookback_days: int
 
 
-def rolling_selection(*, eligible: int, pipeline_id: str, cadence_days: int) -> RollingSelection | None:
+def scored_lookback_days(*, eligible: int, cadence_days: int) -> int:
     """
-    The rolling subset for a scoring population of ``eligible`` persons, or None when it scores whole.
+    How far back the ranking reads the pipeline's own predictions for a population of ``eligible`` persons.
     ``cadence_days`` is the pipeline's days between runs, so the history window covers a cycle in days.
     """
     limit = rolling_score_limit(eligible)
+    runs = 1 if limit is None else rolling_rescore_runs(eligible=eligible, scored=limit)
+    return max(ROLLING_SCORE_MIN_LOOKBACK_DAYS, 2 * runs * max(cadence_days, 1))
+
+
+def rolling_selection(*, eligible: int, pipeline_id: str, cadence_days: int) -> RollingSelection | None:
+    """The rolling subset for a scoring population of ``eligible`` persons, or None when it scores whole."""
+    limit = rolling_score_limit(eligible)
     if limit is None:
         return None
-    cycle_days = rolling_rescore_runs(eligible=eligible, scored=limit) * max(cadence_days, 1)
     return RollingSelection(
         pipeline_id=pipeline_id,
         limit=limit,
-        scored_lookback_days=max(ROLLING_SCORE_MIN_LOOKBACK_DAYS, 2 * cycle_days),
+        scored_lookback_days=scored_lookback_days(eligible=eligible, cadence_days=cadence_days),
     )
 
 
@@ -723,17 +753,19 @@ def _build_labeled_users_cte(
     sample_limit caps user_window for fast wizard previews; None = full
     materialization (trainer).
 
-    anchor_ts (unix seconds) is the instant every window ends at; None = now().
-    Queries that must agree on the anchor set, such as the training features and
-    the anchor count, bind the same anchor_ts, because each query reads its own
-    now() and a person at a window edge can fall in one and not the other.
+    anchor_ts (unix seconds) sets the instant every window ends at; None = now().
+    Either one is snapped to the UTC midnight at or before it, so the label cutoff
+    (the anchor minus the horizon) and every T0 are UTC midnights, as the scoring
+    cutoff is. Queries that must agree on the anchor set, such as the training
+    features and the anchor count, bind the same anchor_ts, because each query reads
+    its own now() and a person at a window edge can fall in one and not the other.
     """
     training_properties = (training_population or {}).get("properties", []) if training_population else []
     compiled_filters = _compile_population_filters(training_properties)
     target_cond, target_values = build_target_condition(
         target_event=target_event, target_definition=target_definition, team=team
     )
-    now_expr = "fromUnixTimestamp({anchor_ts})" if anchor_ts is not None else "now()"
+    now_expr = "fromUnixTimestamp({anchor_ts})" if anchor_ts is not None else _UTC_DAY_START_OF_NOW
     compiled_kind = _build_population_kind_conditions(
         training_population, now_expr=now_expr, anchor_mode=True, target_cond=target_cond
     )
@@ -781,16 +813,18 @@ def _build_labeled_users_cte(
 
     # ifNull on the label: a property-filtered action predicate is NULL on rows that lack
     # the property, and a user whose every in-horizon row is NULL must label 0, not NULL.
-    # T0 sits at a fixed fraction (hash / 2^31) of the user's [first_ts, cutoff_ts) span. A
-    # `hash % span` remainder would change every time cutoff_ts moved with now(), handing the
-    # same person a different T0, features, and label on each run. With a member predicate,
-    # first_ts is the user's first population event, else their first event of any kind.
+    # T0 is the UTC midnight at a fixed fraction (hash / 2^31) of the midnights from the first
+    # one after first_ts up to cutoff_ts, which is a midnight too. A `hash % span`
+    # remainder would change every time cutoff_ts moved, handing the same person a different
+    # T0, features, and label on each run. With a member predicate, first_ts is the user's
+    # first population event, else their first event of any kind. A first event exactly at
+    # midnight must not become T0, because the person would then have no event before T0.
     cte = f"""
         WITH user_window AS (
             SELECT
                 m.person_id AS person_id,
-                m.first_ts AS first_ts,
-                m.cutoff_ts AS cutoff_ts,
+                intDiv(m.first_ts, 86400) + 1 AS first_day,
+                intDiv(m.cutoff_ts, 86400) AS cutoff_day,
                 p.created_ts AS person_created_ts
             FROM (
                 SELECT
@@ -808,9 +842,9 @@ def _build_labeled_users_cte(
             SELECT
                 person_id,
                 person_created_ts,
-                first_ts
-                  + intDiv((cutoff_ts - first_ts) * toInt(bitAnd(cityHash64(toString(person_id)), 2147483647)), 2147483648)
-                  AS t0_ts
+                (first_day
+                  + intDiv((cutoff_day - first_day + 1) * toInt(bitAnd(cityHash64(toString(person_id)), 2147483647)), 2147483648)
+                ) * 86400 AS t0_ts
             FROM user_window
         ),
         {labeled_cte} AS (
@@ -837,7 +871,7 @@ def _build_labeled_users_cte(
         **compiled_kind.values,
     }
     if anchor_ts is not None:
-        values["anchor_ts"] = anchor_ts
+        values["anchor_ts"] = utc_day_start(anchor_ts)
     if negative_sample_rate < 1.0:
         values["negative_sample_threshold"] = negative_sample_threshold(negative_sample_rate)
         cte += f"""    ,
@@ -909,7 +943,7 @@ def build_eligible_count_sql(
     Build a HogQL query returning the count of users eligible to be labeled by the
     random-T0 labeler — i.e. users in the training_population with at least one member
     event (the population event, or any event when the population names none) before
-    now - horizon_days. Used as the UI headline number so the wizard reports
+    the start of the current UTC day minus horizon_days, the labeler's cutoff. Used as the UI headline number so the wizard reports
     the full population size, not the sampled subset.
 
     Returns two columns: ``eligible`` (the v1 headline — restricted to identified
@@ -919,22 +953,24 @@ def build_eligible_count_sql(
     """
     training_properties = (training_population or {}).get("properties", []) if training_population else []
     compiled_filters = _compile_population_filters(training_properties)
-    # Row mode: the target-relative kinds are evaluated as of now() here, which is an
+    # Row mode: the target-relative kinds are evaluated as of the day start here, which is an
     # approximation of the trainer's per-user-at-T0 semantics — acceptable for an
     # advisory headline count.
     target_cond, target_values = _target_condition_for(
         training_population, target_event=target_event, target_definition=target_definition, team=team
     )
-    compiled_kind = _build_population_kind_conditions(training_population, target_cond=target_cond)
+    compiled_kind = _build_population_kind_conditions(
+        training_population, now_expr=_UTC_DAY_START_OF_NOW, target_cond=target_cond
+    )
     row_parts = compiled_filters.event_parts + compiled_kind.where_parts
     row_clause = f" AND ({' AND '.join(row_parts)})" if row_parts else ""
     member_clause = _member_clause(compiled_filters, compiled_kind)
 
-    # A member event before now - horizon is the trainer's `first_ts < cutoff_ts`.
+    # A member event before the day start minus the horizon is the trainer's `first_ts < cutoff_ts`.
     members_sql = (
         "SELECT person_id FROM events"
-        " WHERE timestamp >= now() - toIntervalDay({lookback})"
-        f" AND timestamp < now() - toIntervalDay({{horizon}}){_own_events_excluded_clause()}{member_clause}{row_clause}"
+        f" WHERE timestamp >= {_UTC_DAY_START_OF_NOW} - toIntervalDay({{lookback}})"
+        f" AND timestamp < {_UTC_DAY_START_OF_NOW} - toIntervalDay({{horizon}}){_own_events_excluded_clause()}{member_clause}{row_clause}"
     )
     persons_sql = _person_rows_sql(
         members_sql,
@@ -958,6 +994,23 @@ def build_eligible_count_sql(
         **compiled_kind.values,
     }
     return sql, values
+
+
+def _last_scored_sql(cutoff_expr: str) -> str:
+    """
+    One row per person with the pipeline's newest non-shadow prediction before the cutoff, as ``last_scored_ts``.
+    Binds ``rolling_scored_lookback`` and ``rolling_pipeline_id``.
+    """
+    return f"""
+        SELECT person_id, toInt(toUnixTimestamp(max(timestamp))) AS last_scored_ts
+        FROM events
+        WHERE event = '{PREDICTION_EVENT_NAME}'
+          AND timestamp >= {cutoff_expr} - toIntervalDay({{rolling_scored_lookback}})
+          AND timestamp < {cutoff_expr}
+          AND properties.$autoresearch_pipeline_id = {{rolling_pipeline_id}}
+          AND ifNull(properties.$autoresearch_model_role, '') != '{SHADOW_MODEL_ROLE}'
+        GROUP BY person_id
+    """
 
 
 def build_inference_anchors_sql(
@@ -988,7 +1041,8 @@ def build_inference_anchors_sql(
     ``rolling`` keeps only ``rolling.limit`` eligible persons: first the ones the pipeline never
     scored, then the oldest last score, then the most recent member event, then a hash of the
     person. Every key reads events before the cutoff, so a retry of the same prediction date
-    selects the same people.
+    selects the same people. Shadow predictions do not count as scores, so shadow scoring does
+    not change who the champion scores next.
     """
     inference_properties = (inference_population or {}).get("properties", []) if inference_population else []
     compiled_filters = _compile_population_filters(inference_properties)
@@ -1032,15 +1086,7 @@ def build_inference_anchors_sql(
         sql = f"""
             SELECT a.person_id AS person_id, a.cutoff_ts AS cutoff_ts
             FROM ({sql}) AS a
-            LEFT JOIN (
-                SELECT person_id, toInt(toUnixTimestamp(max(timestamp))) AS last_scored_ts
-                FROM events
-                WHERE event = '{PREDICTION_EVENT_NAME}'
-                  AND timestamp >= {cutoff_expr} - toIntervalDay({{rolling_scored_lookback}})
-                  AND timestamp < {cutoff_expr}
-                  AND properties.$autoresearch_pipeline_id = {{rolling_pipeline_id}}
-                GROUP BY person_id
-            ) AS s ON a.person_id = s.person_id
+            LEFT JOIN ({_last_scored_sql(cutoff_expr)}) AS s ON a.person_id = s.person_id
             LEFT JOIN (
                 SELECT person_id, toInt(toUnixTimestamp(max(timestamp))) AS last_active_ts
                 FROM events
@@ -1056,6 +1102,51 @@ def build_inference_anchors_sql(
         """
         values["rolling_scored_lookback"] = rolling.scored_lookback_days
         values["rolling_pipeline_id"] = rolling.pipeline_id
+    return sql, values
+
+
+def build_prediction_coverage_sql(
+    *,
+    lookback_days: int,
+    inference_population: dict[str, Any] | None,
+    cutoff_ts: int,
+    pipeline_id: str,
+    scored_lookback_days: int,
+    target_event: str = "",
+    target_definition: dict[str, Any] | None = None,
+    team: "Team | None" = None,
+) -> tuple[str, dict[str, Any]]:
+    """
+    Build a HogQL query that returns one row: how much of the inference population has a score, and how old it is.
+
+    The query joins the inference anchors to the same last-score subquery that the rolling ranking
+    reads, so ``never_scored`` counts the people that the ranking puts first. Shadow predictions do
+    not count. Ages are in days before the cutoff, and are null when nobody has a score.
+    """
+    anchors_sql, values = build_inference_anchors_sql(
+        lookback_days=lookback_days,
+        inference_population=inference_population,
+        cutoff_ts=cutoff_ts,
+        target_event=target_event,
+        target_definition=target_definition,
+        team=team,
+    )
+    sql = f"""
+        SELECT
+            count() AS population,
+            countIf(scored) AS with_score,
+            avgIf(age_days, scored) AS age_days_avg,
+            quantileIf(0.5)(age_days, scored) AS age_days_p50,
+            quantileIf(0.9)(age_days, scored) AS age_days_p90,
+            maxIf(age_days, scored) AS age_days_max
+        FROM (
+            SELECT ifNull(s.last_scored_ts, 0) AS last_scored_ts, last_scored_ts > 0 AS scored, (a.cutoff_ts - last_scored_ts) / 86400 AS age_days
+            FROM ({anchors_sql}) AS a
+            LEFT JOIN ({_last_scored_sql("fromUnixTimestamp({cutoff_ts})")}) AS s ON a.person_id = s.person_id
+        )
+    """
+    values["rolling_scored_lookback"] = scored_lookback_days
+    values["rolling_pipeline_id"] = pipeline_id
     return sql, values
 
 

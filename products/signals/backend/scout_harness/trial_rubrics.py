@@ -47,10 +47,10 @@ class SavedScoutRubricReader:
             or reference.reference_limits.truncated_files
         ):
             raise ScoutRubricReadError(
-                "The saved rubric's reference instructions are incomplete. Shorten the scout instructions or reference files, then generate, review, and save the rubric again."
+                "The saved rubric's reference instructions are incomplete. Generate suggestions again, review and use the new reference, then save. You can keep your existing criteria."
             )
         return {
             "config_id": str(document.config_id),
             "skill_name": document.skill_name,
-            **state.model_dump(mode="json"),
+            **state.model_dump(mode="json", exclude={"generation"}),
         }

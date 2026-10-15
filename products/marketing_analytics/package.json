@@ -6,7 +6,11 @@
     "dependencies": {
         "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
+        "kea-loaders": "catalog:",
         "kea-subscriptions": "catalog:"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
         "@posthog/brand": "catalog:",

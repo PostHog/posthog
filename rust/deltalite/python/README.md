@@ -234,14 +234,47 @@ hint, so a footer that fits arrives in one GET instead of two, and a file the
 probe found a match in hands its parsed footer to the rewrite, so the file is
 not opened a second time.
 
+**Log requests.** Four changes remove LIST requests of `_delta_log/` and repeated
+reads. Each one has a kill switch that restores the earlier requests: set the
+variable to `0` (`false`, `off` and `no` also work).
+
+| Switch | What it controls |
+| --- | --- |
+| `DELTALITE_PROBE_REFRESH` | A refresh asks if the snapshot is current with one GET and one HEAD, sent together, before it lists the log. The GET is for the commit file after the loaded version: a 404 proves that no newer version exists, because versions have no gaps and a commit file is written one time. The HEAD compares the ETag and the modification time of a commit file that the last load read, so a table that was deleted and created again is loaded again. When a newer commit exists, the refresh lists the log as before. |
+| `DELTALITE_OPTIMISTIC_COMMIT_VERSION` | Before the commit put, delta-rs lists the log to find the latest version. The same GET and HEAD replace that LIST. The create-only put (`If-None-Match: *` on S3) stays the conflict check. If the put loses a race, delta-rs lists the log and checks for conflicts as before. If the table was replaced, the commit fails as a conflict, writes nothing, and the upsert runs again on the table that it loads again. |
+| `DELTALITE_COMMIT_JSON_CACHE` | During one load each commit file is read one time (the kernel reads it two times), and the commit that an upsert wrote is not read back. The memory is at most 256 files and 8 MiB (1 MiB for one file), counts against `DELTALITE_CHECKPOINT_PREFETCH_MAX_BYTES` and `DELTALITE_PROCESS_MAX_BUFFERED_BYTES`, and is released when the operation ends. A commit that does not fit is read as before. |
+| `DELTALITE_SMALL_FILE_SINGLE_GET` | A data file of 64 KiB or less is read with one GET when it is opened without a footer from the probe. The size comes from the Delta log. The reader takes its permit from the fetch budget (`max_fetch_bytes`, `DELTALITE_PROCESS_MAX_FETCH_BYTES`) for the whole file before the request, and the bytes are released with the reader. |
+
+The probe is used only while a 404 is proof:
+
+- The handle lists the log when the last LIST is older than 10 minutes, or older
+  than half of `delta.logRetentionDuration` if that is shorter. Log cleanup
+  removes only commit files older than the retention, so inside this time a
+  missing commit file was never written.
+- The handle lists the log when the last load read no commit file (the loaded
+  version is a checkpoint version), when the store gives no ETag, and after its
+  own commit on a checkpoint boundary.
+- A log store that does not commit with a create-only put (for example the
+  DynamoDB lock store) keeps the LIST before the commit put.
+
+The probe needs a store that answers a GET or a HEAD with the current state of
+the object. S3 does this (reads are strongly consistent after a write or a
+delete), and so do SeaweedFS, the local file system and the in-memory store. Set
+`DELTALITE_PROBE_REFRESH=0` and `DELTALITE_OPTIMISTIC_COMMIT_VERSION=0` for a
+store, or a cache in front of a store, that can answer 404 for an object that
+exists.
+
 ## Metrics
 
 deltalite emits via the Rust [`metrics`](https://docs.rs/metrics) facade (static
 labels only): `deltalite_upserts_total` (`outcome`, `prune_strategy`,
 `error_kind`), `deltalite_upsert_duration_seconds`,
 `deltalite_files_{added,removed,carried_over,probed}_total`,
-`deltalite_rows_{updated,inserted,copied}_total`, and
-`deltalite_checkpoint_prefetch_total` (`outcome`).
+`deltalite_rows_{updated,inserted,copied}_total`,
+`deltalite_checkpoint_prefetch_total` (`outcome`),
+`deltalite_refresh_probe_total` (`outcome`: `current`, `new_commits`,
+`replaced`, `unknown`, `listed`, `no_anchor`), and
+`deltalite_commit_probe_total` (`outcome`).
 
 ## Compatibility & status
 

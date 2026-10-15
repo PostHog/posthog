@@ -7,15 +7,21 @@ contract check watches this file to decide whether they must retest.
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import field
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Final, NotRequired, Protocol, TypedDict
+from typing import TYPE_CHECKING, Any, Final, NotRequired, Protocol, TypedDict
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
+
+from products.alerts_platform.backend.facade.enums import PlatformAlertCheckStatus, PlatformAlertState
+
+if TYPE_CHECKING:
+    # facade.lifecycle imports this module, so the policy type stays off the runtime import path.
+    from products.alerts_platform.backend.facade.lifecycle import AlertPolicy
 
 
 class SourceKind(StrEnum):
@@ -85,21 +91,134 @@ class SourceEvaluationInputs:
     batch_key: AlertBatchKey
 
 
+# Where a source keeps its bound inside `source_config`. Each source gives it its own shape and
+# the platform interprets none of it: the history row snapshots it, so a reader sees the bound a
+# check was evaluated against.
+SOURCE_CONDITION_KEY: Final = "condition"
+
+
+def source_condition(source_config: dict[str, Any]) -> dict[str, Any]:
+    """A source's bound, or an empty one when the stored value is missing or not an object."""
+    condition = source_config.get(SOURCE_CONDITION_KEY)
+    return condition if isinstance(condition, dict) else {}
+
+
+class GroupingMode(StrEnum):
+    SINGLE = "single"
+    BY_RESULT_LABELS = "by_result_labels"
+
+
+class OnOverflow(StrEnum):
+    # The only mode, because a cap that drops groups silently reads the same as nothing being wrong.
+    DEGRADE_VISIBLE = "degrade_visible"
+
+
+DEFAULT_MAX_INSTANCES: Final = 100
+
+
+@frozen
+class Grouping:
+    """How a configuration splits its results into instances.
+
+    `keys` names the result labels whose values make a group's key, so it is empty for a single
+    instance and required for grouping by labels. `max_instances` bounds how many instance rows a
+    configuration holds, which bounds the messages one check can post.
+    """
+
+    mode: GroupingMode = GroupingMode.SINGLE
+    keys: tuple[str, ...] = ()
+    max_instances: int = DEFAULT_MAX_INSTANCES
+    on_overflow: OnOverflow = OnOverflow.DEGRADE_VISIBLE
+
+    def __post_init__(self) -> None:
+        if self.mode == GroupingMode.SINGLE and self.keys:
+            raise ValueError("a single-instance grouping takes no keys")
+        if self.mode == GroupingMode.BY_RESULT_LABELS and not self.keys:
+            raise ValueError("grouping by result labels needs at least one key")
+        if len(set(self.keys)) != len(self.keys):
+            raise ValueError("a grouping names each key once")
+        if self.max_instances < 1:
+            raise ValueError("max_instances must be at least 1")
+
+    @classmethod
+    def from_stored(cls, stored: Mapping[str, Any]) -> Grouping:
+        return cls(
+            mode=GroupingMode(stored.get("mode", GroupingMode.SINGLE)),
+            keys=tuple(stored.get("keys", ())),
+            max_instances=int(stored.get("max_instances", DEFAULT_MAX_INSTANCES)),
+            on_overflow=OnOverflow(stored.get("on_overflow", OnOverflow.DEGRADE_VISIBLE)),
+        )
+
+    def to_stored(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode.value,
+            "keys": list(self.keys),
+            "max_instances": self.max_instances,
+            "on_overflow": self.on_overflow.value,
+        }
+
+
+@frozen
+class GroupAdmission:
+    """Which of a check's groups the configuration has room for, and how many it turned away."""
+
+    admitted: frozenset[str]
+    overflowed: int
+
+
+@frozen
+class InstanceCheckState:
+    """One instance's runtime state, as the shared machine reads it for that group."""
+
+    grouping_key: str
+    state: str
+    last_notified_at: datetime | None = None
+    snooze_until: datetime | None = None
+    firing_started_at: datetime | None = None
+
+    @classmethod
+    def composed(
+        cls,
+        *,
+        grouping_key: str,
+        state: str,
+        check_status: str,
+        configuration_snooze_until: datetime | None,
+        snooze_until: datetime | None = None,
+        last_notified_at: datetime | None = None,
+        firing_started_at: datetime | None = None,
+    ) -> InstanceCheckState:
+        """An instance as a check, history and the read API all see it.
+
+        The machine reads ERRORED and BROKEN from the same field as firing, so a failing check status
+        takes the place of the instance's state. A configuration mute extends every instance's, and
+        the later of the two holds. The single definition, so what a check judges, what history
+        records and what a reader sees cannot drift apart.
+        """
+        snoozes = [moment for moment in (configuration_snooze_until, snooze_until) if moment is not None]
+        return cls(
+            grouping_key=grouping_key,
+            state=state if check_status == PlatformAlertCheckStatus.OK else check_status,
+            last_notified_at=last_notified_at,
+            snooze_until=max(snoozes, default=None),
+            firing_started_at=firing_started_at,
+        )
+
+
 @frozen
 class PlatformAlertCheckInput:
     """One configuration and its runtime state, as a source adapter reads it.
 
-    Flat rather than nested, because a source never holds the rows and has nothing to do with
-    the split between what belongs to the configuration and what belongs to the instance.
+    `instances` holds every instance the configuration has, already composed with what belongs to
+    the configuration: a failing check status replaces each state, and a configuration mute
+    extends each snooze. A grouped source reads one per group it evaluates, and an open instance
+    whose key a successful check does not return has gone and resolves.
     """
 
     id: UUID
     team_id: int
     name: str
     source_config: dict[str, Any]
-    threshold_count: int
-    threshold_operator: str
-    window_minutes: int
     check_interval_minutes: int
     evaluation_periods: int
     datapoints_to_alarm: int
@@ -108,15 +227,60 @@ class PlatformAlertCheckInput:
     next_check_at: datetime | None
     consecutive_failures: int
     legacy_configuration_id: UUID | None
-    state: str
-    last_notified_at: datetime | None
+    check_status: str
     snooze_until: datetime | None
-    firing_started_at: datetime | None = None
+    owned_by_platform: bool = False
+    instances: tuple[InstanceCheckState, ...] = ()
+    grouping: Grouping = field(default_factory=Grouping)
+
+    def admit(self, grouping_keys: Sequence[str]) -> GroupAdmission:
+        """The groups a check may report, from keys in the source's priority order.
+
+        A group that already has an instance is always admitted, so an open group can still
+        resolve. New groups fill what `max_instances` leaves, front first.
+        """
+        existing = {instance.grouping_key for instance in self.instances}
+        room = max(self.grouping.max_instances - len(existing), 0)
+        admitted: set[str] = set()
+        overflowed = 0
+        for key in dict.fromkeys(grouping_keys):
+            if key in existing:
+                admitted.add(key)
+            elif room > 0:
+                admitted.add(key)
+                room -= 1
+            else:
+                overflowed += 1
+        return GroupAdmission(admitted=frozenset(admitted), overflowed=overflowed)
+
+    def instance(self, grouping_key: str = "") -> InstanceCheckState:
+        """The instance for a group, or the state a group with no instance starts from."""
+        for instance in self.instances:
+            if instance.grouping_key == grouping_key:
+                return instance
+        return InstanceCheckState.composed(
+            grouping_key=grouping_key,
+            state=PlatformAlertState.NOT_FIRING.value,
+            check_status=self.check_status,
+            configuration_snooze_until=self.snooze_until,
+        )
+
+    def open_keys(self) -> list[str]:
+        """The groups whose instance is not at rest. A check judges each one, returned or not."""
+        return [
+            instance.grouping_key
+            for instance in self.instances
+            if instance.state != PlatformAlertState.NOT_FIRING.value
+        ]
 
     @property
     def filters(self) -> dict[str, Any]:
         """Satisfies the logs query layer, which names this field `filters`."""
         return self.source_config
+
+    @property
+    def condition(self) -> dict[str, Any]:
+        return source_condition(self.source_config)
 
 
 @frozen
@@ -129,9 +293,6 @@ class PlatformAlertUpsert:
     enabled: bool
     source_kind: SourceKind
     source_config: dict[str, Any]
-    threshold_count: int
-    threshold_operator: str
-    window_minutes: int
     check_interval_minutes: int
     evaluation_periods: int
     datapoints_to_alarm: int
@@ -143,6 +304,20 @@ class PlatformAlertUpsert:
     anchor_time: str | None = None
 
 
+@frozen
+class PlatformOwnershipHandover:
+    """A source alert handed to the platform, with the runtime state the platform carries on from."""
+
+    legacy_configuration_id: UUID
+    team_id: int
+    state: PlatformAlertState
+    last_notified_at: datetime | None
+    consecutive_failures: int
+    # The platform checks no earlier than a minute after the handover, whatever this says.
+    next_check_at: datetime
+    at: datetime
+
+
 class SkipReason(StrEnum):
     """Why a check reached an outcome without a query answering it.
 
@@ -152,6 +327,12 @@ class SkipReason(StrEnum):
 
     BROKEN_CONFIG = "broken_config"
     QUERY_FAILED = "query_failed"
+    # The source's own stack runs no query for this check, so the source does not either: a
+    # snooze or a schedule restriction where that stack gates evaluation, or data not ready yet.
+    SOURCE_RULE = "source_rule"
+    # ClickHouse refused the query for load, not because of the alert. The check leaves the alert's
+    # state alone, so a comparison can set it aside instead of reading load as a disagreement.
+    CAPACITY = "capacity"
 
 
 class MuteReason(StrEnum):
@@ -199,29 +380,136 @@ class FiringEpisode:
 
 
 @frozen
+class GroupOutcome:
+    """What one check decided for one group. The platform turns each into an instance write and a
+    history row.
+
+    A source that does not group sends one of these with the empty key, which is its one instance.
+    """
+
+    grouping_key: str
+    kind: AlertEventKind
+    new_state: str
+    notified: bool
+    firing_episode: FiringEpisode | None = None
+    value: float | None = None
+    labels: dict[str, str] = field(default_factory=dict)
+    # What a mute held back, so history separates a muted fire from a check that said nothing.
+    muted_notification: str = ""
+
+
+@frozen
+class CheckFailure:
+    """What the shared machine decided for a check that could not evaluate.
+
+    It belongs to the check, not to a group, because a failed query returns no groups to attribute
+    the failure to. `new_state` is the machine's verdict, which stays the prior state under a
+    policy that rides through errors and becomes ERRORED or BROKEN under one that does not.
+    """
+
+    kind: AlertEventKind
+    new_state: str
+    notified: bool
+    firing_episode: FiringEpisode | None = None
+    muted_notification: str = ""
+
+
+@frozen
 class PlatformAlertOutcome:
     """What one check decided. The platform turns this into rows.
 
     Every check produces one, including a check a source skipped. A skip that records nothing
     leaves its due time where it was, so discovery finds the same work every tick.
+
+    The fields here describe the check, and each of `groups` describes one group's verdict. A failed
+    query fails every group at once, so the failure count, `disable` and `failure` belong to the
+    check, and a failed check carries no groups. A successful check of an ungrouped source carries
+    exactly one group with the empty key; a grouped source's may carry none when nothing is open.
     """
 
     configuration_id: UUID
     evaluation_key: str
-    kind: AlertEventKind
-    new_state: str
-    notified: bool
     consecutive_failures: int
-    firing_episode: FiringEpisode | None = None
-    value: float | None = None
-    labels: dict[str, str] = field(default_factory=dict)
+    groups: tuple[GroupOutcome, ...] = ()
+    failure: CheckFailure | None = None
+    skipped: bool = False
+    # New groups `max_instances` had no room for, which the delivery names so a cap is never silent.
+    overflowed: int = 0
     error_message: str | None = None
     query_duration_ms: int | None = None
-    # What a mute held back, so history separates a muted fire from a check that said nothing.
-    muted_notification: str = ""
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
+    # A team's checks with the same group are due in one slot, so a source that answers them with
+    # one query can do so. None spreads the configuration by its own id.
+    schedule_group: str | None = None
+
+    @classmethod
+    def ungrouped(
+        cls,
+        *,
+        configuration_id: UUID,
+        evaluation_key: str,
+        consecutive_failures: int,
+        kind: AlertEventKind,
+        new_state: str,
+        notified: bool,
+        failed: bool,
+        firing_episode: FiringEpisode | None = None,
+        value: float | None = None,
+        muted_notification: str = "",
+        error_message: str | None = None,
+        query_duration_ms: int | None = None,
+        disable: bool = False,
+        skipped: bool = False,
+        schedule_group: str | None = None,
+    ) -> PlatformAlertOutcome:
+        """A check of a source that does not group: its one verdict on the empty key, or its failure."""
+        failure = (
+            CheckFailure(
+                kind=kind,
+                new_state=new_state,
+                notified=notified,
+                firing_episode=firing_episode,
+                muted_notification=muted_notification,
+            )
+            if failed
+            else None
+        )
+        groups = (
+            ()
+            if failed
+            else (
+                GroupOutcome(
+                    grouping_key="",
+                    kind=kind,
+                    new_state=new_state,
+                    notified=notified,
+                    firing_episode=firing_episode,
+                    value=value,
+                    muted_notification=muted_notification,
+                ),
+            )
+        )
+        return cls(
+            configuration_id=configuration_id,
+            evaluation_key=evaluation_key,
+            consecutive_failures=consecutive_failures,
+            groups=groups,
+            failure=failure,
+            error_message=error_message,
+            query_duration_ms=query_duration_ms,
+            disable=disable,
+            skipped=skipped,
+            schedule_group=schedule_group,
+        )
+
+    def __post_init__(self) -> None:
+        if self.failure is not None and self.groups:
+            raise ValueError("a failed check reports no groups")
+        keys = [group.grouping_key for group in self.groups]
+        if len(set(keys)) != len(keys):
+            raise ValueError("an outcome names each group once")
 
 
 @frozen
@@ -265,6 +553,10 @@ class AnnouncedTransition:
     condition: dict[str, Any]
     source_config: dict[str, Any]
     error_message: str | None
+    # A resolve states this as the time its firing ended.
+    occurred_at: datetime
+    # The evaluation this transition came from, so a source can read back what it put in the key.
+    evaluation_key: str = ""
 
 
 @frozen
@@ -276,11 +568,16 @@ class EvaluationAnnouncement:
     to hold. It arrives with fan-in rather than waiting here empty.
     """
 
+    configuration_id: str
+    source: SourceKind
     alert_name: str
     # Evaluation-level, so it sits here rather than on a transition: a failed check fails the
     # whole evaluation, and every group in one announcement saw the same count.
     consecutive_failures: int
     transitions: tuple[AnnouncedTransition, ...]
+    # Groups the configuration had no room for. The first message names them, so a cap never drops
+    # a group without anyone being told.
+    overflowed: int = 0
 
 
 @frozen
@@ -296,6 +593,18 @@ class AlertDeliveryRequest:
     configuration while the platform runs beside a source's own stack. `event_ids_by_kind` maps
     each kind the source can announce onto the event id its destinations filter on. The platform
     imports no source, so it cannot derive either.
+
+    `incident_actions` maps a grouping key to whether its transition opened or closed a firing.
+    It is a decision rather than a fact a message states, so it travels here like
+    `event_ids_by_kind`. It is set even when cooldown or mute held the announcement back, which
+    is the case it exists for. `sends_messages` is False on a delivery that exists only for those
+    actions, so its rows reach no message destination even when their kind has an event id.
+    `event_ids_by_incident_action` maps each action onto the event id an incident manager
+    destination filters on, the way `event_ids_by_kind` does for a message.
+
+    `owned_by_platform` is the owner when the check was read, not when the delivery runs. The
+    source decided its own send for that check from the same owner, so a retry across a cutover
+    or a rollback still has exactly one stack sending.
     """
 
     source: SourceKind
@@ -304,6 +613,13 @@ class AlertDeliveryRequest:
     evaluation_key: str
     destination_alert_id: str
     event_ids_by_kind: dict[str, str]
+    incident_actions: dict[str, IncidentAction] = field(default_factory=dict)
+    sends_messages: bool = True
+    event_ids_by_incident_action: dict[str, str] = field(default_factory=dict)
+    # The alert's page in the source's own product. Without one a message links to the platform's page.
+    source_alert_url: str | None = None
+    owned_by_platform: bool = False
+    overflowed: int = 0
 
 
 @frozen
@@ -316,8 +632,8 @@ class SourceBatchEvaluation:
 
     outcomes: tuple[PlatformAlertOutcome, ...]
     deliveries: tuple[AlertDeliveryRequest, ...]
-    # Pairs the payload bound left out. They keep their due time and a later tick re-evaluates
-    # them, the way a truncated cohort already behaves.
+    # Pairs the payload bound or a full evaluation pool left out. They keep their due time and a
+    # later tick re-evaluates them, the way a truncated cohort already behaves.
     omitted: int = 0
 
 
@@ -333,6 +649,8 @@ class PlatformConfigurationSnapshot:
     id: UUID
     next_check_at: datetime | None
     consecutive_failures: int
+    owner: str
+    check_status: str
 
 
 @frozen
@@ -360,9 +678,6 @@ class PlatformAlertConfigurationView:
     enabled: bool
     source_kind: str
     source_config: dict[str, Any]
-    threshold_count: int
-    threshold_operator: str
-    window_minutes: int
     check_interval_minutes: int
     recurrence_unit: str | None
     anchor_time: str | None
@@ -432,6 +747,33 @@ class DestinationType(LabeledStrEnum):
     DISCORD = "discord", "Discord"
     WEBHOOK = "webhook", "Webhook"
     TEAMS = "teams", "Microsoft Teams"
+    PAGERDUTY = "pagerduty", "PagerDuty"
+    EMAIL = "email", "Email"
+    IN_APP = "in_app", "In-app notification"
+
+
+class PagerDutySeverity(StrEnum):
+    CRITICAL = "critical"
+    ERROR = "error"
+    WARNING = "warning"
+    INFO = "info"
+
+
+class PagerDutyRegion(StrEnum):
+    US = "us"
+    EU = "eu"
+
+
+# What a PagerDuty destination that names neither gets, on every path that sends to one.
+DEFAULT_PAGERDUTY_SEVERITY: Final = PagerDutySeverity.CRITICAL
+DEFAULT_PAGERDUTY_REGION: Final = PagerDutyRegion.US
+
+
+class IncidentAction(StrEnum):
+    """What one event kind does to the incident an alert holds open in an incident manager."""
+
+    TRIGGER = "trigger"
+    RESOLVE = "resolve"
 
 
 class AlertDestinationData(TypedDict):
@@ -440,6 +782,19 @@ class AlertDestinationData(TypedDict):
     slack_channel_id: NotRequired[str]
     slack_channel_name: NotRequired[str]
     webhook_url: NotRequired[str]
+    # Request headers a user added to a webhook, such as an auth token, as sorted (name, value)
+    # pairs so a destination stays hashable. Secret-bearing, so never shown in a read response.
+    webhook_headers: NotRequired[dict[str, str]]
+    pagerduty_routing_key: NotRequired[str]
+    pagerduty_severity: NotRequired[str]
+    pagerduty_region: NotRequired[str]
+    email_addresses: NotRequired[list[str]]
+    in_app_user_ids: NotRequired[list[int]]
+    # What an in-app notification is about, so the inbox applies its access rules for that resource.
+    in_app_resource_type: NotRequired[str]
+    in_app_resource_id: NotRequired[str]
+    # A path in the app, because the inbox opens it with the client-side router.
+    in_app_url: NotRequired[str]
 
 
 class AlertDestinationValidationError(Exception):
@@ -472,6 +827,9 @@ class EventKindSpec:
     product_label: str = "alert"
     intro_lines: tuple[str, ...] = ()
     additional_actions: tuple[AlertDestinationAction, ...] = ()
+    # Set only on the kinds that open or close an incident. An incident manager destination
+    # subscribes to those kinds and no others; every other destination subscribes to the rest.
+    incident_action: IncidentAction | None = None
 
     def destination_description(self, alert_name: str) -> str:
         return f'Sends {self.display_kind} notifications for {self.product_label} "{alert_name}".'
@@ -517,7 +875,7 @@ class AlertDelivery:
     channel: str  # "email" | "hog_function"
     target: str  # email address or destination name
     target_id: str | None = None  # hog function id
-    template: str | None = None  # "slack" | "discord" | "webhook" | "teams"
+    template: str | None = None  # "slack" | "discord" | "webhook" | "teams" | "pagerduty"
     status: str = "accepted"
     at: str  # ISO-8601 timestamp
 
@@ -528,3 +886,226 @@ class DestinationResolver(Protocol):
     def __call__(
         self, *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
     ) -> list[AlertDestinationGroup]: ...
+
+
+@frozen
+class MessageDetail:
+    """One labelled fact in a message. Every provider renders these the same way, as a Slack
+    section, an Adaptive Card body, or lines of markdown."""
+
+    label: str
+    value: str
+
+
+@frozen
+class MessageLink:
+    label: str
+    url: str
+
+
+@frozen
+class SourceDescription:
+    """What a source says about one transition, in the words its own product uses.
+
+    The platform imports no source, so it can say only "Value: 11". A source can say "11 logs in
+    10m". Every part is optional, and a part a source leaves out falls back to the platform's
+    own wording or to nothing.
+    """
+
+    # Replaces the platform's breach details. A failed or turned-off check keeps the platform's
+    # failure details, because the failure is the platform's, not the source's.
+    details: tuple[MessageDetail, ...] = ()
+    # Short lines of small print, such as which services an alert watches.
+    context: tuple[str, ...] = ()
+    # Where the data behind the alert is, such as the matching logs.
+    data_link: MessageLink | None = None
+
+
+class SourceDescriber(Protocol):
+    """How a source describes its transitions. A source registers one for native delivery.
+
+    It runs once per destination on the send path, inside a delivery that a held thread or a
+    failure repeats. So it builds its answer from the transition alone and does no I/O.
+    """
+
+    def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
+
+
+class LegacyWebhookBody(Protocol):
+    """The webhook body a source's own stack sent, for teams whose receivers still parse it.
+
+    Runs on the send path like a describer, so it builds the body from its arguments and does no
+    I/O. `alert_id` is the id the source's destinations match on.
+    """
+
+    def __call__(
+        self,
+        *,
+        project_id: int,
+        alert_id: str,
+        alert_name: str,
+        consecutive_failures: int,
+        transition: AnnouncedTransition,
+    ) -> dict[str, Any]: ...
+
+
+# Comparison against a source's own stack.
+#
+# What a comparison reads, and what a source must supply for one.
+#
+# A comparison joins one platform check to the check a source's own stack made of the same alert
+# at the same due time. The platform side of that join is uniform: `legacy_configuration_id` on
+# the configuration names the source's own row, and `evaluation_key` on the history row names the
+# evaluation. The source side is not uniform. Logs keys its own checks on the window, insight will
+# key on the scheduled run, and neither shape is reconstructible from the platform row alone. So a
+# source supplies the correspondence through `SourceCorrespondence` rather than the harness
+# guessing it.
+#
+# A source declares everything about itself on that one object: how to find its own verdicts, the
+# two policies its stacks run, and which differences between them are deliberate. A second
+# registration point in the shared package would let a source change one and not the other.
+#
+# Two stacks never evaluate at the same instant. The key is what corresponds; a timestamp is only
+# a bound on how far apart two corresponding checks may sit.
+
+
+@frozen
+class CheckRef:
+    """Addresses one platform check.
+
+    `evaluation_key` is minted by the source and names the evaluation the check answered, so the
+    pair survives a retry that recomputes the same check.
+    """
+
+    alert_id: UUID
+    evaluation_key: str
+
+
+@frozen
+class PlatformCheck:
+    """One row of the platform's check history, as a comparison reads it.
+
+    A comparison is over `state`, not over `kind`, because a check that moved the alert while a
+    cooldown or a mute held the notification back records `AlertEventKind.CHECK`. Counting kinds
+    misses every suppressed move. `kind` and `previous_state` are carried so a report can say what
+    the platform announced and what it moved from.
+
+    `muted_notification` is the announcement a mute held back, as a `NotificationAction` value.
+    It is the platform's only record that an alert was muted at the moment of a check, because a
+    muted check that decided nothing holds nothing and leaves no other trace.
+    """
+
+    team_id: int
+    configuration_id: UUID
+    # None for a configuration no source backfilled, which nothing can be compared against.
+    legacy_configuration_id: UUID | None
+    alert_id: UUID
+    grouping_key: str
+    evaluation_key: str
+    kind: str
+    previous_state: str
+    state: str
+    muted_notification: str
+    error_message: str
+    occurred_at: datetime
+
+    @property
+    def ref(self) -> CheckRef:
+        return CheckRef(alert_id=self.alert_id, evaluation_key=self.evaluation_key)
+
+
+class SourceCoverage(StrEnum):
+    """How far the source's own stack had got when the platform made this check.
+
+    A source that cannot answer returns `UNKNOWN` rather than a guess, because a guess turns
+    into a disagreement nobody can act on.
+    """
+
+    EVALUATED = "evaluated"
+    SUPPRESSED = "suppressed"
+    # The source's own stack had not reached this evaluation yet.
+    BEHIND = "behind"
+    UNKNOWN = "unknown"
+
+
+class SuppressionReason(StrEnum):
+    """Why a source's own stack made no check.
+
+    `MUTED` covers a snooze and a schedule restriction together, because one platform policy flag
+    covers both.
+    """
+
+    MUTED = "muted"
+    DISABLED = "disabled"
+    BROKEN = "broken"
+
+
+@frozen
+class SourceVerdict:
+    """What a source's own stack held for the check that corresponds to one platform check.
+
+    `state` is an `AlertState` value as `facade.lifecycle` spells it, which is the vocabulary the
+    platform records. A source whose own tables spell its states differently translates here, at
+    its own edge: insight stores the `posthog.schema_enums` spelling ("Firing", "Not firing"), and
+    returning that raw would read as a disagreement on every check.
+    """
+
+    coverage: SourceCoverage
+    state: str | None
+    suppressed_by: SuppressionReason | None = None
+    # When the source left `state`, so a report can date the state it is reporting.
+    observed_at: datetime | None = None
+    # When the source reached the state this check decided, which separates two cadences out of
+    # phase from a real disagreement. The source answers it because it holds the check, and the
+    # path there may take several transitions: not firing, errored, firing has reached firing.
+    # Required, because None means the source never got there: a source that left it unset would
+    # book every lag as a disagreement and nothing would fail.
+    caught_up_at: datetime | None
+    # Addresses the source's own row, so a person reading a disagreement can open both sides.
+    evidence_id: str | None = None
+    detail: str = ""
+
+
+@frozen
+class IntentionalDivergence:
+    """One difference a source's platform stack makes on purpose.
+
+    `recognizes` is what makes this a mechanism rather than a note: the classifier asks each
+    declared divergence whether it explains the pair in front of it. A declaration without a
+    working recognizer leaves its differences classified as real, which is the safe direction.
+
+    `policy_flag` names the `AlertPolicy` field that causes it, and is what the ratchet matches
+    against, so a source cannot configure a deliberate difference and leave it undeclared. Not
+    every deliberate difference comes from a flag: insight collapses four failure kinds into two
+    skip reasons, which no flag describes, so a declaration may leave it None and still be asked.
+
+    The recognizer belongs to the source because the same flag shows up differently per source.
+    Production logs stops checking a muted alert and its schedule stalls; insight keeps checking
+    one and its schedule does not.
+    """
+
+    cause: str
+    recognizes: Callable[[PlatformCheck, SourceVerdict], bool]
+    why: str
+    policy_flag: str | None = None
+
+
+class SourceCorrespondence(Protocol):
+    """How a source says which of its own history corresponds to a platform check.
+
+    `verdicts_for` is batched rather than per check, because a source answers from its own tables
+    and a per-check call would issue one query per row of a comparison window.
+
+    A correspondence returns a verdict for every ref it was given. A check it cannot answer gets
+    `SourceCoverage.UNKNOWN`, never a missing entry, so a caller cannot mistake silence for
+    agreement.
+    """
+
+    source: SourceKind
+    # What the source's own stack runs, against what its platform adapter runs. Declared here so
+    # it stays next to the code that passes them to the machine.
+    production_policy: AlertPolicy
+    platform_policy: AlertPolicy
+    intentional_divergences: tuple[IntentionalDivergence, ...]
+
+    def verdicts_for(self, checks: Sequence[PlatformCheck]) -> Mapping[CheckRef, SourceVerdict]: ...

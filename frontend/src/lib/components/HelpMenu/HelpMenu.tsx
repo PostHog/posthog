@@ -141,7 +141,6 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             buttonProps={{ menuItem: true }}
                                             target="_blank"
                                             targetBlankIcon
-                                            disableDocsPanel
                                             tooltip="Open docs in new browser tab"
                                             tooltipPlacement="right"
                                             data-attr="more-menu-docs-button"

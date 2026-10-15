@@ -98,6 +98,30 @@ two times:
 The setting does not change frame records that are already in Postgres. Remove
 their variables separately if they must not stay there.
 
+## Masking code variables (processing mode)
+
+Processing mode masks `code_variables` in Python frames for every team that
+`ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS` does not list. The rules are the
+default masking rules of the posthog-python SDK, ported to
+`src/core/code_variables.rs`. Older SDK versions send values that the current
+rules redact, so applying the rules on the server covers those senders.
+
+- A variable, key or string value that contains a sensitive name, such as
+  `password`, `token` or `auth`, is redacted whole.
+- A value in a known vendor format, a high-entropy token, a PEM private key and
+  a signed URL with a `sig` parameter are redacted whole.
+- URL credentials and `Bearer` or `Basic` credentials are replaced in place, so
+  the rest of the text stays.
+- A string that holds a JSON object or array, which is how the SDK sends a dict
+  or an object, is masked field by field.
+
+Masking runs at the same two points as dropping, so new frame records hold
+masked values, and records stored earlier are masked when they are replayed.
+It does not change records that are already in Postgres.
+
+Masking has no setting and is always on. When the SDK changes its default
+rules, change `src/core/code_variables.rs` to match.
+
 ## Remote resolution behavior
 
 The public HTTP contract stays `POST /process`: callers send an array of

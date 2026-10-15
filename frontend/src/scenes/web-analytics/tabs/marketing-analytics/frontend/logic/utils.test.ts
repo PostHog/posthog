@@ -1,4 +1,5 @@
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
 import {
     ConversionGoalFilter,
@@ -10,10 +11,18 @@ import {
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, PropertyMathType } from '~/types'
+import {
+    AccessControlLevel,
+    BaseMathType,
+    PropertyMathType,
+    ExternalDataSource,
+    ExternalDataSchemaStatus,
+    ExternalDataJobStatus,
+} from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 import {
+    conversionGoalToSeries,
     createMarketingTile,
     findSchemaByFieldName,
     getEnabledNativeMarketingSources,
@@ -21,8 +30,11 @@ import {
     goalSumsAProperty,
     getSortedColumnsByArray,
     orderArrayByPreference,
+    nativeSourceConnectionStatus,
+    NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     rowMatchesSearch,
     sanitizeIntegrationFilter,
+    seriesToConversionGoal,
     validColumnsForTiles,
 } from './utils'
 
@@ -32,6 +44,7 @@ describe('marketing analytics utils', () => {
         ['OpenAIAds', FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS],
         ['AmazonAds', FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS],
         ['RoktAds', FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS],
+        ['TwitterAds', FEATURE_FLAGS.MARKETING_ANALYTICS_TWITTER_ADS],
     ] as const)('getEnabledNativeMarketingSources: %s', (sourceType, flag) => {
         it.each([undefined, false, true, 'test'])('gates the source when its flag is %s', (enabled) => {
             const flags: Record<string, boolean | string> = {
@@ -39,6 +52,7 @@ describe('marketing analytics utils', () => {
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS]: true,
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS]: true,
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_TWITTER_ADS]: true,
             }
             if (enabled === undefined) {
                 delete flags[flag]
@@ -312,6 +326,7 @@ describe('marketing analytics utils', () => {
             ],
             AppleSearchAds: ['local_spend', 'impressions', 'taps', 'total_installs'],
             OpenAIAds: ['campaign_id', 'start_time', 'spend', 'impressions', 'clicks', 'currency_code'],
+            TwitterAds: ['entity_id', 'date', 'billed_charge_local_micro', 'impressions', 'clicks', 'currency'],
             GoogleAds: [
                 'metrics_cost_micros',
                 'metrics_impressions',
@@ -367,6 +382,7 @@ describe('marketing analytics utils', () => {
             RoktAds: ['campaign_id', 'datetime', 'currency_code', 'gross_cost', 'impressions', 'referrals'],
             AppleSearchAds: ['local_spend', 'impressions', 'taps'],
             OpenAIAds: ['campaign_id', 'start_time', 'spend', 'impressions', 'clicks', 'currency_code'],
+            TwitterAds: ['entity_id', 'date', 'billed_charge_local_micro', 'impressions', 'clicks', 'currency'],
             GoogleAds: ['metrics_cost_micros', 'metrics_impressions', 'metrics_clicks', 'customer_currency_code'],
             RedditAds: ['spend', 'impressions', 'clicks', 'currency'],
             LinkedinAds: ['cost_in_usd', 'impressions', 'clicks'],
@@ -407,6 +423,36 @@ describe('marketing analytics utils', () => {
                 ],
             }
         }
+
+        it.each([
+            ['googleads_campaign_overview_stats', undefined],
+            ['analytics_googleads_campaign_stats', undefined],
+            ['prefix.campaign_stats', undefined],
+            ['renamed_stats', 'campaign_stats'],
+        ])('builds a Google Ads cost series from %s', (tableName, schemaName) => {
+            const source = makeMockSource('GoogleAds', sourceFields.GoogleAds)
+            source.tables[0].name = tableName
+            if (schemaName) {
+                source.tables[0].schema = { name: schemaName } as DatabaseSchemaDataWarehouseTable['schema']
+            }
+
+            expect(createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'USD')).toMatchObject({
+                kind: 'DataWarehouseNode',
+                table_name: tableName,
+                timestamp_field: 'segments_date',
+                math: 'hogql',
+            })
+        })
+
+        it('prefers the current Google Ads stats schema over the legacy schema', () => {
+            const source = makeMockSource('GoogleAds', sourceFields.GoogleAds)
+            const currentTable = source.tables[0]
+            source.tables = [{ ...currentTable, name: 'googleads_campaign_stats' }, currentTable]
+
+            expect(createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'USD')?.table_name).toBe(
+                currentTable.name
+            )
+        })
 
         it.each(['GBP', 'AUD'])('uses stored Rokt currency after the source setting changes to %s', (currency) => {
             const source = makeMockSource('RoktAds', sourceFields.RoktAds)
@@ -490,28 +536,35 @@ describe('marketing analytics utils', () => {
             expect(result?.table_name).toBe(source.tables[0].name)
         })
 
-        it.each(['campaign_budget_currency_code', 'date', 'campaign_id', 'cost', 'impressions', 'clicks'])(
-            'omits Amazon monetary tiles missing %s',
-            (field) => {
-                const source = makeMockSource(
-                    'AmazonAds',
-                    sourceFields.AmazonAds.filter((name) => name !== field)
-                )
-                for (const column of [
-                    MarketingAnalyticsColumnsSchemaNames.Cost,
-                    MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
-                    'roas',
-                    'cost_per_reported_conversion',
-                ] as const) {
-                    expect(createMarketingTile(source, column, 'EUR')).toBeNull()
-                }
-            }
-        )
-
-        it('keeps Amazon impressions available without currency', () => {
+        it.each(
+            (['AmazonAds', 'TwitterAds'] as const).flatMap((sourceType) =>
+                (sourceType === 'AmazonAds'
+                    ? ['campaign_budget_currency_code', 'date', 'campaign_id', 'cost', 'impressions', 'clicks']
+                    : ['currency', 'date', 'entity_id', 'billed_charge_local_micro', 'impressions', 'clicks']
+                ).map((field) => [sourceType, field] as const)
+            )
+        )('omits %s monetary tiles missing %s', (sourceType, field) => {
             const source = makeMockSource(
-                'AmazonAds',
-                sourceFields.AmazonAds.filter((name) => name !== 'campaign_budget_currency_code')
+                sourceType,
+                sourceFields[sourceType].filter((name) => name !== field)
+            )
+            for (const column of [
+                MarketingAnalyticsColumnsSchemaNames.Cost,
+                MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
+                'roas',
+                'cost_per_reported_conversion',
+            ] as const) {
+                expect(createMarketingTile(source, column, 'EUR')).toBeNull()
+            }
+        })
+
+        it.each([
+            ['AmazonAds', 'campaign_budget_currency_code'],
+            ['TwitterAds', 'currency'],
+        ] as const)('keeps %s impressions available without currency', (sourceType, currencyColumn) => {
+            const source = makeMockSource(
+                sourceType,
+                sourceFields[sourceType].filter((name) => name !== currencyColumn)
             )
             expect(createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Impressions, 'EUR')).not.toBeNull()
         })
@@ -524,11 +577,23 @@ describe('marketing analytics utils', () => {
                 const result = createMarketingTile(source, 'cost_per_reported_conversion', 'EUR')
                 expect(result?.math_hogql).toBe(
                     hasPurchases
-                        ? "SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'EUR'), 'EUR', toFloat(cost), coalesce(toDate(date), today())))) / nullIf(SUM(ifNull(toFloat(purchases14d), 0)), 0)"
+                        ? "SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'EUR'), 'EUR', ifNull(toFloat(cost), 0), coalesce(toDate(date), today())))) / nullIf(SUM(ifNull(toFloat(purchases14d), 0)), 0)"
                         : '0'
                 )
             }
         )
+
+        it.each([
+            ['TwitterAds', 'billed_charge_local_micro'],
+            ['GoogleAds', 'metrics_cost_micros'],
+            ['RedditAds', 'spend'],
+            ['SnapchatAds', 'spend'],
+        ] as const)('casts the %s cost column to a number before it divides by a million', (sourceType, costColumn) => {
+            const source = makeMockSource(sourceType, sourceFields[sourceType])
+            const mathHogql = createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'USD')?.math_hogql
+            expect(mathHogql).toContain(`ifNull(toFloat(${costColumn}), 0) / 1000000`)
+            expect(mathHogql).not.toContain(`${costColumn} / 1000000`)
+        })
 
         const testCases = VALID_NATIVE_MARKETING_SOURCES.flatMap((sourceType) =>
             ALL_TILE_COLUMNS.map(
@@ -645,10 +710,52 @@ describe('marketing analytics utils', () => {
         })
     })
 
+    it.each([ExternalDataSchemaStatus.Failed, ExternalDataSchemaStatus.Paused, ExternalDataSchemaStatus.Cancelled])(
+        'reports a required %s schema as needing attention before the first sync',
+        (status) => {
+            const source: ExternalDataSource = {
+                id: 'source',
+                source_id: 'source',
+                connection_id: 'connection',
+                prefix: null,
+                description: null,
+                created_via: 'web',
+                latest_error: null,
+                sync_frequency: '24hour',
+                job_inputs: {},
+                revenue_analytics_config: { enabled: false, include_invoiceless_charges: false },
+                user_access_level: AccessControlLevel.Admin,
+                source_type: 'GoogleAds',
+                status: ExternalDataJobStatus.Completed,
+                schemas: NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS.GoogleAds.map((name) => ({
+                    id: name,
+                    name,
+                    label: null,
+                    should_sync: true,
+                    status,
+                    incremental: false,
+                    sync_type: 'full_refresh',
+                    sync_time_of_day: null,
+                    latest_error: null,
+                    incremental_field: null,
+                    incremental_field_type: null,
+                    sync_frequency: '24hour',
+                    primary_key_columns: null,
+                })),
+            }
+            expect(nativeSourceConnectionStatus(source).status).toBe('Needs attention')
+        }
+    )
+
     describe('sanitizeIntegrationFilter', () => {
         it('drops a key the query schema no longer accepts', () => {
-            const stored = { integrationSourceIds: ['abc'], includeNonIntegrated: true }
+            const stored = { integrationSourceIds: ['abc'], removedOption: true }
             expect(sanitizeIntegrationFilter(stored)).toEqual({ integrationSourceIds: ['abc'] })
+        })
+
+        it.each([true, false])('preserves the non-integrated traffic preference: %s', (includeNonIntegrated) => {
+            const stored = { integrationSourceIds: ['abc'], includeNonIntegrated }
+            expect(sanitizeIntegrationFilter(stored)).toEqual(stored)
         })
 
         it.each([
@@ -661,6 +768,106 @@ describe('marketing analytics utils', () => {
             ['non-string entries', { integrationSourceIds: ['a', 3, null] }, ['a']],
         ])('%s', (_name, stored, expected) => {
             expect(sanitizeIntegrationFilter(stored)).toEqual({ integrationSourceIds: expected })
+        })
+    })
+
+    describe('conversion goal series', () => {
+        const goalFields = {
+            conversion_goal_id: 'goal-1',
+            conversion_goal_name: 'Purchases',
+            counts_as_customer: true,
+        }
+        const schemaMap = {
+            utm_campaign_name: 'utm_campaign',
+            utm_source_name: 'utm_source',
+            timestamp_field: 'timestamp',
+            distinct_id_field: 'distinct_id',
+        }
+        const warehouseGoal: ConversionGoalFilter = {
+            ...goalFields,
+            kind: NodeKind.DataWarehouseNode,
+            id: 'charges',
+            table_name: 'charges',
+            name: 'charges',
+            timestamp_field: 'created',
+            id_field: 'id',
+            distinct_id_field: 'email',
+            dw_source_type: 'Stripe',
+            math: BaseMathType.TotalCount,
+            schema_map: { ...schemaMap, timestamp_field: 'created', distinct_id_field: 'email' },
+        }
+
+        it.each([
+            {
+                name: 'moves the picked UTM columns from the table into the schema map',
+                goal: {
+                    ...goalFields,
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                    schema_map: schemaMap,
+                } as ConversionGoalFilter,
+                series: [
+                    {
+                        kind: NodeKind.DataWarehouseNode,
+                        id: 'invoices',
+                        table_name: 'invoices',
+                        name: 'invoices',
+                        timestamp_field: 'paid_at',
+                        distinct_id_field: 'customer',
+                        utm_campaign_name: 'campaign',
+                        utm_source_name: 'source',
+                    },
+                ],
+                expected: {
+                    ...goalFields,
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'invoices',
+                    table_name: 'invoices',
+                    name: 'invoices',
+                    timestamp_field: 'paid_at',
+                    id_field: 'customer',
+                    distinct_id_field: 'customer',
+                    math: BaseMathType.TotalCount,
+                    properties: [],
+                    schema_map: {
+                        utm_campaign_name: 'campaign',
+                        utm_source_name: 'source',
+                        timestamp_field: 'paid_at',
+                        distinct_id_field: 'customer',
+                    },
+                },
+            },
+            {
+                name: 'keeps no table column when a table goal becomes an event',
+                goal: warehouseGoal,
+                series: [{ kind: NodeKind.EventsNode, event: 'purchase', name: 'purchase' }],
+                expected: {
+                    ...goalFields,
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                    name: 'purchase',
+                    math: BaseMathType.TotalCount,
+                    properties: [],
+                    schema_map: warehouseGoal.schema_map,
+                },
+            },
+        ])('$name', ({ goal, series, expected }) => {
+            expect(seriesToConversionGoal(goal, series as SeriesNode[])).toStrictEqual(expected)
+        })
+
+        it('reads a goal stored with the legacy warehouse type as a table', () => {
+            const legacyGoal = {
+                ...goalFields,
+                kind: NodeKind.EventsNode,
+                type: 'data_warehouse',
+                table_name: 'charges',
+                timestamp_field: 'created',
+                schema_map: schemaMap,
+            } as unknown as ConversionGoalFilter
+
+            expect(conversionGoalToSeries(legacyGoal)).toStrictEqual([
+                { kind: NodeKind.DataWarehouseNode, id: 'charges', table_name: 'charges', timestamp_field: 'created' },
+            ])
         })
     })
 })

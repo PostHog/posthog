@@ -2,7 +2,7 @@ import json
 import time
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -18,12 +18,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.settings import (
     AQL_PAGE_SIZE,
     JFROG_ARTIFACTORY_ENDPOINTS,
+    XRAY_PAGE_SIZE,
     JfrogArtifactoryEndpointConfig,
 )
 
 # Artifactory's REST and AQL APIs live under /artifactory on both SaaS (<company>.jfrog.io)
 # and standard self-hosted installs.
 ARTIFACTORY_API_PATH = "/artifactory/api"
+XRAY_API_PATH = "/xray/api"
+
+# Xray's v1 violations search answers 429 once a query scrolls past 50,000 matching violations, so
+# restart the scroll from the last seen creation time well before that depth.
+XRAY_MAX_SCROLL_ROWS = 10_000
+
+# Artifactory defaults to a 6,000-byte AQL query limit. Related-domain requests use an `$or`
+# clause per parent, so split before sending rather than relying only on the response-size guard.
+AQL_RELATED_QUERY_MAX_BYTES = 6_000
 
 REQUEST_TIMEOUT_SECONDS = 120
 PROBE_TIMEOUT_SECONDS = 30
@@ -156,6 +166,10 @@ def _api_url(base_url: str, path: str) -> str:
     return f"{normalize_base_url(base_url)}{ARTIFACTORY_API_PATH}{path}"
 
 
+def _xray_url(base_url: str, path: str) -> str:
+    return f"{normalize_base_url(base_url)}{XRAY_API_PATH}{path}"
+
+
 def _headers(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
 
@@ -193,10 +207,34 @@ def build_aql_query(
     rows arrive in ascending cursor order and offset pagination walks a stable ordering.
     """
     sort_field = (incremental_field if incremental_filter_value else None) or config.default_incremental_field
-    criteria = json.dumps({sort_field: {"$gt": incremental_filter_value}}) if incremental_filter_value else ""
+    criteria_fields = dict(config.aql_criteria)
+    if incremental_filter_value:
+        criteria_fields[sort_field] = {"$gt": incremental_filter_value}
+    criteria = json.dumps(criteria_fields) if criteria_fields else ""
     include = ", ".join(f'"{field}"' for field in config.aql_fields)
     sort = json.dumps({"$asc": [sort_field]})
     return f"{config.aql_domain}.find({criteria}).include({include}).sort({sort}).offset({offset}).limit({limit})"
+
+
+def build_related_aql_query(config: JfrogArtifactoryEndpointConfig, parents: list[dict[str, Any]]) -> str:
+    """Build the unpaginated query that fetches related-domain fields for one chunk of parent rows.
+
+    The chunk bounds the result set, so no .sort()/.offset()/.limit() is needed (AQL would ignore
+    them anyway once .include() names a related domain).
+    """
+    criteria = {"$or": [{key: parent.get(key) for key in config.aql_key_fields} for parent in parents]}
+    include = ", ".join(f'"{field}"' for field in (*config.aql_fields, *config.aql_related_fields))
+    return f"{config.aql_domain}.find({json.dumps(criteria)}).include({include})"
+
+
+def build_xray_violations_request(
+    created_from: str | None = None, page: int = 1, limit: int = XRAY_PAGE_SIZE
+) -> dict[str, Any]:
+    # Xray's `offset` is a 1-based page number, not a row offset.
+    return {
+        "filters": {"created_from": created_from} if created_from else {},
+        "pagination": {"order_by": "created", "direction": "asc", "limit": limit, "offset": page},
+    }
 
 
 @retry(
@@ -250,12 +288,245 @@ def _post_aql(
     return _request(session, "POST", _api_url(base_url, "/search/aql"), headers, logger, data=query)
 
 
+def _post_xray(
+    session: requests.Session,
+    base_url: str,
+    access_token: str,
+    path: str,
+    body: dict[str, Any],
+    logger: FilteringBoundLogger,
+) -> dict[str, Any]:
+    headers = {**_headers(access_token), "Content-Type": "application/json"}
+    return _request(session, "POST", _xray_url(base_url, path), headers, logger, data=json.dumps(body))
+
+
 def _strip_domain_prefix(item: dict[str, Any], domain: str) -> dict[str, Any]:
     # Builds-domain results have historically been keyed as "build.name"/"build.created" (the
     # documented legacy output) while items-domain results use bare field names. Normalize to bare
     # names so the table schema, primary keys, and incremental watermark are stable either way.
     prefix = f"{domain.rstrip('s')}."
     return {(key[len(prefix) :] if key.startswith(prefix) else key): value for key, value in item.items()}
+
+
+def _related_children(node: dict[str, Any], plural: str) -> list[dict[str, Any]]:
+    # Related-domain output nests under a plural key, e.g. "modules" or "build.promotions".
+    for key, value in node.items():
+        if isinstance(value, list) and (key == plural or key.endswith(f".{plural}")):
+            return value
+    return []
+
+
+def _walk_related(
+    node: dict[str, Any], levels: tuple[tuple[str, str], ...], row: dict[str, Any]
+) -> Iterator[dict[str, Any]]:
+    plural, domain = levels[0]
+    prefix = f"{domain}."
+    for child in _related_children(node, plural):
+        fields = {
+            key.removeprefix(prefix): value for key, value in child.items() if not isinstance(value, (list, dict))
+        }
+        if len(levels) == 1:
+            yield {**row, **fields}
+        else:
+            yield from _walk_related(child, levels[1:], {**row, **{f"{domain}_{k}": v for k, v in fields.items()}})
+
+
+def flatten_related(config: JfrogArtifactoryEndpointConfig, item: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    """Emit one row per leaf related entry, carrying the parent and intermediate-level fields."""
+    parent = _strip_domain_prefix(item, config.aql_domain)
+    row = {f"{config.parent_field_prefix}{key}": parent.get(key) for key in config.aql_fields}
+    yield from _walk_related(item, config.aql_related_path, row)
+
+
+def _fetch_related(
+    session: requests.Session,
+    base_url: str,
+    access_token: str,
+    config: JfrogArtifactoryEndpointConfig,
+    parents: list[dict[str, Any]],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    query = build_related_aql_query(config, parents)
+    if len(query.encode()) > AQL_RELATED_QUERY_MAX_BYTES and len(parents) > 1:
+        middle = len(parents) // 2
+        yield from _fetch_related(session, base_url, access_token, config, parents[:middle], logger)
+        yield from _fetch_related(session, base_url, access_token, config, parents[middle:], logger)
+        return
+
+    try:
+        data = _post_aql(session, base_url, access_token, query, logger)
+    except JfrogArtifactoryResponseTooLargeError:
+        # A few very large builds can push one chunk past the response cap; split until it fits.
+        # Each half yields on its own so split responses never pile up in memory.
+        if len(parents) <= 1:
+            raise
+        middle = len(parents) // 2
+        yield from _fetch_related(session, base_url, access_token, config, parents[:middle], logger)
+        yield from _fetch_related(session, base_url, access_token, config, parents[middle:], logger)
+        return
+
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for item in data.get("results", []):
+        for row in flatten_related(config, item):
+            key = tuple(row.get(field) for field in config.primary_keys)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(row)
+    if rows:
+        yield rows
+
+
+def _yield_with_checkpoint(
+    rows: Iterator[list[dict[str, Any]]],
+    next_state: JfrogArtifactoryResumeConfig | None,
+    resumable_source_manager: ResumableSourceManager[JfrogArtifactoryResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Hold one batch so the next-page state is staged immediately before the last yield.
+
+    An `aql_related` page expands into zero or more related-row batches. Staging `next_state` as
+    soon as the parent page is read — before any of its related rows are yielded — can commit past
+    a page whose related rows are not all written yet. Staging it right after the last of those
+    batches yields, the pattern the resume-state ratchet forbids, can lose that batch on a worker
+    shutdown. Holding one batch back lets the state land immediately before the batch it allows a
+    resume to skip, exactly when every earlier row is safe to resume past.
+    """
+    try:
+        pending = next(rows)
+    except StopIteration:
+        if next_state is not None:
+            resumable_source_manager.save_state(next_state)
+            resumable_source_manager.safe_point()
+        return
+
+    for batch in rows:
+        yield pending
+        pending = batch
+
+    if next_state is not None:
+        resumable_source_manager.save_state(next_state)
+    yield pending
+    if next_state is not None:
+        resumable_source_manager.safe_point()
+
+
+def _iter_aql_pages(
+    session: requests.Session,
+    base_url: str,
+    access_token: str,
+    config: JfrogArtifactoryEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[JfrogArtifactoryResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    incremental_field: str | None,
+) -> Iterator[tuple[list[dict[str, Any]], JfrogArtifactoryResumeConfig | None]]:
+    """Yield each AQL page alongside the resume state for the page after it.
+
+    The state is `None` on the last page: the generator ends right after it, and the pipeline then
+    commits whatever state the caller staged for the rows it still holds. A plain `aql` endpoint can
+    save and yield the state's page directly; an `aql_related` endpoint expands one page into
+    several related-row batches first, so it stages the state once all of them are yielded instead.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.next_offset:
+        offset = resume.next_offset
+        filter_value = resume.incremental_filter_value
+        logger.debug(f"JFrog Artifactory: resuming {config.name} from offset {offset}")
+    else:
+        offset = 0
+        filter_value = (
+            _format_aql_datetime(db_incremental_field_last_value)
+            if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value
+            else None
+        )
+
+    while True:
+        query = build_aql_query(config, incremental_field, filter_value, offset)
+        data = _post_aql(session, base_url, access_token, query, logger)
+        results = data.get("results", [])
+        if not results:
+            break
+
+        has_more = len(results) >= AQL_PAGE_SIZE
+        next_state = (
+            JfrogArtifactoryResumeConfig(next_offset=offset + len(results), incremental_filter_value=filter_value)
+            if has_more
+            else None
+        )
+
+        yield [_strip_domain_prefix(item, config.aql_domain) for item in results], next_state
+
+        if not has_more:
+            break
+        offset += len(results)
+        resumable_source_manager.safe_point()
+
+
+def _xray_restart_filter(last_created: Any, current_filter: str | None) -> str | None:
+    """Return a `created_from` that restarts the scroll near the last row, or None to keep paging.
+
+    Backs off one second in case `created_from` is exclusive; the overlap re-reads a few rows,
+    which merge dedupes on the primary key. Returns None when the restart wouldn't move forward
+    (e.g. more than a scroll's worth of violations share one timestamp).
+    """
+    if not isinstance(last_created, str):
+        return None
+    try:
+        restart = datetime.fromisoformat(last_created) - timedelta(seconds=1)
+        if current_filter is not None and restart <= datetime.fromisoformat(current_filter):
+            return None
+    except ValueError:
+        return None
+    return _format_aql_datetime(restart)
+
+
+def _iter_xray_violations(
+    session: requests.Session,
+    base_url: str,
+    access_token: str,
+    config: JfrogArtifactoryEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[JfrogArtifactoryResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.next_offset:
+        page = resume.next_offset
+        filter_value = resume.incremental_filter_value
+    else:
+        page = 1
+        filter_value = (
+            _format_aql_datetime(db_incremental_field_last_value)
+            if should_use_incremental_field and db_incremental_field_last_value
+            else None
+        )
+
+    while True:
+        body = build_xray_violations_request(filter_value, page)
+        data = _post_xray(session, base_url, access_token, config.path, body, logger)
+        violations = data.get("violations") or []
+        if not violations:
+            break
+
+        has_more = len(violations) >= XRAY_PAGE_SIZE
+        if has_more:
+            page += 1
+            if (page - 1) * XRAY_PAGE_SIZE >= XRAY_MAX_SCROLL_ROWS:
+                restart_filter = _xray_restart_filter(violations[-1].get("created"), filter_value)
+                if restart_filter is not None:
+                    filter_value, page = restart_filter, 1
+            resumable_source_manager.save_state(
+                JfrogArtifactoryResumeConfig(next_offset=page, incremental_filter_value=filter_value)
+            )
+
+        yield violations
+
+        if not has_more:
+            break
+        resumable_source_manager.safe_point()
 
 
 def get_rows(
@@ -278,37 +549,50 @@ def get_rows(
             yield rows
         return
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None and resume.next_offset:
-        offset = resume.next_offset
-        filter_value = resume.incremental_filter_value
-        logger.debug(f"JFrog Artifactory: resuming {endpoint} from offset {offset}")
-    else:
-        offset = 0
-        filter_value = (
-            _format_aql_datetime(db_incremental_field_last_value)
-            if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value
-            else None
+    if config.kind == "xray":
+        yield from _iter_xray_violations(
+            session,
+            base_url,
+            access_token,
+            config,
+            logger,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
         )
+        return
 
-    while True:
-        query = build_aql_query(config, incremental_field, filter_value, offset)
-        data = _post_aql(session, base_url, access_token, query, logger)
-        results = data.get("results", [])
-        if not results:
-            break
+    # Related-domain tables expose parent fields as e.g. `build_created`; the parent query filters
+    # and sorts on the bare primary-domain field.
+    parent_incremental_field = incremental_field.removeprefix(config.parent_field_prefix) if incremental_field else None
+    pages = _iter_aql_pages(
+        session,
+        base_url,
+        access_token,
+        config,
+        logger,
+        resumable_source_manager,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        parent_incremental_field,
+    )
 
-        has_more = len(results) >= AQL_PAGE_SIZE
-        yield [_strip_domain_prefix(item, config.aql_domain) for item in results]
+    if config.kind == "aql":
+        for results, next_state in pages:
+            if next_state is not None:
+                resumable_source_manager.save_state(next_state)
+            yield results
+        return
 
-        if not has_more:
-            break
-        offset += len(results)
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it — merge
-        # dedupes on the primary key.
-        resumable_source_manager.save_state(
-            JfrogArtifactoryResumeConfig(next_offset=offset, incremental_filter_value=filter_value)
+    for parents, next_state in pages:
+        related_batches = (
+            batch
+            for start in range(0, len(parents), config.aql_related_chunk_size)
+            for batch in _fetch_related(
+                session, base_url, access_token, config, parents[start : start + config.aql_related_chunk_size], logger
+            )
         )
+        yield from _yield_with_checkpoint(related_batches, next_state, resumable_source_manager)
 
 
 def jfrog_artifactory_source(
@@ -355,7 +639,15 @@ def probe_endpoint(base_url: str, access_token: str, endpoint: str | None = None
     # stream=True keeps the (user-supplied) host's body off the wire until we ask for it — the probe
     # only inspects the status code, so we never read it, and closing the response frees the socket.
     try:
-        if config is not None and config.kind == "aql":
+        if config is not None and config.kind == "xray":
+            response = session.post(
+                _xray_url(base_url, config.path),
+                headers={**_headers(access_token), "Content-Type": "application/json"},
+                data=json.dumps(build_xray_violations_request(limit=1)),
+                timeout=PROBE_TIMEOUT_SECONDS,
+                stream=True,
+            )
+        elif config is not None and config.kind in ("aql", "aql_related"):
             # AQL requires authentication and (for builds) admin/scoped-token access, so a
             # single-row query is the accurate scope probe for these endpoints.
             query = build_aql_query(config, limit=1)

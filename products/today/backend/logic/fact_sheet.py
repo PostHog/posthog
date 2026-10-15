@@ -63,7 +63,7 @@ def fact_sheet_for_reports(reports: Sequence[signals.BriefingReport], team_id: i
                 source=ItemSource.SELF_DRIVING,
                 reason=_REASON_FOR_RELATION[report.relation],
                 title=report.title,
-                url=f"/project/{team_id}/inbox/{report.report_id}",
+                url=signals.report_path(team_id, report.report_id, signals.ReportLinkSource.TODAY),
                 rank=rank,
                 source_product=report.source_products[0] if report.source_products else None,
                 facts=_report_facts(report),

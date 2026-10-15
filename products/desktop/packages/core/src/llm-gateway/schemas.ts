@@ -47,6 +47,28 @@ export interface AnthropicMessagesResponse {
   };
 }
 
+export interface ChatCompletionsRequest {
+  model: string;
+  messages: Array<{
+    role: "system" | "user" | "assistant";
+    content: string;
+  }>;
+  max_tokens?: number;
+  stream?: boolean;
+}
+
+export interface ChatCompletionsResponse {
+  model: string;
+  choices: Array<{
+    message: { content: string | null };
+    finish_reason: string | null;
+  }>;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+  };
+}
+
 export interface AnthropicErrorResponse {
   error?: {
     message: string;

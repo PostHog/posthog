@@ -35,10 +35,13 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 
 from posthog.clickhouse.client import sync_execute
+from posthog.date_util import start_of_day
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Element, Organization, OrganizationMembership, PropertyDefinition, Team
 from posthog.models.event.util import events_only_in_active_schema
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TTL_DAYS
 from posthog.models.group.util import create_group
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.util import get_person_by_distinct_id
 from posthog.test.persons import create_group_type_mapping
 
@@ -1428,7 +1431,14 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "read_flag_evaluations_mode",
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 {"event": "$feature_flag_called"},
+                FLAG_EVALUATIONS_FLAG_KEY,
+            ),
+            (
+                "read_flag_evaluations_mode_while_reads_are_forced_to_events",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                {"event": "$feature_flag_called"},
                 EVENTS_FLAG_KEY,
+                True,
             ),
             (
                 "flag_evaluations_only_without_an_event_filter",
@@ -1451,17 +1461,62 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_flag_calls_are_read_from_flag_evaluations_only_for_an_exact_flag_called_filter(
-        self, _name: str, mode: FlagEvaluationsMode, query_filter: dict[str, Any], expected_flag_key: str
+        self,
+        _name: str,
+        mode: FlagEvaluationsMode,
+        query_filter: dict[str, Any],
+        expected_flag_key: str,
+        reads_forced_to_events: bool = False,
     ):
         self._set_flag_evaluations_mode(mode)
         self._create_flag_calls_in_both_tables()
 
-        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+        with (
+            time_machine.travel("2020-01-11T12:01:00Z", tick=False),
+            override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
+        ):
             query = EventsQuery(kind="EventsQuery", select=["properties.$feature_flag"], after="-30d", **query_filter)
             response = EventsQueryRunner(query=query, team=self.team).run()
 
         assert isinstance(response, CachedEventsQueryResponse)
         assert [row[0] for row in response.results] == [expected_flag_key]
+
+    def test_forcing_reads_to_events_skips_a_list_cached_from_flag_evaluations(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        self._create_flag_calls_in_both_tables()
+        query = EventsQuery(
+            kind="EventsQuery", select=["properties.$feature_flag"], event="$feature_flag_called", after="-30d"
+        )
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            from_flag_evaluations = EventsQueryRunner(query=query, team=self.team).run()
+            with override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", True):
+                from_events = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(from_flag_evaluations, CachedEventsQueryResponse)
+        assert isinstance(from_events, CachedEventsQueryResponse)
+        assert [row[0] for row in from_flag_evaluations.results] == [FLAG_EVALUATIONS_FLAG_KEY]
+        assert [row[0] for row in from_events.results] == [EVENTS_FLAG_KEY]
+
+    @parameterized.expand([("range_older_than_retention", "-180d"), ("all_time", "all")])
+    def test_flag_evaluations_list_stops_at_the_retention_window(self, _name: str, after: str):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        self._insert_flag_evaluation("recent-user", uuid.uuid4())
+        self._insert_flag_evaluation(
+            "first-retained-day-user",
+            uuid.uuid4(),
+            timestamp=start_of_day(FLAG_CALL_TIMESTAMP - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS)),
+        )
+        self._insert_flag_evaluation(
+            "expired-user", uuid.uuid4(), timestamp=FLAG_CALL_TIMESTAMP - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS + 30)
+        )
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(kind="EventsQuery", select=["distinct_id"], event="$feature_flag_called", after=after)
+            response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert sorted(row[0] for row in response.results) == ["first-retained-day-user", "recent-user"]
 
     @snapshot_clickhouse_queries
     def test_flag_evaluations_person_display_names_resolve_each_rows_person_id(self):

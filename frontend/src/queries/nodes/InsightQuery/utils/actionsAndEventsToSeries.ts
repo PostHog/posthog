@@ -1,5 +1,10 @@
 import { objectCleanWithEmpty } from 'lib/utils/objects'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import {
+    actorsOnlyMathTypes,
+    calendarHeatmapMathTypes,
+    funnelsMathTypes,
+} from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
 
 import {
     ActionsNode,
@@ -18,12 +23,8 @@ import {
     ActionFilter,
     AnyDataWarehouseFilter,
     BaseMathType,
-    CalendarHeatmapMathType,
     EntityTypes,
     FunnelDatawarehouseFilter,
-    FunnelMathType,
-    GroupMathType,
-    HogQLMathType,
     LifecycleDatawarehouseFilter,
     RetentionEntity,
     TrendsDataWarehouseFilter,
@@ -32,18 +33,6 @@ import {
 } from '~/types'
 
 import { cleanEntityProperties } from './cleanProperties'
-
-export const actorsOnlyMathTypes = [
-    BaseMathType.UniqueUsers,
-    BaseMathType.WeeklyActiveUsers,
-    BaseMathType.MonthlyActiveUsers,
-    GroupMathType.UniqueGroup,
-    HogQLMathType.HogQL,
-]
-
-const funnelsMathTypes = [FunnelMathType.FirstTimeForUser, FunnelMathType.FirstTimeForUserWithFilters]
-
-const calendarHeatmapMathTypes = [CalendarHeatmapMathType.TotalCount, CalendarHeatmapMathType.UniqueUsers]
 
 export type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]

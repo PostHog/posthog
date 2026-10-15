@@ -3,8 +3,10 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.settings import (
+    AUTUMN_API_VERSION_2_4_0,
     AUTUMN_BASE_URL,
     AUTUMN_ENDPOINTS,
+    AUTUMN_V2_4_MAX_PAGE_SIZE,
     PARTITION_BUCKET_MILLISECONDS,
     AutumnEndpointConfig,
 )
@@ -52,8 +54,15 @@ def _make_paginator(config: AutumnEndpointConfig) -> BasePaginator:
     return SinglePagePaginator()
 
 
+def _page_size(config: AutumnEndpointConfig, api_version: str) -> int:
+    if api_version == AUTUMN_API_VERSION_2_4_0:
+        return min(config.page_size, AUTUMN_V2_4_MAX_PAGE_SIZE)
+    return config.page_size
+
+
 def _build_request_body(
     config: AutumnEndpointConfig,
+    api_version: str,
     should_use_incremental_field: bool,
     incremental_field: Optional[str],
     db_incremental_field_last_value: Optional[Any],
@@ -62,7 +71,7 @@ def _build_request_body(
     # object is accepted either way and keeps the request shape uniform.
     body: dict[str, Any] = {}
     if config.paginated:
-        body["limit"] = config.page_size
+        body["limit"] = _page_size(config, api_version)
     if (
         config.incremental_range_field is not None
         and should_use_incremental_field
@@ -119,6 +128,7 @@ def autumn_source(
 
     json_body = _build_request_body(
         config,
+        api_version,
         should_use_incremental_field,
         incremental_field,
         db_incremental_field_last_value,

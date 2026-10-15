@@ -43,6 +43,12 @@ export function byStatusAttention(
     )
 }
 
+export const UNPUBLISHED_REFRESH_EXPLANATION =
+    'This run checked a refresh before it was published. The failing rows query rebuilds the view from its source tables, so the rows can differ from that refresh.'
+
+export const UNPUBLISHED_REFRESH_QUERY_UNAVAILABLE =
+    "The latest run checked a refresh before it was published, and its failing rows query isn't available. Run the view again to check the new data."
+
 export const SUITE_RUN_STATUS_TAG_TYPES: Record<string, LemonTagType> = {
     running: 'primary',
     completed: 'success',

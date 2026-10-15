@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { UserType } from '~/types'
 
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
 
@@ -292,6 +293,48 @@ describe('userLogic', () => {
                 expect(captureSpy).not.toHaveBeenCalled()
             }
         )
+
+        it.each([false, true])('serializes subsequent updates when the first request fails: %s', async (firstFails) => {
+            let releaseFirst: (user: UserType) => void = () => {}
+            let rejectFirst: (error: unknown) => void = () => {}
+            let reportFirstStarted: () => void = () => {}
+            const firstStarted = new Promise<void>((resolve) => {
+                reportFirstStarted = resolve
+            })
+            const firstHeld = new Promise<UserType>((resolve, reject) => {
+                releaseFirst = resolve
+                rejectFirst = reject
+            })
+            const latestUser = { ...userWithLightTheme, first_name: 'Latest' }
+            const update = jest
+                .spyOn(api, 'update')
+                .mockImplementationOnce(async () => {
+                    reportFirstStarted()
+                    return await firstHeld
+                })
+                .mockResolvedValueOnce(latestUser)
+            const firstSuccess = jest.fn()
+            const firstFailure = jest.fn()
+
+            userLogic.actions.updateUser({ first_name: 'First' }, firstSuccess, firstFailure)
+            await firstStarted
+            userLogic.actions.updateUser({ first_name: 'Latest' })
+            const requestsBeforeRelease = update.mock.calls.length
+
+            await expectLogic(userLogic, () => {
+                if (firstFails) {
+                    rejectFirst({ status: 400, detail: 'Update rejected by server.' })
+                } else {
+                    releaseFirst({ ...userWithLightTheme, first_name: 'First' })
+                }
+            }).toFinishAllListeners()
+
+            expect(requestsBeforeRelease).toBe(1)
+            expect(update).toHaveBeenCalledTimes(2)
+            expect(userLogic.values.user?.first_name).toBe('Latest')
+            expect(firstSuccess).toHaveBeenCalledTimes(firstFails ? 0 : 1)
+            expect(firstFailure).toHaveBeenCalledTimes(firstFails ? 1 : 0)
+        })
 
         it('reports a genuine backend error (500) to error tracking', async () => {
             const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)

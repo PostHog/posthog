@@ -55,6 +55,18 @@ const withPinnedSceneHeight: Decorator = function PinnedSceneHeightDecorator(Sto
     )
 }
 
+// The app shell has a `100vh` min-height, so when the viewport at capture time is taller than the
+// card, the shell grows to the viewport and adds a blank strip below the card. Let the shell hug its
+// content so only the card sets the height.
+const withContentSceneHeight: Decorator = function ContentSceneHeightDecorator(Story): JSX.Element {
+    return (
+        <>
+            <style>{'.Navigation3000 { min-height: 0 !important; }'}</style>
+            <Story />
+        </>
+    )
+}
+
 const pushAuthorize = (scope?: string, resolvedScopes?: string[]): void => {
     const appContext = (window as any).POSTHOG_APP_CONTEXT
     appContext.oauth_scope_resolution = {
@@ -137,7 +149,7 @@ type Story = StoryObj<{}>
 // A client that sends no `scope` at all: the server defaults the request to the app's ceiling,
 // so every row arrives selected at its highest level with the bulk actions available.
 export const DefaultScopes: Story = {
-    decorators: [withOAuthApplication({ required_scopes: [] })],
+    decorators: [withContentSceneHeight, withOAuthApplication({ required_scopes: [] })],
     render: () => {
         useDelayedOnMountEffect(() =>
             pushAuthorize(undefined, [

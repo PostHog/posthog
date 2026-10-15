@@ -377,7 +377,7 @@ export class HogFunctionHandler implements ActionHandler {
                     ? [
                           {
                               team_id: hogFunctionInvocation.teamId,
-                              app_source_id: hogFunctionInvocation.functionId,
+                              app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
                               instance_id: action.id,
                               metric_kind: 'email' as const,
                               metric_name: 'email_suppressed' as const,
@@ -414,10 +414,44 @@ export class HogFunctionHandler implements ActionHandler {
                 metrics: [
                     {
                         team_id: hogFunctionInvocation.teamId,
-                        app_source_id: hogFunctionInvocation.functionId,
+                        app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
                         instance_id: action.id,
                         metric_kind: 'email',
                         metric_name: 'email_bounce_prevented',
+                        count: 1,
+                    },
+                ],
+                capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
+                messageAssets: [],
+                conversionWatchers: [],
+            }
+        }
+
+        // This check runs last because it also records the send against the cap. If it ran before the
+        // opt-out, suppression or bounce checks, a send that one of them skips would still use a slot.
+        if (
+            !hogExecutorOptions?.isTest &&
+            (await this.recipientPreferencesService.isFrequencyCapped(hogFunctionInvocation, action))
+        ) {
+            return {
+                finished: true,
+                skipped: true,
+                invocation: hogFunctionInvocation,
+                logs: [
+                    {
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: 'Skipping send: recipient reached the frequency cap.',
+                    },
+                ],
+                metrics: [
+                    {
+                        team_id: hogFunctionInvocation.teamId,
+                        app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
+                        instance_id: action.id,
+                        metric_kind: 'other',
+                        metric_name: 'message_frequency_capped',
                         count: 1,
                     },
                 ],

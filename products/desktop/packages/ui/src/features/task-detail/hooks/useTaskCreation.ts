@@ -19,7 +19,6 @@ import {
   ANALYTICS_EVENTS,
   type ModelAccess,
   PROJECT_BLUEBIRD_FLAG,
-  SERVER_AGENT_INSTRUCTIONS_FLAG,
   type TaskCreationInput,
   type WorkspaceMode,
 } from "@posthog/shared";
@@ -275,9 +274,6 @@ export function useTaskCreation({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const serverInstructionsEnabled = useFeatureFlag(
-    SERVER_AGENT_INSTRUCTIONS_FLAG,
-  );
   const currentProjectId = useAuthStateValue((state) => state.currentProjectId);
   const claudeTokenStore = useServiceOptional<ClaudeSubscriptionTokenSettings>(
     CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
@@ -518,7 +514,6 @@ export function useTaskCreation({
             customInstructions:
               workspaceMode === "cloud" &&
               !cloudTaskCarriesLocalInstructions({
-                flagEnabled: serverInstructionsEnabled,
                 projectId: currentProjectId,
                 onServer: settings.customInstructionsOnServer,
                 local: getLocalInstructionsContent(settings),
@@ -700,7 +695,6 @@ export function useTaskCreation({
     [
       canSubmit,
       canSubmitBase,
-      serverInstructionsEnabled,
       currentProjectId,
       editorRef,
       sessionId,

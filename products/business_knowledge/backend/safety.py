@@ -34,7 +34,11 @@ import posthoganalytics
 from google.genai import types
 from posthoganalytics.ai.gemini import AsyncClient, genai
 
+from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import team_distinct_id
+
 from .constants import CLASSIFY_MAX_TOTAL_CHARS, CLASSIFY_WINDOW_CHARS, CLASSIFY_WINDOW_OVERLAP_CHARS
+from .llm_telemetry import INGEST_SAFETY_FEATURE, ingest_properties
 from .logic import PendingDocument
 from .models import SafetyVerdict
 
@@ -135,14 +139,32 @@ def _windows(content: str) -> list[str]:
     return windows
 
 
-async def _classify_window(client: AsyncClient, window: str, *, document_id: UUID) -> tuple[str, str]:
+@frozen
+class _WindowVerdict:
+    # One of SafetyVerdict.{SAFE, UNSAFE, UNKNOWN}.
+    verdict: str
+    reason: str
+
+
+async def _classify_window(
+    client: AsyncClient, window: str, *, doc: PendingDocument, window_index: int
+) -> _WindowVerdict:
     """
-    Classify a single window. Returns (verdict, reason) where verdict is one of
-    SAFE / UNSAFE / UNKNOWN. UNKNOWN on retry exhaustion (fail closed).
+    Classify a single window. UNKNOWN on retry exhaustion (fail closed).
     """
     nonce = secrets.token_hex(16)
     marker = f"===BK::{nonce}==="
     user_content = f"{marker}\n{window}\n{marker}"
+    properties = {
+        **ingest_properties(
+            team_id=doc.team_id,
+            document_id=doc.document_id,
+            source_id=doc.source_id,
+            source_type=doc.source_type,
+            feature=INGEST_SAFETY_FEATURE,
+        ),
+        "window_index": window_index,
+    }
     for attempt in range(LLM_MAX_ATTEMPTS):
         if attempt > 0:
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
@@ -155,10 +177,16 @@ async def _classify_window(client: AsyncClient, window: str, *, document_id: UUI
                         system_instruction=_SAFETY_SYSTEM_INSTRUCTION,
                         max_output_tokens=256,
                     ),
+                    posthog_distinct_id=team_distinct_id(doc.team_id),
+                    posthog_trace_id=str(doc.document_id),
+                    posthog_properties={**properties, "attempt": attempt + 1},
+                    # The window is customer content, so only token counts reach analytics.
+                    posthog_privacy_mode=True,
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
-            return _parse_verdict(_response_text(response))
+            verdict, reason = _parse_verdict(_response_text(response))
+            return _WindowVerdict(verdict=verdict, reason=reason)
         except Exception as e:
             posthoganalytics.capture_exception(
                 e,
@@ -171,9 +199,9 @@ async def _classify_window(client: AsyncClient, window: str, *, document_id: UUI
     # Exhausted retries with no verdict — fail closed.
     logger.warning(
         "business_knowledge.safety.window_classification_exhausted",
-        document_id=str(document_id),
+        document_id=str(doc.document_id),
     )
-    return SafetyVerdict.UNKNOWN, ""
+    return _WindowVerdict(verdict=SafetyVerdict.UNKNOWN, reason="")
 
 
 async def _classify_one(client: AsyncClient, doc: PendingDocument) -> SafetyResult:
@@ -201,14 +229,14 @@ async def _classify_one(client: AsyncClient, doc: PendingDocument) -> SafetyResu
             content_hash=doc.content_hash,
         )
 
-    for window in _windows(content):
-        verdict, reason = await _classify_window(client, window, document_id=doc.document_id)
-        if verdict != SafetyVerdict.SAFE:
+    for window_index, window in enumerate(_windows(content)):
+        window_verdict = await _classify_window(client, window, doc=doc, window_index=window_index)
+        if window_verdict.verdict != SafetyVerdict.SAFE:
             return SafetyResult(
                 team_id=doc.team_id,
                 document_id=doc.document_id,
-                verdict=verdict,
-                reason=reason,
+                verdict=window_verdict.verdict,
+                reason=window_verdict.reason,
                 content_hash=doc.content_hash,
             )
     return SafetyResult(

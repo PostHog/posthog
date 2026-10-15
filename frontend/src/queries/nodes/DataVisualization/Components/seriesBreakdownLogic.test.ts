@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -12,7 +12,7 @@ import { seriesBreakdownLogic } from './seriesBreakdownLogic'
 
 const testUniqueKey = 'testUniqueKey'
 
-const makeInitialQuery = (): DataVisualizationNode => ({
+const makeInitialQuery = (): VisualizationNode => ({
     kind: NodeKind.DataVisualizationNode,
     source: {
         kind: NodeKind.HogQLQuery,
@@ -56,7 +56,7 @@ const makeInitialQuery = (): DataVisualizationNode => ({
 // globalQuery represents the query object that is passed into the data
 // visualization logic and series breakdown logic it is modified by calls to
 // setQuery so we want to ensure this is updated correctly
-let globalQuery: DataVisualizationNode = makeInitialQuery()
+let globalQuery: VisualizationNode = makeInitialQuery()
 
 const dummyDataVisualizationLogicProps: DataVisualizationLogicProps = {
     key: testUniqueKey,
@@ -280,10 +280,19 @@ describe('seriesBreakdownLogic', () => {
 
         builtDataVizLogic.actions.clearAxis()
         builtDataVizLogic.actions.updateXSeries('event')
-        builtDataVizLogic.actions.addYSeries('total_count')
+        // The y-axis settings form saves a color by default; breakdown series must not inherit it.
+        builtDataVizLogic.actions.addYSeries('total_count', {
+            formatting: { prefix: '', suffix: '' },
+            display: { color: '#1d4aff' },
+        })
 
         logic.actions.addSeriesBreakdown('browser')
 
+        expect(logic.values.seriesBreakdownData.seriesData.map((series) => series.settings?.display?.color)).toEqual([
+            undefined,
+            undefined,
+            undefined,
+        ])
         await expectLogic(logic).toMatchValues({
             breakdownColumnValues: ['Safari', 'Firefox', 'Chrome'],
             seriesBreakdownData: {

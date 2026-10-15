@@ -14,6 +14,10 @@ description: >
 
 # Exploring AI observability evaluations
 
+For stored offline experiment comparisons, scorer history, or externally computed
+result uploads, use `analyzing-offline-evaluations`. Offline experiments use pinned
+scorer configurations and separate result APIs from the online evaluations below.
+
 PostHog evaluations score `$ai_generation` events. Each evaluation is one of three
 types:
 
@@ -221,8 +225,8 @@ posthog:llma-evaluation-test-hog
 }
 ```
 
-The handler returns raw boolean or numeric results for the sampled units.
-For numeric previews, send `output_type: "numeric"` and the saved `output_config`, including `allows_na: true` if null is allowed. Iterate on the source until it behaves as expected, then promote it via
+The handler returns raw boolean, numeric, or categorical results for the sampled units.
+For numeric or categorical previews, send the saved `output_type` and `output_config`, including `allows_na: true` if null is allowed. Iterate on the source until it behaves as expected, then promote it via
 `llma-evaluation-create`:
 
 ```json

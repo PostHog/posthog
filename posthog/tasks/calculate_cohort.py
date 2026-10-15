@@ -63,10 +63,11 @@ STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS = 4 * 60 * 60
 
 # The RetryInterceptor set plus RESOURCE_EXHAUSTED and INTERNAL, which an in-process retry must not
 # hammer but a task backoff of minutes is the right answer to. Personhog sheds load with
-# RESOURCE_EXHAUSTED and maps every Postgres query error (deadlock, lock or statement timeout, a
-# read-only primary after a failover) to INTERNAL. UNKNOWN stays in because an HTTP/2 stream reset
-# ("Stream removed") surfaces as UNKNOWN, and that is the outage shape that leaves a static cohort
-# half-synced.
+# RESOURCE_EXHAUSTED. It answers a Postgres lock or statement timeout with DEADLINE_EXCEEDED. It maps
+# every other Postgres query error (deadlock, a read-only primary after a failover) to INTERNAL. The
+# RetryInterceptor does not retry those timeouts, so this set is where they get their retry. UNKNOWN
+# stays in because an HTTP/2 stream reset ("Stream removed") surfaces as UNKNOWN, and that is the
+# outage shape that leaves a static cohort half-synced.
 STATIC_POPULATION_RETRYABLE_RPC_CODES = frozenset(
     {
         grpc.StatusCode.UNAVAILABLE,
@@ -1016,8 +1017,10 @@ def insert_cohort_from_filters(
 # contradict what the cohort already reports.
 # Runs on the long-running queue (like the sibling cohort tasks) so a large paging run
 # can't clog the default workers, with a generous soft limit as a backstop ceiling.
-# SoftTimeLimitExceeded subclasses Exception, so get_cohort_actors_for_feature_flag's
-# except block records error state and re-raises it like any other failure.
+# get_cohort_actors_for_feature_flag catches BaseException, so an interruption raised into the
+# task (SoftTimeLimitExceeded, SystemExit) records error state and re-raises. A prefork child
+# killed by a signal runs no handler: a revoke with terminate=True, or a warm shutdown that
+# outlasts the pod's termination grace period, leaves the cohort calculating.
 @shared_task(
     ignore_result=True,
     max_retries=0,

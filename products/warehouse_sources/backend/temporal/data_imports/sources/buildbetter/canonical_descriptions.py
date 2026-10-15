@@ -18,6 +18,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "id": "Unique identifier of the interview.",
             "external_id": "Identifier of the interview in the source system it was imported from.",
             "name": "Name or title of the interview.",
+            "display_name": "Name of the interview as shown in BuildBetter.",
             "original_name": "Original name of the interview before any renaming.",
             "short_summary": "Short AI-generated summary of the interview.",
             "summary": "Full AI-generated summary of the interview.",
@@ -39,6 +40,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "summary_state": "Processing state of the AI summaries.",
             "attendees": "People who attended the interview.",
             "tags": "Tags applied to the interview.",
+            "metadata": "Metadata records linked to the interview, grouped by the source that supplied them.",
         },
     },
     "interview_attendees": {

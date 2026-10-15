@@ -197,6 +197,11 @@ impl GrpcTransport {
         self.assignment_epoch = epoch;
     }
 
+    /// The most sub-batches one worker stream keeps un-acked.
+    pub fn max_unacked(&self) -> usize {
+        self.max_unacked
+    }
+
     /// The assignment epoch this transport stamps on sub-batches.
     pub fn assignment_epoch(&self) -> AssignmentEpoch {
         self.assignment_epoch.clone()
@@ -543,6 +548,7 @@ impl WorkerStreamRunner {
                     messages: item.messages.iter().map(to_proto_message).collect(),
                     replay: item.replay,
                     assignment_epoch: self.assignment_epoch.current(),
+                    soft_budget_ms: 0,
                 })),
             };
             // tonic gzips the frame after this point, so only the raw size is observable here.
@@ -849,7 +855,7 @@ enum StreamEnd {
 
 fn to_proto_message(message: &SerializedKafkaMessage) -> KafkaMessage {
     KafkaMessage {
-        topic: message.topic.clone(),
+        topic: message.topic.to_string(),
         partition: message.partition,
         offset: message.offset,
         timestamp: message.timestamp,
