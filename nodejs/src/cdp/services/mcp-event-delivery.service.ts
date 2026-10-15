@@ -1,14 +1,27 @@
 import { DateTime } from 'luxon'
 
 import { CyclotronInvocationQueueParametersMcpEventSchema } from '~/cdp/schema/cyclotron'
+import { logger } from '~/common/utils/logger'
 
 import type { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { createAddLogFunction } from '../utils'
 import { cdpTrackedFetch, isFetchResponseRetriable } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { parseRetryAfterMs, prepareMcpEventDelivery } from '../utils/mcp-event-delivery'
+import {
+    type McpEventDeliveryFailureCategory,
+    mcpEventDeliveryFailureCategory,
+    parseRetryAfterMs,
+    prepareMcpEventDelivery,
+} from '../utils/mcp-event-delivery'
 
-type DeliveryAttempt = { ok: true; status: number } | { ok: false; retryable: boolean; retryAfterMs?: number }
+type DeliveryAttempt =
+    | { ok: true; status: number }
+    | {
+          ok: false
+          retryable: boolean
+          retryAfterMs?: number
+          callback?: { category: McpEventDeliveryFailureCategory | 'http_error'; status?: number }
+      }
 
 export async function executeMcpEventDelivery(
     invocation: CyclotronJobInvocationHogFunction,
@@ -49,7 +62,15 @@ export async function executeMcpEventDelivery(
             attempt =
                 fetchResponse && fetchResponse.status >= 200 && fetchResponse.status < 300
                     ? { ok: true, status: fetchResponse.status }
-                    : { ok: false, retryable: isFetchResponseRetriable(fetchResponse, fetchError), retryAfterMs }
+                    : {
+                          ok: false,
+                          retryable: isFetchResponseRetriable(fetchResponse, fetchError),
+                          retryAfterMs,
+                          callback: {
+                              category: fetchResponse ? 'http_error' : mcpEventDeliveryFailureCategory(fetchError),
+                              status: fetchResponse?.status,
+                          },
+                      }
         }
     } catch (error) {
         attempt = { ok: false, retryable: isFetchResponseRetriable(null, error) }
@@ -60,7 +81,19 @@ export async function executeMcpEventDelivery(
     result.invocation.state.attempts++
     if (!attempt.ok) {
         const willRetry = attempt.retryable && result.invocation.state.attempts < config.fetchRetries
-        addLog('error', willRetry ? 'MCP event delivery failed; retrying.' : 'MCP event delivery failed.')
+        const detail = attempt.callback
+            ? ` (callback ${attempt.callback.status !== undefined ? `HTTP ${attempt.callback.status}` : attempt.callback.category})`
+            : ''
+        addLog('error', `MCP event delivery failed${detail}.${willRetry ? ' Retrying.' : ''}`)
+        if (attempt.callback) {
+            logger.warn('[MCP event delivery] Callback request failed', {
+                invocationId: invocation.id,
+                teamId: invocation.teamId,
+                hogFunctionId: invocation.hogFunction.id,
+                subscriptionId: params.mcp_event_subscription.id,
+                ...attempt.callback,
+            })
+        }
         if (willRetry) {
             const backoffMs = Math.min(
                 config.fetchBackoffBaseMs * 2 ** (result.invocation.state.attempts - 1),
@@ -68,9 +101,12 @@ export async function executeMcpEventDelivery(
             )
             result.invocation.queueParameters = params
             result.invocation.queuePriority = invocation.queuePriority + 1
-            result.invocation.queueScheduledAt = DateTime.utc().plus({
+            const scheduledAt = DateTime.utc().plus({
                 milliseconds: Math.max(backoffMs, attempt.retryAfterMs ?? 0),
             })
+            result.invocation.queueScheduledAt = scheduledAt.isValid
+                ? scheduledAt
+                : DateTime.utc().plus({ milliseconds: backoffMs })
             return result
         }
         result.error = new Error('MCP event delivery failed.')

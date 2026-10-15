@@ -1599,8 +1599,9 @@ describe('Hog Executor', () => {
                     type: 'mcp_event',
                     url: `${baseUrl}/`,
                     body: pendingBody,
-                    mcp_event_subscription: subscription,
+                    mcp_event_subscription: { id: subscription.id, generation: subscription.generation },
                 }
+                invocation.state.mcpEvent = { filterBytecode: subscription.filter_bytecode }
                 invocation.hogFunction.encrypted_inputs = {
                     mcp_credential: { value: 'phx_test_mcp_delivery' },
                 }
@@ -1650,57 +1651,94 @@ describe('Hog Executor', () => {
                 expect(mockRequest).not.toHaveBeenCalled()
             })
 
-            it.each(['success', 'http_error', 'connection_reset', 'rate_limit'])(
-                'handles %s callbacks without bypassing authorization',
-                async (failure) => {
-                    ;(internalFetch as jest.Mock)
-                        .mockResolvedValueOnce({
-                            status: 200,
-                            text: jest.fn().mockResolvedValue(
-                                JSON.stringify({
-                                    body: authorizedBody,
-                                    headers: { 'webhook-id': 'event-123', 'webhook-signature': 'v1,test-signature' },
-                                })
-                            ),
-                        })
-                        .mockResolvedValueOnce({ status: 403, dump: jest.fn() })
-                    const receivedBody: Buffer[] = []
-                    mockRequest.mockClear()
-                    mockRequest.mockImplementation((req, res) => {
-                        req.on('data', (chunk: Buffer) => receivedBody.push(chunk))
-                        req.on('end', () => {
-                            expect(Buffer.concat(receivedBody).toString()).toBe(authorizedBody)
-                            expect(req.headers['webhook-id']).toBe('event-123')
-                            if (failure === 'connection_reset') {
-                                res.destroy()
-                            } else {
-                                res.writeHead(failure === 'success' ? 200 : failure === 'rate_limit' ? 429 : 500, {
-                                    'Retry-After': '45',
-                                })
-                                res.end('retry')
-                            }
-                        })
+            it.each([
+                'success',
+                'http_error',
+                'connection_reset',
+                'rate_limit',
+                'rate_limit_overflow',
+                'rejected_signature',
+            ])('handles %s callbacks without bypassing authorization', async (failure) => {
+                ;(internalFetch as jest.Mock)
+                    .mockResolvedValueOnce({
+                        status: 200,
+                        text: jest.fn().mockResolvedValue(
+                            JSON.stringify({
+                                body: authorizedBody,
+                                headers: { 'webhook-id': 'event-123', 'webhook-signature': 'v1,test-signature' },
+                            })
+                        ),
                     })
-                    let result = await executor.executeWithAsyncFunctions(await mcpInvocation())
-                    expect(mockRequest).toHaveBeenCalledTimes(1)
-                    if (failure === 'success') {
-                        expect(result.finished).toBe(true)
-                        expect(result.error).toBeUndefined()
-                        expect(result.invocation.queueScheduledAt).toBeUndefined()
-                        return
-                    }
-                    expect(result.invocation.queueScheduledAt).toBeDefined()
-                    if (failure !== 'connection_reset') {
-                        expect(
-                            result.invocation.queueScheduledAt!.toMillis() - DateTime.utc().toMillis()
-                        ).toBeGreaterThanOrEqual(45_000)
-                    }
-                    result = await executor.executeWithAsyncFunctions(result.invocation)
+                    .mockResolvedValueOnce({ status: 403, dump: jest.fn() })
+                const warning = jest.spyOn(logger, 'warn').mockImplementation(() => {})
+                const receivedBody: Buffer[] = []
+                mockRequest.mockClear()
+                mockRequest.mockImplementation((req, res) => {
+                    req.on('data', (chunk: Buffer) => receivedBody.push(chunk))
+                    req.on('end', () => {
+                        expect(Buffer.concat(receivedBody).toString()).toBe(authorizedBody)
+                        expect(req.headers['webhook-id']).toBe('event-123')
+                        if (failure === 'connection_reset') {
+                            res.destroy()
+                        } else {
+                            const status =
+                                failure === 'success'
+                                    ? 200
+                                    : failure.startsWith('rate_limit')
+                                      ? 429
+                                      : failure === 'rejected_signature'
+                                        ? 401
+                                        : 500
+                            res.writeHead(status, {
+                                'Retry-After': failure === 'rate_limit_overflow' ? '999999999999999999' : '45',
+                            })
+                            res.end('retry')
+                        }
+                    })
+                })
+                let result = await executor.executeWithAsyncFunctions(await mcpInvocation())
+                expect(mockRequest).toHaveBeenCalledTimes(1)
+                if (failure === 'success') {
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.queueScheduledAt).toBeUndefined()
+                    return
+                }
+                const callbackStatus = failure.startsWith('rate_limit')
+                    ? 429
+                    : failure === 'rejected_signature'
+                      ? 401
+                      : failure === 'http_error'
+                        ? 500
+                        : undefined
+                expect(warning).toHaveBeenCalledWith(
+                    '[MCP event delivery] Callback request failed',
+                    expect.objectContaining({
+                        subscriptionId: subscription.id,
+                        category: failure === 'connection_reset' ? 'connection' : 'http_error',
+                        status: callbackStatus,
+                    })
+                )
+                expect(JSON.stringify(result.logs)).toContain(callbackStatus ? `HTTP ${callbackStatus}` : 'connection')
+                expect(JSON.stringify(warning.mock.calls)).not.toContain('test-signature')
+                expect(JSON.stringify(warning.mock.calls)).not.toContain('phx_test_mcp_delivery')
+                if (failure === 'rejected_signature') {
                     expect(result.finished).toBe(true)
                     expect(result.error).toBeDefined()
-                    expect(mockRequest).toHaveBeenCalledTimes(1)
+                    expect(result.invocation.queueScheduledAt).toBeUndefined()
+                    return
                 }
-            )
+                expect(result.invocation.queueScheduledAt?.isValid).toBe(true)
+                if (failure !== 'connection_reset' && failure !== 'rate_limit_overflow') {
+                    expect(
+                        result.invocation.queueScheduledAt!.toMillis() - DateTime.utc().toMillis()
+                    ).toBeGreaterThanOrEqual(45_000)
+                }
+                result = await executor.executeWithAsyncFunctions(result.invocation)
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeDefined()
+                expect(mockRequest).toHaveBeenCalledTimes(1)
+            })
         })
 
         describe('standard_webhooks', () => {

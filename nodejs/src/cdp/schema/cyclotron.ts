@@ -153,7 +153,6 @@ export const CyclotronInvocationQueueParametersMcpEventSchema = z.object({
     mcp_event_subscription: z.object({
         id: z.string().uuid(),
         generation: z.string().uuid(),
-        filter_bytecode: z.array(z.json()),
     }),
 })
 

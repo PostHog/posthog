@@ -50,6 +50,7 @@ export type HogFunctionFilterDataWarehouse = {
 }
 
 export interface HogFunctionFilters {
+    mcp_property_dependencies?: Record<string, (string | null)[]>
     source?: 'events' | 'internal-events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
@@ -404,6 +405,9 @@ export type ConversionWatcherRow = {
 export type CyclotronJobInvocationHogFunctionContext = {
     globals: HogFunctionInvocationGlobalsWithInputs
     vmState?: VMState
+    mcpEvent?: {
+        filterBytecode: HogBytecode
+    }
     timings: HogFunctionTiming[]
     attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
     // Distinct from `attempts` (fetch-retry counter, reset between runs).

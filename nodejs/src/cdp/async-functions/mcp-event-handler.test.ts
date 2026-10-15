@@ -12,6 +12,7 @@ describe('MCP event handler', () => {
     }
     const context = {
         invocation: {
+            state: { mcpEvent: { filterBytecode: subscription.filter_bytecode } },
             hogFunction: {
                 encrypted_inputs: { mcp_credential: { value: 'fake-user-credential' } },
                 filters: { bytecode: subscription.filter_bytecode },
@@ -31,7 +32,7 @@ describe('MCP event handler', () => {
             type: 'mcp_event',
             url: 'https://example.com/callback',
             body: '{"eventId":"sample-event"}',
-            mcp_event_subscription: subscription,
+            mcp_event_subscription: { id: subscription.id, generation: subscription.generation },
         })
         expect(JSON.stringify(result.invocation.queueParameters)).not.toContain('fake-user-credential')
     })
@@ -47,17 +48,24 @@ describe('MCP event handler', () => {
         expect(result.invocation.queueParameters).not.toHaveProperty('mcp_event_subscription')
     })
 
-    it('rejects a reserved send without a managed credential', () => {
+    it.each(['credential', 'snapshot'])('rejects a reserved send without its %s', (missing) => {
         const result = { invocation: {} } as CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
         const unmanaged = {
             ...context,
             invocation: {
                 ...context.invocation,
-                hogFunction: { ...context.invocation.hogFunction, encrypted_inputs: {} },
+                hogFunction: {
+                    ...context.invocation.hogFunction,
+                    encrypted_inputs: missing === 'credential' ? {} : context.invocation.hogFunction.encrypted_inputs,
+                },
+                state: {
+                    ...context.invocation.state,
+                    mcpEvent: missing === 'snapshot' ? undefined : context.invocation.state.mcpEvent,
+                },
             },
         }
         expect(() => getAsyncFunctionHandler('mcpEventFetch')!.execute([], unmanaged, result)).toThrow(
-            'requires a managed subscription'
+            missing === 'credential' ? 'requires a managed subscription' : 'requires the matched filter snapshot'
         )
         expect(result.invocation.queueParameters).toBeUndefined()
     })
