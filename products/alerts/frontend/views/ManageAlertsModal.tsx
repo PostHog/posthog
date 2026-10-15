@@ -5,9 +5,11 @@ import { Link } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -71,7 +73,14 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
 
     const { alerts, alertsLoading, alertDestinationCounts, alertDestinationCountsLoading } = useValues(logic)
 
-    const showListSpinner = props.isOpen && alertsLoading
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const isEmpty = alerts.length === 0
+    const isExperimentEligible = props.isOpen && !alertsLoading && isEmpty && props.canCreateAlertForInsight
+    const showListSpinner = props.isOpen && (alertsLoading || (isExperimentEligible && !receivedFeatureFlags))
+    const showVisualEmptyState =
+        isExperimentEligible &&
+        receivedFeatureFlags &&
+        featureFlags[FEATURE_FLAGS.INSIGHT_ALERTS_EMPTY_STATE_EXPERIMENT] === 'test'
     const createAlertDisabledReason = !props.canCreateAlertForInsight
         ? alertsUnsupportedReason({}, props.insightQuery)
         : undefined
@@ -100,7 +109,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                 <h3 className="!m-0">Manage alerts</h3>
             </LemonModal.Header>
             <LemonModal.Content>
-                {alerts.length > 0 && (
+                {!showVisualEmptyState && (
                     <div className="mb-4">
                         With alerts, PostHog monitors your insight at a recurring interval and notifies you when
                         conditions are met.
@@ -133,7 +142,13 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                         ))}
                     </div>
                 )}
-                {!showListSpinner && alerts.length === 0 && (
+                {!showListSpinner && isEmpty && !showVisualEmptyState && (
+                    <div className="flex flex-col p-4 items-center text-center">
+                        <h3>There are no alerts for this insight</h3>
+                        <p>Once alerts are created they will display here.</p>
+                    </div>
+                )}
+                {showVisualEmptyState && (
                     <ProductIntroduction
                         thingName="alert"
                         titleOverride="Know when your metrics need attention"
@@ -159,7 +174,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
             </LemonModal.Content>
 
             <LemonModal.Footer>
-                {alerts.length === 0 && (
+                {showVisualEmptyState && (
                     <LemonButton type="tertiary" to={urls.alerts()} targetBlank className="mr-auto">
                         View all alerts
                     </LemonButton>
@@ -167,8 +182,13 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                 <LemonButton type="secondary" onClick={props.onClose}>
                     Close
                 </LemonButton>
-                {alerts.length > 0 && (
-                    <LemonButton type="primary" onClick={createAlert} disabledReason={createAlertDisabledReason}>
+                {!showVisualEmptyState && (
+                    <LemonButton
+                        type="primary"
+                        onClick={createAlert}
+                        disabledReason={createAlertDisabledReason}
+                        loading={showListSpinner}
+                    >
                         New alert
                     </LemonButton>
                 )}

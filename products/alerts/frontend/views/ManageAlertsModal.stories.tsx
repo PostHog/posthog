@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import {
     AlertCalculationInterval,
     AlertConditionType,
@@ -96,6 +98,7 @@ const meta: Meta<typeof ManageAlertsModal> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-07-16',
+        featureFlags: { [FEATURE_FLAGS.INSIGHT_ALERTS_EMPTY_STATE_EXPERIMENT]: 'test' },
         testOptions: { viewport: { width: 1000, height: 700 } },
     },
     args: {
@@ -143,4 +146,14 @@ export const EmptyUnsupported: Story = {
 export const EmptyNarrow: Story = {
     ...Empty,
     parameters: { testOptions: { viewport: { width: 560, height: 800 } } },
+}
+
+export const EmptyControl: Story = {
+    ...Empty,
+    parameters: { featureFlags: { [FEATURE_FLAGS.INSIGHT_ALERTS_EMPTY_STATE_EXPERIMENT]: 'control' } },
+}
+
+export const EmptyFlagOff: Story = {
+    ...Empty,
+    parameters: { featureFlags: { [FEATURE_FLAGS.INSIGHT_ALERTS_EMPTY_STATE_EXPERIMENT]: false } },
 }
