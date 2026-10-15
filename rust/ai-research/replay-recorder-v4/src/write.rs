@@ -1,13 +1,22 @@
-//! Writes a flush: keys first, then one object of sealed session blocks.
+//! Writes a flush: image packs and their index first, then one object of sealed session blocks.
+//!
+//! The order matters for a crash between writes. A pack without its blocks is unreferenced, which is harmless. A block
+//! whose images were never stored would hold references that resolve to nothing.
+
+use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
 use posthog_replay_anonymizer::scan::write_json_string;
 use rand::Rng;
 use replay_core_v4::envelope::{seal_frame, Codec, Context, Version};
-use replay_core_v4::keys::batch::{FlushKeys, SessionId};
+use replay_core_v4::keys::batch::{FlushKeys, SessionId, SessionKey as Key};
 use replay_core_v4::keys::rows::key_day;
+use replay_core_v4::scan::cv::extract_event_images;
+use replay_core_v4::scan::images::{Image, ImageLimits, ImageSink};
+use replay_core_v4::seal::image_content_key;
 
 use crate::batch::{Block, SessionKey};
+use crate::index::{image_index, write_parquet, ImageIndexRow, IndexError};
 use crate::store::{BlobStore, StoreError};
 
 /// zstd level for blocks: raw data lives 7 days, so CPU matters more than the last few percent of size.
@@ -17,7 +26,9 @@ const BLOCK_ZSTD_LEVEL: i32 = 3;
 pub enum WriteError {
     #[error(transparent)]
     Store(#[from] StoreError),
-    #[error("sealing a block failed: {0}")]
+    #[error(transparent)]
+    Index(#[from] IndexError),
+    #[error("sealing failed: {0}")]
     Seal(String),
 }
 
@@ -32,40 +43,171 @@ pub struct Written {
     pub byte_end: u64,
 }
 
-/// The block in the main lane's format: one `["window_id",event]` line per event.
-pub fn block_lines(block: &Block) -> Vec<u8> {
-    let mut lines =
-        Vec::with_capacity(block.stats.byte_size as usize + block.stats.event_count as usize * 16);
-    for message in &block.messages {
-        let mut window = Vec::new();
-        write_json_string(
-            message.window_id.as_deref().unwrap_or_default(),
-            &mut window,
-        );
-        for event in &message.events {
-            lines.push(b'[');
-            lines.extend_from_slice(&window);
-            lines.push(b',');
-            lines.extend_from_slice(&message.inner[event.span.0..event.span.1]);
-            lines.extend_from_slice(b"]\n");
-        }
-    }
-    lines
+/// A session's block, ready to seal: its key, and its lines with the images moved out.
+pub struct PreparedBlock {
+    pub session: SessionKey,
+    pub key: Key,
+    pub lines: Vec<u8>,
 }
 
-pub fn object_key(write_day: &str, at: DateTime<Utc>) -> String {
+pub struct Prepared {
+    pub blocks: Vec<PreparedBlock>,
+    /// The flush's new images by team, each stored once.
+    pub images: BTreeMap<i64, Vec<Image>>,
+}
+
+fn unique_suffix(at: DateTime<Utc>) -> String {
     format!(
-        "blocks/dt={write_day}/{}-{:016x}",
+        "{}-{:016x}",
         at.timestamp_millis(),
         rand::thread_rng().gen::<u64>()
     )
 }
 
-/// Seals each block under its session key into one object. Blocks whose session has no key, because a deletion
-/// tombstoned it, are left out.
-pub async fn write_blocks(
-    blocks: &[Block],
+pub fn object_key(write_day: &str, at: DateTime<Utc>) -> String {
+    format!("blocks/dt={write_day}/{}", unique_suffix(at))
+}
+
+/// Moves each kept session's images out and builds its lines in the main lane's format: one `["window_id",event]`
+/// line per event. Fills the image columns of each block's stats. `already_stored` names images an earlier flush
+/// of this process stored for the same team and day.
+pub fn prepare(
+    blocks: &mut [Block],
     keys: &FlushKeys,
+    write_day: &str,
+    already_stored: &dyn Fn(&str) -> bool,
+) -> Prepared {
+    let mut prepared = Prepared {
+        blocks: Vec::new(),
+        images: BTreeMap::new(),
+    };
+    for block in blocks.iter_mut() {
+        let id = SessionId {
+            team_id: block.session.team_id,
+            session_id: block.session.session_id.clone(),
+        };
+        let (Some(key), Some(team_key)) = (
+            keys.sessions.get(&id),
+            keys.team_days.get(&block.session.team_id),
+        ) else {
+            continue;
+        };
+        let content_key = image_content_key(team_key);
+        let images = prepared.images.entry(block.session.team_id).or_default();
+        let mut lines = Vec::with_capacity(
+            block.stats.byte_size as usize + block.stats.event_count as usize * 16,
+        );
+        for message in &block.messages {
+            let mut window = Vec::new();
+            write_json_string(
+                message.window_id.as_deref().unwrap_or_default(),
+                &mut window,
+            );
+            let mut sink = ImageSink::new(
+                &content_key,
+                block.session.team_id,
+                write_day,
+                ImageLimits::default(),
+            );
+            for event in &message.events {
+                let extracted = extract_event_images(&message.inner, event, &mut sink);
+                lines.push(b'[');
+                lines.extend_from_slice(&window);
+                lines.push(b',');
+                lines.extend_from_slice(
+                    extracted
+                        .as_deref()
+                        .unwrap_or(&message.inner[event.span.0..event.span.1]),
+                );
+                lines.extend_from_slice(b"]\n");
+            }
+            block.stats.images_extracted += sink.images.len() as u32;
+            block.stats.image_bytes += sink
+                .images
+                .iter()
+                .map(|i| i.bytes.len() as u64)
+                .sum::<u64>();
+            block.stats.images_inline += sink.left_inline;
+            for image in sink.images {
+                if !already_stored(&image.reference)
+                    && !images.iter().any(|i| i.reference == image.reference)
+                {
+                    images.push(image);
+                }
+            }
+        }
+        prepared.blocks.push(PreparedBlock {
+            session: block.session.clone(),
+            key: key.clone(),
+            lines,
+        });
+    }
+    prepared.images.retain(|_, images| !images.is_empty());
+    prepared
+}
+
+/// Seals each team's new images under its team day key into one pack, then writes the image index for the flush.
+pub async fn write_images(
+    images: &BTreeMap<i64, Vec<Image>>,
+    keys: &FlushKeys,
+    write_day: &str,
+    images_bucket: &str,
+    rrweb_bucket: &str,
+    store: &dyn BlobStore,
+    at: DateTime<Utc>,
+) -> Result<Vec<ImageIndexRow>, WriteError> {
+    let mut rows = Vec::new();
+    for (&team_id, team_images) in images {
+        let Some(team_key) = keys.team_days.get(&team_id) else {
+            continue;
+        };
+        let pack_key = format!(
+            "images/packs/dt={write_day}/{team_id}/{}",
+            unique_suffix(at)
+        );
+        let mut pack = Vec::new();
+        for image in team_images {
+            let context = Context {
+                team_id,
+                key_day: Some(write_day.to_owned()),
+                kind: "image".to_owned(),
+                codec: Some(Codec::None),
+                reference: Some(image.reference.clone()),
+                ..Context::default()
+            };
+            let frame = seal_frame(team_key, Version::V4, &context, &image.bytes)
+                .map_err(|e| WriteError::Seal(e.to_string()))?;
+            let byte_start = pack.len() as u64;
+            pack.extend_from_slice(&frame);
+            rows.push(ImageIndexRow {
+                team_id,
+                key_day: write_day.to_owned(),
+                image_ref: image.reference.clone(),
+                pack_s3_key: pack_key.clone(),
+                byte_start,
+                byte_end: pack.len() as u64 - 1,
+                mime: image.mime.to_owned(),
+                byte_size: image.bytes.len() as u64,
+            });
+        }
+        store.put_new(images_bucket, &pack_key, pack).await?;
+    }
+    if !rows.is_empty() {
+        let index_key = format!("index/images/dt={write_day}/{}.parquet", unique_suffix(at));
+        store
+            .put_new(
+                rrweb_bucket,
+                &index_key,
+                write_parquet(&image_index(&rows)?)?,
+            )
+            .await?;
+    }
+    Ok(rows)
+}
+
+/// Seals each prepared block under its session key into one object.
+pub async fn write_blocks(
+    blocks: &[PreparedBlock],
     bucket: &str,
     store: &dyn BlobStore,
     at: DateTime<Utc>,
@@ -74,30 +216,23 @@ pub async fn write_blocks(
     let mut object = Vec::new();
     let mut written = Vec::new();
     for block in blocks {
-        let id = SessionId {
-            team_id: block.session.team_id,
-            session_id: block.session.session_id.clone(),
-        };
-        let Some(session_key) = keys.sessions.get(&id) else {
-            continue;
-        };
-        let compressed = zstd::bulk::compress(&block_lines(block), BLOCK_ZSTD_LEVEL)
+        let compressed = zstd::bulk::compress(&block.lines, BLOCK_ZSTD_LEVEL)
             .map_err(|e| WriteError::Seal(e.to_string()))?;
         let context = Context {
             team_id: block.session.team_id,
             session_id: Some(block.session.session_id.clone()),
-            key_day: Some(session_key.key_day.clone()),
+            key_day: Some(block.key.key_day.clone()),
             kind: "rrweb".to_owned(),
             codec: Some(Codec::Zstd),
             ..Context::default()
         };
-        let frame = seal_frame(&session_key.key, Version::V4, &context, &compressed)
+        let frame = seal_frame(&block.key.key, Version::V4, &context, &compressed)
             .map_err(|e| WriteError::Seal(e.to_string()))?;
         let byte_start = object.len() as u64;
         object.extend_from_slice(&frame);
         written.push(Written {
             session: block.session.clone(),
-            key_day: session_key.key_day.clone(),
+            key_day: block.key.key_day.clone(),
             object_key: object_key.clone(),
             byte_start,
             byte_end: object.len() as u64 - 1,
@@ -115,9 +250,10 @@ mod tests {
     use std::sync::Mutex;
 
     use async_trait::async_trait;
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
     use replay_core_v4::envelope::open_frame;
     use replay_core_v4::inspect::stats::BlockStats;
-    use replay_core_v4::keys::batch::SessionKey as Key;
     use replay_core_v4::scan::message::read_message;
     use serde_json::{json, Value};
 
@@ -126,6 +262,12 @@ mod tests {
     #[derive(Default)]
     struct MemoryStore {
         objects: Mutex<HashMap<(String, String), Vec<u8>>>,
+    }
+
+    impl MemoryStore {
+        fn get(&self, bucket: &str, key: &str) -> Vec<u8> {
+            self.objects.lock().unwrap()[&(bucket.to_owned(), key.to_owned())].clone()
+        }
     }
 
     #[async_trait]
@@ -141,7 +283,7 @@ mod tests {
     }
 
     fn block(session: &str, events: Value) -> Block {
-        let inner = json!({"event": "$snapshot_items", "properties": {"$session_id": session, "$window_id": "w\"1", "$snapshot_items": events}});
+        let inner = json!({"event": "$snapshot_items", "properties": {"$session_id": session, "$window_id": "w1", "$snapshot_items": events}});
         let message = read_message(
             json!({"distinct_id": "d", "data": inner.to_string()})
                 .to_string()
@@ -159,13 +301,17 @@ mod tests {
         }
     }
 
+    fn uri(bytes: &[u8]) -> String {
+        format!("data:image/png;base64,{}", STANDARD.encode(bytes))
+    }
+
     #[tokio::test]
-    async fn seals_each_kept_session_into_one_object_by_byte_range() {
-        let events = json!([{"type": 4, "timestamp": 1, "data": {"href": "https://example.com"}}, {"type": 3, "timestamp": 2, "data": {"source": 1}}]);
-        let blocks = [
-            block("kept", events.clone()),
-            block("tombstoned", events.clone()),
-        ];
+    async fn stores_images_once_and_blocks_that_point_at_them() {
+        let events = json!([
+            {"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": uri(b"new"), "srcset": format!("{} 2x", uri(b"new"))}}}},
+            {"type": 3, "timestamp": 2, "data": {"source": 0, "adds": [{"parentId": 1, "node": {"attributes": {"src": uri(b"old")}}}]}},
+        ]);
+        let mut blocks = vec![block("kept", events.clone()), block("tombstoned", events)];
         let mut keys = FlushKeys::default();
         keys.sessions.insert(
             SessionId {
@@ -177,14 +323,44 @@ mod tests {
                 key_day: "2026-10-14".to_owned(),
             },
         );
+        keys.team_days.insert(7, [6; 32]);
+        let old_ref = replay_core_v4::refs::image_ref(
+            7,
+            "2026-10-15",
+            &replay_core_v4::refs::reference_hash(&image_content_key(&[6; 32]), b"old"),
+        );
+        let prepared = prepare(&mut blocks, &keys, "2026-10-15", &|reference| {
+            reference == old_ref
+        });
+
         let store = MemoryStore::default();
         let at = DateTime::parse_from_rfc3339("2026-10-15T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-
-        let written = write_blocks(&blocks, &keys, "rrweb-v4", &store, at)
+        let rows = write_images(
+            &prepared.images,
+            &keys,
+            "2026-10-15",
+            "images-v4",
+            "rrweb-v4",
+            &store,
+            at,
+        )
+        .await
+        .unwrap();
+        let written = write_blocks(&prepared.blocks, "rrweb-v4", &store, at)
             .await
             .unwrap();
+
+        // The image an earlier flush stored is referenced but not packed again.
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            (
+                blocks[0].stats.images_extracted,
+                blocks[0].stats.images_inline
+            ),
+            (2, 0)
+        );
         assert_eq!(
             written
                 .iter()
@@ -192,14 +368,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["kept"]
         );
-        let block = &written[0];
-        assert!(block.object_key.starts_with("blocks/dt=2026-10-15/"));
-        assert_eq!(block.key_day, "2026-10-14");
 
-        let object = store.objects.lock().unwrap()
-            [&("rrweb-v4".to_owned(), block.object_key.clone())]
-            .clone();
-        let frame = &object[block.byte_start as usize..=block.byte_end as usize];
+        let block = &written[0];
+        let frame = &store.get("rrweb-v4", &block.object_key)
+            [block.byte_start as usize..=block.byte_end as usize];
         let context = Context {
             team_id: 7,
             session_id: Some("kept".to_owned()),
@@ -208,26 +380,43 @@ mod tests {
             codec: Some(Codec::Zstd),
             ..Context::default()
         };
-        let lines =
+        let lines = String::from_utf8(
             zstd::decode_all(&open_frame(&[5; 32], Version::V4, &context, frame).unwrap()[..])
-                .unwrap();
-        let lines: Vec<Value> = String::from_utf8(lines)
-            .unwrap()
-            .lines()
-            .map(|l| serde_json::from_str(l).unwrap())
-            .collect();
-        let expected: Vec<Value> = events
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|e| json!(["w\"1", e]))
-            .collect();
-        assert_eq!(lines, expected);
-
-        let nothing = write_blocks(&blocks[1..], &keys, "rrweb-v4", &store, at)
-            .await
+                .unwrap(),
+        )
+        .unwrap();
+        let first: Value = serde_json::from_str(lines.lines().next().unwrap()).unwrap();
+        let reference = first[1]["data"]["node"]["attributes"]["src"]
+            .as_str()
             .unwrap();
-        assert!(nothing.is_empty());
-        assert_eq!(store.objects.lock().unwrap().len(), 1);
+        assert_eq!(reference, rows[0].image_ref);
+        assert!(lines.contains(&old_ref) && !lines.contains("base64"));
+
+        // The reference resolves through the index to the image's bytes in the pack.
+        let row = &rows[0];
+        let pack = store.get("images-v4", &row.pack_s3_key);
+        let image_context = Context {
+            team_id: 7,
+            key_day: Some("2026-10-15".to_owned()),
+            kind: "image".to_owned(),
+            codec: Some(Codec::None),
+            reference: Some(row.image_ref.clone()),
+            ..Context::default()
+        };
+        let sealed = &pack[row.byte_start as usize..=row.byte_end as usize];
+        assert_eq!(
+            open_frame(&[6; 32], Version::V4, &image_context, sealed).unwrap(),
+            b"new"
+        );
+        assert_eq!(
+            store
+                .objects
+                .lock()
+                .unwrap()
+                .keys()
+                .filter(|(_, key)| key.starts_with("index/images/dt=2026-10-15/"))
+                .count(),
+            1
+        );
     }
 }

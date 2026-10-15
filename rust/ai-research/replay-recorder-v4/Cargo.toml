@@ -30,6 +30,7 @@ axum = { workspace = true }
 chrono = { workspace = true }
 envconfig = { workspace = true }
 metrics = { workspace = true }
+moka = { workspace = true }
 parquet = "58"
 rand = { workspace = true }
 rdkafka = { workspace = true }
@@ -41,6 +42,7 @@ tracing-subscriber = { workspace = true }
 zstd = { workspace = true }
 
 [dev-dependencies]
+base64 = { workspace = true }
 bytes = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }

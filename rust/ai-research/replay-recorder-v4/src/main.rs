@@ -129,6 +129,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             keys: KeyStore::new(table, kms),
             store: Arc::new(S3Store::new(aws_sdk_s3::Client::new(&aws))),
             rrweb_bucket: config.rrweb_bucket.clone(),
+            images_bucket: config.images_bucket.clone(),
+            // A key day spans a day, so a reference stored on it stays good for the whole day.
+            stored_images: moka::sync::Cache::builder()
+                .max_capacity(500_000)
+                .time_to_live(Duration::from_secs(26 * 3600))
+                .build(),
         })
     } else {
         tracing::info!("writes are off: the recorder stores nothing");
