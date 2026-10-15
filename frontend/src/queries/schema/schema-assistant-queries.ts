@@ -2031,8 +2031,8 @@ export interface AssistantDataVisualizationNode {
     tableSettings?: AssistantDataVisualizationTableSettings
 }
 
-// `MCPInsightSerializer.validate_query` wraps these two shapes server-side before it saves the
-// insight, so a query straight out of a `query-*` tool can be passed through unchanged. Both carry
+// `MCPInsightSerializer.validate_query` wraps these shapes server-side before it saves the
+// insight, so a query straight out of a `query-*` tool can be passed through unchanged. Each carries
 // an index signature because zod strips every key the schema does not declare, which would send
 // `{ kind }` alone to the endpoint and save an empty insight.
 export interface AssistantBareInsightQuery {
@@ -2044,6 +2044,14 @@ export interface AssistantBareHogQLQuery {
     kind: NodeKind.HogQLQuery
     /** The HogQL query to run. */
     query: string
+    [key: string]: unknown
+}
+
+// A metrics insight saves its query bare, not inside an `InsightVizNode`. The backend validates the body.
+export type AssistantMetricsNodeKind = NodeKind.MetricsQuery | NodeKind.MetricsHistogramQuery
+
+export interface AssistantBareMetricsQuery {
+    kind: AssistantMetricsNodeKind
     [key: string]: unknown
 }
 
@@ -2069,4 +2077,5 @@ export type InsightQuery =
     | AssistantDataVisualizationNode
     | AssistantBareInsightQuery
     | AssistantBareHogQLQuery
+    | AssistantBareMetricsQuery
     | AssistantEventsQuery
