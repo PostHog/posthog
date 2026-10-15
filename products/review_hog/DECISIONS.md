@@ -198,6 +198,49 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-15 — push gate: small-change deferral (shadow)
+
+- **What.** A new push gate rule, `small_change`, sits after `docs_only` and before `system_one_below_threshold`. It
+  matches a push that changes 1 to `SMALL_CHANGE_MAX_NET_CODE_LINES` (10) code lines net: the additions plus deletions
+  of the GitHub compare between the last reviewed head and the push head, over files `_NON_CODE_FILE` does not match.
+  A capped file list or a file without counts makes the net lines unknown, and the rule does not match. A per-PR
+  counter in Redis allows `SMALL_CHANGE_MAX_DEFERRALS` (2) deferrals in a row: the next small push runs the review and
+  sets the counter to 0, and so does any push the rule does not match. Without Redis the rule does not match. A retried
+  turn at the same head reuses the count of its first attempt. `SKIP_SMALL_CHANGE = False`, so the rule only logs:
+  every decision carries `net_code_lines` and `small_change_deferrals` on `reviewhog_push_gate_decided`.
+- **Why.** Since Oct 14 14:33 UTC, 71% of automatic follow-up runs surfaced nothing. The chance that a run surfaces
+  something grows with the net code lines of the push, and small pushes rarely surface anything.
+- **Evidence.**
+  - Surfacing rate by net code lines of the push (run 3+, 367 runs; run 2 under the changed-code rule looks the
+    same):
+
+    | Net code lines               | 0   | 1-10 | 11-30 | 31-100 | 101-300 | >300 |
+    | ---------------------------- | --- | ---- | ----- | ------ | ------- | ---- |
+    | Runs that surfaced something | 6%  | 3%   | 12%   | 23%    | 35%     | 56%  |
+
+  - An offline replay of 527 follow-ups on 243 PRs (review-eval `experiments/2026-10-15-gate-surfacing`): deferring at
+    10 net lines with two deferrals in a row at most saves about 16% of follow-up spend (9% of all Standard spend). It
+    withholds 7 of 167 surfaced findings at the deferred push (3 of them on docs-only pushes) and 0 of 40 must-fix
+    labels (95% upper bound 10%).
+  - A 30-line threshold saves 25% but withholds 3 must-fix labels.
+  - A fitted probability model did not beat the size buckets (Brier 0.145 vs 0.148). A cost-per-probability term
+    changed 7 of 125 deferrals.
+  - `own_code_lines` counts churn: a rebase counts every commit again, which made large pushes look small-yield in an
+    earlier read. The rule uses net lines for that reason.
+
+- **Not chosen.**
+  - A 30-line threshold: it withholds must-fix findings.
+  - A probability model: no better than the size buckets.
+  - A per-repo cost term: it changes few deferrals.
+  - System One: its below-threshold pushes carried must-fix labels at the same rate as the rest.
+- **Before it goes live.**
+  - A few days of shadow decisions. In shadow mode the review still runs and moves the baseline, so net lines are per
+    push, not added up over deferred pushes as in live mode.
+  - The final-push gap: in the replay 62 of 243 PRs ended on a deferred push, 33 of them merged. That needs a review
+    started when stamphog asks for evidence on a deferred head, and a visible "latest push not reviewed yet" state on
+    the PR.
+  - One baseline for the gate and the posting filter.
+
 ### ✅ BUILT 2026-10-15 — automatic Standard follow-ups post only changed-code findings from run 2 on
 
 - **What.** `FLASH_WHOLE_PR_TURNS` goes from 2 to 1. Run 1 still reviews the whole pull request with the doubled

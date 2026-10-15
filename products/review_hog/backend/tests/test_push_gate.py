@@ -7,9 +7,10 @@ import time_machine
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from redis.exceptions import RedisError
 
 from posthog.llm.system_one import NoulAnswer, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
-from posthog.redis import TEST_clear_clients
+from posthog.redis import TEST_clear_clients, get_client
 from posthog.token_bucket import BucketUnavailable, TEST_reset_scripts
 
 from products.review_hog.backend.reviewer.push_gate import (
@@ -58,6 +59,14 @@ def _own_commit(sha: str) -> dict[str, Any]:
     return _commit(sha, author=_REVIEWHOG_BOT, committer=_REVIEWHOG_BOT, verified=True)
 
 
+def _net_file(filename: str, lines: int) -> dict[str, Any]:
+    return {"filename": filename, "additions": lines, "deletions": 0}
+
+
+# Large enough that the small-change rule leaves the push to the rules after it.
+_LARGE_NET_FILES = [_net_file("posthog/billing.py", 40)]
+
+
 def _pr(commits: list[dict[str, Any]], files: list[dict[str, Any]]) -> dict[str, Any]:
     return {"total_commits": len(commits), "commits": commits, "files": files}
 
@@ -67,10 +76,13 @@ def _push(
     new_commits: list[dict[str, Any]],
     pr_files: list[dict[str, Any]],
     own_commit_files: list[dict[str, Any]] | None = None,
+    net_files: list[dict[str, Any]] | None = None,
+    head: str = "new",
 ) -> dict[str, dict[str, Any] | None]:
     return {
         "compare/master...old": _pr([_commit("a")], [_file("posthog/billing.py", _BILLING)]),
-        "compare/master...new": _pr(new_commits, pr_files),
+        f"compare/master...{head}": _pr(new_commits, pr_files),
+        f"compare/old...{head}": {"files": _LARGE_NET_FILES if net_files is None else net_files},
         "commits/c": {"files": own_commit_files or []},
     }
 
@@ -92,6 +104,7 @@ def _decide(
     draft: bool = False,
     follow_up: int | None = None,
     pr_lines: int | None = None,
+    head: str = "new",
 ) -> PushGateDecision:
     with (
         patch(f"{_MODULE}.github_api_request", side_effect=_github(responses)),
@@ -99,7 +112,7 @@ def _decide(
         patch(f"{_MODULE}.posthog_app_login", return_value="reviewhog[bot]"),
     ):
         decision = PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9").decide(
-            previous_head_sha="old", head_sha="new", base_branch="master"
+            previous_head_sha="old", head_sha=head, base_branch="master", pr_number=1
         )
     if draft:
         return apply_draft_rule(decision, draft=True)
@@ -347,10 +360,13 @@ def test_push_gate_skips_a_draft_push_and_keeps_the_system_one_answer(
     ) == expected
 
 
-@pytest.fixture
+# Autouse because every gate decision on a code push reads and writes the small-change counter.
+@pytest.fixture(autouse=True)
 def empty_redis() -> Iterator[None]:
     TEST_clear_clients()
     TEST_reset_scripts()
+    # The fake Redis server outlives its clients, so a counter from an earlier test would stay.
+    get_client().flushdb()
     yield
     TEST_clear_clients()
     TEST_reset_scripts()
@@ -452,3 +468,97 @@ def test_push_gate_records_a_likely_next_push_without_skipping(
     with patch(f"{_MODULE}.NEXT_PUSH_SKIP_AT", 0.842):
         decision = _decide(responses, _system_one(system_one_probability), follow_up=follow_up, pr_lines=pr_lines)
     assert (decision.skip, decision.would_skip, decision.reason, decision.next_push_probability) == expected
+
+
+def _small_push(head: str, net_files: list[dict[str, Any]]) -> dict[str, dict[str, Any] | None]:
+    return _push(
+        new_commits=[_commit("a"), _commit("c")],
+        pr_files=[_file("posthog/billing.py", _BILLING_FIX)],
+        own_commit_files=[_file("posthog/billing.py", _BILLING_FIX)],
+        net_files=net_files,
+        head=head,
+    )
+
+
+@parameterized.expand(
+    [
+        (
+            "small_push_shadow",
+            _small_push("new", [_net_file("posthog/billing.py", 4), _net_file("README.md", 50)]),
+            (False, True, "small_change", 4, 1),
+        ),
+        (
+            "eleven_lines_runs",
+            _small_push("new", [_net_file("posthog/billing.py", 11)]),
+            (False, False, "system_one_above_threshold", 11, 0),
+        ),
+        (
+            "capped_compare_is_unknown",
+            _small_push("new", [_net_file(f"posthog/module_{n}.py", 1) for n in range(300)]),
+            (False, False, "system_one_above_threshold", None, 0),
+        ),
+        (
+            "missing_count_is_unknown",
+            _small_push("new", [{"filename": "posthog/billing.py"}]),
+            (False, False, "system_one_above_threshold", None, 0),
+        ),
+        (
+            "no_code_lines_stays_docs_only",
+            {**_DOCS_PUSH, "compare/old...new": {"files": [_net_file("posthog/billing.py", 3)]}},
+            (False, True, "docs_only", None, None),
+        ),
+    ]
+)
+def test_push_gate_defers_a_push_with_few_net_code_lines(
+    _name: str,
+    responses: dict[str, dict[str, Any] | None],
+    expected: tuple[bool, bool, str, int | None, int | None],
+) -> None:
+    decision = _decide(responses, _system_one(0.8))
+    assert (
+        decision.skip,
+        decision.would_skip,
+        decision.reason,
+        decision.net_code_lines,
+        decision.small_change_deferrals,
+    ) == expected
+
+
+def test_push_gate_reviews_the_small_push_after_two_deferrals() -> None:
+    small = [_net_file("posthog/billing.py", 3)]
+    pushes = [
+        ("n1", small),
+        ("n2", small),
+        # A retried turn gets its first attempt's count and does not defer again.
+        ("n2", small),
+        ("n3", small),
+        ("n4", small),
+        ("n5", [_net_file("posthog/billing.py", 30)]),
+        ("n6", small),
+    ]
+    outcomes = []
+    for head, net_files in pushes:
+        decision = _decide(_small_push(head, net_files), _system_one(0.8), head=head)
+        outcomes.append((decision.reason, decision.small_change_deferrals))
+
+    assert outcomes == [
+        ("small_change", 1),
+        ("small_change", 2),
+        ("small_change", 2),
+        ("system_one_above_threshold", 0),
+        ("small_change", 1),
+        ("system_one_above_threshold", 0),
+        ("small_change", 1),
+    ]
+
+
+def test_push_gate_reviews_a_small_push_when_redis_is_down() -> None:
+    redis = MagicMock()
+    redis.get.side_effect = RedisError("down")
+    with patch(f"{_MODULE}.get_client", return_value=redis):
+        decision = _decide(_small_push("new", [_net_file("posthog/billing.py", 3)]), _system_one(0.8))
+    assert (decision.reason, decision.net_code_lines, decision.small_change_deferrals) == (
+        "system_one_above_threshold",
+        3,
+        None,
+    )

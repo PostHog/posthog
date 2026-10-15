@@ -12,15 +12,19 @@ The rules, in order. The first rule that matches gives the reason:
 3. `merge_only`: the PR's full diff against its base is the same at both heads (a base merge or a
    rebase). A merge that changes the PR's own lines runs the review.
 4. `docs_only`: the new own commits touch only docs, lockfiles, snapshots, images, and generated files.
-5. `system_one_below_threshold`: System One rates the new own commits below a threshold.
-6. `draft`: the PR is a draft and no rule above skips the push. A draft cannot merge, and marking it
+5. `small_change`: the push changes at most `SMALL_CHANGE_MAX_NET_CODE_LINES` code lines net, read from
+   the compare of the last reviewed head and the push head. A rebase counts every commit again in
+   `own_code_lines`, but not in the net count. After `SMALL_CHANGE_MAX_DEFERRALS` deferrals in a row the
+   next small push runs the review, so small pushes cannot pile up without a review.
+6. `system_one_below_threshold`: System One rates the new own commits below a threshold.
+7. `draft`: the PR is a draft and no rule above skips the push. A draft cannot merge, and marking it
    ready starts a turn that reviews everything since the last reviewed head. The rules above still run,
    so a draft decision keeps the System One answer and the push size for calibration.
-7. `next_push_likely`: on a PR that is not a draft, when no rule above matched, another automatic
+8. `next_push_likely`: on a PR that is not a draft, when no rule above matched, another automatic
    follow-up is likely to come. Skipped changes add up and the next review covers them. The chance
    comes from a table fitted offline on the follow-up number and the PR size. Every decision on a
    PR that is not a draft records the chance, also when another rule decided.
-8. `throttled`: the PR spent its review budget. Each PR has a token bucket (Turner 1986) that holds
+9. `throttled`: the PR spent its review budget. Each PR has a token bucket (Turner 1986) that holds
    `PUSH_BUDGET.burst` reviews and gets one back every `3600 / PUSH_BUDGET.per_hour` seconds. A push
    that every rule above lets through takes a token, and a push that finds the bucket empty waits:
    the next turn that runs reviews everything since the last reviewed head. This caps bursts of
@@ -60,6 +64,7 @@ SKIP_NO_NEW_COMMITS = True
 SKIP_REVIEWHOG_COMMITS_ONLY = True
 SKIP_MERGE_ONLY = True
 SKIP_DOCS_ONLY = False
+SKIP_SMALL_CHANGE = False
 SKIP_SYSTEM_ONE = False
 SKIP_DRAFT = True
 # Before this goes on, `next_push_likely` must defer only once per reviewed head. A skip does not
@@ -68,6 +73,11 @@ SKIP_NEXT_PUSH = False
 SKIP_THROTTLED = True
 
 NEXT_PUSH_SKIP_AT = 0.85
+# Picked by the replay in `review-eval/experiments/2026-10-15-gate-surfacing`.
+SMALL_CHANGE_MAX_NET_CODE_LINES = 10
+SMALL_CHANGE_MAX_DEFERRALS = 2
+# Long enough to span a PR's quiet days, short enough that an abandoned PR's counter goes away.
+_SMALL_CHANGE_DEFERRALS_TTL_SECONDS = 3 * 24 * 3600
 # Picked by the replay in `review-eval/experiments/2026-10-14-review-throttle`.
 PUSH_BUDGET = Budget(burst=2, per_hour=2)
 # Longer than a turn and its retry take, so a retried turn finds that its head paid already.
@@ -172,6 +182,7 @@ SkipReason = Literal[
     "reviewhog_commits_only",
     "merge_only",
     "docs_only",
+    "small_change",
     "system_one_below_threshold",
     "draft",
     "next_push_likely",
@@ -199,6 +210,10 @@ class PushGateDecision:
     # Lines the new own commits change in code files, summed per commit. Set only when the gate read every file.
     own_code_lines: int | None = None
     next_push_probability: float | None = None
+    # Lines the push changes in code files between the last reviewed head and this head.
+    net_code_lines: int | None = None
+    # Small-change deferrals in a row after this decision. None when the gate did not read the counter.
+    small_change_deferrals: int | None = None
 
 
 @frozen
@@ -240,6 +255,8 @@ def _rule_enabled(reason: SkipReason) -> bool:
         return SKIP_MERGE_ONLY
     if reason == "docs_only":
         return SKIP_DOCS_ONLY
+    if reason == "small_change":
+        return SKIP_SMALL_CHANGE
     if reason == "draft":
         return SKIP_DRAFT
     if reason == "next_push_likely":
@@ -278,6 +295,8 @@ def _matched(
     probability: float | None = None,
     model: str | None = None,
     own_code_lines: int | None = None,
+    net_code_lines: int | None = None,
+    small_change_deferrals: int | None = None,
 ) -> PushGateDecision:
     return PushGateDecision(
         skip=_rule_enabled(reason),
@@ -287,6 +306,8 @@ def _matched(
         model=model,
         own_commits=own_commits,
         own_code_lines=own_code_lines,
+        net_code_lines=net_code_lines,
+        small_change_deferrals=small_change_deferrals,
     )
 
 
@@ -400,6 +421,52 @@ class PushGate:
             files.extend(commit_files)
         return _CommitFiles(files=files, complete=complete)
 
+    def _net_code_lines(self, previous_head_sha: str, head_sha: str) -> int | None:
+        """Code lines the push changes between the two heads, or None when GitHub does not give every count."""
+        comparison = self._get(
+            f"/compare/{previous_head_sha}...{head_sha}",
+            endpoint="/compare/{basehead}",
+            params={"per_page": _COMPARE_COMMITS_PER_PAGE},
+        )
+        if comparison is None:
+            return None
+        files: list[dict[str, Any]] = comparison.get("files") or []
+        if len(files) >= GITHUB_COMPARE_FILES_CAP:
+            return None
+        lines = 0
+        for file in files:
+            if _NON_CODE_FILE.search(file["filename"]):
+                continue
+            additions = file.get("additions")
+            deletions = file.get("deletions")
+            if additions is None or deletions is None:
+                return None
+            lines += additions + deletions
+        return lines
+
+    def _small_change_deferrals(self, *, pr_number: int, head_sha: str, small: bool) -> int | None:
+        """The small-change deferrals in a row after this push, or None when Redis is unavailable.
+
+        A small push below the limit adds one. Any other push sets the count to 0, which also makes the
+        push after `SMALL_CHANGE_MAX_DEFERRALS` deferrals run the review. A retried turn at the same head
+        gets the count of its first attempt, so a retry does not count the push again.
+        """
+        key = f"reviewhog_small_change_deferrals:{self.repository}:{pr_number}"
+        client = get_client()
+        try:
+            stored = client.get(key)
+            stored_head, stored_count = stored.decode().split(":") if stored else ("", "0")
+            if stored_head == head_sha:
+                return int(stored_count)
+            if small and int(stored_count) < SMALL_CHANGE_MAX_DEFERRALS:
+                count = int(stored_count) + 1
+            else:
+                count = 0
+            client.set(key, f"{head_sha}:{count}", ex=_SMALL_CHANGE_DEFERRALS_TTL_SECONDS)
+        except RedisError:
+            return None
+        return count
+
     def _ask_system_one(self, code_files: list[_ChangedFile], own_commits: int, lines_known: bool) -> PushGateDecision:
         lines = sum(file.changes for file in code_files) if lines_known else None
         if any(file.patch is None for file in code_files):
@@ -437,10 +504,10 @@ class PushGate:
             own_code_lines=lines,
         )
 
-    def decide(self, *, previous_head_sha: str, head_sha: str, base_branch: str) -> PushGateDecision:
+    def decide(self, *, previous_head_sha: str, head_sha: str, base_branch: str, pr_number: int) -> PushGateDecision:
         """Judge the push from `previous_head_sha`, the last automatically reviewed head, to `head_sha`.
 
-        Rules 1 to 5 only: `apply_draft_rule` adds rule 6 on top of the result.
+        Rules 1 to 6 only: `apply_draft_rule` adds rule 7 on top of the result.
         """
         previous = self._pr_diff(base_branch, previous_head_sha)
         current = self._pr_diff(base_branch, head_sha)
@@ -471,11 +538,26 @@ class PushGate:
         code_files = [file for file in own_files.files if not _NON_CODE_FILE.search(file.filename)]
         if not code_files:
             return _matched("docs_only", own_commits=len(own_shas), own_code_lines=0 if own_files.complete else None)
-        return self._ask_system_one(code_files, own_commits=len(own_shas), lines_known=own_files.complete)
+        net_code_lines = self._net_code_lines(previous_head_sha, head_sha)
+        small = net_code_lines is not None and 1 <= net_code_lines <= SMALL_CHANGE_MAX_NET_CODE_LINES
+        # The count moves in shadow mode too, so the logged would_skip sequence follows what live mode would
+        # do. In shadow mode the review still runs and moves the baseline, so net lines count from the
+        # previous push and do not add up over the deferred pushes as they would in live mode.
+        deferrals = self._small_change_deferrals(pr_number=pr_number, head_sha=head_sha, small=small)
+        if small and deferrals is not None and deferrals > 0:
+            return _matched(
+                "small_change",
+                own_commits=len(own_shas),
+                own_code_lines=sum(file.changes for file in code_files) if own_files.complete else None,
+                net_code_lines=net_code_lines,
+                small_change_deferrals=deferrals,
+            )
+        decision = self._ask_system_one(code_files, own_commits=len(own_shas), lines_known=own_files.complete)
+        return replace(decision, net_code_lines=net_code_lines, small_change_deferrals=deferrals)
 
 
 def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDecision:
-    """Rule 6, on top of `PushGate.decide`. A caller that finds the PR ready after all uses the decision it got."""
+    """Rule 7, on top of `PushGate.decide`. A caller that finds the PR ready after all uses the decision it got."""
     if not draft or decision.skip:
         return decision
     return _matched(
@@ -484,13 +566,15 @@ def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDeci
         probability=decision.probability,
         model=decision.model,
         own_code_lines=decision.own_code_lines,
+        net_code_lines=decision.net_code_lines,
+        small_change_deferrals=decision.small_change_deferrals,
     )
 
 
 def apply_next_push_rule(
     decision: PushGateDecision, *, follow_up: int | None, pr_lines: int | None
 ) -> PushGateDecision:
-    """Rule 7, only for a PR that is not a draft. It records the chance also when another rule decided.
+    """Rule 8, only for a PR that is not a draft. It records the chance also when another rule decided.
 
     `follow_up` is the number of this automatic follow-up (1-based) and `pr_lines` is the PR's
     additions plus deletions. Both are None when they are unknown.
@@ -505,12 +589,14 @@ def apply_next_push_rule(
             probability=decision.probability,
             model=decision.model,
             own_code_lines=decision.own_code_lines,
+            net_code_lines=decision.net_code_lines,
+            small_change_deferrals=decision.small_change_deferrals,
         )
     return replace(decision, next_push_probability=probability)
 
 
 def apply_throttle(decision: PushGateDecision, *, report_id: str, head_sha: str) -> PushGateDecision:
-    """Rule 8, last: a push that the rules before it skip takes no token. Without Redis the push runs.
+    """Rule 9, last: a push that the rules before it skip takes no token. Without Redis the push runs.
 
     A head pays once. A failed turn runs again as a new activity or a new child workflow, and a
     retry that charged again could find the bucket empty and drop a review that passed the budget.

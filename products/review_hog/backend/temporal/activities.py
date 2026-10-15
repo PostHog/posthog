@@ -2316,6 +2316,8 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision, d
             "system_one_skip_below": SYSTEM_ONE_SKIP_BELOW,
             "own_commits": decision.own_commits,
             "own_code_lines": decision.own_code_lines,
+            "net_code_lines": decision.net_code_lines,
+            "small_change_deferrals": decision.small_change_deferrals,
             "pr_draft": draft,
             "next_push_probability": decision.next_push_probability,
         },
@@ -2353,6 +2355,7 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
             previous_head_sha=input.previous_head_sha,
             head_sha=input.head_sha,
             base_branch=current.pr_metadata.base_branch,
+            pr_number=current.pr_metadata.number,
         )
         decision = apply_draft_rule(push_decision, draft=bool(draft))
         # Every turn fetches the PR before the gate and the snapshot load is latest-wins, so a PR marked
