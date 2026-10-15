@@ -420,9 +420,10 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(results[0].invocation.person).toMatchObject({
                 id: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
                 properties: {},
+                name: '',
             })
             const refreshed = await results[0].invocation.refreshPerson!()
-            expect(refreshed.person?.properties).toEqual({})
+            expect(refreshed.person).toMatchObject({ properties: {}, name: '' })
         })
 
         it('should make minimal calls to the person manager', async () => {

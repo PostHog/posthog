@@ -25,12 +25,13 @@ type LoadHogFlowsResult = {
 }
 
 // A transactional email's caller holds only a send key, which grants no access to person data, so its
-// template never sees person properties. The person stays attached so the send is recorded against them.
+// template never sees person properties, or the display name derived from them. The person stays attached
+// so the send is recorded against them.
 function personForFlow(
     hogFlow: HogFlow,
     person: CyclotronPerson | null | undefined
 ): CyclotronPerson | null | undefined {
-    return person && hogFlow.trigger?.type === 'api' ? { ...person, properties: {} } : person
+    return person && hogFlow.trigger?.type === 'api' ? { ...person, properties: {}, name: '' } : person
 }
 
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {

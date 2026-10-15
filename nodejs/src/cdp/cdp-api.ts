@@ -58,6 +58,7 @@ import { EMAIL_QUEUE_PRIORITY } from './services/messaging/email-priority'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
+import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import {
     HogWatcherService,
     HogWatcherState,
@@ -162,6 +163,7 @@ export class CdpApi {
     private cancelBatchJwt: ScopedServiceJwt
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
+    private hogFunctionMonitoringService: HogFunctionMonitoringService
 
     constructor(
         private config: PluginsServerConfig,
@@ -192,6 +194,7 @@ export class CdpApi {
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues)
+        this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
@@ -1156,6 +1159,19 @@ export class CdpApi {
                 throw error
             }
             await this.invocationResultsService.invocationResultsRowsService.flush()
+            // The run skips the trigger pipeline that counts runs for event-triggered workflows.
+            this.hogFunctionMonitoringService.queueAppMetric(
+                {
+                    team_id: team.id,
+                    app_source_id: hogFlow.id,
+                    metric_kind: 'other',
+                    metric_name: 'triggered',
+                    count: 1,
+                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
+                },
+                'hog_flow'
+            )
+            await this.hogFunctionMonitoringService.flush()
 
             return res.status(202).json({ status: 'queued', invocation_id: invocation.id })
         } catch (e) {

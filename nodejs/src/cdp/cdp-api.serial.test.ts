@@ -2083,6 +2083,8 @@ describe('CDP API', () => {
         })
 
         it('queues one run on the email fast lane with the recipient and the data', async () => {
+            const queueAppMetric = jest.spyOn(api['hogFunctionMonitoringService'], 'queueAppMetric')
+
             const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
 
             expect(res.status).toEqual(202)
@@ -2099,6 +2101,11 @@ describe('CDP API', () => {
                     variables: { reset_link: 'https://example.com/reset' },
                 },
             })
+            // The run counts as started in the workflow's metrics, like an event-triggered run.
+            expect(queueAppMetric).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_id: hogFlow.id, metric_name: 'triggered', count: 1 }),
+                'hog_flow'
+            )
         })
 
         it('refuses a send when the team is over its email quota', async () => {
