@@ -1,3 +1,4 @@
+import { TASK_LIST_MAX_PAGE_SIZE } from "@posthog/api-client/posthog-client";
 import {
   buildChannelItems,
   type ChannelItemModel,
@@ -13,7 +14,6 @@ import { useAllCanvases } from "@posthog/ui/features/canvas/hooks/useDashboards"
 import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import {
-  TASK_LIST_MAX_PAGE_SIZE,
   usePinnedTaskRecords,
   useTasks,
 } from "@posthog/ui/features/tasks/useTasks";
