@@ -338,6 +338,9 @@ export interface supportTicketSceneLogicActions {
     incrementUnreadCustomerCount: () => {
         value: true
     }
+    loadCustomerTyping: () => {
+        value: true
+    }
     loadFullEmail: (messageId: string) => string
     loadFullEmailFailure: (
         error: string,
@@ -352,9 +355,6 @@ export interface supportTicketSceneLogicActions {
     ) => {
         fullEmailContent: string
         payload?: string
-    }
-    loadCustomerTyping: () => {
-        value: true
     }
     loadLinkedReports: () => {
         value: true

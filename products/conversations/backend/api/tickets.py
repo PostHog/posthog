@@ -1924,7 +1924,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     def typing_status(self, request, *args, **kwargs):
         """Return whether the customer is typing in the widget right now."""
         ticket = self.get_object()
-        return Response({"customer_typing": is_typing(self.team_id, str(ticket.id), "customer")})
+        return Response(
+            TicketTypingResponseSerializer(
+                {"customer_typing": is_typing(self.team_id, str(ticket.id), "customer")}
+            ).data
+        )
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],
@@ -1937,7 +1941,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         ticket = self.get_object()
         ticket_id = str(ticket.id)
         mark_typing(self.team_id, ticket_id, "agent")
-        return Response({"customer_typing": is_typing(self.team_id, ticket_id, "customer")})
+        return Response(
+            TicketTypingResponseSerializer({"customer_typing": is_typing(self.team_id, ticket_id, "customer")}).data
+        )
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],

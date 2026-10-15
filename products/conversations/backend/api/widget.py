@@ -553,7 +553,8 @@ class WidgetMessagesView(APIView):
             cached = get_cached_messages(team.id, ticket_id, after_str)
             if cached is not None:
                 # The typing flag changes faster than the cache TTL, so it is never cached.
-                return Response({**cached, "agent_typing": is_typing(team.id, ticket_id, "agent")})
+                cached["agent_typing"] = is_typing(team.id, ticket_id, "agent")
+                return Response(cached)
 
         # Build query - prefetch created_by to avoid N+1 queries
         messages_query = Comment.objects.filter(
@@ -617,7 +618,8 @@ class WidgetMessagesView(APIView):
         if use_cache:
             set_cached_messages(team.id, ticket_id, response_data, after_str)
 
-        return Response({**response_data, "agent_typing": is_typing(team.id, ticket_id, "agent")})
+        response_data["agent_typing"] = is_typing(team.id, ticket_id, "agent")
+        return Response(response_data)
 
 
 class WidgetTicketsView(APIView):
