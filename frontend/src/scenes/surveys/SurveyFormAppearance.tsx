@@ -33,7 +33,7 @@ export function SurveyFormAppearance({
     }
 
     return survey.type !== SurveyType.API ? (
-        <div className="flex flex-col h-full gap-2 items-start flex-1 xl:pl-8 pt-8 xl:pt-0">
+        <div className="flex flex-col h-full gap-2 items-start flex-1 @min-[60rem]/main-content:pl-8">
             <SurveyAppearancePreview
                 survey={survey as Survey}
                 previewPageIndex={effectivePageIndex}
