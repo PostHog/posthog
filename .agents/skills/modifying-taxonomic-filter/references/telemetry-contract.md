@@ -54,7 +54,7 @@ All carry `surface` on both surfaces, except `include stale toggled`, which carr
   Legacy sends it only from a remote list on the active tab.
   Suggested is a local list, so its empty state sends nothing.
   Add coverage there before you measure a change to the Suggested empty state.
-- `taxonomic filter fetch failed`: `groupType`, `searchQuery`.
+- `taxonomic filter fetch failed`: `groupType`, `searchQuery`, and on legacy `forbidden` (true when the request was refused with a 403).
   Each surface sends it once per group or scope and query while the request keeps failing.
   Legacy has also sent it on first-load failures since 2026-09-13, so legacy rates from before then are not comparable.
   The rebuild sends no `groupType` on its `all`, `recent` and `pinned` scopes.
@@ -68,6 +68,9 @@ All carry `surface` on both surfaces, except `include stale toggled`, which carr
 - `taxonomic filter search intent predicted`: `query`, `activeTab`, `predictedGroupType`, `confidence`, `isConfident`, `suggestsSwitch`, `wouldPromote`, `promptVersion`, `source`, `variant`, `inTime`, `shown`.
   The banner funnel in [refreshing-product-reality](refreshing-product-reality.md) reads `variant` and `shown`.
 - `taxonomic filter search intent switched`: `fromGroupType`, `toGroupType`.
+- `taxonomic filter event match eligible`: `tab`, `variant`.
+  Sent once per project and query when the search qualifies for event match. The experiment's exposure reads it.
+- `taxonomic filter event match hint shown`: `tab`, `hint`, and `unsentEvents` when `hint` is `unsent`.
 - `taxonomic filter event match suggested`: `suggestedEvents`, `tab`.
 - `taxonomic filter event match selected`: `eventName`, `position`, `tab`.
 
