@@ -219,7 +219,7 @@ export class RequestStateResolver {
             _apiKey?.scopes?.includes('internal_run:read') ||
             props.taskId ||
             props.taskOriginProduct ||
-            source === EVENT_SOURCE.SELF_DRIVING
+            source !== EVENT_SOURCE.MCP
         ) {
             mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG] = false
         }

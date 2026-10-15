@@ -141,18 +141,18 @@ stored profile. Empty values explicitly replace any stored value for that proper
 | `mcp_source`                                   | Select a surface using the existing source classifier, including `mcp` and `posthog_ai`. |
 | `mcp_task_origin`, `mcp_has_task`              | Identify task-bound requests.                                                            |
 
-Start with a positive client allowlist, such as `mcp_client_name = claude-code` and
-`mcp_source = mcp`, then add users or a percentage rollout to the same condition group.
-Use `mcp_vendor_client` when a provider pools clients under one name. These are person-property
-conditions supplied as request overrides, not event-property filters or a last-used-client cohort.
-Keep every condition group constrained to the desired clients; alternative groups are OR conditions.
+No client-name or task conditions are required in the flag. The server requires native URL
+elicitation support and enforces its surface and task exclusions independently of the flag.
+Use the flag for rollout and any additional audience filters. Optional property conditions use
+request overrides, not event-property filters or a last-used-client cohort. Alternative condition
+groups are OR conditions.
 
-Task-bound requests, credentials with `internal_run:read`, and recognized self-driving OAuth
-applications always skip recruitment, even when the flag is enabled. This also excludes sandboxed
-PostHog AI runs. Other PostHog AI connections can be excluded with `mcp_source` and the OAuth app
-properties. Client names and consumer headers are self-reported; they do not prove a human is present.
-A third-party unattended agent using the same identity and capabilities as an interactive client cannot
-be distinguished by this feature. Unknown clients should remain outside the flag's allowlist.
+Only requests classified as `mcp` can recruit. Other surfaces, including PostHog AI and recognized
+self-driving OAuth applications, always skip recruitment. Task-bound requests and credentials with
+`internal_run:read` also skip recruitment even if their source is `mcp` and the flag is enabled.
+Client names and consumer headers are self-reported; they do not prove a human is present.
+A third-party unattended agent using the same identity and capabilities as an interactive client
+cannot be distinguished by this feature.
 
 The invitation uses native URL elicitation on protocol revision `2026-07-28`, for clients advertising
 URL support. Legacy protocol connections and clients with only form support continue without an

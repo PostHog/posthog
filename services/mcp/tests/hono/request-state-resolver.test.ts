@@ -543,7 +543,10 @@ describe('RequestStateResolver MCP client contexts', () => {
         { taskOriginProduct: 'research' },
         { scopes: ['internal_run:read'] },
         { oauthClientId: 'jpSRPhGBBbDGpKprit9bgJEuo6oUTa8ULymqf8PE' },
-    ])('excludes automated callers even when recruitment is forced on: %j', async (input) => {
+        { oauthClientId: 'N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu' },
+        { oauthClientId: 'https://posthog.com/.well-known/oauth/webmcp/client-metadata.json' },
+        { mcpConsumer: 'posthog-cli' },
+    ])('enforces recruitment eligibility even when the flag is forced on: %j', async (input) => {
         if (input.scopes) {
             mockApiKey.scopes = input.scopes
         }
