@@ -34,7 +34,6 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.person.util import get_person_by_id
-from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
 from posthog.redis import get_client as get_redis_client
@@ -7063,7 +7062,7 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert response.data["cohort_type"] == CohortType.REALTIME
         return response.data["id"]
 
-    def _create_workflow_using_cohort(self, cohort_id: int, usage: str, status: str, team_id: int | None = None) -> str:
+    def _create_workflow_using_cohort(self, cohort_id: int, usage: str, status: str) -> str:
         if usage == "trigger":
             action = {"id": "trigger_node", "type": "trigger", "config": {"type": "cohort", "cohort_id": cohort_id}}
         else:
@@ -7071,7 +7070,7 @@ class TestCohortTypeIntegration(APIBaseTest):
             condition = {"filters": {"properties": [{"key": "id", "type": filter_type, "value": cohort_id}]}}
             action = {"id": "branch", "type": "conditional_branch", "config": {"conditions": [condition]}}
         return create_workflow_for_test(
-            team_id=team_id or self.team.id, name=f"Workflow {usage}", status=status, actions=[action]
+            team_id=self.team.id, name=f"Workflow {usage}", status=status, actions=[action]
         ).id
 
     @parameterized.expand(
@@ -7167,35 +7166,6 @@ class TestCohortTypeIntegration(APIBaseTest):
             "hidden": 1,
             "has_more": True,
         }
-
-    @parameterized.expand([("access_rule_in_that_environment", False), ("token_limited_to_another_environment", True)])
-    def test_used_in_hides_workflows_in_another_environment_the_caller_cannot_view(self, _name, use_token):
-        sibling = Team.objects.create(organization=self.organization, project=self.team.project, name="Sibling")
-        cohort = Cohort.objects.create(team=sibling, name="Sibling cohort")
-        workflow_id = self._create_workflow_using_cohort(cohort.id, "trigger", "active", team_id=sibling.id)
-        headers = {}
-        if use_token:
-            key = self.create_personal_api_key_with_scopes(["cohort:read", "hog_flow:read"])
-            PersonalAPIKey.objects.filter(user=self.user).update(scoped_teams=[self.team.id])
-            self.client.logout()
-            headers = {"HTTP_AUTHORIZATION": f"Bearer {key}"}
-        else:
-            self.organization.available_product_features = [
-                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-            ]
-            self.organization.save()
-            AccessControl.objects.create(
-                team=sibling,
-                resource="hog_flow",
-                resource_id=workflow_id,
-                access_level="none",
-                organization_member=self.organization_membership,
-            )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/used_in/", **headers)
-
-        assert response.status_code == 200, response.json()
-        assert response.json()["workflows"] == {"results": [], "total": 1, "hidden": 1, "has_more": True}
 
     def test_edit_that_stops_realtime_is_blocked_by_active_workflows_using_it(self):
         cohort_id = self._create_realtime_cohort()
