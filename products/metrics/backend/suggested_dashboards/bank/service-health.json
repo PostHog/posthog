@@ -143,6 +143,40 @@
             }
         },
         {
+            "key": "total_memory",
+            "title": "Total memory",
+            "description": "Physical memory installed on the host.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.memory.limit",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "By",
+                    "reduce": "last"
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 2,
+                "w": 2,
+                "h": 3
+            }
+        },
+        {
             "key": "memory_pressure",
             "title": "Memory pressure",
             "description": "macOS memory pressure level: 1 normal, 2 warning, 4 critical.",
@@ -183,9 +217,9 @@
                 }
             },
             "layout": {
-                "x": 6,
+                "x": 8,
                 "y": 2,
-                "w": 3,
+                "w": 2,
                 "h": 3
             }
         },
@@ -224,9 +258,9 @@
                 }
             },
             "layout": {
-                "x": 9,
+                "x": 10,
                 "y": 2,
-                "w": 3,
+                "w": 2,
                 "h": 3
             }
         },
