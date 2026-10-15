@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { buildIntegerMatcher } from '~/common/config/config'
 import { PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
 import { UUIDT } from '~/common/utils/utils'
@@ -18,6 +20,23 @@ describe('PostgresPersonMerge merge events', () => {
 
     const sourcePerson = { uuid: '01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee' } as InternalPerson
     const targetPerson = { uuid: '01928bbb-cccc-dddd-eeee-ffffffffffff' } as InternalPerson
+
+    function person(overrides: Partial<InternalPerson> = {}): InternalPerson {
+        return {
+            id: 'p1',
+            uuid: targetPerson.uuid,
+            team_id: 2,
+            properties: {},
+            created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' }),
+            version: 0,
+            is_identified: false,
+            is_user_id: null,
+            properties_last_updated_at: {},
+            properties_last_operation: {},
+            last_seen_at: null,
+            ...overrides,
+        }
+    }
 
     function buildMerge(teamId: number, mergeEvents: MergeEventsConfig): PostgresPersonMerge {
         mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
@@ -319,24 +338,14 @@ describe('PostgresPersonMerge merge events', () => {
         async ({ outcome, locked, row, writes }) => {
             const order: string[] = []
             mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
-            const target = {
-                id: 'p1',
-                uuid: targetPerson.uuid,
-                team_id: 2,
-                is_identified: false,
-            } as unknown as InternalPerson
+            const target = person()
             const source =
                 outcome === 'noop_same_person'
                     ? target
-                    : ({
-                          id: 'p0',
-                          uuid: sourcePerson.uuid,
-                          team_id: 2,
-                          is_identified: true,
-                      } as unknown as InternalPerson)
-            const committedRow = { ...target, is_identified: row, version: 1 } as InternalPerson
-            const writtenRow = { ...committedRow, is_identified: true, version: 2 } as InternalPerson
-            const cachedRow = { ...writtenRow, properties: { pending: true } } as InternalPerson
+                    : person({ id: 'p0', uuid: sourcePerson.uuid, is_identified: true })
+            const committedRow = person({ is_identified: row, version: 1 })
+            const writtenRow = person({ is_identified: true, version: 2 })
+            const cachedRow = person({ is_identified: true, version: 2, properties: { pending: true } })
             const flagMessage = { output: PERSON_DISTINCT_IDS_OUTPUT, value: Buffer.from('{"flag":true}') }
             const tx = {
                 readMergeRows: jest.fn().mockImplementation(() => {
@@ -394,12 +403,7 @@ describe('PostgresPersonMerge merge events', () => {
 
     it('a same-person identify on a row over the size limit leaves the flag to the flush', async () => {
         mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
-        const target = {
-            id: 'p1',
-            uuid: targetPerson.uuid,
-            team_id: 2,
-            is_identified: false,
-        } as unknown as InternalPerson
+        const target = person()
         const tx = {
             readMergeRows: jest.fn().mockResolvedValue([target]),
             updatePersonForMerge: jest.fn().mockRejectedValue(new MergeOutcomeOversizedError('over the limit')),
