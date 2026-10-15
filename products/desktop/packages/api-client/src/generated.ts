@@ -210,6 +210,7 @@ export namespace Schemas {
         materializationMode: MaterializationMode | null;
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
+        negatedPersonFiltersNotIn: boolean | null;
         optimizeJoinedFilters: boolean | null;
         optimizeProjections: boolean | null;
         parserMode: ParserMode | null;
@@ -4225,6 +4226,7 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         version?: (number | null) | undefined;
     };
+    export type ExecutionTarget = "default" | "managed_trino";
     export type HogQLFilters = Partial<{
         breakdownFilter: BreakdownFilter | null;
         compareFilter: CompareFilter | null;
@@ -4383,6 +4385,7 @@ export namespace Schemas {
     };
     export type HogQLQuery = {
         connectionId?: (string | null) | undefined;
+        executionTarget?: (ExecutionTarget | null) | undefined;
         explain?: (boolean | null) | undefined;
         filters?: (HogQLFilters | null) | undefined;
         kind?: string | undefined;
@@ -4435,6 +4438,7 @@ export namespace Schemas {
         tags: QueryLogTags | null;
         version: number | null;
     }>;
+    export type Alias = { label: string; value?: (string | null) | undefined };
     /**
      * * `first_touch` - First Touch
      * * `last_touch` - Last Touch
@@ -4617,6 +4621,7 @@ export namespace Schemas {
         groups: Array<BICategoryGroup>;
         kind?: string | undefined;
         other: string;
+        preserveUngrouped?: (boolean | null) | undefined;
     };
     export type BILocalFieldDefinition3 = {
         expression: string;
@@ -4650,6 +4655,7 @@ export namespace Schemas {
         datePart?: (DatePart | null) | undefined;
         expression: string;
         id: string;
+        label?: (string | null) | undefined;
         localDefinition?:
             | (
                   | BILocalFieldDefinition1
@@ -4681,6 +4687,7 @@ export namespace Schemas {
         customExpression?: (string | null) | undefined;
         enabled?: (boolean | null) | undefined;
         field: BIField;
+        label?: (string | null) | undefined;
         operator: BIFilterOperator;
         value: string;
         valueTo?: (string | null) | undefined;
@@ -4694,7 +4701,14 @@ export namespace Schemas {
         levels: Array<BIField>;
         name: string;
     };
+    export type HierarchyDrillPathItem = {
+        filterIds: Array<string>;
+        hierarchyId: string;
+        nextField: BIField;
+        previousField: BIField;
+    };
     export type BIQueryLimit = 100 | 1000 | 10000 | 50000;
+    export type MemberAliase = { aliases: Array<Alias>; field: BIField };
     export type MissingDates = "gap" | "zero";
     export type Operator2 =
         | "equals"
@@ -4709,6 +4723,7 @@ export namespace Schemas {
     export type BIResultFilter = {
         enabled?: (boolean | null) | undefined;
         id: string;
+        label?: (string | null) | undefined;
         measureIndex: number;
         operator: Operator2;
         value: string;
@@ -4777,8 +4792,10 @@ export namespace Schemas {
         dateRange?: (DateRange | null) | undefined;
         filters: Array<BIFilter>;
         hierarchies?: (Array<BIHierarchy> | null) | undefined;
+        hierarchyDrillPath?: (Array<HierarchyDrillPathItem> | null) | undefined;
         limit: BIQueryLimit;
         localFields?: (Array<BIField> | null) | undefined;
+        memberAliases?: (Array<MemberAliase> | null) | undefined;
         missingDates?: (MissingDates | null) | undefined;
         resultFilterGroup?: (BIConditionGroup | null) | undefined;
         resultFilters?: (Array<BIResultFilter> | null) | undefined;
@@ -8968,16 +8985,6 @@ export namespace Schemas {
      * * `opt_in` - Opt In
      */
     export type EmailTrackingConsentModeEnum = "off" | "opt_out" | "opt_in";
-    /**
-     * * `duckdb` - duckdb
-     * * `postgres` - postgres
-     * * `mysql` - mysql
-     * * `snowflake` - snowflake
-     * * `redshift` - redshift
-     * * `clickhouse` - clickhouse
-     * * `motherduck` - motherduck
-     * * `trino` - trino
-     */
     export type EngineEnum =
         | "duckdb"
         | "postgres"
@@ -19672,6 +19679,7 @@ export namespace Schemas {
     }>;
     /**
      * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -19699,6 +19707,7 @@ export namespace Schemas {
      */
     export type TaskOriginProductEnum =
         | "onboarding"
+        | "account_audit"
         | "error_tracking"
         | "eval_clusters"
         | "user_created"
@@ -22812,6 +22821,7 @@ export namespace Endpoints {
                 created_by: number;
                 exclude_origin_product:
                     | "onboarding"
+                    | "account_audit"
                     | "error_tracking"
                     | "eval_clusters"
                     | "user_created"

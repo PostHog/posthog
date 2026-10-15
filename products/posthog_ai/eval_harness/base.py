@@ -6,6 +6,7 @@ import uuid
 import asyncio
 import logging
 from collections.abc import Callable, Sequence
+from contextlib import suppress
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -24,13 +25,14 @@ from psycopg import OperationalError as PsycopgOperationalError
 from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
-from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext
+from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext, TurnPollTimeout
 
 from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
 from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec, SpanKind
 from .harness.kernel_sandboxes import reclaim_kernels
+from .harness.reporting import CasePhase
 from .harness.retries import infrastructure_retry_delay
 from .harness.trial_stats import trial_stats
 from .log_parser import describe_tool_use
@@ -251,16 +253,44 @@ class _BaseEvalRun:
         hooks.metadata["trial_id"] = str(uuid.uuid4())
         hooks.metadata["trial_index"] = self._trial_counts.get(case_name, 0)
         self._trial_counts[case_name] = hooks.metadata["trial_index"] + 1
+        hooks.metadata["phase_durations"] = await self.ctx.reporter.case_started(
+            self.experiment_name, case_name, hooks.metadata["trial_id"], hooks.metadata["trial_index"]
+        )
         status: Literal["ok", "timeout", "error"] = "ok"
+        error_type: str | None = None
+        cancelled = False
         try:
             return await self._execute_case(input, hooks)
-        except TimeoutError:
+        except (TimeoutError, TurnPollTimeout) as error:
             # A case that outran its budget is a task result (too slow), not an
             # infra error: score it 0 rather than letting Braintrust mark it errored.
             status = "timeout"
-            logger.warning("Eval case '%s' timed out after %ds", case_name, self.ctx.per_case_timeout_seconds)
-            return self._timeout_output()
-        except Exception:
+            output = self._timeout_output()
+            if isinstance(error, TurnPollTimeout):
+                hooks.metadata["poll_timeout"] = error.diagnostics()
+                output["stderr"] = str(error)
+            if poll_timeout := hooks.metadata.get("poll_timeout"):
+                output["poll_timeout"] = poll_timeout
+            logger.warning("Eval case '%s' timed out: %s", case_name, output.get("stderr") or output.get("error"))
+            try:
+                write_case_logs(
+                    case_dir=self.run_log_dir,
+                    case_name=case_name,
+                    raw_log="",
+                    artifacts=output,
+                    prompt=input.get("prompt", ""),
+                    duration=time.monotonic() - case_started,
+                    last_message=str(output.get("stderr") or output.get("error") or "Case timed out"),
+                    trial_id=hooks.metadata["trial_id"],
+                )
+            except Exception:
+                logger.exception("Failed to write timeout logs for '%s'", case_name)
+            return output
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+        except Exception as error:
+            error_type = type(error).__name__
             # Infra failure (provisioning, demo copy, setup hook, poll). Re-raise so
             # Braintrust records the case as errored and excludes it from score
             # averages, instead of scoring the task 0 for the harness's fault.
@@ -269,12 +299,21 @@ class _BaseEvalRun:
             raise
         finally:
             # Report on every path so the reporter's live case counter never stalls.
-            await self.ctx.reporter.case_done(
-                self.experiment_name,
-                case_name,
-                duration_seconds=time.monotonic() - case_started,
-                status=status,
-            )
+            if cancelled:
+                await self.ctx.reporter.finish_cases([hooks.metadata["trial_id"]])
+            else:
+                await self.ctx.reporter.case_done(
+                    self.experiment_name,
+                    case_name,
+                    duration_seconds=time.monotonic() - case_started,
+                    status=status,
+                    trial_id=hooks.metadata["trial_id"],
+                    error_type=error_type,
+                )
+
+    async def _set_case_phase(self, hooks: CaseHooks | None, phase: CasePhase) -> None:
+        if hooks is not None and (trial_id := hooks.metadata.get("trial_id")):
+            await self.ctx.reporter.case_phase(trial_id, phase)
 
     async def _finalize(self, result: ExperimentResult) -> None:
         """Append scores to local summaries, emit PostHog evaluation/trace-root
@@ -291,6 +330,7 @@ class _BaseEvalRun:
                         case_name,
                         dict(eval_result.scores or {}),
                         trial_id=eval_result.metadata.get("trial_id"),
+                        phase_durations=eval_result.metadata.get("phase_durations"),
                     )
                 except Exception:
                     logger.exception("Failed to append scores to local log summary for '%s'", case_name)
@@ -385,6 +425,7 @@ class _BaseEvalRun:
                     "trial_id": case_result.metadata.get("trial_id"),
                     "scores": case_result.scores,
                     "error": case_result.error,
+                    "phase_durations": case_result.metadata.get("phase_durations"),
                 }
             )
         path = Path(self.run_log_dir) / "case_results.jsonl"
@@ -395,6 +436,11 @@ class _BaseEvalRun:
         except OSError:
             logger.exception("Failed to export per-case results for '%s'", self.experiment_name)
 
+    async def _report_results(self, result: ExperimentResult) -> None:
+        for case_result in result.results:
+            if trial_id := case_result.metadata.get("trial_id"):
+                await self.ctx.reporter.case_scored(trial_id, error=case_result.error)
+
     async def run(self) -> ExperimentResult:
         eval_cases = self._build_eval_cases()
 
@@ -403,20 +449,25 @@ class _BaseEvalRun:
         planned_cases = len(eval_cases) * self.ctx.trials
         await self.ctx.reporter.experiment_started(self.experiment_name, planned_cases, self.run_log_dir)
 
-        result = await self.engine.run_experiment(
-            ExperimentSpec(
-                project_name=self._project_name(),
-                cases=eval_cases,
-                task=self._task,
-                scorers=self.active_scorers,
-                trial_count=self.ctx.trials,
-                is_public=self.is_public,
-                no_send_logs=self.no_send_logs,
-                # Experiment names stay runtime/model-agnostic so history lines up across
-                # runs; the metadata is what lets an engine filter or compare by them.
-                metadata=self._experiment_metadata(),
+        try:
+            result = await self.engine.run_experiment(
+                ExperimentSpec(
+                    project_name=self._project_name(),
+                    cases=eval_cases,
+                    task=self._task,
+                    scorers=self.active_scorers,
+                    trial_count=self.ctx.trials,
+                    is_public=self.is_public,
+                    no_send_logs=self.no_send_logs,
+                    # Experiment names stay runtime/model-agnostic so history lines up across
+                    # runs; the metadata is what lets an engine filter or compare by them.
+                    metadata=self._experiment_metadata(),
+                    on_results=self._report_results,
+                )
             )
-        )
+            await self._report_results(result)
+        finally:
+            await self.ctx.reporter.finish_experiment(self.experiment_name)
 
         await self._finalize(result)
         return result
@@ -546,7 +597,9 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 # Team cloning and some case seeders both write to ClickHouse. Bound
                 # the full setup phase separately even when Modal makes sandbox
                 # capacity effectively unbounded.
+                await self._set_case_phase(hooks, "queued")
                 async with self.ctx.team_setup_slots:
+                    await self._set_case_phase(hooks, "setup")
                     # The factory does Django ORM work. Django's async-safety
                     # guard rejects sync ORM calls from async contexts, so run it
                     # in a worker thread.
@@ -609,8 +662,23 @@ class _SandboxedEvalRun(_BaseEvalRun):
             # Start the agent budget after team setup, so neither semaphore wait
             # nor the ClickHouse copy can consume it.
             try:
+                with suppress(Exception):
+                    await self._set_case_phase(hooks, "agent")
                 result = await asyncio.wait_for(
-                    run_eval_case(eval_case, prepared.context, provider=self._provider_strategy),
+                    run_eval_case(
+                        eval_case,
+                        prepared.context,
+                        provider=self._provider_strategy,
+                        on_cleanup=partial(self._set_case_phase, hooks, "cleanup"),
+                        timeout_seconds=ctx.per_case_timeout_seconds,
+                        on_poll_timeout=(
+                            lambda error: (
+                                hooks.metadata.update({"poll_timeout": error.diagnostics()})
+                                if hooks is not None
+                                else None
+                            )
+                        ),
+                    ),
                     timeout=ctx.per_case_timeout_seconds,
                 )
             finally:
@@ -715,6 +783,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
         original_case = self.cases_by_name.get(input["name"])
         sandbox_case = original_case if isinstance(original_case, SandboxedEvalCase) else None
         result, seed_result = await self._run_sandbox_window(eval_case, sandbox_case, hooks)
+        await self._set_case_phase(hooks, "logs")
         return await self._post_process(eval_case, hooks, result, seed_result)
 
     def _timeout_output(self) -> dict[str, Any]:

@@ -32,12 +32,42 @@ export function selectedFlatListSections(
 }
 
 /**
+ * Merge per-state rows that are each already in server order. Each step takes the state head with the
+ * lowest key, and an earlier state wins a tie. Unlike a sort, this keeps each response's own order,
+ * which the server set from finer data than the merge key carries.
+ */
+function mergeSortedSections(
+    rowsBySection: MergedReportRow[][],
+    compare: (a: SignalReport, b: SignalReport) => number
+): MergedReportRow[] {
+    const cursors = rowsBySection.map(() => 0)
+    const merged: MergedReportRow[] = []
+    for (;;) {
+        let best = -1
+        rowsBySection.forEach((rows, index) => {
+            if (
+                cursors[index] < rows.length &&
+                (best === -1 || compare(rows[cursors[index]].report, rowsBySection[best][cursors[best]].report) < 0)
+            ) {
+                best = index
+            }
+        })
+        if (best === -1) {
+            return merged
+        }
+        merged.push(rowsBySection[best][cursors[best]])
+        cursors[best] += 1
+    }
+}
+
+/**
  * The flat list's rows: the loaded rows of every selected state, deduplicated (a report can match
  * two states' filters, e.g. a PR'd report judged not actionable is in both Review and merge and the
  * staff Not actionable state; the first state in canonical order claims it), then ordered with the
- * same keys the server sorted each response by. Rows past a state's loaded page can sort below
- * later-keyed rows from a shorter state until the next page lands; the scroll sentinel keeps every
- * selected state paging together.
+ * same keys the server sorted each response by. The Recommended sort merges the responses by the
+ * server's merge key instead, because the server orders each response by a score it does not send.
+ * Rows past a state's loaded page can sort below later-keyed rows from a shorter state until the
+ * next page lands; the scroll sentinel keeps every selected state paging together.
  */
 export function mergeReportRows(
     reportsBySection: Record<InboxReportSectionKey, SignalReport[]>,
@@ -46,15 +76,20 @@ export function mergeReportRows(
     sortDirection: InboxSortDirection
 ): MergedReportRow[] {
     const seen = new Set<string>()
-    const rows: MergedReportRow[] = []
+    const rowsBySection: MergedReportRow[][] = []
     for (const sectionKey of selectedSections) {
+        const sectionRows: MergedReportRow[] = []
         for (const report of reportsBySection[sectionKey]) {
             if (!seen.has(report.id)) {
                 seen.add(report.id)
-                rows.push({ report, sectionKey })
+                sectionRows.push({ report, sectionKey })
             }
         }
+        rowsBySection.push(sectionRows)
     }
     const compare = compareSignalReports(sortField, sortDirection)
-    return rows.sort((a, b) => compare(a.report, b.report))
+    if (sortField === 'recommended') {
+        return mergeSortedSections(rowsBySection, compare)
+    }
+    return rowsBySection.flat().sort((a, b) => compare(a.report, b.report))
 }
