@@ -905,6 +905,75 @@ async fn attach_works_on_a_configured_table_set() {
     ctx.cleanup().await.ok();
 }
 
+// The window the mark check cannot close: an attach whose snapshot predates
+// the delete's mark and that then waits on a mapping the sweep holds. Here
+// there is no mark at all, which is what that snapshot sees, and the sweep
+// is held open until the attach is known to be waiting.
+#[tokio::test]
+async fn attach_overlapping_the_sweep_waits_and_attaches_nothing() {
+    let ctx = TestContext::new().await;
+    let target = ctx.insert_person_with_distinct_id("swept-target").await;
+    let distinct_id = "swept-did";
+    sqlx::query(
+        "INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) \
+         VALUES ($1, $2, $3, 4)",
+    )
+    .bind(distinct_id)
+    .bind(target)
+    .bind(ctx.team_id as i32)
+    .execute(&ctx.pool)
+    .await
+    .expect("seed the mapping the sweep will hold");
+
+    // The delete's unmap transaction, statement for statement, left open.
+    let mut sweep = ctx.pool.begin().await.expect("begin sweep");
+    for sql in [
+        "SELECT id FROM posthog_person WHERE team_id = $1 AND id = $2 FOR UPDATE",
+        "SELECT id FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2 ORDER BY id FOR UPDATE",
+        "UPDATE posthog_persondistinctid SET is_deleted = true, version = COALESCE(version, 0) + 1 WHERE team_id = $1 AND person_id = $2 AND is_deleted = false",
+        "UPDATE posthog_person SET is_deleted = true, version = COALESCE(version, 0) + 1 WHERE team_id = $1 AND id = $2",
+    ] {
+        sqlx::query(sql)
+            .bind(ctx.team_id as i32)
+            .bind(target)
+            .execute(&mut *sweep)
+            .await
+            .expect("sweep statement");
+    }
+
+    let storage = ctx.storage.clone();
+    let team_id = ctx.team_id;
+    let mut attach = tokio::spawn(async move {
+        storage
+            .attach_distinct_ids(team_id, target, &[distinct_id.to_string()])
+            .await
+    });
+    // Blocked on the sweep's locks: it cannot finish before the commit.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), &mut attach)
+            .await
+            .is_err(),
+        "the attach finished while the sweep still held the person"
+    );
+    sweep.commit().await.expect("commit sweep");
+
+    let outcomes = attach
+        .await
+        .expect("attach task")
+        .expect("attach call succeeds");
+    assert!(
+        outcomes.is_empty(),
+        "an attach that overlapped the sweep must attach nothing, got {outcomes:?}"
+    );
+    assert_eq!(
+        ctx.distinct_id_state(distinct_id).await,
+        Some((target, true, Some(5))),
+        "the mapping stays the tombstone the sweep wrote"
+    );
+
+    ctx.cleanup().await.ok();
+}
+
 #[tokio::test]
 async fn attach_refuses_a_person_held_by_a_live_lifecycle_op() {
     // A deletion overlapping an attach: the delete saga's destructive

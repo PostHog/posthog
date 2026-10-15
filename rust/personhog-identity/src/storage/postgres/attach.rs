@@ -17,10 +17,16 @@ use personhog_common::query_tag;
 /// live mappings are never repointed — that would be a silent merge.
 /// Callers dedupe; sorted insert order keeps row locks deadlock-free.
 ///
-/// Two guards keep a racing lifecycle op from acquiring a mapping it can
-/// no longer sweep: the join rejects committed deletions, and the mark
-/// check rejects persons held by a live op. The rare statement that slips
-/// both leaves an orphaned mapping the next resolve treats as absent.
+/// Three guards keep a racing lifecycle op from acquiring a mapping it can
+/// no longer sweep. The join rejects committed deletions and the mark check
+/// rejects persons held by a live op, both as of the statement's snapshot.
+/// The key-share lock on the person row covers the statement that slips
+/// both: a delete's sweep locks the person `FOR UPDATE` and tombstones it in
+/// the same transaction, so an attach that overlaps the sweep either holds
+/// the row first and has its mapping swept, or waits, re-reads the person
+/// tombstoned, and attaches nothing. Without the lock, an attach waiting on
+/// a mapping the sweep holds wakes after the commit and revives that
+/// mapping under a dead person, which nothing cleans up.
 pub(super) async fn attach_distinct_ids(
     pools: &IdentityPools,
     tables: &IdentityTables,
@@ -46,6 +52,7 @@ pub(super) async fn attach_distinct_ids(
             WHERE m.team_id = p.team_id AND m.person_id = p.id
               AND m.mark_active
         )
+        FOR KEY SHARE OF p
         ON CONFLICT (team_id, distinct_id) DO UPDATE SET
             person_id = EXCLUDED.person_id,
             version = COALESCE({pdi}.version, 0) + 1,
