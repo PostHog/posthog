@@ -1,22 +1,30 @@
+import ssl
 import json
 import base64
+import asyncio
 from copy import deepcopy
 from datetime import timedelta
+from functools import partial
+from ipaddress import ip_address
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+import httpx
+import httpcore
 from parameterized import parameterized
 from pydantic import JsonValue
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.security.pinned_httpx import pinned_client
+from posthog.security.url_validation import PinnedUrlVerdict
 
 if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
@@ -42,27 +50,80 @@ class TestMCPEventSigning(SimpleTestCase):
         with self.assertRaises(ValidationError):
             signing_key(secret)
 
-    @parameterized.expand([(200, "wrong"), (302, "echo"), (500, "echo"), (200, "oversized")])
-    def test_callback_must_echo_the_signed_challenge(self, status: int, mode: str) -> None:
-        secret = "whsec_" + base64.b64encode(b"a" * 32).decode()
-        response = MagicMock()
-        response.status_code = status
-        session = MagicMock()
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(
+            patch(
+                "products.cdp.backend.mcp_event_delivery.validate_url_and_pin_ips",
+                return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips={ip_address("93.184.216.34")}),
+            )
+        )
+        self.enterContext(
+            patch(
+                "products.cdp.backend.mcp_event_delivery.pinned_client",
+                side_effect=partial(pinned_client, trust_env=False),
+            )
+        )
+        self.secret = "whsec_" + base64.b64encode(b"a" * 32).decode()
 
-        def respond(*args: object, **kwargs: object) -> MagicMock:
-            challenge = json.loads(str(kwargs["data"]))["challenge"]
+    @parameterized.expand([(200, "echo"), (200, "wrong"), (302, "echo"), (500, "echo"), (200, "oversized")])
+    def test_callback_must_echo_the_signed_challenge(self, status: int, mode: str) -> None:
+        async def respond(request: httpx.Request) -> httpx.Response:
+            challenge = json.loads(request.content)["challenge"]
             payload = {"challenge": challenge if mode == "echo" else "wrong"}
             raw = b"x" * 9000 if mode == "oversized" else json.dumps(payload).encode()
-            response.iter_content.return_value = [raw]
-            manager = MagicMock()
-            manager.__enter__.return_value = response
-            return manager
+            return httpx.Response(status, stream=httpx.ByteStream(raw))
 
-        session.post.side_effect = respond
-        with patch("products.cdp.backend.mcp_event_delivery.pinned_session") as pinned:
-            pinned.return_value.__enter__.return_value = session
-            with self.assertRaises(MCPCallbackError):
-                verify_callback(subscription_id="test-subscription", url="https://example.com/callback", secret=secret)
+        with patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=respond):
+            if status == 200 and mode == "echo":
+                verify_callback(
+                    subscription_id="test-subscription", url="https://example.com/callback", secret=self.secret
+                )
+            else:
+                with self.assertRaises(MCPCallbackError):
+                    verify_callback(
+                        subscription_id="test-subscription", url="https://example.com/callback", secret=self.secret
+                    )
+
+    def test_callback_deadline_cancels_a_trickling_response_header(self) -> None:
+        clock = [0.0]
+        reads = 0
+        stream = httpcore.AsyncMockStream([])
+
+        async def read(max_bytes: int, timeout: float | None = None) -> bytes:
+            nonlocal reads
+            reads += 1
+            clock[0] += 1
+            await asyncio.sleep(0)
+            return b"HTTP/1.1 200 OK\r\nX-Slow: " if reads == 1 else b"x"
+
+        with (
+            patch("asyncio.BaseEventLoop.time", side_effect=lambda: clock[0]),
+            patch("httpcore.AnyIOBackend.connect_tcp", return_value=stream),
+            patch.object(stream, "read", side_effect=read),
+            patch.object(stream, "aclose", wraps=stream.aclose) as close,
+            self.assertRaises(MCPCallbackError) as caught,
+        ):
+            verify_callback(subscription_id="test-subscription", url="https://example.com/callback", secret=self.secret)
+        self.assertEqual(caught.exception.reason, "timeout")
+        close.assert_awaited()
+
+    @parameterized.expand(["timeout", "tls_error", "connection_failed"])
+    def test_callback_transport_errors_remain_sanitized(self, reason: str) -> None:
+        async def respond(request: httpx.Request) -> httpx.Response:
+            if reason == "timeout":
+                raise httpx.ReadTimeout("example timeout")
+            if reason == "tls_error":
+                raise httpx.ConnectError("example TLS failure") from ssl.SSLError("example certificate failure")
+            raise httpx.ConnectError("example connection failure")
+
+        with (
+            patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=respond),
+            self.assertRaises(MCPCallbackError) as caught,
+        ):
+            verify_callback(subscription_id="test-subscription", url="https://example.com/callback", secret=self.secret)
+        self.assertEqual(caught.exception.reason, reason)
+        self.assertNotIn("example", str(caught.exception))
 
 
 class TestMCPEventPropertyMasking(SimpleTestCase):
@@ -287,7 +348,14 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         response = self.authorize(subscription)
         self.assertEqual(response.status_code, 403, response.json())
         old_generation = subscription.generation
-        self.assertEqual(MCPEventSubscriptions.expire(), 1)
+        with (
+            patch("products.cdp.backend.mcp_events.EXPIRY_BATCH_SIZE", 1),
+            patch("products.cdp.backend.mcp_events.expire_mcp_event_subscriptions.delay") as continuation,
+        ):
+            self.assertEqual(MCPEventSubscriptions.expire(), 1)
+            continuation.assert_called_once_with()
+            self.assertEqual(MCPEventSubscriptions.expire(), 0)
+            continuation.assert_called_once_with()
         subscription.refresh_from_db()
         subscription.hog_function.refresh_from_db()
         self.assertFalse(subscription.active)
