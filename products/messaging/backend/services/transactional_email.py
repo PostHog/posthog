@@ -6,6 +6,8 @@ from uuid import UUID
 
 from django.db import transaction
 
+import structlog
+
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
 from products.messaging.backend.facade.contracts import MarketingTemplate, SenderUnavailable, TemplateNotSendable
@@ -19,6 +21,8 @@ from products.workflows.backend.facade.transactional_emails import (
     create_transactional_email_workflow,
     update_transactional_email_workflow,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 def check_sendable(team_id: int, *, template_type: str, content: dict, message_category_id: UUID | None) -> None:
@@ -117,12 +121,25 @@ def check_transactional_update(template_id: UUID, team_id: int, fields: dict[str
     )
 
 
+def _reload_workers(team_id: int, hog_flow_id: UUID) -> None:
+    # The edit is already committed, so a failed reload must not fail the request. Workers still pick up the
+    # new version when their cache expires.
+    try:
+        reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[str(hog_flow_id)])
+    except Exception:
+        logger.exception("transactional_email_worker_reload_failed", team_id=team_id, hog_flow_id=str(hog_flow_id))
+
+
 def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int | None) -> None:
     """Write the template's current content as a new version of its workflow, if it has one."""
     template = MessageTemplate.objects.get(team_id=team_id, id=template_id)
     if not template.transactional_hog_flow_id or template.deleted:
         return
     hog_flow_id = template.transactional_hog_flow_id
+    if not _workflow_exists(team_id, hog_flow_id):
+        # Someone deleted the workflow. The template stops being transactional and can be made so again.
+        MessageTemplate.objects.filter(team_id=team_id, id=template_id).update(transactional_hog_flow_id=None)
+        return
     try:
         update_transactional_email_workflow(
             team_id=team_id,
@@ -132,9 +149,9 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
         )
         # The save already told the workers to reload, but before the caller's transaction committed, so a
         # worker can cache the old version. This reload runs once the new version is visible.
-        transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[str(hog_flow_id)]))
+        transaction.on_commit(lambda: _reload_workers(team_id, hog_flow_id))
     except WorkflowNotFound:
-        # Someone deleted the workflow. The template stops being transactional and can be made so again.
+        # Deleted between the check above and the update.
         MessageTemplate.objects.filter(team_id=team_id, id=template_id).update(transactional_hog_flow_id=None)
     except TransactionalEmailContentInvalid as e:
         raise TemplateNotSendable("The template needs a subject and a body to send.") from e
