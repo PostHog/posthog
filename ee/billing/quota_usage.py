@@ -105,16 +105,14 @@ class QuotaUsageBatch:
                         value_index += 1
                     parameters.append(list(path))
 
-                row_sql = "(%s::uuid" + ", %s::jsonb" * value_index + ")"
-                for org_id, values in rows:
-                    parameters.append(org_id)
-                    parameters.extend(json.dumps(value) for value in values)
+                array_sql = "%s::uuid[]" + ", %s::jsonb[]" * value_index
+                parameters.append([org_id for org_id, _ in rows])
+                parameters.extend([json.dumps(values[index]) for _, values in rows] for index in range(value_index))
                 columns = ", ".join(["id", *(f"v{i}" for i in range(value_index))])
                 table = Organization._meta.db_table
                 sql = (
-                    f"UPDATE {table} AS o SET usage = {expression} FROM (VALUES "
-                    + ",".join([row_sql] * len(rows))
-                    + f") AS v({columns}) WHERE o.id = v.id"
+                    f"UPDATE {table} AS o SET usage = {expression} "
+                    f"FROM UNNEST({array_sql}) AS v({columns}) WHERE o.id = v.id"
                 )
                 with connection.cursor() as cursor:
                     # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (identifiers come from model metadata and fixed templates; paths and values are parameters)

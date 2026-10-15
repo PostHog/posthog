@@ -19,6 +19,41 @@ from ee.billing.quota_usage import QuotaUsageBatch
 
 
 class TestQuotaUsageBatch(BaseTest):
+    @parameterized.expand([("set", False), ("delete_only", True)])
+    def test_sql_shape_is_independent_of_batch_size(self, _name, delete_only) -> None:
+        other = Organization.objects.create(name="Other organization", slug="other-quota-organization")
+        organizations = [self.organization, other]
+        usage = {"events": {"usage": 10, "todays_usage": 0, "quota_limited_until": 1234}}
+        Organization.objects.filter(id__in=[org.id for org in organizations]).update(usage=usage)
+        statements = []
+
+        def record_update(execute, sql, params, many, context):
+            if sql.startswith("UPDATE posthog_organization AS o"):
+                statements.append((sql, len(params)))
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(record_update):
+            for batch_size in (1, 2):
+                batch = QuotaUsageBatch()
+                for index, org in enumerate(organizations[:batch_size], start=1):
+                    batch.patch(
+                        org,
+                        [
+                            (["events", "todays_usage"], None if delete_only else index * 20),
+                            (["events", "quota_limited_until"], None if delete_only else index * 100),
+                        ],
+                    )
+                batch.flush()
+
+        assert len(statements) == 2
+        assert statements[0] == statements[1]
+        for index, org in enumerate(organizations, start=1):
+            org.refresh_from_db()
+            expected = {"usage": 10}
+            if not delete_only:
+                expected.update(todays_usage=index * 20, quota_limited_until=index * 100)
+            assert org.usage == {"events": expected}
+
     @parameterized.expand([("all_present", False), ("deleted_organization", True)])
     def test_multiple_patches_preserve_other_organizations_and_fields(self, _name, delete_second) -> None:
         other = Organization.objects.create(name="Other organization", slug="other-quota-organization")
@@ -168,7 +203,7 @@ class TestBatchedQuotaRun(BaseTest):
         failed_id = self.orgs[-1].id
 
         def fail_last_batch(execute, sql, params, many, context):
-            if sql.startswith("UPDATE posthog_organization AS o") and failed_id in params:
+            if sql.startswith("UPDATE posthog_organization AS o") and any(failed_id in values for values in params):
                 raise OperationalError("synthetic connection failure")
             return execute(sql, params, many, context)
 
