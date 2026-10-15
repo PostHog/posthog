@@ -140,9 +140,9 @@ class _SlackChunkPacker:
             if end < len(body):
                 newline = body.rfind("\n", cursor, end)
                 if newline > cursor:
-                    end = newline
+                    end = newline + 1
             self._chunks.append(f"{fence_open}{body[cursor:end]}{fence_close}")
-            cursor = end + 1 if end < len(body) and body[end] == "\n" else end
+            cursor = end
 
     def _add_code_block(self, language: str, body: str) -> None:
         fence_open = f"```{language}\n" if language else "```\n"

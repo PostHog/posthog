@@ -826,17 +826,35 @@ class TestSplitTextForSlack(SimpleTestCase):
         assert all(len(chunk) <= self._LIMIT for chunk in chunks)
         assert "".join(chunks) == line
 
-    def test_oversized_code_block_keeps_fences_balanced(self):
-        body_lines = [f"line {i:04d}" for i in range(800)]
-        body = "\n".join(body_lines)
-        text = f"```python\n{body}\n```"
-        chunks = _split_markdown_for_slack(text, self._LIMIT)
+    @parameterized.expand(
+        [
+            ("lines", "python", "```python\n", 3500, "\n".join(f"line {i:04d}" for i in range(800))),
+            (
+                "blank_line_at_capacity",
+                "python",
+                "```python\n",
+                SLACK_MARKDOWN_TEXT_MAX_LEN,
+                "x" * (SLACK_MARKDOWN_TEXT_MAX_LEN - 14) + "\n\nprint('tail')",
+            ),
+            (
+                "neutral_fence",
+                "x" * (SLACK_MARKDOWN_TEXT_MAX_LEN - 100),
+                "```\n",
+                SLACK_MARKDOWN_TEXT_MAX_LEN,
+                "\n".join("print('example')" for _ in range(1600)),
+            ),
+        ]
+    )
+    def test_oversized_code_block_keeps_fences_balanced(self, _name, language, fence_open, limit, body):
+        text = f"```{language}\n{body}\n```"
+        chunks = _split_markdown_for_slack(text, limit)
         assert len(chunks) >= 2
         for chunk in chunks:
-            assert chunk.startswith("```python\n")
+            assert chunk.startswith(fence_open)
             assert chunk.endswith("\n```")
             assert chunk.count("```") == 2
-            assert len(chunk) <= self._LIMIT
+            assert len(chunk) <= limit
+        assert "".join(chunk[len(fence_open) : -4] for chunk in chunks) == body
 
     def test_fence_overhead_near_limit_does_not_amplify(self):
         # This label leaves fewer than 100 body characters per chunk, so 5,000
