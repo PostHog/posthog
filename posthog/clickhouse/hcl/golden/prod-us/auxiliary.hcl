@@ -4343,6 +4343,18 @@ database "posthog" {
       type    = "DateTime64(6, 'UTC')"
       default = "now() + toIntervalDay(7)"
     }
+    column "entry_url" {
+      type = "String"
+    }
+    column "has_gclid" {
+      type = "UInt8"
+    }
+    column "has_msclkid" {
+      type = "UInt8"
+    }
+    column "session_max_inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.web_sessions_dimensional_preaggregated"
       replica_name   = "{replica}"
@@ -4992,6 +5004,18 @@ database "posthog" {
     column "expires_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "now() + toIntervalDay(7)"
+    }
+    column "entry_url" {
+      type = "String"
+    }
+    column "has_gclid" {
+      type = "UInt8"
+    }
+    column "has_msclkid" {
+      type = "UInt8"
+    }
+    column "session_max_inserted_at" {
+      type = "DateTime64(6, 'UTC')"
     }
     engine "distributed" {
       cluster_name    = "aux"

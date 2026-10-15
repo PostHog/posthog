@@ -2100,7 +2100,11 @@ CREATE TABLE posthog.web_sessions_dimensional_preaggregated (
   entry_pathname String,
   pageview_count UInt64,
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
-  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
+  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7),
+  entry_url String,
+  has_gclid UInt8,
+  has_msclkid UInt8,
+  session_max_inserted_at DateTime64(6, 'UTC')
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_web_sessions_dimensional_preaggregated', cityHash64(person_id));
 CREATE TABLE posthog.web_stats_dimensional_preaggregated (
   team_id Int64,
