@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bol_retail
     INVOICE_HISTORY_DAYS,
     INVOICE_WINDOW_DAYS,
     OFFERS_PAGE_SIZE,
+    ORDER_HISTORY_DAYS,
     BolEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -38,6 +39,7 @@ TOKEN_TIMEOUT = 30
 class BolRetailerResumeConfig:
     pass_index: int = 0
     page: int = 1
+    # The first day of the run's order or invoice windows, so a resumed attempt rebuilds the same passes.
     window_start: str | None = None
     cursor: str | None = None
     # The `last-modified-date-time` the interrupted attempt sent, so resumed pages come from the same result set.
@@ -65,34 +67,62 @@ def format_modified_since(value: Any) -> str:
     return str(value)
 
 
+def add_latest_change(order: dict[str, Any]) -> dict[str, Any]:
+    """Lift the newest order item change onto the order, which carries no change time of its own."""
+    changes = [
+        item["latestChangedDateTime"]
+        for item in order.get("orderItems") or []
+        if isinstance(item, dict) and item.get("latestChangedDateTime")
+    ]
+    # bol writes local times with an offset, so compare the instants rather than the strings.
+    order["latestChangedDateTime"] = (
+        max(changes, key=datetime.fromisoformat) if changes else order.get("orderPlacedDateTime")
+    )
+    return order
+
+
 def _paged_passes(
     client: RESTClient,
-    config: BolEndpointConfig,
+    path: str,
+    data_selector: str,
+    passes: list[dict[str, Any]],
     manager: ResumableSourceManager[BolRetailerResumeConfig],
     resume: BolRetailerResumeConfig | None,
+    window_start: str | None = None,
+    row_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> Iterator[list[Any]]:
     start_pass = resume.pass_index if resume is not None else 0
-    for pass_index in range(start_pass, len(config.passes)):
+    for pass_index in range(start_pass, len(passes)):
         first_page = resume.page if resume is not None and pass_index == start_pass else 1
 
         def stage(state: Optional[dict[str, Any]], has_next_page: bool, pass_index: int = pass_index) -> None:
             if has_next_page and state:
-                manager.save_state(BolRetailerResumeConfig(pass_index=pass_index, page=int(state["page"])))
-            elif pass_index + 1 < len(config.passes):
-                manager.save_state(BolRetailerResumeConfig(pass_index=pass_index + 1))
+                manager.save_state(
+                    BolRetailerResumeConfig(pass_index=pass_index, page=int(state["page"]), window_start=window_start)
+                )
+            elif pass_index + 1 < len(passes):
+                manager.save_state(BolRetailerResumeConfig(pass_index=pass_index + 1, window_start=window_start))
 
         # bol ends a list with an empty page and reports no total, so each pass costs one empty request.
         for rows in client.paginate(
-            config.path,
-            params=dict(config.passes[pass_index]),
+            path,
+            params=passes[pass_index],
             paginator=PageNumberPaginator(base_page=1, page=first_page, page_param="page"),
-            data_selector=config.data_selector,
+            data_selector=data_selector,
             page_state_hook=stage,
         ):
             if rows:
-                yield rows
+                yield [row_map(row) for row in rows] if row_map else rows
             else:
                 manager.safe_point()
+
+
+def _to_date(value: Any) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
 
 
 def _invoice_windows(
@@ -214,8 +244,42 @@ def bol_retailer_source(
             **response_kwargs,
         )
 
+    if config.per_change_day:
+        today = datetime.now(UTC).date()
+        floor = today - timedelta(days=ORDER_HISTORY_DAYS)
+        if resume is not None and resume.window_start:
+            first_day = date.fromisoformat(resume.window_start)
+        elif should_use_incremental_field and db_incremental_field_last_value is not None:
+            first_day = max(_to_date(db_incremental_field_last_value), floor)
+        else:
+            first_day = floor
+        days = [first_day + timedelta(days=offset) for offset in range((today - first_day).days + 1)]
+        passes = [{**dict(base), "latest-change-date": day.isoformat()} for day in days for base in config.passes]
+        return SourceResponse(
+            items=lambda: _paged_passes(
+                client,
+                config.path,
+                config.data_selector,
+                passes,
+                resumable_source_manager,
+                resume,
+                window_start=first_day.isoformat(),
+                row_map=add_latest_change,
+            ),
+            # Days are requested in order, and the next run re-reads the watermark's whole day.
+            sort_mode="asc",
+            **response_kwargs,
+        )
+
     return SourceResponse(
-        items=lambda: _paged_passes(client, config, resumable_source_manager, resume),
+        items=lambda: _paged_passes(
+            client,
+            config.path,
+            config.data_selector,
+            [dict(params) for params in config.passes],
+            resumable_source_manager,
+            resume,
+        ),
         **response_kwargs,
     )
 

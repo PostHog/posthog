@@ -13,6 +13,10 @@ ACCEPT_V11 = "application/vnd.retailer.v11+json"
 
 OFFERS_PAGE_SIZE = 100
 
+# The order list keeps handled orders for 48 hours. Older orders come one day at a time through
+# `latest-change-date`, which reaches three months back.
+ORDER_HISTORY_DAYS = 90
+
 # The invoice list takes a period of at most 31 days, and invoice details reach 2 years back.
 INVOICE_WINDOW_DAYS = 31
 INVOICE_HISTORY_DAYS = 2 * 365
@@ -33,6 +37,8 @@ class BolEndpointConfig:
     passes: tuple[tuple[tuple[str, str], ...], ...] = ((),)
     incremental_fields: tuple[IncrementalField, ...] = ()
     partition_key: str | None = None
+    # Repeat the passes once per day, filtered on the day the order items last changed.
+    per_change_day: bool = False
 
 
 BOL_ENDPOINTS: dict[str, BolEndpointConfig] = {
@@ -43,6 +49,15 @@ BOL_ENDPOINTS: dict[str, BolEndpointConfig] = {
         primary_keys=("orderId",),
         # The list defaults to open orders shipped by the retailer only.
         passes=((("status", "ALL"), ("fulfilment-method", "ALL")),),
+        per_change_day=True,
+        incremental_fields=(
+            {
+                "label": "latestChangedDateTime",
+                "type": IncrementalFieldType.DateTime,
+                "field": "latestChangedDateTime",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ),
         partition_key="orderPlacedDateTime",
     ),
     "shipments": BolEndpointConfig(

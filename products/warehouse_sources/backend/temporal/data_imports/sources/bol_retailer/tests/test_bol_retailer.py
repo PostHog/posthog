@@ -39,15 +39,23 @@ def _api(result: DriveResult) -> list[Any]:
 
 
 class TestPagedLists:
-    def test_orders_ask_for_every_status_and_method_until_an_empty_page(self) -> None:
+    @time_machine.travel(datetime(2026, 10, 15, 12, tzinfo=UTC), tick=False)
+    def test_orders_read_one_change_day_at_a_time_from_the_watermark(self) -> None:
+        # The plain list drops handled orders after 48 hours, so history comes from `latest-change-date`.
+        order = {
+            "orderId": "A1",
+            "orderPlacedDateTime": "2026-10-14T09:00:00+02:00",
+            "orderItems": [
+                {"orderItemId": "1", "latestChangedDateTime": "2026-10-14T23:30:00+02:00"},
+                {"orderItemId": "2", "latestChangedDateTime": "2026-10-14T22:00:00+00:00"},
+            ],
+        }
         result = _run(
             "orders",
             "/orders",
-            [
-                ScriptedResponse(json={"orders": [{"orderId": "A1"}]}),
-                ScriptedResponse(json={"orders": [{"orderId": "A2"}]}),
-                EMPTY,
-            ],
+            [ScriptedResponse(json={"orders": [order]}), EMPTY, EMPTY],
+            incremental_field="latestChangedDateTime",
+            db_incremental_field_last_value=datetime(2026, 10, 14, 8, tzinfo=UTC),
         )
 
         assert result.raised is None
@@ -56,12 +64,28 @@ class TestPagedLists:
         assert token_request.headers["authorization"] == "Basic Ym9sX2lkOmJvbF9zZWNyZXQ="
         assert token_request.body == b"grant_type=client_credentials"
         api = _api(result)
-        assert [request.param("page") for request in api] == ["1", "2", "3"]
-        assert {(request.param("status"), request.param("fulfilment-method")) for request in api} == {("ALL", "ALL")}
+        assert [(r.param("latest-change-date"), r.param("page")) for r in api] == [
+            ("2026-10-14", "1"),
+            ("2026-10-14", "2"),
+            ("2026-10-15", "1"),
+        ]
+        assert {(r.param("status"), r.param("fulfilment-method")) for r in api} == {("ALL", "ALL")}
         assert api[0].headers["accept"] == "application/vnd.retailer.v10+json"
         assert api[0].headers["authorization"] == "Bearer tok"
-        assert [row["orderId"] for row in result.rows] == ["A1", "A2"]
-        assert result.saved_states == [BolRetailerResumeConfig(page=2), BolRetailerResumeConfig(page=3)]
+        # 22:00 UTC is later than 23:30 at +02:00, even though it sorts first as text.
+        assert [row["latestChangedDateTime"] for row in result.rows] == ["2026-10-14T22:00:00+00:00"]
+        assert result.saved_states == [
+            BolRetailerResumeConfig(pass_index=0, page=2, window_start="2026-10-14"),
+            BolRetailerResumeConfig(pass_index=1, window_start="2026-10-14"),
+        ]
+
+    @time_machine.travel(datetime(2026, 10, 15, 12, tzinfo=UTC), tick=False)
+    def test_a_first_order_sync_reaches_three_months_back(self) -> None:
+        result = _run("orders", "/orders", [EMPTY] * 91)
+
+        assert result.raised is None
+        days = [r.param("latest-change-date") for r in _api(result)]
+        assert (days[0], days[-1], len(days)) == ("2026-07-17", "2026-10-15", 91)
 
     def test_shipments_walk_one_pass_per_fulfilment_method(self) -> None:
         result = _run(
