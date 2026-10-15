@@ -5929,6 +5929,16 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert "type" not in serializer.errors
 
+    @parameterized.expand([("draft", True), ("published", False)])
+    def test_the_transactional_email_action_id_is_reserved(self, _name, is_draft):
+        serializer = HogFlowActionSerializer(
+            data={"id": "transactional_email", "name": "a", "type": "function", "config": {}},
+            context={"is_draft": is_draft},
+        )
+        serializer.is_valid()
+
+        assert "is reserved" in str(serializer.errors["id"])
+
 
 class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):

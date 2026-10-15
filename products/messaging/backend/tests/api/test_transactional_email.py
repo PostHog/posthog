@@ -16,6 +16,7 @@ from posthog.models.utils import generate_random_token_secret
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
 @patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
@@ -133,16 +134,46 @@ class TestTransactionalEmailSend(APIBaseTest):
         assert response.json()["type"] == "invalid_request"
         mock_post.assert_not_called()
 
-    def test_a_retried_request_with_the_same_idempotency_key_sends_once(self, mock_post, _flag, _capture):
+    @parameterized.expand(
+        [
+            ("same_request", {}, status.HTTP_202_ACCEPTED),
+            ("different_recipient", {"to": "someone-else@example.com"}, status.HTTP_422_UNPROCESSABLE_ENTITY),
+            (
+                "different_data",
+                {"message_data": {"link": "https://example.com/other"}},
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+            ),
+        ]
+    )
+    def test_an_idempotency_key_replays_only_its_own_request(
+        self, mock_post, _flag, _capture, _name, changes, expected_status
+    ):
         self._cdp_accepts(mock_post)
         headers = {"Idempotency-Key": str(uuid4())}
 
         first = self.client.post(self.url, self.body, format="json", headers=headers)
-        second = self.client.post(self.url, self.body, format="json", headers=headers)
+        second = self.client.post(self.url, {**self.body, **changes}, format="json", headers=headers)
 
         assert first.json() == {"message_id": "invocation-1", "replayed": False}
-        assert second.json() == {"message_id": "invocation-1", "replayed": True}
+        assert second.status_code == expected_status, second.json()
+        if expected_status == status.HTTP_202_ACCEPTED:
+            assert second.json() == {"message_id": "invocation-1", "replayed": True}
+        else:
+            assert second.json()["code"] == "idempotency_key_reused"
         assert mock_post.call_count == 1
+
+    def test_a_changed_default_sender_applies_to_the_next_send(self, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+        self.client.post(self.url, self.body, format="json")
+        new_sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="new@example.com", config={"verified": True}
+        )
+        # A direct write, like a change made on another process, so no local cache is cleared.
+        TeamWorkflowsConfig.objects.filter(team_id=self.team.id).update(default_email_integration_id=new_sender.id)
+
+        self.client.post(self.url, self.body, format="json")
+
+        assert mock_post.call_args.kwargs["json"]["from_integration_id"] == new_sender.id
 
     def test_a_retry_after_an_unknown_outcome_does_not_send_twice(self, mock_post, _flag, _capture):
         mock_post.side_effect = requests.ReadTimeout()

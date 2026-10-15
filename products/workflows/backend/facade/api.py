@@ -48,6 +48,7 @@ from products.workflows.backend.utils.email_sending_tiers import (
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 __all__ = [
+    "get_default_email_sender_id",
     "WorkflowAccessDenied",
     "WorkflowArchived",
     "WorkflowNotFound",
@@ -152,6 +153,15 @@ def get_workflow_task_daily_limits(*, team_id: int) -> WorkflowTaskDailyLimits:
     return WorkflowTaskDailyLimits(
         per_workflow=config.workflow_task_rate_limit_per_day,
         per_team=config.workflow_task_team_rate_limit_per_day,
+    )
+
+
+def get_default_email_sender_id(*, team_id: int) -> int | None:
+    # A fresh read: Team.workflows_config is memoized for the whole process, so it can miss a change made elsewhere.
+    return (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .values_list("default_email_integration_id", flat=True)
+        .first()
     )
 
 

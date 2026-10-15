@@ -43,6 +43,10 @@ class SendInProgress(TransactionalEmailError):
     code = "idempotency_conflict"
 
 
+class IdempotencyKeyReused(TransactionalEmailError):
+    code = "idempotency_key_reused"
+
+
 class DeliveryUnavailable(Exception):
     """The email pipeline did not accept the send. Safe to retry."""
 

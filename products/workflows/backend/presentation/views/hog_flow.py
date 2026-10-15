@@ -1177,6 +1177,9 @@ class HogFlowActionConfigField(serializers.JSONField):
     pass
 
 
+RESERVED_ACTION_ID = "transactional_email"
+
+
 class HogFlowActionSerializer(serializers.Serializer):
     # max_length bounds every downstream copy of the id (edges, action_redirects, worker cache);
     # real ids are short generated slugs, so 200 is generous.
@@ -1450,6 +1453,13 @@ class HogFlowActionSerializer(serializers.Serializer):
         serializer = WorkflowClassificationRequestSerializer(data=data, partial=True)
         if not serializer.is_valid():
             raise serializers.ValidationError({"inputs": serializer.errors})
+
+    def validate_id(self, value: str) -> str:
+        # Engagement tracking reads this id as a transactional send from a message template, so a workflow
+        # step with it would lose its workflow attribution. Mirrors TRANSACTIONAL_EMAIL_ACTION_ID in nodejs.
+        if value == RESERVED_ACTION_ID:
+            raise serializers.ValidationError(f'The action id "{RESERVED_ACTION_ID}" is reserved. Use a different id.')
+        return value
 
     def validate(self, data):
         is_draft = self.context.get("is_draft")

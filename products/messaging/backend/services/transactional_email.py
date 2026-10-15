@@ -1,5 +1,6 @@
 """Sends one transactional email from a message template through the workflows email pipeline."""
 
+import json
 import hashlib
 from typing import Any
 from uuid import UUID
@@ -14,6 +15,7 @@ from posthog.redis import get_client
 
 from products.messaging.backend.facade.contracts import (
     DeliveryUnavailable,
+    IdempotencyKeyReused,
     InvalidRecipient,
     MarketingTemplate,
     QueuedEmail,
@@ -24,11 +26,12 @@ from products.messaging.backend.facade.contracts import (
 )
 from products.messaging.backend.models import MessageCategory, MessageTemplate
 from products.messaging.backend.models.message_category import MessageCategoryType
+from products.workflows.backend.facade.api import get_default_email_sender_id
 
 logger = structlog.get_logger(__name__)
 
 IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
-_IN_FLIGHT = b"in-flight"
+_IN_FLIGHT = "in-flight"
 
 
 def _sendable_template(team_id: int, template_id: UUID) -> MessageTemplate:
@@ -51,7 +54,7 @@ def _sendable_template(team_id: int, template_id: UUID) -> MessageTemplate:
 
 
 def _sender_integration_id(team: Team, from_integration_id: int | None) -> int:
-    integration_id = from_integration_id or team.workflows_config.default_email_integration_id
+    integration_id = from_integration_id or get_default_email_sender_id(team_id=team.id)
     integration = (
         Integration.objects.filter(team_id=team.id, kind="email", id=integration_id).first() if integration_id else None
     )
@@ -63,6 +66,15 @@ def _sender_integration_id(team: Team, from_integration_id: int | None) -> int:
 def _idempotency_redis_key(team_id: int, idempotency_key: str) -> str:
     digest = hashlib.sha256(idempotency_key.encode()).hexdigest()
     return f"messaging:transactional_email:idempotency:{team_id}:{digest}"
+
+
+def _request_fingerprint(template_id: UUID, request: dict[str, Any]) -> str:
+    canonical = json.dumps({"template_id": str(template_id), **request}, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _idempotency_value(fingerprint: str, message_id: str) -> str:
+    return json.dumps({"fingerprint": fingerprint, "message_id": message_id})
 
 
 def send_transactional_email(
@@ -84,11 +96,24 @@ def send_transactional_email(
 
     redis = get_client()
     redis_key = _idempotency_redis_key(team.id, idempotency_key) if idempotency_key else None
-    if redis_key and not redis.set(redis_key, _IN_FLIGHT, nx=True, ex=IDEMPOTENCY_TTL_SECONDS):
-        existing = redis.get(redis_key)
-        if existing is None or existing == _IN_FLIGHT:
+    # A key replays only the request it was first used for. The requested sender counts, not the resolved one,
+    # so a default sender change between retries still replays.
+    fingerprint = _request_fingerprint(
+        template_id,
+        {"to": to, "distinct_id": distinct_id, "message_data": message_data, "from": from_integration_id},
+    )
+    if redis_key and not redis.set(
+        redis_key, _idempotency_value(fingerprint, _IN_FLIGHT), nx=True, ex=IDEMPOTENCY_TTL_SECONDS
+    ):
+        stored = redis.get(redis_key)
+        if stored is None:
             raise SendInProgress("A request with this idempotency key is still in progress.")
-        return QueuedEmail(message_id=existing.decode(), replayed=True)
+        reservation = json.loads(stored)
+        if reservation["fingerprint"] != fingerprint:
+            raise IdempotencyKeyReused("This idempotency key was already used for a different request.")
+        if reservation["message_id"] == _IN_FLIGHT:
+            raise SendInProgress("A request with this idempotency key is still in progress.")
+        return QueuedEmail(message_id=reservation["message_id"], replayed=True)
 
     # Only ids and data cross to cdp-api. The email worker loads the template content itself.
     payload = {
@@ -127,5 +152,5 @@ def send_transactional_email(
 
     message_id = str(response.json()["invocation_id"])
     if redis_key:
-        redis.set(redis_key, message_id, ex=IDEMPOTENCY_TTL_SECONDS)
+        redis.set(redis_key, _idempotency_value(fingerprint, message_id), ex=IDEMPOTENCY_TTL_SECONDS)
     return QueuedEmail(message_id=message_id, replayed=False)
