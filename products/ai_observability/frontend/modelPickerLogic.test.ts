@@ -456,6 +456,14 @@ describe('modelPickerLogic', () => {
                         results: [
                             { id: 'key-1', provider: 'openai', name: 'My OpenAI Key', state: 'ok' },
                             { id: 'key-azure', provider: 'azure_openai', name: 'My Azure Key', state: 'ok' },
+                            {
+                                id: 'key-foundry',
+                                provider: 'anthropic',
+                                name: 'My Foundry Key',
+                                state: 'ok',
+                                azure_endpoint_display: 'https://my-resource.services.ai.azure.com/',
+                            },
+                            { id: 'key-anthropic', provider: 'anthropic', name: 'My Anthropic Key', state: 'ok' },
                         ],
                     },
                     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
@@ -472,9 +480,11 @@ describe('modelPickerLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.providerModelGroups.find((g) => g.providerKeyId === 'key-azure')).toMatchObject({
-                allowsCustomModel: true,
-            })
+            const customModelKeyIds = logic.values.providerModelGroups
+                .filter((g) => g.allowsCustomModel)
+                .map((g) => g.providerKeyId)
+                .sort()
+            expect(customModelKeyIds).toEqual(['key-azure', 'key-foundry'])
             expect(logic.values.playgroundByokProviderModelGroups.map((g) => g.providerKeyId)).toEqual(['key-1'])
             expect(logic.values.playgroundByokProviderModelGroups.some((g) => g.allowsCustomModel)).toBe(false)
         })
