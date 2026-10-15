@@ -210,7 +210,7 @@ export interface snapshotDataLogicActions {
 export interface snapshotDataLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        livePolling: (livePollingRequested: any, featureFlags: any) => boolean
+        livePolling: (livePollingRequested: boolean, featureFlags: FeatureFlagsSet) => boolean
         snapshotsLoading: (
             snapshotSourcesLoading: boolean,
             snapshotsForSourceLoading: boolean,
@@ -704,7 +704,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     selectors(({ cache }) => ({
         livePolling: [
             (s) => [s.livePollingRequested, s.featureFlags],
-            (requested, featureFlags): boolean => requested && !!featureFlags[FEATURE_FLAGS.REPLAY_FOLLOW_LIVE],
+            (requested: boolean, featureFlags: FeatureFlagsSet): boolean =>
+                requested && !!featureFlags[FEATURE_FLAGS.REPLAY_FOLLOW_LIVE],
         ],
         snapshotsLoading: [
             (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.storeVersion],

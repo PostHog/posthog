@@ -291,6 +291,7 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     bufferedToTime: number | null
     createExportJSON: () => ExportedSessionRecordingFileV2
     customRRWebEvents: customEvent[]
+    durationMs: number
     effectiveSourceLoadingStates: SourceLoadingState[]
     end: Dayjs | null
     fullyLoaded: boolean
@@ -505,6 +506,13 @@ export interface sessionRecordingDataCoordinatorLogicMeta {
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
             sessionPlayerMetaData: SessionRecordingType | null
         ) => Dayjs | null
+        durationMs: (
+            start: Dayjs | null,
+            end: Dayjs | null,
+            sessionPlayerMetaData: SessionRecordingType | null,
+            fullyLoaded: boolean,
+            livePolling: boolean
+        ) => number
         segments: (
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
             start: Dayjs | null,
@@ -905,7 +913,13 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         durationMs: [
             (s) => [s.start, s.end, s.sessionPlayerMetaData, s.fullyLoaded, s.livePolling],
-            recordingDurationMs,
+            (
+                start: Dayjs | null,
+                end: Dayjs | null,
+                meta: SessionRecordingType | null,
+                fullyLoaded: boolean,
+                livePolling: boolean
+            ): number => recordingDurationMs(start, end, meta, fullyLoaded, livePolling),
         ],
 
         segments: [

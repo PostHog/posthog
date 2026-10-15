@@ -1318,7 +1318,7 @@ export interface sessionRecordingPlayerLogicActions {
 export interface sessionRecordingPlayerLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        followLive: (followLiveRequested: any, featureFlags: FeatureFlagsSet) => boolean
+        followLive: (followLiveRequested: boolean, featureFlags: FeatureFlagsSet) => boolean
         playerFrameDocumentFailed: (playerFrameLoadFailures: number, playerFrameLoadStopped: boolean) => boolean
         sessionRecordingId: (sessionRecordingId: string) => string
         logicProps: (arg: any) => SessionRecordingPlayerLogicProps
@@ -1951,7 +1951,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     selectors({
         followLive: [
             (s) => [s.followLiveRequested, s.featureFlags],
-            (requested, featureFlags: FeatureFlagsSet): boolean =>
+            (requested: boolean, featureFlags: FeatureFlagsSet): boolean =>
                 requested && !!featureFlags[FEATURE_FLAGS.REPLAY_FOLLOW_LIVE],
         ],
         // Nothing resets this, because the frame's src stops changing once the retries run out.
