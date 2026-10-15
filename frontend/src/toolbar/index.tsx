@@ -14,7 +14,7 @@ import type { PostHog } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
-import { canonicalizeApiHost } from '~/toolbar/toolbarConfigLogic'
+import { canonicalizeApiHost, identifiesToolbarUser } from '~/toolbar/toolbarConfigLogic'
 import { isToolbarMounted, posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
@@ -136,7 +136,10 @@ async function mountToolbar(toolbarParams: ToolbarParams, posthog?: PostHog): Pr
     ;(window as any).__posthog_toolbar_load_start ??= performance.now()
 
     toolbarPosthogJS.set_config({ remote_config_refresh_interval_ms: TOOLBAR_FLAGS_REFRESH_INTERVAL_MS })
-    toolbarPosthogJS.reloadFeatureFlags()
+    // Otherwise identify() gives the instance a new distinct id, and posthog-js loads the flags for that user
+    if (!identifiesToolbarUser(toolbarParams)) {
+        toolbarPosthogJS.reloadFeatureFlags()
+    }
 
     // If posthog and toolbarFlagsKey is present, fetch the feature flags from the backend
     if (posthog && toolbarParams.toolbarFlagsKey) {
