@@ -14,7 +14,7 @@ const {
     computeSensitiveOwners,
     sensitiveOwnersToExplain,
     loadLabelRules,
-    matchAlwaysRequestedTeams,
+    matchTeamsToRequestAndLabel,
     isSubstantive,
     classifyOwners,
     classifyOwnersWithPinned,
@@ -481,8 +481,8 @@ for (const { description, title, files, expected } of [
         expected: NO_MATCH,
     },
 ]) {
-    test(`matchAlwaysRequestedTeams with the shipped config: ${description}`, () => {
-        const { labels, teams } = matchAlwaysRequestedTeams(loadLabelRules(), title, TEAM_RULE_RESOLUTIONS, files)
+    test(`matchTeamsToRequestAndLabel with the shipped config: ${description}`, () => {
+        const { labels, teams } = matchTeamsToRequestAndLabel(loadLabelRules(), title, TEAM_RULE_RESOLUTIONS, files)
         assert.deepEqual({ labels, teams: teams.map((entry) => entry.owner) }, expected)
     })
 }
