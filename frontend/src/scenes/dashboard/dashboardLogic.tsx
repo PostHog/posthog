@@ -48,6 +48,7 @@ import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import {
     DashboardEventSource,
+    DashboardFilterChangeType,
     dashboardViewedProperties,
     eventUsageLogic,
     sanitizeDashboard,
@@ -200,6 +201,12 @@ export interface DashboardLogicProps {
     id: number
     dashboard?: DashboardType
     placement?: DashboardPlacement
+}
+
+interface PendingFilterChange {
+    id: string
+    startTime: number
+    settings: DashboardSettings
 }
 
 export interface RefreshStatus {
@@ -758,6 +765,13 @@ export interface dashboardLogicActions {
         payload?: {
             tile: DashboardTile
         }
+    }
+    reportDashboardFilterChange: (
+        changeType: DashboardFilterChangeType,
+        properties: Record<string, boolean | number | string | null | undefined>
+    ) => {
+        changeType: DashboardFilterChangeType
+        properties: Record<string, boolean | number | string | null | undefined>
     }
     reportDashboardViewed: () => {
         value: true
@@ -1363,7 +1377,7 @@ export interface dashboardLogicMeta {
         ) => number | null
         dataColorTheme: (
             dataColorThemeId: number | null,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
         ) => DataColorTheme | null
         autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         breakdownValuesIncomplete: (itemsLoading: boolean, insightTiles: DashboardTile[]) => boolean
@@ -1539,6 +1553,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
         setCompareFilter: (compareFilter: CompareFilter | null) => ({ compareFilter }),
         setMetricFilters: (metricFilters: MetricsQueryFilter[] | null) => ({ metricFilters }),
+        reportDashboardFilterChange: (
+            changeType: DashboardFilterChangeType,
+            properties: Record<string, string | number | boolean | null | undefined>
+        ) => ({ changeType, properties }),
         setExternalFilters: (filters: DashboardFilter) => ({ filters }),
         setDashboardSettingsDraft: (settings: DashboardSettings | null) => ({ settings }),
         setPreviewedDashboardSettings: (settings: DashboardSettings | null) => ({ settings }),
@@ -3692,6 +3710,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         beforeUnmount: () => {
+            cache.pendingFilterChange = undefined
             cache.widgetTileRefreshScheduler?.cancelAll()
             actions.abortAnyRunningQuery()
         },
@@ -4445,6 +4464,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const settingsToRefresh = previewUnsavedFilters
                 ? values.currentDashboardSettings
                 : values.settingsForRefresh
+            const pendingFilterChange: PendingFilterChange | undefined = cache.pendingFilterChange
+            const filterChange =
+                pendingFilterChange &&
+                dashboardFiltersEqual(pendingFilterChange.settings.filters, settingsToRefresh.filters) &&
+                equal(pendingFilterChange.settings.variables, settingsToRefresh.variables)
+                    ? pendingFilterChange
+                    : undefined
             const isInitialLoad =
                 action === DashboardLoadAction.InitialLoad || action === DashboardLoadAction.InitialLoadWithVariables
             const isInitialLoadOrUpdate = isInitialLoad || action === DashboardLoadAction.Update
@@ -4585,6 +4611,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 const refreshDurationMs = Math.floor(performance.now() - dashboardRefreshStartTime)
+                const filterChangeIsCurrent =
+                    filterChange &&
+                    cache.pendingFilterChange?.id === filterChange.id &&
+                    dashboardFiltersEqual(settingsToRefresh.filters, values.currentDashboardSettings.filters) &&
+                    equal(settingsToRefresh.variables, values.currentDashboardSettings.variables)
+                const allInsightsSucceeded =
+                    tilesRefreshedCount === totalTileCount && tilesErroredCount === 0 && tilesAbortedCount === 0
                 posthog.capture(`dashboard refreshed`, {
                     dashboard_id: dashboardId,
                     filters: urlFilters,
@@ -4599,7 +4632,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles_refreshed_count: tilesRefreshedCount,
                     tiles_errored_count: tilesErroredCount,
                     tiles_aborted_count: tilesAbortedCount,
+                    ...(filterChangeIsCurrent
+                        ? {
+                              filter_change_id: filterChange.id,
+                              filter_change_duration_ms: Math.floor(performance.now() - filterChange.startTime),
+                              all_insights_succeeded: allInsightsSucceeded,
+                          }
+                        : {}),
                 })
+                if (filterChangeIsCurrent && allInsightsSucceeded) {
+                    cache.pendingFilterChange = undefined
+                }
 
                 if (
                     (previewUnsavedFilters || initialUrlOverridesArePreviewed) &&
@@ -4758,6 +4801,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         discardDashboardChanges: () => {
+            const filterChange: PendingFilterChange | undefined = cache.pendingFilterChange
+            posthog.capture('dashboard filters discarded', {
+                dashboard_id: props.id,
+                filter_change_id: filterChange?.id,
+                total_tile_count: values.insightTiles.length,
+            })
+            cache.pendingFilterChange = undefined
             actions.clearDashboardSettingsUrlOverrides()
             actions.clearInitialDashboardSettingsOverride()
             actions.setPreviewedDashboardSettings(null)
@@ -5076,12 +5126,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 previewUnsavedFilters: true,
             })
         },
+        reportDashboardFilterChange: ({ changeType, properties }) => {
+            const previousChange: PendingFilterChange | undefined = cache.pendingFilterChange
+            const filterChange: PendingFilterChange = {
+                id: uuid(),
+                startTime: performance.now(),
+                settings: values.currentDashboardSettings,
+            }
+            cache.pendingFilterChange = filterChange
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, changeType, {
+                ...properties,
+                filter_change_id: filterChange.id,
+                supersedes_filter_change_id: previousChange?.id,
+                total_tile_count: values.insightTiles.length,
+                can_auto_preview: values.canAutoPreview,
+                auto_preview_tile_limit: AUTO_PREVIEW_TILE_LIMIT,
+            })
+        },
         setProperties: ({ properties }) => {
             actions.setDashboardSettingsDraft({
                 ...values.currentDashboardSettings,
                 filters: { ...values.currentDashboardSettings.filters, properties },
             })
-            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'properties', {
+            actions.reportDashboardFilterChange('properties', {
                 property_count: properties?.length ?? 0,
             })
 
@@ -5103,7 +5170,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     explicitDate,
                 },
             })
-            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'date', {
+            actions.reportDashboardFilterChange('date', {
                 date_from: dateFrom,
                 date_to: dateTo ?? null,
             })
@@ -5121,7 +5188,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ...values.currentDashboardSettings,
                 filters: { ...values.currentDashboardSettings.filters, breakdown_filter },
             })
-            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'breakdown', {
+            actions.reportDashboardFilterChange('breakdown', {
                 breakdown_type: breakdown_filter?.breakdown_type ?? null,
             })
 
@@ -5138,7 +5205,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ...values.currentDashboardSettings,
                 filters: { ...values.currentDashboardSettings.filters, interval },
             })
-            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'interval', {
+            actions.reportDashboardFilterChange('interval', {
                 interval,
             })
 
@@ -5155,7 +5222,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ...values.currentDashboardSettings,
                 filters: { ...values.currentDashboardSettings.filters, filterTestAccounts },
             })
-            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'test_accounts', {
+            actions.reportDashboardFilterChange('test_accounts', {
                 filter_test_accounts: filterTestAccounts,
             })
 
@@ -5172,7 +5239,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ...values.currentDashboardSettings,
                 filters: { ...values.currentDashboardSettings.filters, compareFilter },
             })
-            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'compare', {
+            actions.reportDashboardFilterChange('compare', {
                 compare: compareFilter?.compare ?? null,
                 compare_to: compareFilter?.compare_to ?? null,
             })
@@ -5190,7 +5257,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ...values.currentDashboardSettings,
                 filters: { ...values.currentDashboardSettings.filters, metricFilters },
             })
-            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'metric_labels', {
+            actions.reportDashboardFilterChange('metric_labels', {
                 metric_filter_count: metricFilters?.length ?? 0,
             })
 
@@ -5211,10 +5278,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         overrideVariableValue: ({ variableId, value, isNull }) => {
-            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'variable', {
-                variable_id: variableId,
-            })
-
             const variableDefinition = values.variables.find((candidate) => candidate.id === variableId)
             if (variableDefinition) {
                 const variable = { code_name: variableDefinition.code_name, variableId, value, isNull }
@@ -5234,6 +5297,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     variables,
                 })
             }
+
+            actions.reportDashboardFilterChange('variable', {
+                variable_id: variableId,
+            })
 
             if (values.canAutoPreview) {
                 actions.refreshDashboardItems({
