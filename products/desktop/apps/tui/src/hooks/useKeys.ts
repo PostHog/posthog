@@ -57,6 +57,7 @@ export function useKeys({
   scrollPane,
   control,
   paneAtDrop,
+  typed,
   toggleSidebar,
   cycleMode,
   repoPickerKey,
@@ -74,6 +75,7 @@ export function useKeys({
   scrollPane: (paneId: string, lines: number) => void;
   control: ((taskId: string, runId: string) => PiControl) | undefined;
   paneAtDrop: () => string | undefined;
+  typed: () => void;
   toggleSidebar: () => void;
   cycleMode: (paneId: string, step: 1 | -1) => void;
   // Gives a key to the pane's open /repo picker; false when it has none.
@@ -250,6 +252,8 @@ export function useKeys({
       return;
     }
     if (isAppKey(sequence)) return;
+    const droppedFiles = droppedPaths(sequence).length;
+    if (droppedFiles === 0) typed();
     if (search.open) {
       search.onKey(sequence);
       return;
@@ -264,7 +268,6 @@ export function useKeys({
       return;
     }
     // Dropped files go to the pane under the pointer, which takes focus, like a click would.
-    const droppedFiles = droppedPaths(sequence).length;
     const dropPane = droppedFiles > 0 ? paneAtDrop() : undefined;
     const paneId = dropPane ?? workspace.focusedPaneId;
     if (droppedFiles > 0)

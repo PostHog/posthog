@@ -538,10 +538,15 @@ describe("App", () => {
   });
 
   it.each([
-    ["the pane under the pointer", 0, "right"],
-    ["the pane under the pointer after a slow repaint", 400, "right"],
-    ["the focused pane when the pointer report is stale", 5_000, "left"],
-  ])("drops a file into %s", async (_, reportAge, expected) => {
+    ["the pane under the pointer", "", "right"],
+    // Motion reports come only as the pointer crosses cells, so a drop after a long hover has an old report.
+    ["the pane under the pointer after a long hover", "", "right", 5_000],
+    [
+      "the focused pane once a key was typed after the pointer moved",
+      "x",
+      "left",
+    ],
+  ])("drops a file into %s", async (_, typed, expected, reportAge = 0) => {
     const split = splitFocused(initialLayout(), "row");
     const [left, right] = paneIds(activeWorkspace(split).root);
     saveLayout(focusPane(split, left));
@@ -562,6 +567,7 @@ describe("App", () => {
       // Ghostty reports the pointer just before it pastes the dropped path.
       mouse.emit("move", { column: 90, row: 5 });
       clock.mockReturnValue(now + reportAge);
+      if (typed) mouse.emit("keys", typed);
       mouse.emit("keys", "\x1b[200~/tmp/dropped.png\x1b[201~");
       clock.mockRestore();
       await vi.waitFor(() =>
