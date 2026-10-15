@@ -93,6 +93,8 @@ const UNWATCH_GRACE_MS = 1_000;
 const AGENT_RESTART_TIMEOUT_MS = 10 * 60_000;
 // The server's clock can run a little ahead of this machine's.
 const CLOCK_SKEW_MS = 5_000;
+// How long a hold waits before watching a run again that still read as finished after its resume.
+const REOPEN_MS = 3_000;
 
 // The sandbox's agent has reported in: pi writes its own entry, Claude Code and Codex the run_started notification.
 export function runStarted(entry: StoredLogEntry): boolean {
@@ -697,21 +699,27 @@ export class CloudRuns {
   // Resolves once a run brought back with `resume_in_cloud` has its agent running again, after `since` (epoch ms).
   // The hold keeps the run's stream open meanwhile, so the sandbox's one request for its plan's token is answered
   // even if every pane leaves the chat. A stream still reading the run's previous life starts over, so it reads
-  // the resumed run; one the engine already closed when that life ended opens anew.
+  // the resumed run; one the engine already closed when that life ended opens anew. The backend answers the resume
+  // before the run's status leaves its finished state, and the engine drops a watch opened on a finished run, so
+  // the hold opens it again until the run is live; a failure counts as the restart's own only once it was.
   agentRestarted(
     taskId: string,
     runId: string,
     since: number,
     timeoutMs = AGENT_RESTART_TIMEOUT_MS,
+    reopenMs = REOPEN_MS,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       let settled = false;
+      let live = false;
+      let reopen: NodeJS.Timeout | null = null;
       const entry = this.acquire(taskId, runId);
       if (entry.opened) void this.engine.retry(taskId, runId);
       const finish = (error?: Error): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        if (reopen) clearTimeout(reopen);
         this.engine.off(CloudTaskEvent.Update, listener);
         this.release(entry);
         if (error) reject(error);
@@ -732,13 +740,27 @@ export class CloudRuns {
           finish();
           return;
         }
+        if (update.kind !== "snapshot" && update.kind !== "status") return;
+        if (!update.status) return;
+        if (!FINISHED.includes(update.status)) {
+          live = true;
+          return;
+        }
         if (
-          (update.kind === "snapshot" || update.kind === "status") &&
+          live &&
           (update.status === "failed" || update.status === "cancelled")
-        )
+        ) {
           finish(
             new Error(update.errorMessage || "The sandbox didn't come back"),
           );
+          return;
+        }
+        // Still the previous life's end: the engine has dropped the watch, so open it again once the status can have moved.
+        if (reopen) return;
+        reopen = setTimeout(() => {
+          reopen = null;
+          if (!settled) this.ensureWatching(entry);
+        }, reopenMs);
       };
       const timer = setTimeout(
         () => finish(new Error("The sandbox took too long to come back")),
