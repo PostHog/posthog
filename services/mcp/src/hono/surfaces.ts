@@ -2,7 +2,7 @@ import AGENT_GUIDELINES from '@shared/agent-guidelines.md'
 import GUIDELINES from '@shared/guidelines.md'
 
 import { MCP_SERVER_NAME } from '@/lib/constants'
-import { POSTHOG_AGENT_RUN_RESOURCE_URI } from '@/resources/ui-apps.generated'
+import { POSTHOG_AGENT_RUN_RESOURCE_URI, POSTHOG_AGENT_STATUS_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import { POSTHOG_AGENT_TOOL_NAMES } from '@/tools/posthogAgent/names'
 
 /** One MCP endpoint served by the Hono runtime. All surfaces share auth, rate limits, analytics, and the tool catalog. */
@@ -33,6 +33,6 @@ export const AGENT_SURFACE: McpSurface = {
     serverName: 'posthog-agent',
     guidelines: AGENT_GUIDELINES,
     fixedTools: POSTHOG_AGENT_TOOL_NAMES,
-    uiAppUris: [POSTHOG_AGENT_RUN_RESOURCE_URI],
+    uiAppUris: [POSTHOG_AGENT_RUN_RESOURCE_URI, POSTHOG_AGENT_STATUS_RESOURCE_URI],
     excludedTools: [],
 }

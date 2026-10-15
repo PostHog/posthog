@@ -30,7 +30,11 @@ from products.posthog_ai.backend.services.agent_operations.delegation import (
     parent_credential,
     parent_credential_active,
 )
-from products.posthog_ai.backend.services.agent_operations.progress import RunProgress, summarize_run_log
+from products.posthog_ai.backend.services.agent_operations.progress import (
+    PermissionRequest,
+    RunProgress,
+    summarize_run_log,
+)
 from products.posthog_ai.backend.services.agent_operations.result_schema import (
     AGENT_MCP_INSTRUCTIONS,
     AGENT_RESULT_SCHEMA,
@@ -65,6 +69,12 @@ PERMISSION_MODES: dict[str, str] = {
 ALLOW_REPLIES = frozenset({"allow", "approve", "approved", "yes", "y", "ok", "go ahead"})
 ALLOW_ALWAYS_REPLIES = frozenset({"allow all", "always", "always allow", "allow always"})
 DENY_REPLIES = frozenset({"deny", "reject", "no", "n"})
+# The words that the approval prompt offers. With no approval pending, one of them is a late answer
+# to an approval that is already answered, so it must not go to the agent as a chat message.
+APPROVAL_ANSWERS = frozenset({"allow", "allow all", "deny"})
+# Sandbox harness tools that only report on the run, such as its summary, which the status already shows.
+# The sandbox asks approval for them in client approval mode, so the service answers for the user.
+AUTO_APPROVED_TOOLS = frozenset({"mcp__posthog-code-tools__task_summary_update"})
 
 
 class AgentOperationError(Exception):
@@ -112,6 +122,7 @@ class OperationView:
     operation: AgentOperation
     plan: list[dict[str, str]]
     new_steps: list[str]
+    steps_total: int
     cursor: str
     retry_after_seconds: int
     posthog_url: str
@@ -136,6 +147,17 @@ def _decode_cursor(cursor: str | None, operation_id: str) -> int | None:
     if not isinstance(data, dict) or data.get("o") != operation_id or not isinstance(data.get("n"), int):
         raise AgentOperationError("invalid_cursor", "The cursor belongs to another operation.")
     return data["n"]
+
+
+def _normalize_reply(message: str) -> str:
+    return message.strip().lower().rstrip(".!")
+
+
+def _choose_option(options: list[dict[str, str]], *, allow: bool, always: bool) -> dict[str, str] | None:
+    wanted = [o for o in options if (not o["kind"].startswith("reject")) == allow]
+    preferred_kinds = ("allow_always", "allow_once") if always else ("allow_once", "reject_once")
+    preferred = next((o for kind in preferred_kinds for o in wanted if o["kind"] == kind), None)
+    return preferred or (wanted[0] if wanted else None)
 
 
 def _normalize_result(output: dict[str, Any]) -> dict[str, Any]:
@@ -353,6 +375,7 @@ class AgentOperationService:
                 operation.progress_snapshot = snapshot
                 operation.save(update_fields=["progress_snapshot", "updated_at"])
         plan = progress.plan if progress is not None else list(operation.progress_snapshot.get("plan") or [])
+        steps_total = len(steps) if progress is not None else int(operation.progress_snapshot.get("steps_count") or 0)
 
         # A missing or unknown position restarts from the recent steps, never from an error.
         start = (
@@ -367,6 +390,7 @@ class AgentOperationService:
             operation=operation,
             plan=plan,
             new_steps=new_steps,
+            steps_total=steps_total,
             cursor=_encode_cursor(str(operation.id), consumed),
             retry_after_seconds=retry_after,
             posthog_url=absolute_uri(f"/project/{self.team.pk}/ai?chat={operation.conversation_id}"),
@@ -443,15 +467,39 @@ class AgentOperationService:
             # The log cannot be read now, so keep the approval that the last read found.
             return operation
         pending = progress.pending_permission if progress is not None else None
+        if pending is not None and pending.tool_name in AUTO_APPROVED_TOOLS:
+            self._auto_approve(operation, pending)
+            pending = None
         if pending is not None:
             operation.pending_permission_request = {
                 "request_id": pending.request_id,
                 "title": pending.title,
+                "detail": pending.detail,
                 "options": pending.options,
             }
             return self._set_state(operation, State.NEEDS_INPUT, "approval_required")
         operation.pending_permission_request = None
         return self._set_state(operation, State.RUNNING, None)
+
+    def _auto_approve(self, operation: AgentOperation, request: PermissionRequest) -> None:
+        option = _choose_option(request.options, allow=True, always=True)
+        if option is None or not self._send_permission_response(operation, request.request_id, option["option_id"]):
+            # The next read finds the request again and retries.
+            logger.warning(
+                "agent_operation_auto_approval_not_sent", operation_id=str(operation.id), tool_name=request.tool_name
+            )
+
+    def _send_permission_response(self, operation: AgentOperation, request_id: str, option_id: str) -> bool:
+        if operation.run_id is None or operation.task_id is None:
+            return False
+        return tasks_facade.send_permission_response(
+            operation.run_id,
+            operation.task_id,
+            self.team.pk,
+            user_id=self.user.pk,
+            request_id=request_id,
+            option_id=option_id,
+        )
 
     def _set_state(self, operation: AgentOperation, state: str, reason: str | None) -> AgentOperation:
         operation.state = state
@@ -542,6 +590,9 @@ class AgentOperationService:
                 "The operation cannot take a reply now. Try again after the next status.",
                 status=409,
             )
+        # A pending question takes any reply, so only an operation that waits for nothing rejects these words.
+        if operation.state != State.NEEDS_INPUT and _normalize_reply(message) in APPROVAL_ANSWERS:
+            raise AgentOperationError("no_pending_approval", "This approval was already answered.", status=409)
 
         try:
             reply = AgentOperationReply.objects.for_team(self.team.pk).create(
@@ -562,25 +613,13 @@ class AgentOperationService:
 
     def _answer_permission(self, operation: AgentOperation, message: str) -> None:
         pending = operation.pending_permission_request or {}
-        options = pending.get("options") or []
-        normalized = message.strip().lower().rstrip(".!")
+        normalized = _normalize_reply(message)
         always = normalized in ALLOW_ALWAYS_REPLIES
         allow = always or normalized in ALLOW_REPLIES
-        wanted = [o for o in options if (not o["kind"].startswith("reject")) == allow]
-        preferred_kinds = ("allow_always", "allow_once") if always else ("allow_once", "reject_once")
-        preferred = next((o for kind in preferred_kinds for o in wanted if o["kind"] == kind), None)
-        option = preferred or (wanted[0] if wanted else None)
+        option = _choose_option(pending.get("options") or [], allow=allow, always=always)
         if option is None or operation.run_id is None or operation.task_id is None:
             raise AgentOperationError("no_matching_option", "The pending approval has no option for this reply.")
-        sent = tasks_facade.send_permission_response(
-            operation.run_id,
-            operation.task_id,
-            self.team.pk,
-            user_id=self.user.pk,
-            request_id=pending["request_id"],
-            option_id=option["option_id"],
-        )
-        if not sent:
+        if not self._send_permission_response(operation, pending["request_id"], option["option_id"]):
             raise AgentOperationError(
                 "reply_not_delivered", "The sandbox did not accept the reply. Try again.", status=503
             )

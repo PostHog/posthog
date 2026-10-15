@@ -136,7 +136,7 @@ export const getAgentOperationsReplyCreateUrl = (projectId: string, id: string) 
 }
 
 /**
- * Answer a question or an approval, or steer a running operation.
+ * Answer a question or an approval, or steer a running operation. 'allow', 'allow all' or 'deny' with no pending approval or question returns 409 with code no_pending_approval, because the approval was already answered.
  * @summary Reply to an agent operation
  */
 export const agentOperationsReplyCreate = async (

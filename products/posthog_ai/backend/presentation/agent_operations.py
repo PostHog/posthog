@@ -133,7 +133,13 @@ class AgentOperationApprovalOptionSerializer(serializers.Serializer):
 
 class AgentOperationApprovalSerializer(serializers.Serializer):
     request_id = serializers.CharField(help_text="The pending approval request.")
-    title = serializers.CharField(help_text="The tool call that waits for approval.")
+    title = serializers.CharField(
+        help_text="A short label for the tool call that waits for approval, such as 'Execute SQL query'."
+    )
+    detail = serializers.CharField(
+        allow_null=True,
+        help_text="The PostHog command that waits for approval, such as 'call execute-sql {...}', cut to 600 characters. Null for other tools.",
+    )
     options = AgentOperationApprovalOptionSerializer(many=True, help_text="The answers that the sandbox accepts.")
 
 
@@ -171,6 +177,9 @@ class AgentOperationSerializer(serializers.Serializer):
     plan = AgentOperationPlanItemSerializer(many=True, help_text="PostHog AI's latest plan.")
     new_steps = serializers.ListField(
         child=serializers.CharField(), help_text="Steps since the cursor that the client sent."
+    )
+    steps_total = serializers.IntegerField(
+        help_text="The number of steps that the operation recorded so far, across all its runs. new_steps shows at most 20 of them."
     )
     summary = serializers.CharField(allow_null=True, help_text="PostHog AI's running summary of the work.")
     approvals = serializers.ChoiceField(
@@ -221,6 +230,7 @@ def _serialize(view: OperationView) -> dict[str, Any]:
             "posthog_url": view.posthog_url,
             "plan": view.plan,
             "new_steps": view.new_steps,
+            "steps_total": view.steps_total,
             "summary": view.summary,
             "approvals": operation.approvals,
             "approval": operation.pending_permission_request
@@ -349,7 +359,7 @@ class AgentOperationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         request_serializer=AgentOperationReplySerializer,
         responses={200: OpenApiResponse(response=AgentOperationSerializer), **_ERRORS},
         summary="Reply to an agent operation",
-        description="Answer a question or an approval, or steer a running operation.",
+        description="Answer a question or an approval, or steer a running operation. 'allow', 'allow all' or 'deny' with no pending approval or question returns 409 with code no_pending_approval, because the approval was already answered.",
     )
     @action(detail=True, methods=["post"], url_path="reply", required_scopes=["conversation:write"])
     def reply(self, request: Request, pk: str, **kwargs: Any) -> Response:

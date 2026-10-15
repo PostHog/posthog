@@ -180,23 +180,26 @@ const postHogAgentRun = (): ToolBase<typeof PostHogAgentRunSchema, RunResult> =>
         handler: postHogAgentRunHandler,
     })
 
-const postHogAgentStatus = (): ToolBase<typeof PostHogAgentStatusSchema, ToolResultPayload> => ({
-    name: POSTHOG_AGENT_STATUS_TOOL_NAME,
-    schema: PostHogAgentStatusSchema,
-    handler: postHogAgentStatusHandler,
-})
+const postHogAgentStatus = (): ToolBase<typeof PostHogAgentStatusSchema, ToolResultPayload> =>
+    withUiApp('posthog-agent-status', {
+        name: POSTHOG_AGENT_STATUS_TOOL_NAME,
+        schema: PostHogAgentStatusSchema,
+        handler: postHogAgentStatusHandler,
+    })
 
-const postHogAgentReply = (): ToolBase<typeof PostHogAgentReplySchema, ToolResultPayload> => ({
-    name: POSTHOG_AGENT_REPLY_TOOL_NAME,
-    schema: PostHogAgentReplySchema,
-    handler: postHogAgentReplyHandler,
-})
+const postHogAgentReply = (): ToolBase<typeof PostHogAgentReplySchema, ToolResultPayload> =>
+    withUiApp('posthog-agent-status', {
+        name: POSTHOG_AGENT_REPLY_TOOL_NAME,
+        schema: PostHogAgentReplySchema,
+        handler: postHogAgentReplyHandler,
+    })
 
-const postHogAgentCancel = (): ToolBase<typeof PostHogAgentCancelSchema, ToolResultPayload> => ({
-    name: POSTHOG_AGENT_CANCEL_TOOL_NAME,
-    schema: PostHogAgentCancelSchema,
-    handler: postHogAgentCancelHandler,
-})
+const postHogAgentCancel = (): ToolBase<typeof PostHogAgentCancelSchema, ToolResultPayload> =>
+    withUiApp('posthog-agent-status', {
+        name: POSTHOG_AGENT_CANCEL_TOOL_NAME,
+        schema: PostHogAgentCancelSchema,
+        handler: postHogAgentCancelHandler,
+    })
 
 export const POSTHOG_AGENT_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     [POSTHOG_AGENT_RUN_TOOL_NAME]: postHogAgentRun,
