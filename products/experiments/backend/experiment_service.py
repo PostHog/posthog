@@ -49,6 +49,7 @@ from posthog.utils import str_to_bool
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
+from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.health.context import load_health_context
@@ -341,6 +342,15 @@ def _apply_holdout(filters: dict, holdout: ExperimentHoldout | None) -> dict:
         filters,
         holdout_id=holdout.id if holdout else None,
         exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+    )
+
+
+def _tracked_health_finding(finding: ExperimentHealthFinding) -> str:
+    # pinned: `code:subcode:severity:reason`, as on the page's `experiment health checked`. Insights split each
+    # string on `:`, so every field is present, empty when the finding has none.
+    reason = finding.evidence.get("reason")
+    return ":".join(
+        [finding.code.value, finding.subcode or "", finding.severity.value, reason if isinstance(reason, str) else ""]
     )
 
 
@@ -1403,6 +1413,7 @@ class ExperimentService:
                     "health_finding_subcodes": [
                         f"{finding.code.value}:{finding.subcode}" for finding in findings if finding.subcode
                     ],
+                    "health_findings": [_tracked_health_finding(finding) for finding in findings],
                     "health_finding_count": len(findings),
                 },
             )
@@ -3972,14 +3983,26 @@ class ExperimentService:
         # For cross-project clones we always check the target; for same-project
         # clones we only check when the key differs from the source flag.
         should_check_existing = is_cross_project or feature_flag_key != source_experiment.feature_flag.key
+        service = ExperimentService(team=target, user=self.user) if is_cross_project else self
         if should_check_existing:
             existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
             if existing_flag:
-                # The same adoption check create_experiment applies, taken before the variants are
-                # read so a flag this product cannot use surfaces as a validation error here too.
+                # The same adoption and access checks create_experiment applies, taken before the
+                # variants are read so a flag this product cannot use surfaces as a validation error
+                # here too, and a flag the user is denied stays a 403 rather than leaking its shape.
                 assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
-                if existing_flag.variants:
-                    clone_variants = deepcopy(existing_flag.variants)
+                service._assert_flag_access(
+                    existing_flag,
+                    next_step="It can't be used for an experiment. Pick a different flag key, or ask someone with flag access.",
+                )
+                # The key is usually defaulted (source key) or slugified from the name, so a collision
+                # with a flag that can't back an experiment must name the key, not the flag's variants.
+                if experiment_eligibility_error(existing_flag.variants):
+                    raise ValidationError(
+                        f"A feature flag with key '{feature_flag_key}' already exists in the target project "
+                        "and can't back an experiment. Choose a different feature flag key."
+                    )
+                clone_variants = deepcopy(existing_flag.variants)
 
         clone_filters: dict[str, Any] = {}
         if clone_variants:
@@ -4043,7 +4066,6 @@ class ExperimentService:
             source_experiment.secondary_metrics_ordered_uuids, secondary_remap
         )
 
-        service = ExperimentService(team=target, user=self.user) if is_cross_project else self
         creation_mode: ExperimentCreationMode = "copy_to_project" if is_cross_project else "duplicate"
         return service.create_experiment(
             name=clone_name,

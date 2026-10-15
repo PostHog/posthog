@@ -731,6 +731,32 @@ export const FailedFetchOffersRetry: Story = {
     },
 }
 
+export const ForbiddenFetchExplainsAccess: Story = {
+    args: {
+        taxonomicFilterLogicKey: 'feature-flags-forbidden',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags],
+        groupType: TaxonomicFilterGroupType.FeatureFlags,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/feature_flags': () => [
+                    403,
+                    { detail: 'permission denied', code: 'permission_denied' },
+                ],
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: { waitForSelector: '.no-infinite-results' },
+        docs: {
+            description: {
+                story: 'When the list returns 403, the list explains the missing access and offers no retry, because a retry cannot succeed.',
+            },
+        },
+    },
+}
+
 export const CustomEventName: Story = {
     render: (args) => {
         const { setSearchQuery } = useActions(
@@ -883,10 +909,23 @@ const eventMatchAutocaptureMock = mswDecorator({
                     { name: '$autocapture', display_name: 'Autocapture', probability: 0.95 },
                     { name: '$rageclick', display_name: 'Rageclick', probability: 0.74 },
                 ],
+                outcome: 'matched',
+                unsent: [],
             },
         ],
     },
 })
+
+const eventMatchAnswerMock = (answer: Record<string, unknown>): ReturnType<typeof mswDecorator> =>
+    mswDecorator({
+        get: {
+            '/api/projects/:team_id/event_definitions': [],
+            '/api/projects/:team_id/property_definitions': { results: [], count: 0 },
+        },
+        post: {
+            '/api/projects/:team_id/taxonomic_search_intent/match_events/': () => [200, answer],
+        },
+    })
 
 /** A search that matches no event name gets core events the decision model thinks it describes. */
 export const EmptyEventsWithEventMatch: Story = {
@@ -897,7 +936,7 @@ export const EmptyEventsWithEventMatch: Story = {
     },
     decorators: [eventMatchAutocaptureMock],
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: true },
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: 'test' },
         testOptions: { waitForSelector: '[data-attr="taxonomic-event-match-suggestion"]' },
     },
 }
@@ -911,8 +950,42 @@ export const EmptyAllTabWithEventMatch: Story = {
     },
     decorators: [eventMatchAutocaptureMock],
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: true },
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: 'test' },
         testOptions: { waitForSelector: '[data-attr="taxonomic-event-match-suggestion"]' },
+    },
+}
+
+/** The model's likely event was never sent by this project, so the empty state names it instead of suggesting it. */
+export const EmptyEventsWithUnsentEventHint: Story = {
+    render: (args) => <EventMatchStoryRender {...args} resetMatches />,
+    args: {
+        taxonomicFilterLogicKey: 'events-event-match-unsent',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+    },
+    decorators: [
+        eventMatchAnswerMock({
+            matches: [],
+            outcome: 'not_ingested',
+            unsent: [{ name: '$screen', display_name: 'Screen', probability: 0.85 }],
+        }),
+    ],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: 'test' },
+        testOptions: { waitForSelector: '[data-attr="taxonomic-event-match-unsent"]' },
+    },
+}
+
+/** A search made only of values gets a pointer to properties instead of an event suggestion. */
+export const EmptyEventsWithValueHint: Story = {
+    render: (args) => <EventMatchStoryRender {...args} resetMatches />,
+    args: {
+        taxonomicFilterLogicKey: 'events-event-match-value',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+    },
+    decorators: [eventMatchAnswerMock({ matches: [], outcome: 'only_values', unsent: [] })],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: 'test' },
+        testOptions: { waitForSelector: '[data-attr="taxonomic-event-match-value"]' },
     },
 }
 
@@ -931,13 +1004,13 @@ export const EmptyEventsWithEventMatchLoading: Story = {
             post: {
                 '/api/projects/:team_id/taxonomic_search_intent/match_events/': async () => {
                     await delay('infinite')
-                    return [200, { matches: [] }]
+                    return [200, { matches: [], outcome: 'nothing_likely', unsent: [] }]
                 },
             },
         }),
     ],
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: true },
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: 'test' },
         // The spinner is the point of this story, so the runner must not wait for it to disappear.
         testOptions: {
             waitForSelector: '[data-attr="taxonomic-event-match-loading"]',
