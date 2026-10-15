@@ -25,6 +25,10 @@ For example, "which active users will open a report in the next 7 days?".
    Each scored person gets an `autoresearch_prediction` event with their probability.
    When the model's `write_person_property` is on, a person who resolves to a current distinct ID also gets the model's output person property, for example `predicted_p_adopt_insights_14d`. It is off by default for new models. Turn it on with `autoresearch-partial-update` before you target people by score in a flag, cohort, workflow or insight. Turning it off removes the property from the people the model scored. Changing the setting needs the `person:write` scope.
 5. When a prediction date's horizon has passed, online validation checks the scores against what really happened and records **realized AUC**.
+6. Training keeps going on a schedule. On each scoring day the model starts a research run (**explore**) until a run does not promote a better model, or until 5 research runs have run.
+   After that it starts one research run every `research_interval_days` (**maintain**, default 7) after the latest training run, so a run started by hand resets the clock.
+   With `research_interval_days` null the model trains only when someone asks. A champion that cannot score still gets a short rescue run.
+   `training_phase` and `next_research_at` on `posthog:autoresearch-retrieve` say where the model is.
 
 In the PostHog UI the entity is a **model**. The API and tools call it a **pipeline**. Use "model" when you talk to people.
 
