@@ -11,7 +11,9 @@ from posthog.schema import (
     ElementPropertyFilter,
     EventPropertyFilter,
     GroupPropertyFilter,
+    HogQLQueryModifiers,
     PersonPropertyFilter,
+    PropertyGroupsMode,
     PropertyOperator,
     SessionPropertyFilter,
 )
@@ -82,7 +84,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-    def _execute(self, columns: str, where: str = ""):
+    def _execute(self, columns: str, where: str = "", modifiers: HogQLQueryModifiers | None = None):
         # settings.DEBUG is False under the test runner, so the org gate fail-closes and prunes the
         # table. test_database.py covers the gate itself; here it only has to be out of the way.
         context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
@@ -94,6 +96,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 f"SELECT {columns} FROM posthog.flag_evaluations WHERE uuid = '{self.row_uuid}'{where}",
                 team=self.team,
                 context=context,
+                modifiers=modifiers,
                 pretty=False,
             )
 
@@ -169,6 +172,21 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         )
 
         assert rows == [({"quote": 'a"b', "keep": "yes"}, {"email": "a@example.com"})]
+
+    def test_custom_property_reads_the_property_group_map_like_the_json(self):
+        where = f" AND properties.probe = '{EVENT_PROBE}'"
+        json_read = self._execute(
+            "properties.probe", where, modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.DISABLED)
+        )
+        map_read = self._execute(
+            "properties.probe", where, modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED)
+        )
+
+        # A read that falls back to the JSON returns the same rows. Only the printed SQL shows whether the
+        # filter reads the map. Only a map read can use the bloom filter indexes.
+        assert "equals(flag_evaluations.properties_group_custom[" in (map_read.clickhouse or "")
+        assert "properties_group_custom" not in (json_read.clickhouse or "")
+        assert map_read.results == json_read.results == [(EVENT_PROBE,)]
 
     def test_person_id_follows_a_later_merge(self):
         # Ingestion never rewrites the person on the row, so only the read can correct it. Drop the
