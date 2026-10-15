@@ -35,7 +35,7 @@ from posthog.temporal.alerts.admission import admit_evaluation_slots, release_ev
 
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
-from products.alerts.backend.evaluation.dispatcher import check_alert_per_series
+from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -51,12 +51,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.grouping import (
-    GroupObservation,
-    bounded_grouping_key,
-    decide_groups,
-    is_hashed_grouping_key,
-)
+from products.alerts_platform.backend.facade.grouping import GroupObservation, bounded_grouping_key, decide_groups
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
     AlertSnapshot,
@@ -369,7 +364,9 @@ def _decide_grouped(
 ) -> PlatformAlertOutcome:
     """One check of a breakdown alert, judged per breakdown value through the platform's decision.
 
-    An open value the query no longer returns is judged as not breaching, so it can resolve.
+    An open value the query no longer returns is judged as not breaching, so it can resolve. When
+    the breakdown limit folded values into "Other", a missing value may still breach, so an open
+    value the query did not return is left as it is.
     """
     if tuple(check.grouping.keys) != (BREAKDOWN_GROUPING_KEY,):
         return _broken(check, snapshot, now=now, message=f"An insight alert can only group by {BREAKDOWN_GROUPING_KEY}")
@@ -380,7 +377,7 @@ def _decide_grouped(
         return _broken(check, snapshot, now=now, message=str(error))
     except Exception as error:
         return _query_failed(check, snapshot, error, now=now)
-    if not isinstance(evaluated, tuple):
+    if not isinstance(evaluated, PerSeriesEvaluation):
         return _skipped(check, snapshot, now=now)
     duration_ms = int((time.monotonic() - started_at) * 1000)
 
@@ -388,21 +385,17 @@ def _decide_grouped(
         check,
         [
             GroupObservation(
-                grouping_key=bounded_grouping_key(series.label),
+                grouping_key=bounded_grouping_key(series.identity),
                 current_breached=bool(series.result.breaches),
                 value=series.result.value,
                 labels={BREAKDOWN_GROUPING_KEY: series.label},
             )
-            for series in evaluated
+            for series in evaluated.series
         ],
         snapshot_of=lambda instance, _prior: _snapshot(check, instance),
         policy=INSIGHT_ALERT_POLICY,
         now=now,
-        absent=lambda key: GroupObservation(
-            grouping_key=key,
-            current_breached=False,
-            labels={} if is_hashed_grouping_key(key) else {BREAKDOWN_GROUPING_KEY: key},
-        ),
+        absent=lambda key: None if evaluated.truncated else GroupObservation(grouping_key=key, current_breached=False),
     )
     for verdict in decision.verdicts:
         _record_metrics(verdict.outcome.notification, verdict.snapshot.state.value, verdict.group.new_state)
