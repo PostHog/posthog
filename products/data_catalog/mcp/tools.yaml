@@ -100,11 +100,16 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        title: Create or refine a catalog metric
+        title: Create a catalog metric
         description: >
-            Create a canonical metric, or refine the live one already holding this name (upsert on name; always lands
-            'proposed'). A deleted metric's name is available again - creating with it starts a fresh metric with no
-            history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery /
+            Create a canonical metric (always lands 'proposed'). If a live metric already holds the name, the call
+            fails with a 409 'metric_name_taken' error, and the existing metric stays unchanged. Never overwrite on
+            your own: tell the user that the name is taken, show them the existing metric with metric-describe, and
+            ask whether to overwrite it, use a different name, or edit the existing metric with
+            data-catalog-metric-update. Only after the user explicitly agrees to overwrite, call this tool again with
+            'overwrite' set to true. Overwriting an approved metric with a changed meaning resets it to 'proposed'. A
+            deleted metric's name is available again - creating with it starts a fresh metric with no history carried
+            over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery /
             an event node) that the query runner computes, OR an agent-calculated markdown definition - {"kind":
             "MarkdownDefinition", "markdown": "<numbered steps to calculate the metric>"} - which an agent follows to
             produce the number. Prefer an executable definition when the metric is deterministic; use a markdown
@@ -124,6 +129,11 @@ tools:
             - created_source
         inject_body:
             created_source: ai_generated
+        param_overrides:
+            overwrite:
+                description: >
+                    Set to true only after the user explicitly agreed to overwrite the live metric that already
+                    holds this name. Leave it unset on the first call.
     data-catalog-metric-delete:
         operation: data_catalog_metrics_destroy
         enabled: true

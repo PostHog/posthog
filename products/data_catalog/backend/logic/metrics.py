@@ -1,8 +1,8 @@
 """Metric write path and approval lifecycle.
 
-Names are unique among a team's live metrics: creating with a live existing name refines that metric,
-while creating with a deleted metric's name starts a fresh one (delete and rename free the name for
-reuse). A metric can be created from an insight
+Names are unique among a team's live metrics: creating with a live existing name refines that metric
+(the API requires an explicit overwrite for this), while creating with a deleted metric's name starts a
+fresh one (delete and rename free the name for reuse). A metric can be created from an insight
 (its query is snapshotted server-side and drift is flagged for re-review). Promotion to ``approved``
 is blocked while a metric is drifted. All transitions emit capture events for success-criteria
 measurement.
@@ -37,11 +37,12 @@ from .analytics import (
     METRIC_APPROVED_EVENT,
     METRIC_CREATED_EVENT,
     METRIC_DELETED_EVENT,
+    METRIC_NAME_CONFLICT_EVENT,
     METRIC_UPDATED_EVENT,
     capture_metric_event,
 )
 from .drift import canonical_query_hash, compute_drift, fetch_insight
-from .exceptions import MetricDrifted, SourceInsightUnavailable
+from .exceptions import MetricDrifted, MetricNameTaken, SourceInsightUnavailable
 from .lineage import remove_metric_lineage
 from .validation import validate_description, validate_metric_definition
 
@@ -203,6 +204,16 @@ def _refine(metric: Metric, fields: dict) -> None:
     metric.save()
 
 
+def _name_taken(existing: Metric, *, team: Team, user: Optional[User], request: "Request | None") -> MetricNameTaken:
+    capture_metric_event(METRIC_NAME_CONFLICT_EVENT, existing, team=team, user=user, request=request)
+    return MetricNameTaken(
+        detail=f"A metric named '{existing.name}' already exists. Use a different name, or overwrite the existing metric.",
+        # Name and status only: the metric list hides a metric whose definition reads a table the caller
+        # cannot access, so its description and definition must not leak through this error either.
+        extra={"existing_metric": {"name": existing.name, "status": existing.status}},
+    )
+
+
 def _schedule_lineage_sync(metric: Metric) -> None:
     """Refresh the metric's lineage node after the write it belongs to commits.
 
@@ -231,9 +242,13 @@ def upsert_metric(
     ai_model: str | _Unset = _UNSET,
     confidence: float | None | _Unset = _UNSET,
     reasoning: str | _Unset = _UNSET,
+    overwrite: bool = True,
     request: "Request | None" = None,
 ) -> Metric:
     """Create a metric, or refine the live one already holding ``name`` for this team.
+
+    With ``overwrite=False``, a live metric holding ``name`` raises ``MetricNameTaken`` and stays
+    unchanged, so the caller can ask a person before replacing it.
 
     Refine is a partial merge: only the fields the caller supplies are written, so a refine that
     omits a field leaves that field (a stored ``definition``, provenance, ...) untouched rather than
@@ -272,6 +287,8 @@ def upsert_metric(
                 existing = Metric.objects.for_team(team.id).filter(name=name, deleted=False).select_for_update().first()
                 created = existing is None
                 if existing is not None:
+                    if not overwrite:
+                        raise _name_taken(existing, team=team, user=user, request=request)
                     _refine(existing, fields)
                     metric = existing
                 else:
@@ -288,13 +305,20 @@ def upsert_metric(
                 existing = Metric.objects.for_team(team.id).filter(name=name, deleted=False).select_for_update().first()
                 if existing is None:
                     raise
+                if not overwrite:
+                    raise _name_taken(existing, team=team, user=user, request=request)
                 _refine(existing, fields)
                 metric, created = existing, False
 
     if created or written_fields & _LINEAGE_FIELDS:
         _schedule_lineage_sync(metric)
     capture_metric_event(
-        METRIC_CREATED_EVENT if created else METRIC_UPDATED_EVENT, metric, team=team, user=user, request=request
+        METRIC_CREATED_EVENT if created else METRIC_UPDATED_EVENT,
+        metric,
+        team=team,
+        user=user,
+        request=request,
+        extra=None if created else {"overwritten_by_create": True},
     )
     return metric
 

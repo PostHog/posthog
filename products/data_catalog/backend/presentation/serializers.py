@@ -214,6 +214,23 @@ class MetricSerializer(serializers.ModelSerializer):
         return api.compute_drift([obj])[obj.id]
 
 
+@extend_schema_serializer(component_name="DataCatalogMetricCreate")
+class MetricCreateSerializer(MetricSerializer):
+    """Create input. ``overwrite`` exists only here, because PATCH addresses an existing metric by its URL name."""
+
+    overwrite = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text="Replace the fields of the live metric that already holds this name. When false, a taken name "
+        "returns 409 with code 'metric_name_taken' and the existing metric stays unchanged. Overwriting an "
+        "approved metric with a changed name, description, unit, or definition resets it to 'proposed'.",
+    )
+
+    class Meta(MetricSerializer.Meta):
+        fields = [*MetricSerializer.Meta.fields, "overwrite"]
+
+
 @extend_schema_serializer(component_name="DataCatalogMetricBulkNamesRequest")
 class MetricBulkNamesRequestSerializer(serializers.Serializer):
     """Input for the bulk metric actions: the metric names to act on."""

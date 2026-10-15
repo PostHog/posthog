@@ -45,3 +45,10 @@ class CatalogConflict(APIException):
         super().__init__(detail=detail)
         if extra is not None:
             self.extra = extra
+
+
+class MetricNameTaken(CatalogConflict):
+    """A create named a live metric without ``overwrite``. ``extra.existing_metric`` holds its name and status."""
+
+    default_detail = "A metric with this name already exists. Use a different name, or overwrite the existing metric."
+    default_code = "metric_name_taken"

@@ -12,7 +12,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.enums import CreatedSource, MetricStatus
 from products.data_catalog.backend.logic import metrics
 from products.data_catalog.backend.logic.drift import compute_drift
-from products.data_catalog.backend.logic.exceptions import MetricDrifted, SourceInsightUnavailable
+from products.data_catalog.backend.logic.exceptions import MetricDrifted, MetricNameTaken, SourceInsightUnavailable
 from products.data_catalog.backend.logic.metrics import (
     approve_metric,
     approved_metric_names_for_team,
@@ -83,9 +83,10 @@ class TestMetricUpsert(BaseTest):
             self._upsert("arr", description="x" * (MAX_DESCRIPTION_LENGTH + 1))
         assert "description" in ctx.exception.detail
 
-    def test_concurrent_create_retries_to_single_row(self) -> None:
+    @parameterized.expand([("overwrite", True), ("no_overwrite", False)])
+    def test_concurrent_create_retries_to_single_row(self, _name: str, overwrite: bool) -> None:
         # Simulate the race: the pre-check misses, create hits the unique constraint (IntegrityError),
-        # and the retry finds and refines the row the other writer created. Guards the except branch.
+        # and the retry finds the row the other writer created. Guards the except branch.
         winner = self._upsert("mrr", description="winner")
 
         mock_qs = MagicMock()
@@ -93,9 +94,13 @@ class TestMetricUpsert(BaseTest):
         mock_qs.create.side_effect = IntegrityError("duplicate key")
 
         with patch.object(metrics.Metric.objects, "for_team", return_value=mock_qs):
-            result = self._upsert("mrr", description="racer")
+            if overwrite:
+                result = self._upsert("mrr", description="racer", overwrite=True)
+                assert result.id == winner.id
+            else:
+                with self.assertRaises(MetricNameTaken):
+                    self._upsert("mrr", description="racer", overwrite=False)
 
-        assert result.id == winner.id
         assert Metric.objects.for_team(self.team.id).count() == 1
 
 
