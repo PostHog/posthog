@@ -376,6 +376,36 @@ impl Drop for SentinelBatch<'_> {
     }
 }
 
+/// The `max_offset` to pass to [`SentinelBatch::note_acked`] for one key's
+/// accepted messages, given as `(partition, offset, keyed)` in send order,
+/// while `unfinished`, as `(partition, offset)` in send order, go out again.
+/// `partition` is the run's first keyed partition, which `note_sent` tracks.
+/// `None` when nothing may be ACKed.
+pub fn ack_mark(
+    partition: i32,
+    accepted: impl IntoIterator<Item = (i32, i64, bool)>,
+    unfinished: impl IntoIterator<Item = (i32, i64)>,
+) -> Option<i64> {
+    // A resent message must stay above the mark. A partition revoked and
+    // regained inside one poll sends an offset twice, so send order is not
+    // offset order and the lowest unfinished offset bounds the mark.
+    let resend_from = unfinished
+        .into_iter()
+        .filter(|&(unfinished_partition, _)| unfinished_partition == partition)
+        .map(|(_, offset)| offset)
+        .min()
+        .unwrap_or(i64::MAX);
+    accepted
+        .into_iter()
+        // An unkeyed message lives on an arbitrary partition under a synthetic
+        // key, so it does not advance the mark.
+        .filter(|&(message_partition, offset, keyed)| {
+            keyed && message_partition == partition && offset < resend_from
+        })
+        .map(|(_, offset, _)| offset)
+        .max()
+}
+
 /// The consumer's rdkafka context: observes async commit results (a
 /// fire-and-forget `CommitMode::Async` failure is otherwise invisible until
 /// restart-time redelivery), forgets revoked partitions around rebalances, and
@@ -636,6 +666,39 @@ mod tests {
             .note_sent("t:a", &[msg_at(0, 2)], SendKind::Resend);
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].kind, KeyOrderViolationKind::ResendAfterAck);
+    }
+
+    #[test]
+    fn a_partial_acks_mark_keeps_the_resend_of_its_unfinished_message_legal() {
+        let sentinel = KeyOrderSentinel::new();
+        sentinel.batch().note_sent(
+            "t:a",
+            &[msg_at(0, 1), msg_at(0, 2), msg_at(0, 3)],
+            SendKind::Fresh,
+        );
+        let mark = ack_mark(
+            0,
+            [(0, 1, true), (0, 3, true), (1, 9, false)],
+            [(1, 8), (0, 2)],
+        );
+        assert_eq!(mark, Some(1));
+        sentinel.batch().note_acked("t:a", mark.expect("a mark"));
+        assert!(sentinel
+            .batch()
+            .note_sent("t:a", &[msg_at(0, 2)], SendKind::Resend)
+            .is_empty());
+    }
+
+    #[test]
+    fn a_redelivered_offset_keeps_the_ack_mark_below_every_unfinished_message() {
+        // The run sent offset 1, 2, then 1 again, and the worker accepted the
+        // first copy only, so the unfinished list runs 2 then 1.
+        assert_eq!(ack_mark(0, [(0, 1, true)], [(0, 2), (0, 1)]), None);
+    }
+
+    #[test]
+    fn a_run_whose_tracked_partition_is_wholly_unfinished_acks_nothing() {
+        assert_eq!(ack_mark(0, [(1, 100, true)], [(0, 10)]), None);
     }
 
     #[test]
