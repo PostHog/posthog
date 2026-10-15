@@ -43,8 +43,10 @@ on:
             - '.github/workflows/_rust-build-images.yml'
             - '.github/rust-images.yml'
 
+# A label other than smoke_test* gets a group of its own, so that adding it does not cancel
+# an opted-in build that is in progress.
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    group: ${{ github.workflow }}-${{ github.event.action == 'labeled' && !startsWith(github.event.label.name, 'smoke_test') && github.run_id || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -105,7 +107,6 @@ jobs:
             push: ${{ github.event_name != 'pull_request' && vars.CD_DEPLOY_ENABLED == 'true' }}
             image-filter: ${{ needs.affected.outputs.image-filter || inputs.image-filter || '' }}
             tag-rules: |
-                type=ref,event=pr
                 type=ref,event=branch
                 type=semver,pattern={{version}}
                 type=semver,pattern={{major}}.{{minor}}
@@ -131,6 +132,7 @@ jobs:
         # Fork PRs never build here, because the build pushes to ghcr and reads the sccache secrets.
         if: |
             github.event_name == 'pull_request' &&
+            (github.event.action != 'labeled' || startsWith(github.event.label.name, 'smoke_test')) &&
             !startsWith(github.head_ref, 'trunk-merge/') &&
             github.event.pull_request.head.repo.full_name == github.repository &&
             contains(toJson(github.event.pull_request.labels.*.name), 'smoke_test')
@@ -143,15 +145,7 @@ jobs:
               env:
                   PR_LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
               run: |
-                  filter=""
-                  for label in $(echo "$PR_LABELS" | jq -r '.[]'); do
-                      case "$label" in
-                          smoke_test:*)
-                              img="${label#smoke_test:}"
-                              filter="${filter:+$filter,}$img"
-                              ;;
-                      esac
-                  done
+                  filter=$(jq -r '[.[] | select(startswith("smoke_test:")) | ltrimstr("smoke_test:")] | join(",")' <<<"$PR_LABELS")
                   echo "filter=$filter" >> "$GITHUB_OUTPUT"
 
     build-pr-images:

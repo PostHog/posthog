@@ -6,6 +6,8 @@
 #
 # To add a new service: append an entry here. The deploy matrix in
 # rust-docker-build.yml must also be updated for production deploys.
+# Also create a smoke_test:<image> repo label, so that a PR can opt in
+# to building the new image.
 - image: capture
   dockerfile: ./rust/Dockerfile
   project: kshskj225r
