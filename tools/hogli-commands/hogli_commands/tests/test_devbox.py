@@ -1096,6 +1096,7 @@ class TestWorkspaceCreation:
         # prompt interactively for a preset, which `--yes` does not bypass.
         assert _flag_value(args, "--preset") == expected_preset
         assert "--use-parameter-defaults" in args
+        assert _flag_value(args, "--automatic-updates") == "always"
         assert "--yes" in args
         # Security invariant: the Claude OAuth token is a Coder user secret
         # (env-injected at workspace start); it must never be forwarded as a
