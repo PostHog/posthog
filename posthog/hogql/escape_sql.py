@@ -313,6 +313,8 @@ def _quote_postgres_wire_identifier(v: str, extra_reserved_keywords: set[str] | 
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
 def escape_clickhouse_identifier(identifier: str) -> str:
+    if identifier == "":
+        raise QueryError("Empty HogQL identifiers are not permitted")
     if "%" in identifier:
         raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
     return quote_clickhouse_identifier(identifier)

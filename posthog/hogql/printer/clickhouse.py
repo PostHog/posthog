@@ -1336,9 +1336,10 @@ class ClickHousePrinter(BasePrinter):
         # The native table stores a dotted key as one path named with `%2E` (EVENTS_JSON_INSERT_SETTINGS), so a
         # dot inside one key must not read as a path separator. The escaped key then takes the bound-parameter
         # branch below, as `%` would otherwise break the SQL's own parameter placeholders.
+        # An empty key also takes that branch, because ClickHouse rejects an empty identifier.
         keys = [key.replace(".", "%2E") for key in node.keys]
 
-        if any("%" in key for key in keys):
+        if any("%" in key or key == "" for key in keys):
             if node.access_type == "sub_object":
                 for key in keys:
                     subcolumn = f"^{quote_clickhouse_identifier(key)}"
