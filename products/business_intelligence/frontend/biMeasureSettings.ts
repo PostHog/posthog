@@ -58,7 +58,8 @@ export function mergeBIMeasureSettings(
 
 export function mergeBITableSettings(
     current: TableSettings | undefined,
-    generated: TableSettings | undefined
+    generated: TableSettings | undefined,
+    previousDefaults?: TableSettings
 ): TableSettings | undefined {
     if (!generated) {
         return current
@@ -68,7 +69,18 @@ export function mergeBITableSettings(
         ...generated,
         columns: generated.columns?.map((column) => {
             const saved = current?.columns?.find((previous) => previous.column === column.column)
-            return { ...saved, ...column, settings: mergeBIMeasureSettings(saved?.settings, column.settings) }
+            const settings = mergeBIMeasureSettings(saved?.settings, column.settings)
+            const savedLabel = saved?.settings?.display?.label
+            const previousLabel = previousDefaults?.columns?.find((previous) => previous.column === column.column)
+                ?.settings?.display?.label
+            return {
+                ...saved,
+                ...column,
+                settings:
+                    previousDefaults && savedLabel !== undefined && savedLabel !== previousLabel
+                        ? { ...settings, display: { ...settings?.display, label: savedLabel } }
+                        : settings,
+            }
         }),
     }
 }

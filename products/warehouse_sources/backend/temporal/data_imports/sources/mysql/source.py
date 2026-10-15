@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -99,6 +101,61 @@ class MySQLSource(
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 ):
+    codebase_detection = detect(
+        env=("^MYSQL_", "^MYSQLHOST$", "^MYSQLPORT$", "^MYSQLUSER$", "^MYSQLPASSWORD$", "^MYSQLDATABASE$"),
+        npm=(
+            "mysql",
+            "mysql2",
+            "@mysql/xdevapi",
+            "serverless-mysql",
+            "promise-mysql",
+            "@types/mysql",
+            "@fastify/mysql",
+            "@sequelize/mysql",
+            "@mikro-orm/mysql",
+            "@databases/mysql",
+        ),
+        pypi=(
+            "pymysql",
+            "mysqlclient",
+            "mysql-connector-python",
+            "aiomysql",
+            "asyncmy",
+            "mysql-connector",
+            "mysql-connector-python-rf",
+            "mysqlx-connector-python",
+            "mysql-python",
+            "mysql-replication",
+            "django-mysql",
+            "flask-mysqldb",
+            "flask-mysql",
+        ),
+        cargo=("mysql", "mysql_async", "sqlx-mysql"),
+        cocoapods=("OHMySQL",),
+        go=(
+            "github.com/go-sql-driver/mysql",
+            "gorm.io/driver/mysql",
+            "github.com/go-mysql-org/go-mysql",
+            "github.com/siddontang/go-mysql",
+            "github.com/ziutek/mymysql",
+        ),
+        hex=("myxql", "mysql", "mariaex"),
+        maven=(
+            "com.mysql:mysql-connector-j",
+            "mysql:mysql-connector-java",
+            "io.asyncer:r2dbc-mysql",
+            "dev.miku:r2dbc-mysql",
+            "io.vertx:vertx-mysql-client",
+            "com.github.jasync-sql:jasync-mysql",
+            "org.flywaydb:flyway-mysql",
+            "org.testcontainers:mysql",
+            "org.testcontainers:testcontainers-mysql",
+        ),
+        pub=("mysql1", "mysql_client"),
+        rubygems=("mysql2", "trilogy", "activerecord-trilogy-adapter", "mysql", "ruby-mysql"),
+        swiftpm=("github.com/vapor/mysql-kit", "github.com/vapor/mysql-nio", "github.com/vapor/fluent-mysql-driver"),
+    )
+
     def resume_covers_run(
         self,
         *,

@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +38,81 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RollbarSource(ResumableSource[RollbarSourceConfig, RollbarResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^ROLLBAR_",
+            "^NEXT_PUBLIC_ROLLBAR_CLIENT_TOKEN$",
+            "^NEXT_PUBLIC_ROLLBAR_PROJECT_ACCESS_CLIENT_TOKEN$",
+            "^VITE_ROLLBAR_ACCESS_TOKEN$",
+            "^VITE_PUBLIC_ROLLBAR_TOKEN$",
+            "^REACT_APP_ROLLBAR_ACCESS_TOKEN$",
+            "^PUBLIC_ROLLBAR_ACCESS_TOKEN$",
+        ),
+        script_hosts=("cdn.rollbar.com", "d37gvrvc0wt4s1.cloudfront.net"),
+        npm=(
+            "rollbar",
+            "@rollbar/react",
+            "rollbar-react-native",
+            "rollbar-browser",
+            "rollbar-cli",
+            "rollbar-cordova",
+            "rollbar-redux-middleware",
+            "@rollbar/mcp-server",
+            "rollbar-sourcemap-webpack-plugin",
+            "vite-plugin-rollbar",
+            "ember-rollbar-client",
+        ),
+        pypi=("rollbar", "rollbar-agent"),
+        cocoapods=(
+            "RollbarNotifier",
+            "Rollbar",
+            "RollbarCommon",
+            "RollbarCrash",
+            "RollbarCrashReport",
+            "RollbarDeploys",
+            "RollbarAUL",
+            "RollbarCocoaLumberjack",
+            "RollbarSwift",
+            "RollbarPLCrashReporter",
+        ),
+        composer=(
+            "rollbar/rollbar",
+            "rollbar/rollbar-laravel",
+            "rollbar/rollbar-php-symfony-bundle",
+            "rollbar/rollbar-php-symfony3-bundle",
+            "rollbar/rollbar-php-wordpress",
+            "rollbar/rollbar-magento2",
+        ),
+        go=("github.com/rollbar/rollbar-go", "github.com/stvp/rollbar"),
+        hex=("rollbax",),
+        maven=(
+            "com.rollbar:rollbar-java",
+            "com.rollbar:rollbar-android",
+            "com.rollbar:rollbar",
+            "com.rollbar:rollbar-api",
+            "com.rollbar:rollbar-web",
+            "com.rollbar:rollbar-jakarta-web",
+            "com.rollbar:rollbar-java-agent",
+            "com.rollbar:rollbar-log4j2",
+            "com.rollbar:rollbar-logback",
+            "com.rollbar:rollbar-okhttp",
+            "com.rollbar:rollbar-reactive-streams",
+            "com.rollbar:rollbar-reactive-streams-reactor",
+            "com.rollbar:rollbar-spring-webmvc",
+            "com.rollbar:rollbar-spring6-webmvc",
+            "com.rollbar:rollbar-spring-boot-webmvc",
+            "com.rollbar:rollbar-spring-boot3-webmvc",
+            "com.rollbar:rollbar-struts2",
+            "com.rollbar:rollbar-payload",
+            "com.rollbar:rollbar-sender",
+            "com.rollbar:rollbar-utilities",
+        ),
+        pub=("rollbar_flutter", "rollbar_dart", "rollbar_common"),
+        rubygems=("rollbar", "ratchetio", "resque-rollbar"),
+        swiftpm=("github.com/rollbar/rollbar-apple",),
+        alternative_to=(ProductKey.ERROR_TRACKING,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("1",)
     default_version = "1"

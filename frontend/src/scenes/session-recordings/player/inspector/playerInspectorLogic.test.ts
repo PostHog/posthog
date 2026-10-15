@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
+import posthog from 'posthog-js'
 
 import { RecordingSnapshot } from '@posthog/replay-shared'
 
@@ -412,6 +413,41 @@ describe('playerInspectorLogic', () => {
             ])
             await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
 
+            matchingLogic.unmount()
+            playerLogic.unmount()
+        })
+
+        it.each([
+            [503, false],
+            [500, true],
+        ])('clears highlights when a reload fails with %s (reported: %s)', async (failureStatus, reported) => {
+            let status = 200
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings/matching_events': () =>
+                        status === 200
+                            ? [200, { results: [{ uuid: 'matching-event', timestamp: '2025-01-01T00:00:10.000Z' }] }]
+                            : [status, { detail: 'A server error occurred.' }],
+                },
+            })
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+            const { playerLogic, matchingLogic } = mountLogics({
+                sessionRecordingId: '1',
+                playerKey: `failed-reload-${failureStatus}`,
+                matchingEventsMatchType: { matchType: 'backend' as const, filters: DEFAULT_RECORDING_FILTERS },
+            })
+            await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
+            expect(matchingLogic.values.matchingEvents).toHaveLength(1)
+
+            status = failureStatus
+            matchingLogic.actions.loadMatchingEvents()
+            await expectLogic(matchingLogic)
+                .toDispatchActions(['loadMatchingEventsSuccess'])
+                .toMatchValues({ matchingEvents: [], matchingEventsSettled: true })
+            expect(captureException).toHaveBeenCalledTimes(reported ? 1 : 0)
+
+            captureException.mockRestore()
             matchingLogic.unmount()
             playerLogic.unmount()
         })

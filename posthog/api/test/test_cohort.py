@@ -1060,7 +1060,7 @@ Jane Smith,25
         self.assertIn("'name', 'age'", response_data["detail"])
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
 
-    @parameterized.expand([("person-id",), ("person_id",), ("Person .id",)])
+    @parameterized.expand([("person-id",), ("person_id",), ("Person .id",), ("Person.id",)])
     @patch(
         "posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay",
         side_effect=calculate_cohort_from_list,
