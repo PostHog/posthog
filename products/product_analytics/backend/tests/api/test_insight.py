@@ -49,6 +49,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
@@ -613,6 +614,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 cache_age_seconds=None,
                 analytics_props=ANY,
                 allow_raw_results=False,
+                is_query_service=False,
+                limit_context=LimitContext.QUERY_ASYNC,
             )
             record_outcome.assert_not_called()
 
@@ -636,6 +639,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
                 allow_raw_results=False,
+                is_query_service=False,
+                limit_context=LimitContext.QUERY_ASYNC,
             )
 
     def test_get_shared_insight_with_force_refresh_returns_200(self) -> None:
@@ -694,6 +699,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
                 allow_raw_results=False,
+                is_query_service=False,
+                limit_context=LimitContext.QUERY_ASYNC,
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -4749,13 +4756,15 @@ class TestInsightAPIQueryLimits(APIBaseTest):
     def test_refresh_respects_occupied_api_slots(self, _name: str, api_key: bool) -> None:
         limiter = get_api_team_rate_limiter()
         redis_client = fakeredis.FakeRedis()
+        now = int(limiter.get_time())
         redis_client.zadd(
             f"api:query:per-team:{self.team.pk}",
-            {f"occupied-{i}": limiter.get_time() for i in range(3)},
+            {f"occupied-{i}": now + limiter.ttl for i in range(3)},
         )
         with (
             patch("posthog.clickhouse.client.limit.TEST", False),
             patch.object(limiter, "redis_client", redis_client),
+            patch.object(limiter, "get_time", return_value=now),
             patch.object(limiter, "retry", None),
             patch.object(limiter, "allow_team_bypass", False),
             patch.object(limiter, "apply_clickhouse_kill_switch", False),
