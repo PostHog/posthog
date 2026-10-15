@@ -20,7 +20,7 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand, CommandError
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
+from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
 from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
@@ -236,6 +236,8 @@ from products.growth.backend.temporal import (
 )
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
+    PLATFORM_SIGNAL_ACTIVITIES as LOGS_PLATFORM_SIGNAL_ACTIVITIES,
+    PLATFORM_SIGNAL_WORKFLOWS as LOGS_PLATFORM_SIGNAL_WORKFLOWS,
     SOURCE_EVALUATION_ACTIVITIES as LOGS_SOURCE_EVALUATION_ACTIVITIES,
     SOURCE_EVALUATION_WORKFLOWS as LOGS_SOURCE_EVALUATION_WORKFLOWS,
     VOLUME_TICK_ACTIVITIES as LOGS_VOLUME_TICK_ACTIVITIES,
@@ -292,6 +294,10 @@ from products.signals.backend.temporal import (
     SELF_DRIVING_ACTIVITIES,
     SELF_DRIVING_WORKFLOWS,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
+)
+from products.slack_app.backend.facade.temporal import (
+    ACTIVITIES as SLACK_APP_ACTIVITIES,
+    WORKFLOWS as SLACK_APP_WORKFLOWS,
 )
 from products.stamphog.backend.facade.temporal import (
     ACTIVITIES as STAMPHOG_ACTIVITIES,
@@ -473,13 +479,10 @@ _task_queue_specs = [
     ),
     (
         settings.TASKS_TASK_QUEUE,
-        # PostHog Desktop Slack workflows are also registered on MAX_AI_TASK_QUEUE.
-        # First step of merging them onto this queue — once master traffic has
-        # cut over and any in-flight runs have drained, drop them from
-        # AI_WORKFLOWS / AI_ACTIVITIES and flip the start_workflow callers in
-        # products/slack_app to settings.TASKS_TASK_QUEUE.
-        TASKS_WORKFLOWS + POSTHOG_CODE_SLACK_WORKFLOWS,
-        TASKS_ACTIVITIES + POSTHOG_CODE_SLACK_ACTIVITIES,
+        # PostHog Desktop Slack workflows share this queue with ProcessTaskWorkflow,
+        # which they hand off to once a repo is picked.
+        TASKS_WORKFLOWS + SLACK_APP_WORKFLOWS,
+        TASKS_ACTIVITIES + SLACK_APP_ACTIVITIES,
     ),
     (
         settings.WIZARD_TASK_QUEUE,
@@ -629,8 +632,8 @@ _task_queue_specs = [
     ),
     (
         settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
-        ALERTS_PLATFORM_DELIVERY_WORKFLOWS,
-        ALERTS_PLATFORM_DELIVERY_ACTIVITIES,
+        ALERTS_PLATFORM_DELIVERY_WORKFLOWS + LOGS_PLATFORM_SIGNAL_WORKFLOWS,
+        ALERTS_PLATFORM_DELIVERY_ACTIVITIES + LOGS_PLATFORM_SIGNAL_ACTIVITIES,
     ),
 ]
 

@@ -93,6 +93,7 @@ from products.cdp.backend.presentation.hog_functions import (
     filter_action_ids,
     filter_cohort_ids,
     gated_template_enabled,
+    validate_realtime_cohorts,
 )
 from products.cdp.backend.presentation.hog_invocations.cancel import (
     HogInvocationCancelRequestSerializer,
@@ -216,6 +217,7 @@ from products.workflows.backend.facade.proposals import (
     list_proposals,
     lock_proposal,
     merge_proposal_content,
+    notify_proposal_filed,
     proposal_conflicts,
     proposal_outcome,
     resolve_proposal,
@@ -263,10 +265,10 @@ from products.workflows.backend.facade.validation import (
 from products.workflows.backend.facade.workflows import (
     BILLABLE_ACTION_TYPES,
     BROADCAST_STATUSES,
+    COHORT_TRIGGER_TRANSITIONS,
     PERSON_DEPENDENT_ACTION_TYPES,
     ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
-    TRIGGER_TYPES,
     WORKFLOW_FIELD_FILTER_PARAMS,
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     WORKFLOW_TYPES,
@@ -297,6 +299,7 @@ from products.workflows.backend.presentation.views.hog_flow_batch_job import (
 )
 from products.workflows.backend.presentation.views.hog_flow_fields import (
     HOG_FLOW_VARIABLES_MAX_BYTES,
+    HogFlowActionTypeField,
     HogFlowMaskingSerializer,
     HogFlowVariableSerializer,
 )
@@ -1176,66 +1179,6 @@ class HogFlowActionConfigField(serializers.JSONField):
     pass
 
 
-class HogFlowActionTypeField(serializers.ChoiceField):
-    """A closed set of action types, rejected at write time rather than at run time.
-
-    A type with no worker handler can never execute: it saves fine, then every run that reaches it
-    dies with "Action type 'x' not supported", and unless the step sets on_error: continue everything
-    downstream silently never happens. Keeping `choices` populated also means drf-spectacular emits
-    the enum, so generated clients and MCP tools advertise the valid values instead of callers
-    guessing them.
-
-    ChoiceField's own invalid_choice message is run through str.format, which can't carry the JSON
-    example below (its braces would be read as format placeholders), so the message is raised here.
-    """
-
-    def to_internal_value(self, data: Any) -> str:
-        # isinstance before the membership test: self.choices is a dict, so `data in self.choices`
-        # raises TypeError on an unhashable JSON object/array, which escapes DRF's validation stack
-        # (it only catches ValidationError) and 500s the endpoint.
-        if isinstance(data, str) and data in self.choices:
-            return super().to_internal_value(data)
-        raise serializers.ValidationError(
-            f"Unsupported action type {self._describe(data)}. "
-            f"Valid types are: {', '.join(SUPPORTED_ACTION_TYPES)}. "
-            "Steps that act on PostHog data don't get a type of their own - they are type 'function' "
-            f"with a template_id.{self._hint(data)}"
-        )
-
-    @staticmethod
-    def _hint(data: Any) -> str:
-        # The types actually seen in stored workflows cluster into a few mistakes, so point at the
-        # step the caller was reaching for rather than repeating one example to everyone.
-        if not isinstance(data, str):
-            return ""
-        lowered = data.lower()
-        if lowered in TRIGGER_TYPES:
-            hint = (
-                f" '{data}' is a trigger type, not an action type: the trigger is a single action of "
-                "type 'trigger' and its kind belongs in the workflow's trigger field."
-            )
-            if lowered == "webhook":
-                hint += " To call an external endpoint from a step, use template_id 'template-webhook'."
-            return hint
-        if "person" in lowered or "propert" in lowered or "contact" in lowered:
-            return (
-                " To set person properties, use template_id 'template-posthog-update-person-properties' "
-                "with inputs distinct_id, set_properties and set_once_properties."
-            )
-        if "webhook" in lowered or "http" in lowered or "request" in lowered:
-            return " To call an external endpoint, use template_id 'template-webhook'."
-        return ""
-
-    @staticmethod
-    def _describe(data: Any) -> str:
-        # Echo the value back only when it's a short string. A non-string type is a malformed
-        # payload, and interpolating a whole nested object into the message would put it in the
-        # response and the logs behind it.
-        if not isinstance(data, str):
-            return f"(expected a string, got {type(data).__name__})"
-        return f'"{data[:100]}"' if len(data) > 100 else f'"{data}"'
-
-
 class HogFlowActionSerializer(serializers.Serializer):
     # max_length bounds every downstream copy of the id (edges, action_redirects, worker cache);
     # real ids are short generated slugs, so 200 is generous.
@@ -1375,6 +1318,23 @@ class HogFlowActionSerializer(serializers.Serializer):
             return _cohort_conditions_rolled_out(user, str(get_team().organization_id))
         except Exception:
             return False
+
+    def _validate_cohort_trigger(self, action: dict) -> None:
+        config = action.get("config") or {}
+        cohort_id = config.get("cohort_id")
+        if isinstance(cohort_id, bool) or not isinstance(cohort_id, int):
+            raise serializers.ValidationError({"cohort_id": "Choose a cohort for this trigger."})
+        if config.get("transition") not in COHORT_TRIGGER_TRANSITIONS:
+            raise serializers.ValidationError({"transition": "Must be 'entered' or 'left'."})
+        # The flag polices new adoption only, so an active flow keeps saving after a dial-down.
+        stored = (self.context.get("stored_cohort_triggers") or {}).get(action.get("id"))
+        unchanged = stored == {"cohort_id": cohort_id, "transition": config.get("transition")}
+        if not unchanged and not self._cohort_conditions_enabled():
+            raise serializers.ValidationError({"type": "Cohort triggers aren't available for this organization."})
+        try:
+            validate_realtime_cohorts([cohort_id], self.context["get_team"]())
+        except serializers.ValidationError as error:
+            raise serializers.ValidationError({"cohort_id": error.detail})
 
     def _reject_behavioral_cohorts_in_audience(self, properties) -> None:
         # Batch/schedule audiences resolve offline by precalculated membership and can't evaluate event
@@ -1545,6 +1505,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                         data["config"]["filters"] = serializer.validated_data
                 elif not is_draft:
                     raise serializers.ValidationError({"filters": _EVENT_TRIGGER_NEEDS_A_TARGET})
+            elif data.get("config", {}).get("type") == "cohort":
+                if strict:
+                    self._validate_cohort_trigger(data)
             elif data.get("config", {}).get("type") == "batch":
                 filters = data.get("config", {}).get("filters", {})
                 if strict:
@@ -2969,6 +2932,18 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
         }
 
+        self.context["stored_cohort_triggers"] = {
+            action["id"]: {
+                "cohort_id": (action.get("config") or {}).get("cohort_id"),
+                "transition": (action.get("config") or {}).get("transition"),
+            }
+            for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
+            if isinstance(action, dict)
+            and action.get("id")
+            and action.get("type") == "trigger"
+            and (action.get("config") or {}).get("type") == "cohort"
+        }
+
         self.context["stored_cohort_conditions"] = {
             action["id"]: [
                 _authored_condition(stored_condition)
@@ -4079,6 +4054,15 @@ class WorkflowNotLiveError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = "Suggestions need a live workflow. Enable it first."
     default_code = "workflow_not_live"
+
+
+class WorkflowHasNoEmailStepError(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = (
+        "Self-driving only works on workflows that send email for now. "
+        "Add an email step and publish the workflow to turn it on."
+    )
+    default_code = "workflow_has_no_email_step"
 
 
 class WorkflowNotOptimisedError(exceptions.APIException):
@@ -5394,6 +5378,7 @@ class HogFlowViewSet(
         # A retry names the suggestion it already made, which is still in someone's queue whatever the switch says now.
         retry_of = get_proposal_by_source_id(hog_flow_id=instance.id, source_id=source_id) if source_id else None
         if retry_of:
+            self._notify_proposal_filed(retry_of.id)
             return Response(
                 WorkflowProposalSerializer(retry_of, context={"hog_flow": instance}).data, status=status.HTTP_200_OK
             )
@@ -5475,6 +5460,7 @@ class HogFlowViewSet(
         )
         proposal = created.proposal
         if not created.created:
+            self._notify_proposal_filed(proposal.id)
             return Response(
                 WorkflowProposalSerializer(proposal, context={"hog_flow": instance}).data, status=status.HTTP_200_OK
             )
@@ -5483,9 +5469,18 @@ class HogFlowViewSet(
             instance,
             {"proposal_id": str(proposal.id)},
         )
+        self._notify_proposal_filed(proposal.id)
         return Response(
             WorkflowProposalSerializer(proposal, context={"hog_flow": instance}).data, status=status.HTTP_201_CREATED
         )
+
+    def _notify_proposal_filed(self, proposal_id: uuid_mod.UUID) -> None:
+        # Retries call this too, so a failed delivery is repaired; per-proposal keys stop a second send.
+        try:
+            notify_proposal_filed(team_id=self.team_id, proposal_id=proposal_id, filed_by_user_id=self._actor_id())
+        except Exception as error:
+            # A failed notification must not fail the filing: the suggestion is already stored and listed.
+            capture_exception(error)
 
     @extend_schema(
         parameters=[
@@ -5693,6 +5688,10 @@ class HogFlowViewSet(
             enabled = param_serializer.validated_data["enabled"]
             if enabled and instance.status != HogFlowState.ACTIVE:
                 raise WorkflowNotLiveError()
+            # Suggestions judge email opens and clicks. Turning it off stays open, so a workflow already
+            # on can still be switched off after it loses its email step.
+            if enabled and not instance.has_email_step:
+                raise WorkflowHasNoEmailStepError()
             if enabled and not is_optimization_enabled(instance.id):
                 refusal = suggestions_scout_refusal(
                     self.team, acting_user=cast(User, request.user), may_grant=self._may_grant_scout(request)

@@ -50,6 +50,9 @@ Bing Ads connections need to sync `keyword_performance_report` or `destination_u
 Older rows without placement data show no value.
 The Traffic and Conversions views both include spend when a paid source is ready.
 The first column stays visible while the metrics scroll horizontally.
+The `marketing-analytics-search-conversions` flag controls PostHog conversion goals in Search performance, independently of the precomputation flags.
+When the flag is off or unavailable, the UI hides the goal columns and the backend skips conversion attribution, including requests from older clients.
+Platform-reported conversions remain available, and the main Ad performance conversion goals keep their existing behavior.
 In Search performance → Conversions, the Ad performance Include conversion goals switch adds the first five supported event or action goals and their cost per conversion.
 Goals with missing actions are skipped with a warning before the five-goal limit is applied.
 If more goals are configured, a warning directs users to the attribution report for other goals.
@@ -277,3 +280,10 @@ The banner only appears when a project has a Bing Ads integration marked with `o
 It asks users to reconnect before November 30, 2026.
 The flag controls the warning only; changing it does not disable fallback credentials or migrate existing grants.
 Use project targeting to release the warning gradually.
+
+## Required table status
+
+The source status banner names each required table that needs attention and links native connections directly to their Schemas tab.
+Disabled imports, missing tables, running syncs, failures, pauses, cancellations, and tables awaiting a completed sync have separate messages.
+Multiple table problems remain visible together, even when the connection has one overall status.
+Google Ads connections using the legacy `campaign_stats` schema retain support and display that actual schema name.

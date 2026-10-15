@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from asgiref.sync import async_to_sync
+from opentelemetry import propagate
 from parameterized import parameterized
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -23,6 +24,7 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY,
     STEERING_PROTOCOL_QUERY_TIMEOUT,
 )
+from products.tasks.backend.temporal.run_trace import run_trace_context
 
 
 @override_settings(DEBUG=False)
@@ -119,6 +121,16 @@ class TestSignalTaskFollowupMessage(SimpleTestCase):
             handle.query.assert_not_awaited()
 
 
+class TestRunTraceContext(SimpleTestCase):
+    def test_run_id_that_is_not_a_uuid_leaves_the_trace_context_alone(self) -> None:
+        propagated: dict[str, str] = {}
+
+        with run_trace_context("not-a-uuid", enabled=True):
+            propagate.inject(propagated)
+
+        self.assertEqual(propagated, {})
+
+
 @override_settings(DEBUG=False)
 class TestExecuteTaskProcessingWorkflow(TestCase):
     def setUp(self) -> None:
@@ -183,6 +195,12 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0].kwargs["properties"]["error_type"], "workflow_start_failed")
+        dispatch = next(
+            c.kwargs["properties"]
+            for c in mock_capture.call_args_list
+            if c.args and c.args[0] == "task_startup_step_completed" and c.kwargs["properties"]["step"] == "dispatch"
+        )
+        self.assertEqual(dispatch["status"], "FAILED")
 
     @parameterized.expand([("sync",), ("async",)])
     def test_does_not_overwrite_run_that_already_started(self, executor: str) -> None:
@@ -254,6 +272,46 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )
+
+    @parameterized.expand(
+        [
+            ("sync_telemetry_on", "sync", True),
+            ("async_telemetry_on", "async", True),
+            ("sync_telemetry_off", "sync", False),
+            ("async_telemetry_off", "async", False),
+        ]
+    )
+    def test_starts_workflow_in_the_run_trace_only_when_telemetry_is_enabled(
+        self, _name: str, executor: str, telemetry_enabled: bool
+    ) -> None:
+        run = self._create_run()
+        propagated: dict[str, str] = {}
+
+        async def record_propagated_context(*args: object, **kwargs: object) -> None:
+            propagate.inject(propagated)
+
+        client = Mock()
+        client.start_workflow = AsyncMock(side_effect=record_propagated_context)
+
+        connect_target = (
+            "products.tasks.backend.temporal.client.sync_connect"
+            if executor == "sync"
+            else "products.tasks.backend.temporal.client.async_connect"
+        )
+        connect_mock = Mock(return_value=client) if executor == "sync" else AsyncMock(return_value=client)
+
+        with (
+            patch(connect_target, connect_mock),
+            patch(
+                "products.tasks.backend.temporal.client.posthoganalytics.feature_enabled",
+                return_value=telemetry_enabled,
+            ),
+        ):
+            self._execute_workflow(executor, run, self.user.id)
+
+        client.start_workflow.assert_awaited_once()
+        expected = {"traceparent": f"00-{run.id.hex}-{run.id.hex[16:]}-01"} if telemetry_enabled else {}
+        self.assertEqual(propagated, expected)
 
     def test_boot_flag_capture_keeps_existing_stamp_and_survives_one_flag_error(self) -> None:
         run = self._create_run()

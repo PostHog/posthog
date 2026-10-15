@@ -4,6 +4,7 @@ from typing import Optional, cast
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -58,6 +59,8 @@ def _registered_app_credentials(config: BillomatSourceConfig) -> _RegisteredAppC
 
 @SourceRegistry.register
 class BillomatSource(ResumableSource[BillomatSourceConfig, BillomatResumeConfig]):
+    codebase_detection = detect(env=("^BILLOMAT_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.billomat.com/en/api/"
 

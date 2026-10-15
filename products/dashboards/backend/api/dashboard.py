@@ -52,9 +52,14 @@ from posthog.schema import InsightVizNode
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
+from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
+from posthog.api.sharing_publish_gate import (
+    check_can_add_insight_to_shared_dashboard,
+    dashboard_filter_leaves,
+    is_publicly_shared,
+)
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
@@ -169,6 +174,7 @@ from products.dashboards.backend.widget_registry import (
     validate_widget_config,
 )
 from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
+from products.exports.backend.facade.api import dashboard_ids_with_subscriptions
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -1556,6 +1562,54 @@ def _tile_type_and_widget_type(tile: DashboardTile) -> tuple[str, str | None]:
     raise ValueError("Dashboard tile has no related content for analytics")
 
 
+def _copy_text_if_shared(tile: DashboardTile) -> Text:
+    # Locks the tile against a concurrent `copy_to_dashboard` adding a second reference to this
+    # text, so the sharing check below can't race a duplication that hasn't committed yet.
+    tile = DashboardTile.objects.select_for_update(of=("self",)).get(pk=tile.pk, dashboard_id=tile.dashboard_id)
+    text = cast(Text, tile.text)
+    is_shared = DashboardTile.objects_including_soft_deleted.filter(text_id=text.id).exclude(id=tile.id).exists()
+    # A tile moved to another team's dashboard (`move_tile`) keeps its text reference, so a
+    # sole reference can still belong to a different team than the tile.
+    if not is_shared and text.team_id == tile.team_id:
+        return text
+
+    text_copy = Text.objects.create(
+        body=text.body,
+        agent_context=text.agent_context,
+        created_by_id=text.created_by_id,
+        last_modified_at=text.last_modified_at,
+        last_modified_by_id=text.last_modified_by_id,
+        team_id=tile.team_id,
+    )
+    tile.text = text_copy
+    tile.save(update_fields=["text"])
+    return text_copy
+
+
+def _copy_button_if_shared(tile: DashboardTile) -> ButtonTile:
+    tile = DashboardTile.objects.select_for_update(of=("self",)).get(pk=tile.pk, dashboard_id=tile.dashboard_id)
+    button = cast(ButtonTile, tile.button_tile)
+    is_shared = (
+        DashboardTile.objects_including_soft_deleted.filter(button_tile_id=button.id).exclude(id=tile.id).exists()
+    )
+    if not is_shared and button.team_id == tile.team_id:
+        return button
+
+    button_copy = ButtonTile.objects.create(
+        url=button.url,
+        text=button.text,
+        placement=button.placement,
+        style=button.style,
+        created_by_id=button.created_by_id,
+        last_modified_at=button.last_modified_at,
+        last_modified_by_id=button.last_modified_by_id,
+        team_id=tile.team_id,
+    )
+    tile.button_tile = button_copy
+    tile.save(update_fields=["button_tile"])
+    return button_copy
+
+
 def _report_dashboard_tile_added(
     *,
     user: User,
@@ -1882,7 +1936,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     if duplicate_tiles or existing_tile.widget_id is not None:
                         self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
                     else:
-                        existing_tile.copy_to_dashboard(dashboard)
+                        try:
+                            existing_tile.copy_to_dashboard(dashboard)
+                        except DjangoValidationError:
+                            raise serializers.ValidationError("Unable to copy tile due to invalid data.")
 
             # Manual tag creation since this create method doesn't call super()
             self._attempt_set_tags(tags, dashboard)
@@ -2063,6 +2120,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
             raise exceptions.PermissionDenied(
                 "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
             )
+        self._check_delivered_dashboard_filters_access(
+            cast(User, self.context["request"].user), instance, self.initial_data
+        )
 
         validated_data.pop("use_template", None)  # Remove attribute if present
         grid_spacing = validated_data.pop("grid_spacing", None)
@@ -2128,12 +2188,26 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         user = cast(User, self.context["request"].user)
         tiles = initial_data.pop("tiles", [])
-        for tile_data in tiles:
-            tile, created = self._update_tiles(instance, tile_data, user, request=self.context.get("request"))
-            # Text and button tiles are always added via PATCH (never during initial dashboard
-            # creation), so this update() method is the right place to fire the "tile added"
-            # event. The `created` flag from update_or_create ensures we only fire on first
-            # insertion, not on subsequent edits to an existing tile.
+        # One transaction for the whole loop: a text copy-on-write repoints a tile's text_id,
+        # so a later tile failing validation must roll that back too, or a retry with the
+        # original text_id can no longer find the tile.
+        tile_results: list[tuple[DashboardTile | None, bool]] = []
+        with transaction.atomic():
+            tile_ids = [tile["id"] for tile in tiles if tile.get("id") is not None]
+            list(
+                DashboardTile.objects_including_soft_deleted.select_for_update(of=("self",))
+                .filter(dashboard=instance, id__in=tile_ids)
+                .order_by("id")
+                .values_list("id", flat=True)
+            )
+            for tile_data in tiles:
+                tile_results.append(self._update_tiles(instance, tile_data, user, request=self.context.get("request")))
+
+        # Text and button tiles are always added via PATCH (never during initial dashboard
+        # creation), so this update() method is the right place to fire the "tile added"
+        # event. The `created` flag from update_or_create ensures we only fire on first
+        # insertion, not on subsequent edits to an existing tile.
+        for tile, created in tile_results:
             if created and tile is not None and "request" in self.context:
                 tile_type, widget_type = DashboardSerializer._tile_added_analytics_fields(tile)
                 _report_dashboard_tile_added(
@@ -2208,6 +2282,37 @@ class DashboardSerializer(DashboardMetadataSerializer):
         "badge",
         "deleted",
     }
+
+    @staticmethod
+    def _check_delivered_dashboard_filters_access(user: User, dashboard: Dashboard, request_data: Any) -> None:
+        """Dashboard filters and tile overrides apply to every tile at render time, on the public
+        link and in a subscription delivery, so a filter the editor cannot run must not reach a
+        dashboard delivered either way. The check reads the whole request once, before any write,
+        so a rejected request changes nothing."""
+        filter_sets = [request_data.get("filters")]
+        tiles = request_data.get("tiles")
+        if isinstance(tiles, list):
+            filter_sets += [tile.get("filters_overrides") for tile in tiles if isinstance(tile, dict)]
+        # Normalized as the save normalizes them, so a filter nested in a property group is checked
+        # as the leaf that gets stored.
+        properties = [
+            leaf
+            for filters in filter_sets
+            if isinstance(filters, dict)
+            for leaf in dashboard_filter_leaves(DashboardSerializer._validated_filters(filters))
+        ]
+        if not properties:
+            return
+        if is_publicly_shared(dashboard):
+            exposure = "publicly shared"
+        elif dashboard_ids_with_subscriptions([dashboard.id]):
+            exposure = "delivered by a subscription"
+        else:
+            return
+        if table := table_blocking_property_filters(user, dashboard.team, properties):
+            raise serializers.ValidationError(
+                f"Can't save these filters: you don't have access to `{table}`, and this dashboard is {exposure}."
+            )
 
     @staticmethod
     def _extract_display_defaults(tile_data: dict, existing_layouts: dict | None = None) -> dict:
@@ -2458,20 +2563,27 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["last_modified_by"] = last_modified_by
             validated_data["last_modified_at"] = now()
 
-            existing_text_id = text_json.get("id", None)
-            if existing_text_id:
-                try:
-                    text = Text.objects.get(id=existing_text_id, team_id=instance.team_id)
-                    if not DashboardTile.objects.filter(dashboard=instance, text_id=existing_text_id).exists():
+            with transaction.atomic():
+                existing_text_id = text_json.get("id", None)
+                if existing_text_id:
+                    tile_id = tile_data.get("id")
+                    if tile_id is None:
                         raise serializers.ValidationError({"text": "Text tile not found."})
-                    for attr, val in validated_data.items():
-                        setattr(text, attr, val)
-                    text.save()
-                except Text.DoesNotExist:
-                    raise serializers.ValidationError({"text": "Text tile not found in this team."})
-            else:
-                text = Text.objects.create(**validated_data)
-            tile, created = DashboardSerializer._upsert_tile(instance, tile_data, text=text)
+                    try:
+                        existing_tile = DashboardTile.objects.select_related("text").get(
+                            id=tile_id,
+                            dashboard=instance,
+                            text_id=existing_text_id,
+                        )
+                        text = _copy_text_if_shared(existing_tile)
+                        for attr, val in validated_data.items():
+                            setattr(text, attr, val)
+                        text.save()
+                    except DashboardTile.DoesNotExist:
+                        raise serializers.ValidationError({"text": "Text tile not found."})
+                else:
+                    text = Text.objects.create(**validated_data)
+                tile, created = DashboardSerializer._upsert_tile(instance, tile_data, text=text)
             return tile, created
         elif tile_data.get("button_tile", None):
             button_tile_json: dict = tile_data.get("button_tile", {})
@@ -2499,20 +2611,27 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["last_modified_by"] = last_modified_by
             validated_data["last_modified_at"] = now()
 
-            existing_button_id = button_tile_json.get("id", None)
-            if existing_button_id:
-                try:
-                    button_tile = ButtonTile.objects.get(id=existing_button_id, team_id=instance.team_id)
-                    if not DashboardTile.objects.filter(dashboard=instance, button_tile_id=existing_button_id).exists():
+            with transaction.atomic():
+                existing_button_id = button_tile_json.get("id", None)
+                if existing_button_id:
+                    tile_id = tile_data.get("id")
+                    if tile_id is None:
                         raise serializers.ValidationError({"button_tile": "Button tile not found."})
-                    for attr, val in validated_data.items():
-                        setattr(button_tile, attr, val)
-                    button_tile.save()
-                except ButtonTile.DoesNotExist:
-                    raise serializers.ValidationError({"button_tile": "Button tile not found in this team."})
-            else:
-                button_tile = ButtonTile.objects.create(**validated_data)
-            tile, created = DashboardSerializer._upsert_tile(instance, tile_data, button_tile=button_tile)
+                    try:
+                        existing_tile = DashboardTile.objects.get(
+                            id=tile_id,
+                            dashboard=instance,
+                            button_tile_id=existing_button_id,
+                        )
+                        button_tile = _copy_button_if_shared(existing_tile)
+                        for attr, val in validated_data.items():
+                            setattr(button_tile, attr, val)
+                        button_tile.save()
+                    except DashboardTile.DoesNotExist:
+                        raise serializers.ValidationError({"button_tile": "Button tile not found."})
+                else:
+                    button_tile = ButtonTile.objects.create(**validated_data)
+                tile, created = DashboardSerializer._upsert_tile(instance, tile_data, button_tile=button_tile)
             return tile, created
         elif tile_data.get("widget", None):
             widget_json: dict = tile_data.get("widget", {})
@@ -3458,14 +3577,17 @@ class DashboardsViewSet(
 
         user = cast(User, request.user)
         with transaction.atomic():
-            text = tile.text
-            if "body" in validated:
-                text.body = validated["body"]
-            if "agent_context" in validated:
-                text.agent_context = validated["agent_context"]
-            text.last_modified_by = user
-            text.last_modified_at = now()
-            text.save()
+            text_fields = [field for field in ("body", "agent_context") if field in validated]
+            if text_fields:
+                try:
+                    text = _copy_text_if_shared(tile)
+                except DashboardTile.DoesNotExist:
+                    raise exceptions.NotFound()
+                for field in text_fields:
+                    setattr(text, field, validated[field])
+                text.last_modified_by = user
+                text.last_modified_at = now()
+                text.save(update_fields=[*text_fields, "last_modified_by", "last_modified_at"])
 
             tile_updates: list[str] = []
             if "layouts" in validated:

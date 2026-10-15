@@ -6,6 +6,7 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
 import { CustomerIOImportModal } from '../../OptOuts/CustomerIOImportModal'
 import { OptOutCategories } from '../../OptOuts/OptOutCategories'
+import { workflowDataSuggestionsLogic } from '../suggestions/workflowDataSuggestionsLogic'
 import type { WorkflowsOnboardingPath } from '../workflowsSetupGuideLogic'
 import { OnboardingWizardStepper } from './OnboardingWizardStepper'
 import { WIZARD_STEP_COPY } from './onboardingWizardSteps'
@@ -17,6 +18,10 @@ import { WizardDomainStep } from './WizardDomainStep'
 import { WizardPushStep } from './WizardPushStep'
 import { WizardTemplateStep } from './WizardTemplateStep'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
+
+// Without suggestions the step falls back to the templates, so this copy fits both.
+const SUGGESTIONS_DESCRIPTION =
+    'Start from a suggestion made from the events your project sends, a template, or scratch. It opens in the editor as a draft, so nothing sends until you launch it.'
 
 const PATH_LABELS: Record<WorkflowsOnboardingPath, string> = {
     messaging: 'Message your users',
@@ -35,6 +40,7 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
         isLastStep,
         continueDisabledReason,
         setupCheckFailed,
+        suggestionsFirst,
     } = useValues(workflowsOnboardingWizardLogic)
     const { setStepIndex, next, back, exit, loadHasMessagingWorkflow } = useActions(workflowsOnboardingWizardLogic)
 
@@ -47,6 +53,17 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
         : isSkip
           ? 'Skip for now'
           : 'Continue'
+
+    const nextButton = (
+        <LemonButton
+            type={isSkip && !isLastStep ? 'secondary' : 'primary'}
+            onClick={next}
+            disabledReason={continueDisabledReason ?? undefined}
+            data-attr={`workflows-onboarding-wizard-next-${currentStep}`}
+        >
+            {continueLabel}
+        </LemonButton>
+    )
 
     return (
         <div className="mx-auto w-full max-w-4xl flex flex-col gap-6 py-4" data-attr="workflows-onboarding-wizard">
@@ -81,7 +98,7 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
             />
             <div>
                 <h2 className="mb-1 text-xl font-bold">{copy.title}</h2>
-                <p className="mb-0 text-secondary">{copy.description}</p>
+                <p className="mb-0 text-secondary">{suggestionsFirst ? SUGGESTIONS_DESCRIPTION : copy.description}</p>
             </div>
             <LemonCard hoverEffect={false} className="p-6">
                 {currentStep === 'channel' && <WizardChannelStep />}
@@ -106,15 +123,14 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
                         </LemonButton>
                     )}
                 </div>
-                <LemonButton
-                    type={isSkip && !isLastStep ? 'secondary' : 'primary'}
-                    onClick={next}
-                    disabledReason={continueDisabledReason ?? undefined}
-                    data-attr={`workflows-onboarding-wizard-next-${currentStep}`}
-                >
-                    {continueLabel}
-                </LemonButton>
+                {suggestionsFirst ? <HiddenWhileSuggesting>{nextButton}</HiddenWhileSuggesting> : nextButton}
             </div>
         </div>
     )
+}
+
+// Mounted only while suggestions lead the step, because mounting the suggestions logic starts an AI run.
+function HiddenWhileSuggesting({ children }: { children: JSX.Element }): JSX.Element | null {
+    const { cards, generating } = useValues(workflowDataSuggestionsLogic({ surface: 'onboarding_wizard' }))
+    return generating || cards.length > 0 ? null : children
 }
