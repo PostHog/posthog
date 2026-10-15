@@ -41,6 +41,7 @@ import type { RedisLike } from './cache/RedisCache'
 import { getEnv, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { InstructionsBuilder } from './instructions'
 import { initDurationSeconds, initTotal } from './metrics'
+import { acceptsEventStream, progressStreamResponse, readProgressToken, type ToolCallHooks } from './progress-stream'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
 import { SkillCatalogService } from './skill-catalog-service'
@@ -293,21 +294,36 @@ class McpDispatcher {
         }
 
         if (!wasArray && requests.length === 1) {
-            const result = await this.dispatch(requests[0]!, props, state)
+            const request = requests[0]!
+            const progressToken =
+                this.surface.streamProgress && request.method === Method.ToolsCall && acceptsEventStream(req.headers)
+                    ? readProgressToken(request.params)
+                    : undefined
+            if (progressToken !== undefined) {
+                return progressStreamResponse({
+                    requestId: request.id,
+                    progressToken,
+                    headers,
+                    requestSignal: req.signal,
+                    run: (hooks) => this.dispatch(request, props, state, hooks),
+                })
+            }
+            const result = await this.dispatch(request, props, state, { signal: req.signal })
             // SEP-2575: unsupported RPCs get HTTP 404 in the modern dialect.
             const status =
                 singleModern && 'error' in result && result.error.code === ErrorCode.MethodNotFound ? 404 : 200
             return new Response(JSON.stringify(result), { status, headers })
         }
 
-        const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state)))
+        const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state, { signal: req.signal })))
         return new Response(JSON.stringify(results), { status: 200, headers })
     }
 
     private async dispatch(
         request: JSONRPCRequest,
         props: RequestProperties,
-        state: ResolvedState | undefined
+        state: ResolvedState | undefined,
+        hooks: ToolCallHooks
     ): Promise<JsonRpcResponse> {
         const { id, method, params } = request
 
@@ -317,7 +333,7 @@ class McpDispatcher {
         const stateless = protocolMeta.protocolVersion === STATELESS_PROTOCOL_VERSION
 
         try {
-            const result = await this.dispatchMethod(method, params, props, state, stateless)
+            const result = await this.dispatchMethod(method, params, props, state, stateless, hooks)
             if (result === METHOD_NOT_FOUND) {
                 return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
             }
@@ -334,7 +350,8 @@ class McpDispatcher {
         params: Record<string, unknown> | undefined,
         props: RequestProperties,
         state: ResolvedState | undefined,
-        stateless: boolean
+        stateless: boolean,
+        hooks: ToolCallHooks
     ): Promise<unknown> {
         // SEP-2575 removed `initialize` and `ping` from the modern dialect.
         if (stateless && (method === Method.Initialize || method === Method.Ping)) {
@@ -348,7 +365,7 @@ class McpDispatcher {
             case Method.ToolsList:
                 return await this.toolExecutor.handleToolsList(state!)
             case Method.ToolsCall:
-                return await this.toolExecutor.handleToolCall(params, state!)
+                return await this.toolExecutor.handleToolCall(params, state!, hooks)
             case Method.ResourcesList:
                 return this.resourceCatalog.getResourcesList()
             case Method.ResourcesRead:

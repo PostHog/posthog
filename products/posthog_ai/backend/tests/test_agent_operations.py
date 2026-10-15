@@ -271,11 +271,36 @@ class TestAgentOperationsAPI(APIBaseTest):
         )
         assert (send.call_args.kwargs["option_id"] if send.called else None) == sent_option
 
+    def test_an_answered_approval_stays_answered_while_the_log_catches_up(self):
+        operation_id = self._start(approvals="client").json()["id"]
+        run = self._run(operation_id)
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save()
+        log = "\n".join(json.dumps(entry) for entry in (BASH_STEP, _permission(_exec_call(SQL_COMMAND))))
+
+        with (
+            patch(f"{SERVICE}.tasks_facade.read_task_run_logs", return_value=log),
+            patch(f"{SERVICE}.tasks_facade.send_permission_response", return_value=True) as send,
+        ):
+            waiting = self.client.get(f"{self.url}{operation_id}/").json()
+            answered = self.client.post(
+                f"{self.url}{operation_id}/reply/", {"message": "allow", "client_request_id": "r-1"}, format="json"
+            ).json()
+            later = self.client.get(f"{self.url}{operation_id}/").json()
+
+        assert [(body["state"], body["approval"] is None) for body in (waiting, answered, later)] == [
+            ("needs_input", False),
+            ("running", True),
+            ("running", True),
+        ]
+        assert send.call_count == 1
+
     @parameterized.expand(
         [
             ("late_allow", "allow", 409, "no_pending_approval", 0),
             ("late_allow_all", "Allow all!", 409, "no_pending_approval", 0),
             ("late_deny", "deny.", 409, "no_pending_approval", 0),
+            ("late_approved", "Approved", 409, "no_pending_approval", 0),
             ("steering_message", "Look at mobile signups too", 200, None, 1),
         ]
     )

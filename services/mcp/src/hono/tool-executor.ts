@@ -62,6 +62,7 @@ import {
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext, getEffectiveMCPClientIdentity, resolveSessionKey } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
+import type { ToolCallHooks } from './progress-stream'
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
 import type { ToolCatalog } from './tool-catalog'
@@ -117,8 +118,8 @@ function shouldSuppressStructuredContent(args: {
 }
 
 // A private response must not suppress another call sharing this JSON-RPC batch or token.
-function stateForToolCall(state: ResolvedState, intent: string | undefined): ResolvedState {
-    const scoped = { ...state, context: { ...state.context } }
+function stateForToolCall(state: ResolvedState, intent: string | undefined, hooks: ToolCallHooks): ResolvedState {
+    const scoped = { ...state, context: { ...state.context, ...hooks } }
     scoped.context.api = state.context.api.withAnalyticsSuppression(() => {
         scoped.suppressAnalytics = true
     })
@@ -201,7 +202,11 @@ export class ToolExecutor {
         return this.buildAdvertisedTools(state).find((tool) => tool.name === toolName)
     }
 
-    async handleToolCall(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {
+    async handleToolCall(
+        params: Record<string, unknown> | undefined,
+        state: ResolvedState,
+        hooks: ToolCallHooks = {}
+    ): Promise<unknown> {
         const toolName = params?.name as string
         if (!toolName) {
             return { content: [{ type: 'text', text: 'Missing tool name' }], isError: true }
@@ -228,7 +233,7 @@ export class ToolExecutor {
         if (preparedCall?.conversationId) {
             state.requestContext.mcpConversationId = preparedCall.conversationId
         }
-        const callState = stateForToolCall(state, analyticsMeta.intent)
+        const callState = stateForToolCall(state, analyticsMeta.intent, hooks)
         const callParams = { ...params, arguments: args }
 
         const result = await this.dispatchToolCall(toolName, callParams, callState, analyticsMeta)

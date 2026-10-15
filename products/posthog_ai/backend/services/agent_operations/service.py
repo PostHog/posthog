@@ -70,9 +70,9 @@ PERMISSION_MODES: dict[str, str] = {
 ALLOW_REPLIES = frozenset({"allow", "approve", "approved", "yes", "y", "ok", "go ahead"})
 ALLOW_ALWAYS_REPLIES = frozenset({"allow all", "always", "always allow", "allow always"})
 DENY_REPLIES = frozenset({"deny", "reject", "no", "n"})
-# The words that the approval prompt offers. With no approval pending, one of them is a late answer
-# to an approval that is already answered, so it must not go to the agent as a chat message.
-APPROVAL_ANSWERS = frozenset({"allow", "allow all", "deny"})
+# With no approval pending, an approval word is a late answer to an approval that is already answered,
+# so it must not go to the agent as a chat message.
+APPROVAL_ANSWERS = ALLOW_REPLIES | ALLOW_ALWAYS_REPLIES | DENY_REPLIES | frozenset({"allow", "allow all", "deny"})
 # Sandbox harness tools that only report on the run, such as its summary, which the status already shows.
 # The sandbox asks approval for them in client approval mode, so the service answers for the user.
 AUTO_APPROVED_TOOLS = frozenset({"mcp__posthog-code-tools__task_summary_update"})
@@ -479,6 +479,8 @@ class AgentOperationService:
             # The log cannot be read now, so keep the approval that the last read found.
             return operation
         pending = progress.pending_permission if progress is not None else None
+        if pending is not None and pending.request_id == operation.answered_permission_request_id:
+            pending = None
         if pending is not None and pending.tool_name in AUTO_APPROVED_TOOLS:
             self._auto_approve(operation, pending)
             pending = None
@@ -504,7 +506,7 @@ class AgentOperationService:
     def _send_permission_response(self, operation: AgentOperation, request_id: str, option_id: str) -> bool:
         if operation.run_id is None or operation.task_id is None:
             return False
-        return tasks_facade.send_permission_response(
+        sent = tasks_facade.send_permission_response(
             operation.run_id,
             operation.task_id,
             self.team.pk,
@@ -512,6 +514,10 @@ class AgentOperationService:
             request_id=request_id,
             option_id=option_id,
         )
+        if sent:
+            operation.answered_permission_request_id = request_id
+            operation.save(update_fields=["answered_permission_request_id", "updated_at"])
+        return sent
 
     def _set_state(self, operation: AgentOperation, state: str, reason: str | None) -> AgentOperation:
         operation.state = state
@@ -604,7 +610,9 @@ class AgentOperationService:
             )
         # A pending question takes any reply, so only an operation that waits for nothing rejects these words.
         if operation.state != State.NEEDS_INPUT and _normalize_reply(message) in APPROVAL_ANSWERS:
-            raise AgentOperationError("no_pending_approval", "This approval was already answered.", status=409)
+            raise AgentOperationError(
+                "no_pending_approval", "This approval was already answered, so no reply is needed.", status=409
+            )
 
         try:
             reply = AgentOperationReply.objects.for_team(self.team.pk).create(

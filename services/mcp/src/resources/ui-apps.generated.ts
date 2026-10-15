@@ -19,7 +19,6 @@ export const INLINE_SCAN_RESOURCE_URI = 'ui://posthog/inline-scan.html'
 export const INSIGHT_ACTORS_RESOURCE_URI = 'ui://posthog/insight-actors.html'
 export const LLM_COSTS_RESOURCE_URI = 'ui://posthog/llm-costs.html'
 export const POSTHOG_AGENT_RUN_RESOURCE_URI = 'ui://posthog/posthog-agent-run.html'
-export const POSTHOG_AGENT_STATUS_RESOURCE_URI = 'ui://posthog/posthog-agent-status.html'
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
 export const RENDER_UI_RESOURCE_URI = 'ui://posthog/render-ui.html'
 export const SESSION_RECORDING_RESOURCE_URI = 'ui://posthog/session-recording.html'
@@ -54,7 +53,6 @@ export type UiAppKey =
     | 'insight-actors'
     | 'llm-costs'
     | 'posthog-agent-run'
-    | 'posthog-agent-status'
     | 'query-results'
     | 'render-ui'
     | 'session-recording'
@@ -89,7 +87,6 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'insight-actors': INSIGHT_ACTORS_RESOURCE_URI,
     'llm-costs': LLM_COSTS_RESOURCE_URI,
     'posthog-agent-run': POSTHOG_AGENT_RUN_RESOURCE_URI,
-    'posthog-agent-status': POSTHOG_AGENT_STATUS_RESOURCE_URI,
     'query-results': QUERY_RESULTS_RESOURCE_URI,
     'render-ui': RENDER_UI_RESOURCE_URI,
     'session-recording': SESSION_RECORDING_RESOURCE_URI,
@@ -260,12 +257,6 @@ export const UI_APPS: Array<{
         uri: POSTHOG_AGENT_RUN_RESOURCE_URI,
         description: 'Live progress and result of a PostHog Agent operation',
         appDir: 'posthog-agent-run',
-    },
-    {
-        name: 'PostHog Agent update',
-        uri: POSTHOG_AGENT_STATUS_RESOURCE_URI,
-        description: 'The state of a PostHog Agent operation at one status check, with its approval or question',
-        appDir: 'posthog-agent-status',
     },
     {
         name: 'Query Results',

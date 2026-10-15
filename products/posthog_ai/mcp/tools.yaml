@@ -10,10 +10,6 @@ ui_apps:
         type: custom
         app_name: PostHog Agent
         description: Live progress and result of a PostHog Agent operation
-    posthog-agent-status:
-        type: custom
-        app_name: PostHog Agent update
-        description: The state of a PostHog Agent operation at one status check, with its approval or question
 tools:
     conversations-list:
         operation: conversations_list
