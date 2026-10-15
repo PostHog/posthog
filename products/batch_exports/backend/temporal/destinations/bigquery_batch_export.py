@@ -19,6 +19,7 @@ import google.auth.exceptions
 import google.auth.transport.requests
 import google.auth.impersonated_credentials
 from google.api_core.exceptions import (
+    BadGateway,
     BadRequest,
     DeadlineExceeded,
     Forbidden,
@@ -27,6 +28,7 @@ from google.api_core.exceptions import (
     InternalServerError,
     NotFound,
     PermissionDenied,
+    RetryError,
     ServiceUnavailable,
     TooManyRequests,
 )
@@ -107,6 +109,23 @@ NON_RETRYABLE_ERROR_TYPES = (
     "BigQueryIntegrationNotFoundError",
     # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
     "BigQueryIncompatibleSchemaError",
+)
+
+# Errors that only mean we could not read a load job's state. `RetryError` is raised when the
+# client's own retries for these errors run out.
+LOAD_JOB_POLL_RETRYABLE_EXCEPTIONS = (
+    RetryError,
+    TooManyRequests,
+    InternalServerError,
+    BadGateway,
+    ServiceUnavailable,
+    GatewayTimeout,
+    DeadlineExceeded,
+    ConnectionError,
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    requests.exceptions.ChunkedEncodingError,
+    google.auth.exceptions.TransportError,
 )
 
 LOGGER = get_write_only_logger(__name__)
@@ -1180,10 +1199,43 @@ class BigQueryClient:
             self.sync_client.load_table_from_file, file, bq_table, job_config=job_config, rewind=True
         )
 
-        while not await asyncio.to_thread(load_job.done):
-            await asyncio.sleep(poll_interval)
+        await self._wait_for_load_job(load_job, poll_interval=poll_interval)
 
         return await asyncio.to_thread(load_job.result)
+
+    async def _wait_for_load_job(self, load_job: bigquery.LoadJob, poll_interval: float) -> None:
+        """Poll a LoadJob until it is done.
+
+        A transient error while polling does not mean that the job failed, so we retry it forever.
+        If the error reached `load_file`, it would upload the file again and start a second load
+        job, which can load the same rows twice.
+        """
+        initial_retry = 1
+        backoff_factor = 2
+        max_retry = 32
+        attempt = 0
+
+        while True:
+            try:
+                done = await asyncio.to_thread(load_job.done)
+            except LOAD_JOB_POLL_RETRYABLE_EXCEPTIONS:
+                backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
+                self.logger.warning(
+                    "Transient error while polling LoadJob",
+                    job_id=load_job.job_id,
+                    attempt=attempt,
+                    backoff=backoff,
+                    exc_info=True,
+                )
+                await asyncio.sleep(backoff)
+                attempt += 1
+                continue
+
+            if done:
+                return
+
+            attempt = 0
+            await asyncio.sleep(poll_interval)
 
 
 class MissingRequiredPermissionsError(Exception):
