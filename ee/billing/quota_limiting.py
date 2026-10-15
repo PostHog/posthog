@@ -1,6 +1,6 @@
 import copy
 import json
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
 from time import time
@@ -425,7 +425,7 @@ def _signals_credited_refund_offset(organization: Organization, resource: QuotaR
 def org_quota_limited_until(
     organization: Organization,
     resource: QuotaResource,
-    previously_quota_limited_team_tokens: list[str],
+    previously_quota_limited_team_tokens: Collection[str],
     team_tokens: Sequence[str] | None = None,
 ) -> Optional[OrgQuotaLimitingInformation]:
     if not organization.usage:
@@ -1375,6 +1375,9 @@ def update_all_orgs_billing_quotas(
             resource, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY, use_cache=False
         )
 
+    previously_quota_limited_team_token_sets = {
+        field: set(tokens) for field, tokens in previously_quota_limited_team_tokens.items()
+    }
     previously_recordings_zset_tokens: set[str] = _get_previous_recordings_zset_tokens()
     # We have the teams that are currently under quota limits
     # previously_quota_limited_team_tokens is a dict of resources to team tokens from redis (e.g. {"events": ["phc_123", "phc_456"], "exceptions": ["phc_123", "phc_456"], "recordings": ["phc_123", "phc_456"], "rows_synced": ["phc_123", "phc_456"], "feature_flag_requests": ["phc_123", "phc_456"], "api_queries_read_bytes": ["phc_123", "phc_456"], "survey_responses": ["phc_123", "phc_456"]})
@@ -1447,7 +1450,7 @@ def update_all_orgs_billing_quotas(
                     field = resource.value
                     # for each organization, we check if the current usage + today's unreported usage is over the limit
                     result = org_quota_limited_until(
-                        org, resource, previously_quota_limited_team_tokens[field], teams_by_org.get(org_id, [])
+                        org, resource, previously_quota_limited_team_token_sets[field], teams_by_org.get(org_id, [])
                     )
                     if result:
                         quota_limited_until = result.get("quota_limited_until")
@@ -1527,7 +1530,7 @@ def update_all_orgs_billing_quotas(
                 quota_limited_teams[field][team.api_token] = quota_limited_orgs[field][org_id]
 
                 # If the team was not previously quota limited, we add it to the list of orgs that were added
-                if team.api_token not in previously_quota_limited_team_tokens[field]:
+                if team.api_token not in previously_quota_limited_team_token_sets[field]:
                     orgs_with_changes.add(org_id)
                     if field == recordings_field and not team_was_in_recordings_zset:
                         recordings_transitioned_team_ids.add(team.id)
@@ -1537,7 +1540,7 @@ def update_all_orgs_billing_quotas(
                     recordings_transitioned_team_ids.add(team.id)
             else:
                 # If the team was previously quota limited, we add it to the list of orgs that were removed
-                if team.api_token in previously_quota_limited_team_tokens[field]:
+                if team.api_token in previously_quota_limited_team_token_sets[field]:
                     orgs_with_changes.add(org_id)
                 # Decoupled from `orgs_with_changes` on purpose: the recordings RemoteConfig
                 # rebuild must also fire for tokens whose scores already expired naturally —
