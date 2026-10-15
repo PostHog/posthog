@@ -15,15 +15,17 @@ later edit can still be customized.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
 
-from products.alerts.backend.facade.contracts import DestinationEligibility, DestinationHoldBack
+from products.alerts.backend.facade.contracts import DestinationBucket, DestinationEligibility, DestinationHoldBack
 from products.alerts.backend.logic.destination_configs import (
     SPEC_BY_TEMPLATE_ID,
     WEBHOOK_HEADERS,
+    SlackDestination,
     WebhookDestination,
     added_webhook_headers,
     input_value,
@@ -39,12 +41,30 @@ EDIT_TRACKING_STARTED: Final = datetime(2026, 8, 4, tzinfo=UTC)
 # A function is saved in the moments after it is built. A later save means a person changed it.
 RESAVED_AFTER: Final = timedelta(seconds=60)
 
-_WEBHOOK_INPUT_HOLD_BACKS: Final = {
-    "body": DestinationHoldBack.WEBHOOK_BODY,
-    "method": DestinationHoldBack.WEBHOOK_METHOD,
+# An edited input missing here changes the message.
+_INPUT_HOLD_BACKS: Final[dict[str, dict[str, DestinationHoldBack]]] = {
+    WebhookDestination.template_id: {
+        "body": DestinationHoldBack.WEBHOOK_BODY,
+        "method": DestinationHoldBack.WEBHOOK_METHOD,
+    },
+    SlackDestination.template_id: {
+        "icon_emoji": DestinationHoldBack.MESSAGE_COSMETIC,
+        "username": DestinationHoldBack.MESSAGE_COSMETIC,
+    },
 }
 
 _DERIVED_FILTER_KEYS: Final = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
+
+
+_BUCKET_BY_HOLD_BACK: Final = {
+    DestinationHoldBack.REFUSED_ADDRESS: DestinationBucket.REFUSED_ADDRESS,
+    DestinationHoldBack.NO_TEMPLATE: DestinationBucket.CODE,
+    DestinationHoldBack.CODE: DestinationBucket.CODE,
+    DestinationHoldBack.MESSAGE_COSMETIC: DestinationBucket.COSMETIC,
+    DestinationHoldBack.WEBHOOK_TEMPLATED_HEADER: DestinationBucket.TEMPLATED_HEADERS,
+    DestinationHoldBack.WEBHOOK_HEADERS: DestinationBucket.STATIC_HEADERS,
+}
+_BUCKET_ORDER: Final = tuple(DestinationBucket)
 
 
 # Only these receive alert events. Any other function on the same event id reads captured events.
@@ -75,9 +95,16 @@ def classify_alert_destinations(
             hog_function_id=function.id,
             template_id=function.template_id,
             hold_backs=_hold_backs(function, first_revisions.get(function.id)),
+            code_hash=hashlib.md5((function.hog or "").encode(), usedforsecurity=False).hexdigest(),
         )
         for function in functions
     )
+
+
+def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
+    """The most restrictive bucket among a destination's hold-backs. No hold-back means stock."""
+    buckets = {_BUCKET_BY_HOLD_BACK.get(hold_back, DestinationBucket.PORTABLE) for hold_back in eligibility.hold_backs}
+    return min(buckets, key=_BUCKET_ORDER.index, default=DestinationBucket.STOCK)
 
 
 def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[str]) -> tuple[UUID, ...]:
@@ -115,10 +142,13 @@ def _bound_to_one_alert(filters: Any) -> bool:
 
 
 def _hold_backs(function: HogFunction, first_revision: HogFunctionRevision | None) -> tuple[DestinationHoldBack, ...]:
-    template_id = function.template_id or ""
+    template_id = function.template_id
+    if not template_id:
+        return (DestinationHoldBack.NO_TEMPLATE,)
+    code_edited = first_revision is not None and function.hog != first_revision.content.get("hog")
     spec = SPEC_BY_TEMPLATE_ID.get(template_id)
     if spec is None:
-        return (DestinationHoldBack.UNRECOGNIZED_TEMPLATE,)
+        return (DestinationHoldBack.OTHER_TEMPLATE, *((DestinationHoldBack.CODE,) if code_edited else ()))
 
     found: list[DestinationHoldBack] = []
     if function.masking:
@@ -145,7 +175,7 @@ def _hold_backs(function: HogFunction, first_revision: HogFunctionRevision | Non
 
     first_snapshot = first_revision.content
 
-    if function.hog != first_snapshot.get("hog"):
+    if code_edited:
         found.append(DestinationHoldBack.CODE)
     if function.inputs_schema != first_snapshot.get("inputs_schema"):
         found.append(DestinationHoldBack.CUSTOM_INPUTS)
@@ -177,10 +207,7 @@ def _input_hold_backs(
             continue
         if value == first_value and _templating(inputs, key) == _templating(first_inputs, key):
             continue
-        if is_webhook and key in _WEBHOOK_INPUT_HOLD_BACKS:
-            found.append(_WEBHOOK_INPUT_HOLD_BACKS[key])
-        else:
-            found.append(DestinationHoldBack.MESSAGE)
+        found.append(_INPUT_HOLD_BACKS.get(template_id, {}).get(key, DestinationHoldBack.MESSAGE))
     return found
 
 

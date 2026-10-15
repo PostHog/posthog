@@ -1,12 +1,20 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
-from products.alerts.backend.facade.contracts import DestinationHoldBack
-from products.alerts.backend.facade.destinations import classify_alert_destinations, unbound_alert_destinations
+from products.alerts.backend.facade.contracts import DestinationBucket, DestinationEligibility, DestinationHoldBack
+from products.alerts.backend.facade.destinations import (
+    bucket_for,
+    classify_alert_destinations,
+    unbound_alert_destinations,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 
@@ -63,9 +71,12 @@ class TestDestinationEligibility(APIBaseTest):
             **fields,
         )
 
-    def _classify(self) -> tuple[DestinationHoldBack, ...]:
+    def _eligibility(self) -> DestinationEligibility:
         (eligibility,) = classify_alert_destinations(team_id=self.team.id, alert_id=ALERT_ID, allowed_event_ids=[EVENT])
-        return eligibility.hold_backs
+        return eligibility
+
+    def _classify(self) -> tuple[DestinationHoldBack, ...]:
+        return self._eligibility().hold_backs
 
     def _edited(self, function: HogFunction, **changes: Any) -> None:
         HogFunctionRevision.objects.for_team(self.team.id).create(
@@ -117,6 +128,14 @@ class TestDestinationEligibility(APIBaseTest):
                 "headers",
                 {"Content-Type": "application/json", "X Bad": "ok"},
                 (DestinationHoldBack.WEBHOOK_HEADERS,),
+            ),
+            (
+                "slack_bot_emoji",
+                "template-slack",
+                SLACK_INPUTS,
+                "icon_emoji",
+                ":rotating_light:",
+                (DestinationHoldBack.MESSAGE_COSMETIC,),
             ),
             ("slack_text_saved_with_the_default_mode", "template-slack", SLACK_INPUTS, "text", "hog", ()),
             (
@@ -172,7 +191,11 @@ class TestDestinationEligibility(APIBaseTest):
     ) -> None:
         self._edited(self._function("template-webhook", WEBHOOK_INPUTS), **changes)
 
-        assert self._classify() == expected
+        eligibility = self._eligibility()
+        assert eligibility.hold_backs == expected
+        # The code-family registry is keyed by the md5 of the code as it runs now.
+        current_hog = changes.get("hog", "return event")
+        assert eligibility.code_hash == hashlib.md5(current_hog.encode(), usedforsecurity=False).hexdigest()
 
     @parameterized.expand(
         [
@@ -245,12 +268,28 @@ class TestDestinationEligibility(APIBaseTest):
 
         assert self._classify() == (DestinationHoldBack.WEBHOOK_SIGNING,)
 
-    def test_a_template_native_delivery_does_not_know_is_held_back(self) -> None:
-        self._function("template-some-custom-sink", {"url": {"value": "https://hooks.example.com/hook"}})
-        reads_captured_events = self._function("template-some-custom-sink", {})
+    @parameterized.expand(
+        [
+            ("other_template", "template-some-custom-sink", None, (DestinationHoldBack.OTHER_TEMPLATE,)),
+            (
+                "other_template_with_edited_code",
+                "template-some-custom-sink",
+                "fetch('https://hooks.example.com/hook')",
+                (DestinationHoldBack.OTHER_TEMPLATE, DestinationHoldBack.CODE),
+            ),
+            ("no_template", "", None, (DestinationHoldBack.NO_TEMPLATE,)),
+        ]
+    )
+    def test_a_template_native_delivery_does_not_know_is_held_back(
+        self, _name: str, template_id: str, edited_hog: str | None, expected: tuple[DestinationHoldBack, ...]
+    ) -> None:
+        function = self._function(template_id, {"url": {"value": "https://hooks.example.com/hook"}})
+        if edited_hog is not None:
+            self._edited(function, hog=edited_hog)
+        reads_captured_events = self._function(template_id, {})
         HogFunction.objects.filter(pk=reads_captured_events.pk).update(type="destination")
 
-        assert self._classify() == (DestinationHoldBack.UNRECOGNIZED_TEMPLATE,)
+        assert self._classify() == expected
 
     def test_a_function_no_alert_owns_is_unbound(self) -> None:
         self._function("template-slack", SLACK_INPUTS)
@@ -276,3 +315,39 @@ class TestDestinationEligibility(APIBaseTest):
             untyped_event.id,
             excluding_one_alert.id,
         )
+
+
+class TestBucketFor(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("stock", (), DestinationBucket.STOCK),
+            ("other_template", (DestinationHoldBack.OTHER_TEMPLATE,), DestinationBucket.PORTABLE),
+            ("no_template", (DestinationHoldBack.NO_TEMPLATE,), DestinationBucket.CODE),
+            (
+                "refused_address_over_code",
+                (DestinationHoldBack.CODE, DestinationHoldBack.REFUSED_ADDRESS),
+                DestinationBucket.REFUSED_ADDRESS,
+            ),
+            ("code_over_message", (DestinationHoldBack.MESSAGE, DestinationHoldBack.CODE), DestinationBucket.CODE),
+            (
+                "message_over_cosmetic",
+                (DestinationHoldBack.MESSAGE_COSMETIC, DestinationHoldBack.MESSAGE),
+                DestinationBucket.PORTABLE,
+            ),
+            ("cosmetic", (DestinationHoldBack.MESSAGE_COSMETIC,), DestinationBucket.COSMETIC),
+            (
+                "templated_over_static_headers",
+                (DestinationHoldBack.WEBHOOK_HEADERS, DestinationHoldBack.WEBHOOK_TEMPLATED_HEADER),
+                DestinationBucket.TEMPLATED_HEADERS,
+            ),
+            ("static_headers", (DestinationHoldBack.WEBHOOK_HEADERS,), DestinationBucket.STATIC_HEADERS),
+        ]
+    )
+    def test_the_most_restrictive_hold_back_decides(
+        self, _name: str, hold_backs: tuple[DestinationHoldBack, ...], expected: DestinationBucket
+    ) -> None:
+        eligibility = DestinationEligibility(
+            hog_function_id=UUID(int=1), template_id="template-webhook", hold_backs=hold_backs, code_hash=""
+        )
+
+        assert bucket_for(eligibility) == expected
