@@ -66,6 +66,9 @@ _LOGS_OWNED_FIELDS = ("state", "consecutive_failures", "next_check_at", "last_no
 _LEGACY_ALERT_FIELDS = ("evaluation_periods", "datapoints_to_alarm", "cooldown_minutes", "schedule_restriction")
 
 
+_BY_SERVICE = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",))
+
+
 class TestLogsAlertEvaluation(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -469,26 +472,23 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("cohort_with_its_full_time", False, BATCH_QUERY_BUDGET_SECONDS, 5),
-            ("cohort_left_short_by_the_batch", False, 5, 4),
-            ("grouped_with_its_full_time", True, BATCH_QUERY_BUDGET_SECONDS, 5),
-            ("grouped_left_short_by_the_batch", True, 5, 4),
+            ("cohort_with_its_full_time", "BatchedAlertCheckQuery", Grouping(), BATCH_QUERY_BUDGET_SECONDS, 5),
+            ("cohort_left_short_by_the_batch", "BatchedAlertCheckQuery", Grouping(), 5, 4),
+            ("grouped_with_its_full_time", "GroupedAlertCheckQuery", _BY_SERVICE, BATCH_QUERY_BUDGET_SECONDS, 5),
+            ("grouped_left_short_by_the_batch", "GroupedAlertCheckQuery", _BY_SERVICE, 5, 4),
         ]
     )
     def test_a_query_out_of_time_counts_against_the_alert_only_when_it_had_its_full_time(
-        self, _name: str, grouped: bool, budget_seconds: int, expected_failures: int
+        self, _name: str, query_class: str, grouping: Grouping, budget_seconds: int, expected_failures: int
     ) -> None:
-        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",)) if grouped else Grouping()
         self._configuration(consecutive_failures=4, grouping=grouping.to_stored())
 
         with (
             patch(f"{_MODULE}.BATCH_QUERY_BUDGET_SECONDS", budget_seconds),
             patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
-            patch(f"{_MODULE}.BatchedAlertCheckQuery") as cohort_query,
-            patch(f"{_MODULE}.GroupedAlertCheckQuery") as grouped_query,
+            patch(f"{_MODULE}.{query_class}") as query,
         ):
-            for query in (cohort_query, grouped_query):
-                query.return_value.execute_rolling_checks.side_effect = ClickHouseQueryTimeOut()
+            query.return_value.execute_rolling_checks.side_effect = ClickHouseQueryTimeOut()
             evaluation = evaluate_logs_batch(self.team.id, self._slot(), self.cutoff)
 
         assert [o.consecutive_failures for o in evaluation.outcomes] == [expected_failures]

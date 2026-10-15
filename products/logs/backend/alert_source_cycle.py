@@ -93,7 +93,10 @@ from products.logs.backend.alert_check_query import (
     rolling_check_lookback_minutes,
 )
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
-from products.logs.backend.alert_error_classifier import classify as classify_alert_error
+from products.logs.backend.alert_error_classifier import (
+    SERVER_BUSY,
+    classify as classify_alert_error,
+)
 from products.logs.backend.alert_evaluation_key import WINDOW_MARKER
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import platform_upsert_of
@@ -128,7 +131,6 @@ MIN_QUERY_SECONDS = 2
 CHECKPOINT_QUERY_SECONDS = 10
 # The errors ClickHouse raises when a query exceeds, or is estimated to exceed, its time limit.
 _OUT_OF_TIME_ERRORS: Final = (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)
-_BATCH_BUSY_MESSAGE: Final = "PostHog is temporarily busy. The alert check will retry automatically."
 
 INFLIGHT_KEY = "alerts:platform:logs:batches:inflight"
 # Taken inside the evaluation activity, so it only has to outlast that activity's start-to-close. Short
@@ -516,7 +518,7 @@ def _failed(
     *,
     now: datetime,
     muted: bool,
-    query_seconds: int = MAX_QUERY_SECONDS,
+    cut_short: bool = False,
 ) -> AlertCheckOutcome:
     """A check that could not reach a verdict, as the shared machine's error path sees it.
 
@@ -525,20 +527,16 @@ def _failed(
     as one so the policy can hold the counter.
 
     A query that ran out of time counts against the alert only when it had the full per-query
-    time. With less, the queries before it in the batch spent the time, so a healthy alert that
-    shares a slot with slow ones would otherwise escalate to BROKEN.
+    time. `cut_short` says it had less, because the queries before it in the batch spent the time,
+    so a healthy alert that shares a slot with slow ones would otherwise escalate to BROKEN.
     """
-    if query_seconds < MAX_QUERY_SECONDS and isinstance(error, _OUT_OF_TIME_ERRORS):
-        error_message, is_transient = _BATCH_BUSY_MESSAGE, True
-    else:
-        classified = classify_alert_error(error)
-        error_message, is_transient = classified.user_message, classified.is_transient
+    classified = SERVER_BUSY if cut_short and isinstance(error, _OUT_OF_TIME_ERRORS) else classify_alert_error(error)
     return _verdict(
         check,
         CheckInput(
             threshold_breached=False,
-            error_message=error_message,
-            is_transient_error=is_transient,
+            error_message=classified.user_message,
+            is_transient_error=classified.is_transient,
             muted=muted,
         ),
         (),
@@ -610,7 +608,9 @@ def _evaluate_cohort(
         return [
             _delivery(
                 check,
-                _failed(check, error, now=now, muted=check.id in muted_ids, query_seconds=query_seconds),
+                _failed(
+                    check, error, now=now, muted=check.id in muted_ids, cut_short=query_seconds < MAX_QUERY_SECONDS
+                ),
                 window_end=date_to,
                 now=now,
                 failed=True,
@@ -797,7 +797,7 @@ def _evaluate_grouped(
         logger.exception("Grouped logs alert query failed", check_id=str(check.id), error=str(error))
         return _delivery(
             check,
-            _failed(check, error, now=now, muted=muted, query_seconds=query_seconds),
+            _failed(check, error, now=now, muted=muted, cut_short=query_seconds < MAX_QUERY_SECONDS),
             window_end=date_to,
             now=now,
             failed=True,
