@@ -82,6 +82,14 @@ function inheritedErrorTrackingConfig(configs: SignalSourceConfig[]): Record<str
 /** Warehouse-backed signal sources, keyed by roster source id. */
 export type WarehouseBackedSource = ExternalSignalSource | 'engineering_analytics'
 
+const PINNED_SOURCE_ORDER: Partial<Record<AgentRosterSource, number>> = {
+    github: 0,
+    linear: 1,
+    zendesk: 2,
+    sentry: 3,
+    jira: 4,
+}
+
 export interface ExternalSignalSourceState {
     config: SignalSourceConfig | null
     connected: boolean
@@ -896,6 +904,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                                     ? externalStates[source].connected
                                     : !!ciConfig?.configured
                             return (
+                                (PINNED_SOURCE_ORDER[a.source] ?? Number.MAX_SAFE_INTEGER) -
+                                    (PINNED_SOURCE_ORDER[b.source] ?? Number.MAX_SAFE_INTEGER) ||
                                 Number(connected(b.source)) - Number(connected(a.source)) ||
                                 a.label.localeCompare(b.label)
                             )

@@ -195,14 +195,23 @@ describe('signalSourcesLogic', () => {
         }
     )
 
-    it('sorts connected sources first and filters the catalog without hiding PostHog sources', () => {
+    it('pins sources before connected tools and filters the catalog without hiding PostHog sources', () => {
         sourcesDataLogic.actions.loadSourcesSuccess({
-            results: [{ ...githubSource, source_type: 'Jira' }],
+            results: [
+                { ...githubSource, source_type: 'Jira' },
+                { ...githubSource, id: 'source-bugsnag', source_type: 'Bugsnag' },
+                { ...githubSource, id: 'source-gitea', source_type: 'Gitea' },
+            ],
             next: null,
             previous: null,
         })
         logic.actions.loadSourceConfigsSuccess([])
-        expect(logic.values.rosterGroups.find((group) => group.id === 'external')?.agents[0].source).toBe('jira')
+        expect(
+            logic.values.rosterGroups
+                .find((group) => group.id === 'external')
+                ?.agents.slice(0, 8)
+                .map((agent) => agent.source)
+        ).toEqual(['github', 'linear', 'zendesk', 'sentry', 'jira', 'bugsnag', 'gitea', 'aha'])
         expect(logic.values.externalSourceStates.jira).toMatchObject({ connected: true, requiresSetup: false })
         expect(logic.values.externalSourceStates.sentry).toMatchObject({ connected: false, requiresSetup: true })
         logic.actions.setSourceCategory('Error tracking')
