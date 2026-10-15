@@ -3,7 +3,7 @@ import { StyleSheet, Text } from 'react-native'
 
 import { ChevronLeftIcon } from './icons/ChevronLeftIcon'
 import { Pressable44 } from './Pressable44'
-import { colors, radii, shadows, type } from './tokens'
+import { colors, iconSizes, radii, shadows, type } from './tokens'
 
 interface BackChipProps {
     onPress: () => void
@@ -19,7 +19,7 @@ export function BackChip({ onPress, testID }: BackChipProps): ReactElement {
             pressedStyle={styles.pressed}
             testID={testID}
         >
-            <ChevronLeftIcon size={15} />
+            <ChevronLeftIcon size={iconSizes.control} />
             <Text style={styles.text}>Back</Text>
         </Pressable44>
     )

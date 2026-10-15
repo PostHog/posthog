@@ -11,7 +11,7 @@ import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { ReassignIcon } from '@/ui/icons/ReassignIcon'
 import type { IconProps } from '@/ui/icons/types'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, layout, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { placeContextMenu, type RowAnchor } from './contextMenuPlacement'
@@ -70,7 +70,7 @@ function ContextMenuRow({
                 {pending ? (
                     <ActivityIndicator size="small" color={colors.ink} />
                 ) : (
-                    <Icon size={22} color={disabled ? colors.disabled : colors.ink} />
+                    <Icon size={iconSizes.control} color={disabled ? colors.disabled : colors.ink} />
                 )}
             </View>
             <Text style={[styles.rowLabel, disabled && styles.disabledLabel]}>{label}</Text>
@@ -226,18 +226,20 @@ const styles = StyleSheet.create({
         marginBottom: 6,
     },
     row: {
-        height: 52,
+        minHeight: 52,
+        paddingVertical: 12,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 16,
         paddingHorizontal: 14,
         borderRadius: radii.menuRow,
     },
-    icon: { width: 22, alignItems: 'center' },
+    icon: { width: iconSizes.control, alignItems: 'center' },
     error: { ...type.metaSmall, color: colors.orange, paddingHorizontal: 14, paddingVertical: 8 },
     rowLabel: {
         ...type.menuRow,
         color: colors.ink,
+        flex: 1,
     },
     disabledLabel: {
         color: colors.disabled,

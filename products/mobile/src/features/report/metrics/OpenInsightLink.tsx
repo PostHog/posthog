@@ -3,7 +3,7 @@ import { StyleSheet, Text } from 'react-native'
 
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, type } from '@/ui/tokens'
+import { colors, iconSizes, type } from '@/ui/tokens'
 
 import { type InsightSource, openInsight } from './openInsight'
 
@@ -27,7 +27,7 @@ export function OpenInsightLink({ url, reportId, source, title, testID }: OpenIn
             testID={testID}
         >
             <Text style={styles.label}>Open insight</Text>
-            <ChevronRightIcon size={10} color={colors.blue} strokeWidth={2.6} />
+            <ChevronRightIcon size={iconSizes.small} color={colors.blue} strokeWidth={2.6} />
         </Pressable44>
     )
 }

@@ -10,7 +10,7 @@ import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { PersonIcon } from '@/ui/icons/PersonIcon'
 import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, inputReset, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, inputReset, radii, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { MAX_REVIEWERS, useAvailableReviewers } from './hooks'
@@ -59,7 +59,7 @@ function PersonRow({ person, selected, onPress }: PersonRowProps): ReactElement 
             <Text style={styles.rowLabel} numberOfLines={1}>
                 {person.name}
             </Text>
-            {selected ? <CheckIcon size={18} /> : null}
+            {selected ? <CheckIcon size={iconSizes.control} /> : null}
         </Pressable44>
     )
 }
@@ -161,7 +161,7 @@ export function AssigneeSheet({
                         pressedBackground={colors.hairline}
                         style={styles.close}
                     >
-                        <CloseIcon size={16} />
+                        <CloseIcon size={iconSizes.control} />
                     </Pressable44>
                 </View>
             </View>
@@ -176,7 +176,7 @@ export function AssigneeSheet({
                 </Text>
             ) : null}
             <View style={styles.search}>
-                <SearchIcon size={18} />
+                <SearchIcon size={iconSizes.control} />
                 <TextInput
                     value={query}
                     onChangeText={setQuery}
@@ -200,10 +200,10 @@ export function AssigneeSheet({
                         testID="assignee-none"
                     >
                         <View style={styles.dashed}>
-                            <PersonIcon size={14} color={colors.muted} />
+                            <PersonIcon size={iconSizes.control} color={colors.muted} />
                         </View>
                         <Text style={styles.rowLabel}>No assignee</Text>
-                        {selected.size === 0 ? <CheckIcon size={18} /> : null}
+                        {selected.size === 0 ? <CheckIcon size={iconSizes.control} /> : null}
                     </Pressable44>
                 )}
                 {people.isLoading ? <ActivityIndicator color={colors.ink} style={styles.loading} /> : null}
@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
     },
     title: {
-        ...type.sheetTitleLarge,
+        ...type.sheetTitle,
         color: colors.ink,
     },
     headerActions: {
@@ -307,7 +307,7 @@ const styles = StyleSheet.create({
         ...inputReset,
         flex: 1,
         minWidth: 0,
-        fontSize: 17,
+        ...type.input,
         color: colors.ink,
         paddingVertical: 0,
     },
@@ -329,11 +329,10 @@ const styles = StyleSheet.create({
         flex: 1,
         minWidth: 0,
     },
-    // 32pt content box plus the 2pt dashed border on each side.
     dashed: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
+        width: 32,
+        height: 32,
+        borderRadius: 16,
         borderWidth: 2,
         borderStyle: 'dashed',
         borderColor: colors.disabled,

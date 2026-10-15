@@ -5,7 +5,7 @@ import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import { GitBranchIcon } from '@/ui/icons/GitBranchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, inputReset, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, inputReset, radii, type } from '@/ui/tokens'
 
 import { SheetPageHeader } from './SheetPageHeader'
 
@@ -31,7 +31,7 @@ export function BranchPage({ branch, onChange, onDone }: BranchPageProps): React
         <Animated.View style={keyboardStyle} testID="handoff-branch-page">
             <SheetPageHeader title="Branch" onBack={done} testID="handoff-branch-page" />
             <View style={styles.field}>
-                <GitBranchIcon size={16} color={colors.tertiary} />
+                <GitBranchIcon size={iconSizes.control} color={colors.tertiary} />
                 <TextInput
                     value={draft}
                     onChangeText={change}

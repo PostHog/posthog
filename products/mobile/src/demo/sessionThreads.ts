@@ -1,4 +1,5 @@
 import type { TaskRunStatus } from '@/model/types'
+import { DEMO_BRIEFINGS, DEMO_DECISION } from './briefings'
 
 // Stored run logs for the demo sessions in `chats.ts`, shaped like `GET tasks/{id}/runs/{run}/logs/` lines.
 
@@ -164,11 +165,78 @@ const LOGS: Record<string, DemoSessionLog> = {
 
 /** A stored demo session, keyed by the task ids in `chats.ts`. Undefined for an id the demo does not know. */
 export function demoSessionLog(taskId: string): DemoSessionLog | undefined {
-    return LOGS[taskId]
+    if (LOGS[taskId]) {
+        return LOGS[taskId]
+    }
+    const reportId = taskId.replace(/(?:-handoff)?-task$/, '')
+    const briefing = DEMO_BRIEFINGS.find((item) => item.id === reportId)
+    if (!briefing) {
+        return undefined
+    }
+    const runId = demoSessionRunId(taskId)
+    const decision = briefing.kind === 'decision' && !taskId.endsWith('-handoff-task')
+    const pullRequests = decision
+        ? ['https://github.com/example/app/pull/4191']
+        : briefing.kind === 'pr_ready'
+          ? [4190, 4188, 4189, 4192].map((number) => `https://github.com/example/app/pull/${number}`)
+          : []
+    return {
+        title: briefing.title,
+        status: 'in_progress',
+        entries: [
+            runStarted(runId),
+            userMessage(briefing.prompt ?? briefing.title),
+            ...tool(`${reportId}-read`, 'Read', 'read', 'Read the report and related source'),
+            agentMessage(
+                decision ? DEMO_DECISION.question : 'You can review the task activity or send a follow-up here.'
+            ),
+            {
+                type: 'task_run_state',
+                run_id: runId,
+                status: 'in_progress',
+                stage: briefing.handedStage,
+                output: { pr_url: pullRequests[0] ?? null, pr_urls: pullRequests },
+            },
+            ...(decision
+                ? [
+                      notification('_posthog/permission_request', {
+                          requestId: DEMO_DECISION.id,
+                          options: DEMO_DECISION.options.map((option, index) => ({
+                              optionId: `option_${index}`,
+                              kind: 'allow_once',
+                              name: option.title,
+                          })),
+                          toolCall: {
+                              toolCallId: `${reportId}-question`,
+                              title: DEMO_DECISION.question,
+                              kind: 'other',
+                              _meta: {
+                                  claudeCode: { toolName: 'AskUserQuestion' },
+                                  codeToolKind: 'question',
+                                  questions: [
+                                      {
+                                          question: DEMO_DECISION.question,
+                                          multiSelect: false,
+                                          options: DEMO_DECISION.options.map((option) => ({
+                                              label: option.title,
+                                              description: option.meta,
+                                          })),
+                                      },
+                                  ],
+                              },
+                          },
+                      }),
+                  ]
+                : [TURN_COMPLETE]),
+        ],
+    }
 }
 
 /** The run id the demo session's log names, so its frames count as the session's own run. */
 export function demoSessionRunId(taskId: string): string {
+    if (taskId.endsWith('-task')) {
+        return `${taskId.slice(0, -5)}-run`
+    }
     return `demo-run-${taskId.replace(/^demo-session-/, '')}`
 }
 

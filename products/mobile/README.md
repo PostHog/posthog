@@ -86,7 +86,7 @@ are the same brand geometry ported to `react-native-svg`.
 - [Decisions](docs/DECISIONS.md): choices the build contract left open
 - [Gaps](docs/GAPS.md): known gaps and local-only behavior
 - [API](docs/API.md), [Push](docs/PUSH.md)
-- [Releasing](docs/RELEASING.md): EAS builds, device installs, TestFlight and the Play internal track
+- [Releasing](docs/RELEASING.md): local standalone phone installs, EAS builds, TestFlight and the Play internal track
 - [OTA updates](docs/OTA.md): update channels, runtime version, rollbacks
 - [CI](docs/CI.md): the Mobile CI and Mobile Build workflows
 - [Testing](docs/TESTING.md): the demo walkthrough on the iOS simulator with Argent

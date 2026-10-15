@@ -37,8 +37,10 @@ steps:
     - await: { idle: true }
     - assert: { text: { in: { id: inbox-row-demo-report-load-time }, contains: Snoozed until tomorrow } }
 
-    - echo: On the inbox. Open the 3,721 errors report. Expect its decision card
+    - echo: On the inbox. Open the 3,721 errors report. Expect its pull request and answer action
     - tap: { id: inbox-row-demo-report-ui-errors }
+    - await: { visible: { id: pr-ready-card } }
+    - tap: { id: decision-request }
     - await: { visible: { id: decision-option-guard } }
     - await: { idle: true }
 
@@ -49,10 +51,14 @@ steps:
 
     - echo: Decided card shows the answer. Tap Undo. Expect the decision card again
     - tap: { id: decision-undo }
+    - await: { visible: { id: decision-request } }
+    - tap: { id: decision-request }
     - await: { visible: { id: decision-option-guard } }
     - await: { hidden: { id: decision-undo } }
 
-    - echo: Decision card is back. Open Chat from the action pill. Expect the chat sheet
+    - echo: Question sheet is open. Close it and open Chat. Expect the chat sheet
+    - tap: { id: decision-sheet-back }
+    - await: { hidden: { id: decision-sheet } }
     - tap: { id: action-chat }
     - await: { visible: { id: chat-input } }
     - await: { idle: true }
@@ -65,7 +71,7 @@ steps:
     - echo: Reply shown. Close the chat. Expect the report again
     - tap: { id: chat-close }
     - await: { hidden: { id: chat-close } }
-    - await: { visible: { id: decision-option-guard } }
+    - await: { visible: { id: decision-request } }
     - await: { idle: true }
 
     - echo: On the report. Go back. Expect the inbox

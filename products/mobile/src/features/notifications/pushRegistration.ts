@@ -5,6 +5,7 @@ import { Platform } from 'react-native'
 import { registerPushToken, unregisterPushToken } from '@/api/pushTokens'
 import { useAuthStore } from '@/auth/authStore'
 import { toError } from '@/lib/errors'
+import { foregroundNotificationBehavior } from './foregroundNotifications'
 import { type PushPermission, usePushStore, waitForPushHydration } from './pushStore'
 import { notificationsSupported, pushUnavailableReason } from './pushSupport'
 
@@ -22,12 +23,7 @@ export function configureNotifications(): void {
         return
     }
     Notifications.setNotificationHandler({
-        handleNotification: async () => ({
-            shouldShowBanner: true,
-            shouldShowList: true,
-            shouldPlaySound: false,
-            shouldSetBadge: false,
-        }),
+        handleNotification: async (notification) => foregroundNotificationBehavior(notification),
     })
     void ensureAndroidChannel()
 }

@@ -12,9 +12,10 @@ import { reportWebUrl } from '@/model/adapters/report'
 import type { InboxItem, ReportView } from '@/model/types'
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { ComposeIcon } from '@/ui/icons/ComposeIcon'
+import { OverlayHost } from '@/ui/OverlayPortal'
 import { Pressable44 } from '@/ui/Pressable44'
 import { Scrim } from '@/ui/Scrim'
-import { colors, motion, radii, shadows, type } from '@/ui/tokens'
+import { colors, iconSizes, motion, radii, shadows, type } from '@/ui/tokens'
 import { usePresence } from '@/ui/usePresence'
 import { useScreenInsets } from '@/ui/useScreenInsets'
 import { useSheetDrag } from '@/ui/useSheetDrag'
@@ -297,103 +298,107 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
     // The route is a native modal, so on Android the app's gesture root does not reach it and the sheet needs its own.
     return (
         <GestureHandlerRootView style={styles.overlay} testID="chat-sheet">
-            <Scrim color={colors.scrimChat} progress={progress} />
-            <Animated.View style={[styles.sheet, shadows.bottomSheet, sheetStyle]} accessibilityViewIsModal>
-                <Animated.View style={[styles.keyboard, keyboardStyle]}>
-                    {/* The thread scrolls, so only the header takes the drag; a drag there never competes with a scroll. */}
-                    <GestureDetector gesture={pan}>
-                        <View style={styles.header} testID="chat-header">
-                            <View style={styles.grabber} />
-                            <View style={styles.headerRow}>
-                                <Pressable44
-                                    onPress={close}
-                                    accessibilityLabel="Close"
-                                    pressedBackground={colors.background}
-                                    style={styles.round}
-                                    testID="chat-close"
-                                >
-                                    <CloseIcon size={16} />
-                                </Pressable44>
-                                <Text style={styles.title} accessibilityRole="header" numberOfLines={1}>
-                                    {session.title ?? 'New chat'}
-                                </Text>
-                                {showEmptyState ? (
-                                    <View style={styles.headerSpacer} />
-                                ) : (
-                                    <Pressable44
-                                        onPress={startNewChat}
-                                        accessibilityLabel="New chat"
-                                        pressedBackground={colors.background}
-                                        style={styles.round}
-                                        testID="chat-new"
-                                    >
-                                        <ComposeIcon size={18} />
-                                    </Pressable44>
+            <OverlayHost>
+                <View style={styles.overlay}>
+                    <Scrim color={colors.scrimChat} progress={progress} />
+                    <Animated.View style={[styles.sheet, shadows.bottomSheet, sheetStyle]} accessibilityViewIsModal>
+                        <Animated.View style={[styles.keyboard, keyboardStyle]}>
+                            {/* The thread scrolls, so only the header takes the drag; a drag there never competes with a scroll. */}
+                            <GestureDetector gesture={pan}>
+                                <View style={styles.header} testID="chat-header">
+                                    <View style={styles.grabber} />
+                                    <View style={styles.headerRow}>
+                                        <Pressable44
+                                            onPress={close}
+                                            accessibilityLabel="Close"
+                                            pressedBackground={colors.background}
+                                            style={styles.round}
+                                            testID="chat-close"
+                                        >
+                                            <CloseIcon size={iconSizes.control} />
+                                        </Pressable44>
+                                        <Text style={styles.title} accessibilityRole="header" numberOfLines={1}>
+                                            {session.title ?? 'New chat'}
+                                        </Text>
+                                        {showEmptyState ? (
+                                            <View style={styles.headerSpacer} />
+                                        ) : (
+                                            <Pressable44
+                                                onPress={startNewChat}
+                                                accessibilityLabel="New chat"
+                                                pressedBackground={colors.background}
+                                                style={styles.round}
+                                                testID="chat-new"
+                                            >
+                                                <ComposeIcon size={iconSizes.control} />
+                                            </Pressable44>
+                                        )}
+                                    </View>
+                                </View>
+                            </GestureDetector>
+                            {showEmptyState ? (
+                                <ChatEmptyState
+                                    reportCount={attached.length}
+                                    suggestedPrompts={suggestedPrompts}
+                                    onPrompt={setText}
+                                />
+                            ) : (
+                                <SessionThread
+                                    session={session}
+                                    onRetryHistory={() => {
+                                        session.reloadHistory().catch(() => undefined)
+                                    }}
+                                />
+                            )}
+                            <View style={styles.composerArea}>
+                                <SessionDecisionPanel
+                                    decision={session.decision}
+                                    notice={session.notice}
+                                    pending={session.isSending}
+                                    onAnswer={(answerInput) => void session.answer(answerInput)}
+                                    onDismissNotice={session.dismissNotice}
+                                />
+                                {/* A pending decision has its own reply field, so it replaces the composer, as on the web. */}
+                                {session.decision ? null : (
+                                    <>
+                                        {mentionOpen ? (
+                                            <MentionPopover items={mentionItems} now={now} onPick={pickMention} />
+                                        ) : null}
+                                        <Composer
+                                            ref={input}
+                                            text={text}
+                                            onChangeText={changeText}
+                                            chips={chips}
+                                            mentionOpen={mentionOpen}
+                                            onToggleMention={toggleMention}
+                                            modelLabel={chipModelLabel(modelCatalogue.catalogue, runOptions.model)}
+                                            modeLabel={modeLabel(permissionMode)}
+                                            openOption={optionsOpen ? optionsPage : null}
+                                            optionsDisabled={optionsDisabled}
+                                            onOpenModel={() => openOptions('model')}
+                                            onOpenMode={() => openOptions('mode')}
+                                            onSend={send}
+                                            canSend={canSend}
+                                            isStreaming={session.phase !== 'idle'}
+                                            onStop={session.stop}
+                                        />
+                                    </>
                                 )}
                             </View>
-                        </View>
-                    </GestureDetector>
-                    {showEmptyState ? (
-                        <ChatEmptyState
-                            reportCount={attached.length}
-                            suggestedPrompts={suggestedPrompts}
-                            onPrompt={setText}
-                        />
-                    ) : (
-                        <SessionThread
-                            session={session}
-                            onRetryHistory={() => {
-                                session.reloadHistory().catch(() => undefined)
-                            }}
-                        />
-                    )}
-                    <View style={styles.composerArea}>
-                        <SessionDecisionPanel
-                            decision={session.decision}
-                            notice={session.notice}
-                            pending={session.isSending}
-                            onAnswer={(answerInput) => void session.answer(answerInput)}
-                            onDismissNotice={session.dismissNotice}
-                        />
-                        {/* A pending decision has its own reply field, so it replaces the composer, as on the web. */}
-                        {session.decision ? null : (
-                            <>
-                                {mentionOpen ? (
-                                    <MentionPopover items={mentionItems} now={now} onPick={pickMention} />
-                                ) : null}
-                                <Composer
-                                    ref={input}
-                                    text={text}
-                                    onChangeText={changeText}
-                                    chips={chips}
-                                    mentionOpen={mentionOpen}
-                                    onToggleMention={toggleMention}
-                                    modelLabel={chipModelLabel(modelCatalogue.catalogue, runOptions.model)}
-                                    modeLabel={modeLabel(permissionMode)}
-                                    openOption={optionsOpen ? optionsPage : null}
-                                    optionsDisabled={optionsDisabled}
-                                    onOpenModel={() => openOptions('model')}
-                                    onOpenMode={() => openOptions('mode')}
-                                    onSend={send}
-                                    canSend={canSend}
-                                    isStreaming={session.phase !== 'idle'}
-                                    onStop={session.stop}
-                                />
-                            </>
-                        )}
-                    </View>
-                </Animated.View>
-            </Animated.View>
-            <ChatOptionsSheet
-                visible={optionsOpen}
-                page={optionsPage}
-                catalogue={modelCatalogue}
-                defaults={runDefaults}
-                options={runOptions}
-                runAdapter={runAdapter}
-                onChange={changeOptions}
-                onClose={closeOptions}
-            />
+                        </Animated.View>
+                    </Animated.View>
+                    <ChatOptionsSheet
+                        visible={optionsOpen}
+                        page={optionsPage}
+                        catalogue={modelCatalogue}
+                        defaults={runDefaults}
+                        options={runOptions}
+                        runAdapter={runAdapter}
+                        onChange={changeOptions}
+                        onClose={closeOptions}
+                    />
+                </View>
+            </OverlayHost>
         </GestureHandlerRootView>
     )
 }
@@ -442,7 +447,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     title: {
-        ...type.sectionHeader,
+        ...type.sheetTitle,
         color: colors.ink,
         flexShrink: 1,
         textAlign: 'center',

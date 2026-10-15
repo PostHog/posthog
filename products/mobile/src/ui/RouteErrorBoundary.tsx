@@ -4,14 +4,14 @@ import { StyleSheet, View } from 'react-native'
 
 import { WarningIcon } from './icons/WarningIcon'
 import { StateView } from './StateView'
-import { colors } from './tokens'
+import { colors, iconSizes } from './tokens'
 
 /** Shown by Expo Router when a screen throws while rendering. */
 export function RouteErrorBoundary({ error, retry }: ErrorBoundaryProps): ReactElement {
     return (
         <View style={styles.screen}>
             <StateView
-                icon={<WarningIcon size={28} color={colors.tertiary} />}
+                icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
                 title="This screen couldn't load"
                 message={error.message}
                 actionLabel="Try again"

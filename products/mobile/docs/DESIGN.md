@@ -17,6 +17,9 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
   prototype's root line height of 1.4 (`lineHeight(size)`).
 - `fonts.mono`: Menlo on iOS, `monospace` on Android, the handoff's CSS stack on web.
   Everything else uses the system font.
+- `iconSizes`: 24pt for navigation and list tiles, 20pt for action buttons, search fields and
+  selection marks, 16pt for inline status glyphs, 14pt for compact chip accessories, and 28pt
+  for empty-state illustrations. Use the role's token at the call site instead of a glyph's default size.
 - `space` (keyed by value, `space[14]`), `radii`, `layout` (gutters, 44pt tap target, and the
   prototype frame's 54pt status bar and 34pt home indicator).
 - `shadows`: `shadow*` props plus Android `elevation` on native (radius is half the CSS blur);
@@ -25,13 +28,23 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
   bezier curves. `usePresence` sets every duration to 0 when reduce motion is on.
 - `inputReset`, `prettyWrap`: web-only fixes, see below.
 
+## Proportions
+
+Body text, picker labels, menu rows and text inputs use 16pt. Sheet titles use 18pt, including
+the Assignee and Project floating cards. Screen titles (28pt), report headlines (22pt),
+empty-state headings (20pt), secondary text (13–15pt) and chart values keep their hierarchy.
+The same action uses the same icon size across menus and report controls. List tiles and
+navigation use larger glyphs; inline metadata and chip accessories use smaller ones.
+The unassigned avatar occupies the same 32pt column as a person's avatar in the Assignee card.
+Sizing a glyph does not change its button's tap target, which stays at least 44pt including hit slop.
+
 ## Reading handoff values
 
 - **Box sizing.** The prototype's `div`s use CSS `content-box`, so a `height` or `min-height`
   excludes padding and border. React Native is always border-box. Where the two differ, the code
   uses the rendered size and says so in a comment: inbox rows render 71pt (44pt content), icon
   tiles 40pt, the bottom nav pill 64pt, the Chat button 56pt, the Back chip and Prev/Next pill
-  46pt, the action pill 54pt, the hand-off agent row 78pt, the dashed "No assignee" avatar 36pt,
+  46pt, the action pill 54pt, the hand-off agent row 78pt,
   @-mention rows 56pt, the mention popover 274pt max, and the nav menu 75% of the width plus 22pt.
   `button` elements in the prototype are border-box, so their sizes carry over unchanged.
 - **Safe areas.** Top and bottom paddings in the handoff include the prototype's status bar
@@ -98,11 +111,22 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 - **Report**: top chrome, headline, the byline with the Owner and Priority chips (`ReportMeta`), lede,
   evidence (trace, quotes, replay), facts, the observation card, impact tiles, charts,
   activity, and the action bar.
-- **Action bar** (`actionBarStateFor`): `idle` (Hand off to PostHog + chevron),
-  `handed` (dark "PostHog is on it" card), `decision` (NEEDS YOUR DECISION card, collapsible),
-  `decided` (dark card with the answer and Undo), `pr_ready` (READY FOR REVIEW card with one
-  full-width Review PR button), `resolved` (action pill only). The Reassign / Snooze / Chat pill
-  shows in every state.
+- **Action bar** (`actionBarStateFor`): execution, attention and PR availability are independent.
+  Execution distinguishes unclaimed, starting, working, idle, reconnecting, unavailable, failed,
+  canceled, completed and unknown. A claim names the owner without claiming they are running.
+  Only a structured pending input produces the compact Needs your answer row. Read question
+  opens a bounded decision sheet with the full question, choices and a typed-answer field;
+  turn completion is idle.
+  A known PR stays visible during every execution state, with its draft/open/merged/closed/unknown
+  state. View PR opens GitHub and View task activity opens the implementation chat. Several PRs
+  use a compact selector opening the Pull requests sheet. Selected-PR checks distinguish checking,
+  passing, failing, pending, no checks and unavailable, with the local fetch time. A dot beside the
+  check label is green for passing, red for failing, amber for pending or unavailable, blue while
+  checking, and gray when no checks are reported. The label stays visible alongside the color.
+  Task status opens the
+  implementation chat; the Reassign / Snooze / Chat pill starts report discussion. The pill shows
+  in every state. Undo is a separate action while an answer is in flight. Transient tool text
+  clears when a turn is idle or terminal and stays on one truncated line while active.
 - **Overlays**: hand-off sheet, snooze sheet (with a custom time picker), Assignee card, Priority sheet (P0 to P4),
   Project card (search field, projects grouped by organization, check on the current one),
   chat sheet with @-mention popover, the Model and Mode chips, and the session thread. The chat sheet shares the sheets' grabber

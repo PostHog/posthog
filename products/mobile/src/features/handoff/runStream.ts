@@ -26,10 +26,8 @@ const AGENT_GENERATING_UPDATES: ReadonlySet<string> = new Set([
     'agent_thought_chunk',
     'tool_call',
     'plan',
-    'user_message_chunk',
 ])
 
-const MESSAGE_SNIPPET_CHARS = 280
 const TOOL_TITLE_CHARS = 80
 const HANDLED_REQUEST_LIMIT = 200
 
@@ -51,6 +49,7 @@ export function initialRunState(taskId: string, runId: string, status: TaskRunSt
         taskId,
         runId,
         status,
+        phase: 'unknown',
         prUrls: [],
         handledRequestIds: [],
         turnEnded: false,
@@ -80,12 +79,24 @@ export function markRequestHandled(state: RunStreamState, requestId: string): Ru
 
 /** A terminal run cannot take an answer, so its pending request and ended turn go away. */
 function settle(state: RunStreamState): RunStreamState {
-    return isTerminalRunStatus(state.status) ? { ...state, pending: undefined, turnEnded: false } : state
+    return isTerminalRunStatus(state.status)
+        ? {
+              ...state,
+              phase: 'idle',
+              pending: undefined,
+              turnEnded: false,
+              messageOpen: false,
+              toolTitle: undefined,
+              latestToolCallId: undefined,
+              progressLabel: undefined,
+              serverStage: undefined,
+          }
+        : state
 }
 
 function applyRunFields(state: RunStreamState, run: Record<string, unknown>): RunStreamState {
     const next: RunStreamState = { ...state }
-    if (typeof run.status === 'string' && RUN_STATUSES.has(run.status)) {
+    if (!isTerminalRunStatus(state.status) && typeof run.status === 'string' && RUN_STATUSES.has(run.status)) {
         next.status = run.status as TaskRunStatus
     }
     if ('stage' in run) {
@@ -102,14 +113,16 @@ function applyRunFields(state: RunStreamState, run: Record<string, unknown>): Ru
         const prUrl = asString(output.pr_url) ?? urls[0]
         if (prUrl) {
             next.prUrl = prUrl
-            next.prUrls = urls.length > 0 ? urls : [prUrl]
+            next.prUrls = [...new Set([...next.prUrls, prUrl, ...urls])]
         }
     }
     return settle(next)
 }
 
 export function applyRunSnapshot(state: RunStreamState, run: TaskRunApi): RunStreamState {
-    return applyRunFields(state, run as unknown as Record<string, unknown>)
+    return run.id === state.runId && run.task === state.taskId
+        ? applyRunFields(state, run as unknown as Record<string, unknown>)
+        : state
 }
 
 export function shortenToolTitle(title: string): string {
@@ -128,7 +141,9 @@ export function shortenToolTitle(title: string): string {
 }
 
 export function displayStage(state: RunStreamState): string | undefined {
-    return state.progressLabel ?? state.toolTitle ?? state.serverStage
+    return state.turnEnded || state.phase === 'idle' || isTerminalRunStatus(state.status)
+        ? undefined
+        : (state.progressLabel ?? state.toolTitle ?? state.serverStage)
 }
 
 export type RunEffect = { type: 'auto_allow'; requestId: string; optionId: string; record: PermissionRecord }
@@ -180,36 +195,37 @@ function messageText(update: Record<string, unknown>): string {
     return typeof update.text === 'string' ? update.text : ''
 }
 
-function snippet(text: string): string {
-    return text.length > MESSAGE_SNIPPET_CHARS ? `…${text.slice(-MESSAGE_SNIPPET_CHARS).trimStart()}` : text
-}
-
-function reduceSessionUpdate(state: RunStreamState, update: Record<string, unknown>): RunStreamState {
+function reduceSessionUpdate(
+    state: RunStreamState,
+    update: Record<string, unknown>,
+    context: FrameContext
+): RunStreamState {
     const kind = update.sessionUpdate
     if (typeof kind !== 'string') {
         return state
     }
-    let next = AGENT_GENERATING_UPDATES.has(kind) && state.turnEnded ? { ...state, turnEnded: false } : state
+    let next = AGENT_GENERATING_UPDATES.has(kind)
+        ? { ...state, turnEnded: false, phase: context.source === 'live' ? ('working' as const) : ('unknown' as const) }
+        : state
     switch (kind) {
         case 'agent_message_chunk': {
             const text = messageText(update)
             if (!text) {
                 return next
             }
-            const base = next.messageOpen ? (next.lastMessage ?? '').replace(/^…/, '') : ''
             return {
                 ...next,
-                lastMessage: snippet(base + text),
                 messageOpen: true,
                 activity: next.messageOpen ? next.activity : next.activity + 1,
             }
         }
         case 'agent_message': {
             const text = messageText(update)
-            return text
-                ? { ...next, lastMessage: snippet(text), messageOpen: false, activity: next.activity + 1 }
-                : next
+            return text ? { ...next, messageOpen: false, activity: next.activity + 1 } : next
         }
+        case 'agent_thought_chunk':
+        case 'plan':
+            return { ...next, messageOpen: false, activity: next.activity + 1 }
         case 'tool_call': {
             const toolCallId = asString(update.toolCallId)
             const title = asString(update.title)
@@ -259,7 +275,7 @@ function reduceNotification(
     switch (method) {
         case 'session/update': {
             const update = asRecord(params.update)
-            return unchanged(update ? reduceSessionUpdate(state, update) : state)
+            return unchanged(update ? reduceSessionUpdate(state, update, context) : state)
         }
         case 'session/new': {
             // The starting permission mode rides here; the adapter only sends `current_mode_update` on changes.
@@ -267,18 +283,41 @@ function reduceNotification(
             return unchanged(mode ? { ...state, mode } : state)
         }
         case '_posthog/progress': {
+            if (params.step === 'pr' && params.status === 'completed' && typeof params.detail === 'string') {
+                try {
+                    const url = new URL(params.detail)
+                    if (url.protocol === 'https:' && /\/(?:pull|merge_requests)\/\d+\/?$/.test(url.pathname)) {
+                        return unchanged({
+                            ...state,
+                            prUrl: params.detail,
+                            prUrls: [...new Set([...state.prUrls, params.detail])],
+                        })
+                    }
+                } catch {
+                    return unchanged(state)
+                }
+            }
             const status = params.status
             const done = status === 'completed' || status === 'failed' || status === 'cancelled'
             const label = done ? undefined : (asString(params.label) ?? asString(params.detail))
             if (label === state.progressLabel) {
                 return unchanged(state)
             }
-            return unchanged({ ...state, progressLabel: label, activity: state.activity + 1 })
+            return unchanged({
+                ...state,
+                progressLabel: label,
+                turnEnded: label ? false : state.turnEnded,
+                activity: state.activity + 1,
+            })
         }
         case '_posthog/turn_complete':
             return unchanged({
-                ...state,
+                ...(state.pending ? markRequestHandled(state, state.pending.record.requestId) : state),
                 turnEnded: true,
+                phase: 'idle',
+                toolTitle: undefined,
+                latestToolCallId: undefined,
+                serverStage: undefined,
                 messageOpen: false,
                 progressLabel: undefined,
                 pending: undefined,
@@ -303,15 +342,69 @@ function reduceNotification(
 
 export function reduceFrame(state: RunStreamState, frame: unknown, context: FrameContext): ReduceResult {
     const record = asRecord(frame)
-    if (!record) {
+    if (!record || context.sourceRunId !== state.runId) {
         return unchanged(state)
     }
+    if (context.source === 'replay' && state.liveActivitySeen && record.type !== 'task_run_state') {
+        const notification = asRecord(record.notification)
+        const method = notification?.method
+        const update = asRecord(asRecord(notification?.params)?.update)
+        if (
+            method === 'session/update' &&
+            update?.sessionUpdate === 'tool_call_update' &&
+            update.toolCallId === state.pending?.record.toolCallId &&
+            (update.status === 'completed' || update.status === 'failed') &&
+            state.pending
+        ) {
+            return unchanged(markRequestHandled(state, state.pending.record.requestId))
+        }
+        if (method === 'session/new' || method === '_posthog/error') {
+            return unchanged(state)
+        }
+        if (method === '_posthog/turn_complete') {
+            return unchanged(
+                state.pending?.replayed ? markRequestHandled(state, state.pending.record.requestId) : state
+            )
+        }
+        if (method === 'session/update' && update?.sessionUpdate !== 'current_mode_update') {
+            return unchanged(state)
+        }
+        if (method === '_posthog/progress') {
+            const params = asRecord(notification?.params)
+            if (params?.step !== 'pr' || params.status !== 'completed') {
+                return unchanged(state)
+            }
+        }
+    }
+    if (isTerminalRunStatus(state.status) && record.type !== 'task_run_state') {
+        return unchanged(state)
+    }
+    const notification = asRecord(record.notification)
+    const method = notification?.method
+    const update = asRecord(asRecord(notification?.params)?.update)
+    const isLiveActivity =
+        record.type === 'permission_request' ||
+        method === '_posthog/permission_request' ||
+        method === '_posthog/turn_complete' ||
+        (method === 'session/update' &&
+            typeof update?.sessionUpdate === 'string' &&
+            AGENT_GENERATING_UPDATES.has(update.sessionUpdate))
+    if (context.source === 'live' && isLiveActivity) {
+        state = { ...state, liveActivitySeen: true }
+    }
     switch (record.type) {
-        case 'task_run_state':
+        case 'task_run_state': {
             if (asString(record.run_id) && record.run_id !== state.runId) {
                 return unchanged(state)
             }
-            return unchanged(applyRunFields(state, record))
+            const terminal =
+                record.run_id === state.runId &&
+                typeof record.status === 'string' &&
+                TERMINAL_STATUSES.has(record.status as TaskRunStatus)
+            return unchanged(
+                applyRunFields(state, context.source === 'replay' && !terminal ? { output: record.output } : record)
+            )
+        }
         case 'permission_request':
             return reducePermissionRequest(state, record, context)
         case 'notification': {
@@ -350,6 +443,17 @@ export class RunStreamCursor {
     constructor(runId: string) {
         this.runId = runId
         this.backlogRunId = runId
+    }
+
+    fork(): RunStreamCursor {
+        const fork = new RunStreamCursor(this.runId)
+        fork.cursor = this.cursor
+        fork.backlogRunId = this.backlogRunId
+        for (const eventId of this.seenOrder) {
+            fork.seen.add(eventId)
+            fork.seenOrder.push(eventId)
+        }
+        return fork
     }
 
     resetCursor(): void {
@@ -405,10 +509,6 @@ export class RunStreamCursor {
         if (!record) {
             return {}
         }
-        const eventId = asString(record.event_id)
-        if (eventId && !this.remember(eventId)) {
-            return {}
-        }
         if (replay && record.type === 'notification') {
             const notification = asRecord(record.notification)
             const params = asRecord(notification?.params)
@@ -421,6 +521,10 @@ export class RunStreamCursor {
             if (marker) {
                 this.backlogRunId = marker
             }
+        }
+        const eventId = asString(record.event_id)
+        if (eventId && !this.remember(eventId)) {
+            return {}
         }
         const sourceRunId = asString(record.source_run_id) ?? (replay ? this.backlogRunId : this.runId)
         return { frame: { data, context: { source: replay ? 'replay' : 'live', sourceRunId } } }

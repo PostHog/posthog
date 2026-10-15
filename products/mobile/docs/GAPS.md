@@ -78,7 +78,7 @@ Known gaps and behavior that stays on the device.
 - **Inbox rows** carry no progress label.
 - **Evidence** maps error, feedback and recording signals only. Scout findings, GitHub and analytics signals add no evidence block.
 - **Work log** shows one page of 100 artefacts. Older entries of a very long log are not shown.
-- **PR details.** The PR view has the URL, number, state and review decision. Title, diff size, checks and the agent's note need `pr_checks/` or the run output, which the hand-off feature may add.
+- **PR details.** The PR view has the URL, number, state and review decision. Checks for the selected canonical PR are fetched through `pr_checks/`, with the client fetch time. Title, diff size and the agent's note remain unavailable in the report API. A PR URL without a canonical id cannot fetch checks.
 - **Read-state counts cover loaded reports only.** The menu does not fetch every page to compute a global unread total. Read state refreshes every 30 seconds while the inbox is active.
 
 ## Auth and push
@@ -87,11 +87,37 @@ Known gaps and behavior that stays on the device.
 - **Web release builds keep tokens in memory**, so a reload signs out.
 - **Expo Go cannot sign in or get push.** Its redirect URI and push token belong to Expo Go. Use a development build.
 - **Offline sign out leaves the push token registered.** If unregistering fails, the server keeps sending that user's pushes to the device. The app cannot retry later because it no longer has a token for that user.
-- **Task pushes carry no project id.** Routing searches at most 8 projects and falls back to the inbox. A `project_id` in the task push payload would remove the search.
+- **Legacy task pushes carry no project id.** Current pushes carry `projectId`; older payloads still need up to 8 project lookups when tapped. Foreground report/snooze suppression needs an explicit project and a cached task-to-report association.
 - **Local dev app is not first-party.** On a local stack the consent screen shows and access tokens last 1 hour.
 - **No proactive refresh timer.** The app refreshes at launch when the token is nearly expired and on any 401, not on a schedule.
 - **Project switcher lists environments as projects** when a project has more than one environment (team), because it lists teams.
 - **Production OAuth apps may not allow `today:read` yet.** The server drops scopes outside the app's ceiling without an error, so the report screen would always use signal evidence. Check the US and EU mobile apps in Django admin (see [AUTH.md](AUTH.md#server-side-ceiling)).
+
+## Notification follow-ups
+
+The app-side policy lives in `src/features/notifications/foregroundNotifications.ts` and
+`notificationPresentation.ts`. It only controls notifications handled while the app is active.
+The following need shared server policy or additional product work:
+
+- **One outcome per requested operation.** Combine task-turn, terminal completion and PR-ready events.
+  Prefer “PR ready to review” when a PR is the outcome; keep internal investigation, summarization and retries
+  silent. A later user request or new decision can notify again. Keep shared activity-feed updates independent
+  of mobile push suppression, and preserve desktop/web notification behavior.
+- **Durable event identity and delivery.** Include operation, turn/decision/PR and recipient identifiers.
+  Replace timer-only deduplication with durable per-recipient decisions and a transaction-safe delivery queue.
+  Handle callback replay, rollback, queue failure and partial delivery without duplicated or missing alerts.
+  Mobile cannot safely collapse different turn/question/PR events based only on their run or report.
+- **Background snooze and presence.** Synchronize mute/snooze state and apply it to every mobile push producer.
+  Local foreground filtering cannot stop lock-screen pushes while the app is backgrounded or closed.
+  Validate the registration/device identity needed for presence beacons before adding them.
+- **Stale outcomes and reminders.** Recheck cancelled/superseded work, resolved reports and recipient relevance
+  before sending. Cancel snooze reminders when a report is resolved elsewhere. Avoid a confirmation push for
+  the user's own cancellation.
+- **Notification destinations and controls.** Carry the exact decision, run, message or PR to open; add
+  category preferences and per-report mutes. Keep important new requests for input distinct.
+- **Delivery diagnosis.** Carry a common notification event ID through send decisions and opens, track
+  suppression reasons, and distinguish Expo acceptance from actual delivery. Add appropriate expiry/grouping
+  metadata and reconcile stale device registrations.
 
 ## Hand-off and task runs
 
@@ -100,7 +126,7 @@ Known gaps and behavior that stays on the device.
 - **No resume of an ended run from the report screen.** A reply there to a run whose workflow ended asks the user to hand off again. The chat sheet starts a resume run (`resume_from_run_id`) instead; see CHAT.md.
 - **No feedback on hand-off.** The web's Create PR takes optional feedback; the phone sends the prompt without it.
 - **Inbox rows do not know about live questions.** The yellow "needs input" badge comes from the report data; the live pending request is only known while the report is open.
-- **No presence ping.** The app does not call `POST tasks/{id}/presence/`, so task pushes still arrive while the user watches the run.
+- **No server presence ping.** The app suppresses foreground notifications for the report on screen locally, but does not call `POST tasks/{id}/presence/`. The server still sends them and cannot use mobile presence to suppress other devices.
 - **No repository choice.** Report tasks get their repository from the report or the server's cascade; `POST tasks/` answers 400 to a client-set `repository`. A wrong repository needs the web.
 - **No branch list.** `integrations/`, `github_repos/` and `github_branches/` need `integration:read`, which the mobile OAuth app does not request, so the Branch page is a text field with no suggestions and the app cannot check that the branch exists before the run starts.
 - **Picked options are lost when the task starts its own run.** When `POST tasks/` answers with a `latest_run`, the app skips `POST tasks/{id}/run/`, so the picked model, mode and branch never reach the server. `mobile_report_handed_off` still records them.
@@ -119,3 +145,33 @@ Known gaps and behavior that stays on the device.
 - **Sheets do not hide the screen under them from VoiceOver.** The report's controls stay in the accessibility tree under the hand-off, snooze and chat sheets.
 - **Dev build overlays.** The Expo dev client's tools button covers the inbox More button, and its fast refresh banner covers Back and Close. Release builds do not have them. [TESTING.md](TESTING.md) says how to turn them off.
 - **Android was not run.** Only the iOS simulator was checked.
+
+## Agent state backend backlog
+
+The frontend handles known PRs, execution uncertainty, focused foreground refresh, connection
+failures and task-chat continuation. The following require backend work and are not implemented
+by the mobile footer change:
+
+- **Normalized CI snapshots.** Persist check summaries consistently for legacy and babysit
+  execution paths and expose a consistent snapshot through the report PR API. The existing
+  `pr_checks` endpoint already fetches selected-PR checks on demand; it does not provide the
+  persisted head/freshness contract. Each PR needs its own head SHA,
+  observed timestamp and check state. Missing, stale and pending results must remain distinct;
+  a PR URL or successful tool step does not prove checks passed.
+- **Execution versus monitoring.** Expose typed execution and monitoring state separately, with
+  the current task/run identity, latest observation time, next scheduled check and stop capability.
+  A claim, an idle turn or a completed run cannot establish whether PR monitoring continues.
+- **Stream catchup boundary.** Emit a typed catchup-complete event with the current run identity
+  and a snapshot/stream watermark after both durable and Redis history have drained. The
+  frontend can batch durable replay and a quiet Redis tail, but without this boundary it cannot
+  distinguish arbitrarily slow Redis history from new live events immediately.
+- **Authoritative outstanding input.** Expose the current request snapshot, version and request
+  id, plus resolution events with matching ids/version. Replayed log entries alone cannot prove
+  a question still needs an answer, especially after another client answered.
+- **External agent state.** Optionally accept MCP progress, structured outstanding input and
+  heartbeat timestamps. Any input shown in the app needs a real answer channel and clear
+  capabilities; identifying the MCP client or retaining its claim does not establish liveness.
+- **Server permission policy.** Move automatic permission decisions out of viewer stream effects
+  into the server's execution policy, preserving the existing decision rules. This is separate
+  work so opening a report is not what enables unattended execution. The frontend policy has
+  not been broadened here.

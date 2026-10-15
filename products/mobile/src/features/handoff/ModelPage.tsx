@@ -6,7 +6,7 @@ import type { ModelChoiceApi, ReasoningEffortApi, ResolvedAiRunDefaultsApi } fro
 import { Eyebrow } from '@/ui/Eyebrow'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, radii, type } from '@/ui/tokens'
 
 import {
     COST_BASELINE_LABEL,
@@ -56,7 +56,7 @@ function ModelRow({ option, selected, isDefault, onPress }: ModelRowProps): Reac
             </Text>
             {isDefault ? <Text style={styles.rowMeta}>Default</Text> : null}
             {option.cost_multiplier ? <Text style={styles.cost}>{option.cost_multiplier}</Text> : null}
-            <View style={styles.check}>{selected ? <CheckIcon size={18} /> : null}</View>
+            <View style={styles.check}>{selected ? <CheckIcon size={iconSizes.control} /> : null}</View>
         </Pressable44>
     )
 }
@@ -253,7 +253,7 @@ const styles = StyleSheet.create({
         fontVariant: ['tabular-nums'],
     },
     check: {
-        width: 18,
+        width: iconSizes.control,
         alignItems: 'center',
     },
     footnote: {

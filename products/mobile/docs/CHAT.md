@@ -157,6 +157,9 @@ On the next message to a live run, `useSession` first sends one command per chan
 - `GET tasks/{t}/` gives the title and the latest run. With a `runId` the sheet follows that run through `GET tasks/{t}/runs/{r}/`.
 - **Ended run.** `GET tasks/{t}/runs/{r}/logs/` returns the whole resume chain as JSON lines, folded into the thread.
 - **Live run.** `GET tasks/{t}/runs/{r}/stream/` without a cursor replays the stored log, then streams.
+  The app buffers catch-up frames and shows the history together, then streams new replies.
+  Catch-up ends on a keepalive, stream completion, or 250 ms of silence after a Redis frame; silence during durable-log replay never ends it.
+  Opening a thread scrolls straight to the latest message without animation.
   Reconnects follow the hand-off rules (see [HANDOFF.md](HANDOFF.md)); a replay after a lost cursor rebuilds the thread.
 - `mobile_session_resumed` is captured with the run status.
 
@@ -224,7 +227,11 @@ The web thread strips only leading blocks, so the blocks lead and the question f
 - Assistant text renders as markdown with `react-native-markdown-display`, styled from `src/ui/tokens.ts`.
   `html: false`; images are dropped. Relative links open on the signed-in host; only http(s) links open.
 - The status line shows the current stage or tool, "Thinking…", or "Reconnecting…".
-- The PR card shows when the run has a PR and the agent is idle.
+- Known PRs remain available while execution is active, idle or terminal. Their state is separate
+  from execution; a discovered URL starts unknown until the report supplies authoritative state.
+- Report task status opens that implementation task, including idle and completed runs that can
+  resume. Chat in the report action pill starts a separate report discussion. A completed turn
+  alone does not create an attention request; the task composer provides continuation.
 
 ## New chat
 

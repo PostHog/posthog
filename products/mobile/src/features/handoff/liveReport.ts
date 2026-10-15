@@ -1,4 +1,4 @@
-import { pullRequestNumber } from '@/model/adapters/report'
+import { pullRequestKey, pullRequestNumber } from '@/model/adapters/report'
 import type { DecisionQuestion, PullRequestView, ReportView } from '@/model/types'
 
 import type { ReportHandoff, StoredAnswer } from './handoffStore'
@@ -6,33 +6,31 @@ import { decisionQuestionFor } from './permissionRequest'
 import { displayStage, isTerminalRunStatus } from './runStream'
 import type { LiveTaskRunView, RunStreamState, RunTarget } from './types'
 
-const REPLY_PREFIX = 'reply:'
-
 export function runTarget(report: ReportView | undefined, entry: ReportHandoff | undefined): RunTarget | undefined {
-    if (entry?.started) {
+    const assignee = report?.work.assignee
+    if (assignee && assignee.kind !== 'task') {
+        return undefined
+    }
+    if (!assignee && entry?.started && entry.started.taskId !== report?.task?.taskId) {
         return entry.started
     }
-    return report?.task ? { taskId: report.task.taskId, runId: report.task.runId } : undefined
+    const taskId = assignee?.taskId ?? report?.task?.taskId
+    if (taskId) {
+        if (report?.task?.taskId === taskId) {
+            return { taskId, runId: report.task.runId }
+        }
+        return entry?.started?.taskId === taskId ? entry.started : { taskId }
+    }
+    return entry?.started
 }
 
-/** A decision card with no options takes a typed reply, sent as a message instead of an answer. */
-export function isReplyPrompt(question: DecisionQuestion): boolean {
-    return question.id.startsWith(REPLY_PREFIX)
-}
-
-export function currentDecision(entry: ReportHandoff | undefined, hasOpenPr: boolean): DecisionQuestion | undefined {
+export function currentDecision(entry: ReportHandoff | undefined): DecisionQuestion | undefined {
     const live = entry?.live
-    if (!live) {
+    if (!live?.pending || isTerminalRunStatus(live.status)) {
         return undefined
     }
-    if (live.pending) {
-        const answered = entry?.partial?.requestId === live.pending.record.requestId ? entry.partial.labels : []
-        return decisionQuestionFor(live.pending, answered)
-    }
-    if (!live.turnEnded || hasOpenPr || isTerminalRunStatus(live.status) || !live.lastMessage) {
-        return undefined
-    }
-    return { id: `${REPLY_PREFIX}${live.runId}:${live.activity}`, question: live.lastMessage.trim(), options: [] }
+    const answered = entry?.partial?.requestId === live.pending.record.requestId ? entry.partial.labels : []
+    return decisionQuestionFor(live.pending, answered)
 }
 
 // Once the agent took the answer, it stays until the run shows new activity, so the decided card does not flash.
@@ -55,15 +53,17 @@ export function visibleAnswer(
 
 export function pullRequestFromUrl(url: string): PullRequestView {
     const number = pullRequestNumber(url)
-    return { url, state: 'open', ...(number ? { number } : {}) }
+    return { url, state: 'unknown', ...(number ? { number } : {}) }
 }
 
-function liveTask(report: ReportView, live: RunStreamState): LiveTaskRunView {
-    const stage = displayStage(live) ?? report.task?.stage
+function liveTask(live: RunStreamState): LiveTaskRunView {
+    const stage = displayStage(live)
     return {
         taskId: live.taskId,
         runId: live.runId,
         status: live.status,
+        phase: live.turnEnded ? 'idle' : (live.phase ?? 'unknown'),
+        ...(live.connection ? { connection: live.connection } : {}),
         ...(stage ? { stage } : {}),
         ...(live.errorMessage ? { errorMessage: live.errorMessage } : {}),
     }
@@ -72,27 +72,44 @@ function liveTask(report: ReportView, live: RunStreamState): LiveTaskRunView {
 // The report's own data wins where it knows more, for example a PR's review state.
 export function mergeLiveRun(report: ReportView, entry: ReportHandoff | undefined): ReportView {
     const target = runTarget(report, entry)
-    const live = entry?.live && target?.taskId === entry.live.taskId ? entry.live : undefined
-    let task = report.task
+    const live =
+        entry?.live && target?.taskId === entry.live.taskId && (!target.runId || target.runId === entry.live.runId)
+            ? entry.live
+            : undefined
+    let task = target?.taskId === report.task?.taskId ? report.task : undefined
     if (live) {
-        task = liveTask(report, live)
-    } else if (entry?.started && report.task?.taskId !== entry.started.taskId) {
-        // Created on this device a moment ago; the report and the stream have not caught up yet.
-        task = { taskId: entry.started.taskId, runId: entry.started.runId, status: 'queued' }
+        const settledLive =
+            task && isTerminalRunStatus(task.status) ? { ...live, status: task.status, phase: 'idle' as const } : live
+        task = liveTask(settledLive)
+    } else if (target && !task) {
+        task = { taskId: target.taskId, runId: target.runId, status: 'queued', phase: 'unknown' }
     }
-    let pullRequest = report.work.pullRequest
-    if (live?.prUrl && pullRequest?.url !== live.prUrl) {
-        pullRequest = pullRequestFromUrl(live.prUrl)
+    const pullRequests = new Map<string, PullRequestView>()
+    for (const pr of [
+        ...(report.work.pullRequests ?? []),
+        ...(report.work.pullRequest ? [report.work.pullRequest] : []),
+    ]) {
+        const key = pullRequestKey(pr.url)
+        if (!pullRequests.has(key)) {
+            pullRequests.set(key, pr)
+        }
     }
+    for (const url of [...(live?.prUrls ?? []), ...(live?.prUrl ? [live.prUrl] : [])]) {
+        const key = pullRequestKey(url)
+        if (!pullRequests.has(key)) {
+            pullRequests.set(key, pullRequestFromUrl(url))
+        }
+    }
+    const allPullRequests = [...pullRequests.values()]
+    const pullRequest = report.work.pullRequest ?? allPullRequests[0]
     if (task && live) {
-        const current = currentDecision(entry, pullRequest?.state === 'open')
-        const pendingDecision = current ?? visibleAnswer(entry, current)?.question
-        task = { ...task, ...(pendingDecision ? { pendingDecision } : {}) }
+        const pendingDecision = isTerminalRunStatus(task.status) ? undefined : currentDecision(entry)
+        task = { ...task, pendingDecision }
     }
     return {
         ...report,
-        work: { ...report.work, ...(pullRequest ? { pullRequest } : {}) },
-        ...(task ? { task } : {}),
+        work: { ...report.work, pullRequests: allPullRequests, pullRequest },
+        task,
     }
 }
 
@@ -107,14 +124,16 @@ function sameLive(a: RunStreamState | undefined, b: RunStreamState | undefined):
         a.taskId === b.taskId &&
         a.runId === b.runId &&
         a.status === b.status &&
+        a.phase === b.phase &&
+        a.connection === b.connection &&
         displayStage(a) === displayStage(b) &&
         a.pending === b.pending &&
         a.prUrl === b.prUrl &&
+        a.prUrls.length === b.prUrls.length &&
+        a.prUrls.every((url, index) => url === b.prUrls[index]) &&
         a.errorMessage === b.errorMessage &&
         a.turnEnded === b.turnEnded &&
-        a.activity === b.activity &&
-        // The message only shows on the reply card, after the turn ended.
-        (!a.turnEnded || a.lastMessage === b.lastMessage)
+        a.activity === b.activity
     )
 }
 

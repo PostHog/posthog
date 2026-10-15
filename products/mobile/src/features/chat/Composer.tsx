@@ -5,7 +5,7 @@ import { ArrowUpIcon } from '@/ui/icons/ArrowUpIcon'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { PaperclipIcon } from '@/ui/icons/PaperclipIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, inputReset, radii, shadows } from '@/ui/tokens'
+import { colors, iconSizes, inputReset, radii, shadows, type } from '@/ui/tokens'
 
 interface ComposerProps {
     text: string
@@ -64,7 +64,7 @@ function OptionChip({
                 {label}
             </Text>
             <View style={styles.chevron}>
-                <ChevronDownIcon size={12} color={colors.muted} />
+                <ChevronDownIcon size={iconSizes.small} color={colors.muted} />
             </View>
         </Pressable44>
     )
@@ -115,7 +115,7 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
                     accessibilityLabel="Attach a file"
                     style={[styles.tool, styles.placeholder, styles.toolDisabled]}
                 >
-                    <PaperclipIcon size={20} />
+                    <PaperclipIcon size={iconSizes.control} />
                 </Pressable44>
                 <Pressable44
                     onPress={onToggleMention}
@@ -165,7 +165,7 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
                         style={[styles.send, canSend ? styles.sendReady : styles.sendIdle]}
                         testID="chat-send"
                     >
-                        <ArrowUpIcon size={16} color={colors.white} />
+                        <ArrowUpIcon size={iconSizes.control} color={colors.white} />
                     </Pressable44>
                 )}
             </View>
@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
         height: 40,
         paddingHorizontal: 6,
         paddingVertical: 0,
-        fontSize: 17,
+        ...type.input,
         color: colors.ink,
     },
     toolbar: {

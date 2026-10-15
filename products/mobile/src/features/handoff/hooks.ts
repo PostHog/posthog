@@ -1,5 +1,4 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { randomUUID } from 'expo-crypto'
 import { useMemo } from 'react'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 
@@ -11,10 +10,10 @@ import { track } from '@/lib/analytics'
 import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
 import type { DecisionAnswerInput, DecisionQuestion } from '@/model/types'
 
-import { CommandFailedError, type DeliveryOutcome, deliverPermissionResponse, sendUserMessage } from './commands'
+import { CommandFailedError, type DeliveryOutcome, deliverPermissionResponse } from './commands'
 import { handoffEntry, type ReportHandoff, type StoredAnswer, useHandoffStore } from './handoffStore'
 import { handoffErrorMessage, kickOffReportTask } from './kickoff'
-import { currentDecision, isReplyPrompt, sameVisibleEntry, visibleAnswer } from './liveReport'
+import { currentDecision, sameVisibleEntry, visibleAnswer } from './liveReport'
 import { planAnswer } from './permissionRequest'
 import { buildHandoffRunRequest } from './runOptions'
 import { useRunOptionsStore } from './runOptionsStore'
@@ -41,8 +40,7 @@ export function useDecisionAnswer(reportId: string): HandoffAnswer | undefined {
         if (demo) {
             return demoAnswer ? { ...demoAnswer, canUndo: true } : undefined
         }
-        // The PR flag only matters for the reply card, and an open PR hides that card before anyone answers it.
-        const answer = visibleAnswer(entry, currentDecision(entry, false))
+        const answer = visibleAnswer(entry, currentDecision(entry))
         if (!answer) {
             return undefined
         }
@@ -68,7 +66,7 @@ export function answerErrorMessage(error: unknown): string {
     return "Couldn't send your answer. Try again."
 }
 
-type Delivery = (signal: AbortSignal) => Promise<DeliveryOutcome | 'queued'>
+type Delivery = (signal: AbortSignal) => Promise<DeliveryOutcome>
 
 export function useHandoffActions(reportId: string): HandoffActions {
     const demo = useDemoMode((state) => state.enabled)
@@ -87,11 +85,23 @@ export function useHandoffActions(reportId: string): HandoffActions {
     const deliverAnswer = async (
         question: DecisionQuestion,
         input: DecisionAnswerInput,
-        target: { requestId?: string; kind: PendingRequestKind | 'reply' },
+        target: { requestId: string; kind: PendingRequestKind },
         send: Delivery
     ): Promise<void> => {
         const { requestId } = target
         const store = useHandoffStore.getState()
+        const originatingRun = handoffEntry(reportId).live
+        if (!originatingRun) {
+            return
+        }
+        const isCurrentRun = (): boolean => {
+            const current = handoffEntry(reportId).live
+            return (
+                current?.taskId === originatingRun.taskId &&
+                current.runId === originatingRun.runId &&
+                (!current.pending || current.pending.record.requestId === requestId)
+            )
+        }
         const controller = new AbortController()
         deliveries.get(reportId)?.abort()
         deliveries.set(reportId, controller)
@@ -107,16 +117,11 @@ export function useHandoffActions(reportId: string): HandoffActions {
         store.setAnswer(reportId, answer)
         try {
             const outcome = await send(controller.signal)
-            if (controller.signal.aborted) {
+            if (controller.signal.aborted || !isCurrentRun()) {
                 return
             }
-            if (requestId) {
-                store.markHandled(reportId, requestId)
-            }
-            if (outcome === 'resolved' || outcome === 'queued') {
-                if (!requestId) {
-                    store.endTurnLocally(reportId)
-                }
+            store.markHandled(reportId, requestId)
+            if (outcome === 'resolved') {
                 const activity = handoffEntry(reportId).live?.activity ?? answer.activity
                 store.setAnswer(reportId, { ...answer, delivery: 'delivered', activity })
                 store.setPartial(reportId, undefined)
@@ -132,13 +137,13 @@ export function useHandoffActions(reportId: string): HandoffActions {
             store.setNotice(
                 reportId,
                 outcome === 'ended'
-                    ? "This run has ended, so your answer wasn't sent. Hand off again to continue."
+                    ? "This run has ended, so your answer wasn't sent. Open the chat to continue."
                     : 'PostHog already moved on from this question.'
             )
             store.requestRefresh(reportId)
             refreshReport()
         } catch (error) {
-            if (controller.signal.aborted) {
+            if (controller.signal.aborted || !isCurrentRun()) {
                 return
             }
             store.setAnswer(reportId, undefined)
@@ -188,14 +193,14 @@ export function useHandoffActions(reportId: string): HandoffActions {
         }
         const entry = handoffEntry(reportId)
         const live = entry.live
-        const question = currentDecision(entry, false)
+        const question = currentDecision(entry)
         if (!live || !question || question.id !== input.questionId) {
             // The card the user answered is gone; fetch the run so the screen catches up.
             useHandoffStore.getState().requestRefresh(reportId)
             return
         }
         const run = { taskId: live.taskId, runId: live.runId }
-        if (live.pending && !isReplyPrompt(question)) {
+        if (live.pending) {
             const requestId = live.pending.record.requestId
             const answered = entry.partial?.requestId === requestId ? entry.partial.labels : []
             const plan = planAnswer(live.pending, answered, input)
@@ -208,11 +213,6 @@ export function useHandoffActions(reportId: string): HandoffActions {
             )
             return
         }
-        // No request is pending: the agent ended its turn, so the reply goes out as a message.
-        await deliverAnswer(question, input, { kind: 'reply' }, async (signal) => {
-            const outcome = await sendUserMessage(run, input.text, { id: randomUUID(), signal })
-            return outcome === 'ended' ? 'ended' : 'queued'
-        })
     })
 
     const undoDecision = useAsyncAction(async () => {

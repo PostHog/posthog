@@ -15,7 +15,7 @@ import { FadeEdge } from '@/ui/FadeEdge'
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { SegmentedPill } from '@/ui/SegmentedPill'
-import { colors, layout, motion, type } from '@/ui/tokens'
+import { colors, iconSizes, layout, motion, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 const CHROME_TOP = 58
@@ -75,7 +75,7 @@ export function TopChrome({ onBack, onPrevious, onNext, title, refreshing = fals
                         onPress: () => onPrevious?.(),
                         disabled: !onPrevious,
                         testID: 'report-previous',
-                        children: <ChevronLeftIcon size={15} />,
+                        children: <ChevronLeftIcon size={iconSizes.control} />,
                     },
                     {
                         key: 'next',
@@ -83,7 +83,7 @@ export function TopChrome({ onBack, onPrevious, onNext, title, refreshing = fals
                         onPress: () => onNext?.(),
                         disabled: !onNext,
                         testID: 'report-next',
-                        children: <ChevronRightIcon size={15} />,
+                        children: <ChevronRightIcon size={iconSizes.control} />,
                     },
                 ]}
             />

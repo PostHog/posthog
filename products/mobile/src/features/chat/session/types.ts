@@ -138,6 +138,7 @@ export interface Session {
     /** A question, plan approval or permission the agent waits on. Replaces the composer while set. */
     decision?: SessionDecision
     pullRequest?: PullRequestView
+    pullRequests?: PullRequestView[]
     /** The run's own failure, from `error_message` or an `_posthog/error` frame. */
     runError?: string
     /** A send or an answer is in flight. */

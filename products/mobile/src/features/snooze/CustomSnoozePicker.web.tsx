@@ -68,7 +68,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.card,
         backgroundColor: colors.sunken,
         paddingHorizontal: 16,
-        fontSize: 17,
+        ...type.input,
         color: colors.ink,
     },
     hint: {

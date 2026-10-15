@@ -9,9 +9,24 @@ import { initialRunState, reduceFrame } from '@/features/handoff/runStream'
 import type { RunStreamState } from '@/features/handoff/types'
 
 import { buildDemoChatList } from './chats'
+import { buildDemoFixtures } from './fixtures'
 import { type DemoSessionLog, demoSessionLog, demoSessionRunId } from './sessionThreads'
 
-const SESSIONS = buildDemoChatList(new Date(2026, 9, 7, 15, 0)).filter((item) => item.kind === 'session')
+const ANCHOR = new Date(2026, 9, 7, 15, 0)
+const SESSIONS = [
+    ...buildDemoChatList(ANCHOR),
+    ...buildDemoFixtures(ANCHOR).list.flatMap(({ report }) =>
+        report.task
+            ? [
+                  {
+                      sourceId: report.task.taskId,
+                      title: report.title,
+                      pullRequestUrl: report.work.pullRequests?.[0]?.url ?? report.work.pullRequest?.url ?? null,
+                  },
+              ]
+            : []
+    ),
+]
 
 function fold(taskId: string): { log: DemoSessionLog; thread: SessionThreadState; live: RunStreamState } {
     const log = demoSessionLog(taskId)

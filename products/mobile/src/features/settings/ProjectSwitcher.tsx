@@ -5,7 +5,7 @@ import { useAuthStore } from '@/auth/authStore'
 import { groupByOrganization } from '@/features/projects/projectList'
 import { useAsyncAction } from '@/lib/useAsyncAction'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, radii, type } from '@/ui/tokens'
 
 import { SettingsGroup } from './SettingsGroup'
 
@@ -121,8 +121,8 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     radio: {
-        width: 22,
-        height: 22,
+        width: iconSizes.control,
+        height: iconSizes.control,
         borderRadius: radii.pill,
         borderWidth: 1.5,
         borderColor: colors.border,

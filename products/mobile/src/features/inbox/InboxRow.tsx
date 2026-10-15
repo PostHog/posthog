@@ -6,7 +6,7 @@ import { sourceInfo } from '@/model/sources'
 import type { InboxItem } from '@/model/types'
 import { IconTile } from '@/ui/IconTile'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, type } from '@/ui/tokens'
+import { colors, iconSizes, type } from '@/ui/tokens'
 
 import type { RowAnchor } from './contextMenuPlacement'
 import { useRowMenuTrigger } from './useRowMenuTrigger'
@@ -35,7 +35,7 @@ export const InboxRow = memo(function InboxRow({ item, now, onOpen, onLongPress 
             testID={`inbox-row-${item.reportId}`}
         >
             <IconTile muted={muted} needsInput={item.needsInput}>
-                <Icon size={18} color={muted ? colors.tertiary : colors.ink} />
+                <Icon size={iconSizes.navigation} color={muted ? colors.tertiary : colors.ink} />
             </IconTile>
             <View style={styles.body}>
                 <Text style={[styles.title, muted && styles.mutedTitle, done && styles.doneTitle]} numberOfLines={1}>

@@ -37,6 +37,26 @@ visible while a small spinner beside Previous/Next shows the refresh, then fades
 the navigation controls. Repeat with an unavailable Today page or signals endpoint, and with a failed
 background request. A first load without cached data still shows the full loading state.
 
+## Notification checks
+
+Run `pnpm test --watchman=false --runInBand src/features/notifications` for foreground delivery sequences
+and cold-start tap routing. The tests exercise the installed notification handler as well as the policy:
+viewed reports, cached task associations, active/expired snoozes, repeated terminal events, distinct questions,
+project/account boundaries and a tap received before sign-in.
+
+On a development build with notifications enabled:
+
+1. Keep a report open and deliver a push for that report (then one for its cached task). Neither should show
+   a foreground banner or notification-list entry. Deliver a push for a different report: it should appear.
+2. Leave the report and deliver two completion pushes with different OS identifiers but the same project,
+   task, run and `notificationKind: completed`. Only the first should appear. A new run should still appear.
+3. Time-snooze a report and deliver a report push while elsewhere in the foreground. It should stay quiet.
+   After expiry, the snooze reminder should appear. Repeat using a task already associated in the cache.
+4. Deliver two distinct `awaiting` notifications for one run: neither should be lost to a run-wide cooldown.
+5. Tap a notification while signed out, sign in, and verify that its report opens once.
+6. Repeat a delivery with the app backgrounded or terminated. App-side filtering does **not** provide the same
+   guarantees there; server consolidation and synchronized snoozes remain follow-ups in [GAPS.md](GAPS.md).
+
 ## Demo walkthrough on the iOS simulator
 
 `.argent/flows/demo-smoke.yaml` drives the demo end to end with [Argent](https://docs.expo.dev/agents/argent/), a device automation CLI from Software Mansion.
@@ -45,7 +65,7 @@ The flow:
 1. taps **Try the demo** on the sign-in screen,
 2. opens "Report load time", opens and closes the hand-off sheet,
 3. snoozes the report until tomorrow and checks that the inbox row says so,
-4. opens "3,721 errors", picks an answer in the decision card, then taps Undo,
+4. opens "3,721 errors", taps **Needs your answer**, picks an answer in the decision sheet, then taps Undo, reopens the question and closes its sheet,
 5. opens Chat from the action pill, sends a question and waits for the demo reply,
 6. goes back, opens Chats, opens the session "Fix the flaky checkout test", and checks its title and reply,
 7. opens "Add dark mode to settings" and waits for its decision card,

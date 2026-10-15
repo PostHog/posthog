@@ -1,7 +1,7 @@
 import type { ReportArtefactApi, SignalNodeApi } from '@/api/reports'
 import type { ReportPageApi, SignalViewApi } from '@/api/today'
 
-import { reportView } from './report'
+import { reportTaskId, reportView } from './report'
 import { reportFixture } from './testFixtures'
 
 // Local-time constructor arguments so the cases hold in any time zone.
@@ -79,6 +79,52 @@ describe('report view adapter', () => {
         expect(reportView(input).repository).toBe('example/new-app')
         input.artefacts[0] = artefact({ id: 'cleared', type: 'repo_selection', content: {} })
         expect(reportView(input).repository).toBeUndefined()
+    })
+
+    test('an unidentified external claimant is not named PostHog', () => {
+        const view = reportView({
+            report: reportFixture({
+                assignee: { kind: 'agent', agent: null, user: null, task_id: null, claimed_at: NOW.toISOString() },
+            }),
+            artefacts: [],
+            ...SCOPE,
+            now: NOW,
+        })
+        expect(view.work.assignee?.name).toBe('External agent')
+    })
+
+    test('all PRs keep their canonical states, including unknown', () => {
+        const pull_requests = ['draft', 'unknown', 'merged'].map((state, index) => ({
+            url: `https://github.com/example/app/pull/${index + 1}`,
+            id: `pr-${index + 1}`,
+            state: state as 'draft' | 'unknown' | 'merged',
+            merged: state === 'merged',
+            review_decision: null,
+        }))
+        const view = reportView({
+            report: reportFixture({ pull_requests, implementation_pr_url: pull_requests[1]?.url }),
+            artefacts: [],
+            ...SCOPE,
+            now: NOW,
+        })
+        expect(view.work.pullRequests?.map((pr) => pr.state)).toEqual(['draft', 'unknown', 'merged'])
+        expect(view.work.pullRequest).toMatchObject({ id: 'pr-2', state: 'unknown' })
+    })
+
+    test('a current external owner prevents following a historical task', () => {
+        const history = [
+            artefact({
+                id: 'old-run',
+                type: 'task_run',
+                task_id: 'old-task',
+                content: { type: 'implementation', task_id: 'old-task' },
+            }),
+        ]
+        const external = reportFixture({
+            assignee: { kind: 'agent', agent: 'codex', user: null, task_id: null, claimed_at: NOW.toISOString() },
+        })
+        expect(reportTaskId(external, history)).toBeUndefined()
+        expect(reportTaskId(reportFixture(), history)).toBe('old-task')
     })
 
     test('builds a claimed report with a Today page, an open PR and a work log', () => {
@@ -215,9 +261,9 @@ describe('report view adapter', () => {
             'PostHog opened **PR #4190**',
             'Alex Kim changed reviewers to **Sana Patel, octo-dev**',
         ])
-        expect(view.work).toEqual({
+        expect(view.work).toMatchObject({
             state: 'in_review',
-            assignee: { kind: 'task', name: 'PostHog' },
+            assignee: { kind: 'task', name: 'PostHog', taskId: 'task-1' },
             pullRequest: {
                 url: 'https://github.com/example/app/pull/4190',
                 number: 4190,

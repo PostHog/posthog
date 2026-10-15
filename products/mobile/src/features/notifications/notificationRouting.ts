@@ -23,6 +23,12 @@ export interface NotificationRoute {
 
 type NotificationData = Record<string, unknown>
 
+export interface NotificationTarget {
+    type: 'report' | 'task'
+    id: string
+    projectId: number | null
+}
+
 function asNonEmptyString(value: unknown): string | null {
     if (typeof value === 'string' && value.trim()) {
         return value.trim()
@@ -39,6 +45,19 @@ function asProjectId(value: unknown): number | null {
 }
 
 const INBOX: NotificationRoute = { pathname: '/inbox', switchToProjectId: null }
+
+export function notificationTarget(data: unknown): NotificationTarget | null {
+    const record = asRecord(data)
+    if (!record) {
+        return null
+    }
+    if (record.type === 'report') {
+        const id = asNonEmptyString(record.report_id)
+        return id ? { type: 'report', id, projectId: asProjectId(record.project_id) } : null
+    }
+    const id = asNonEmptyString(record.taskId)
+    return id ? { type: 'task', id, projectId: asProjectId(record.projectId) } : null
+}
 
 export function notificationKind(data: unknown): string {
     const record = asRecord(data)

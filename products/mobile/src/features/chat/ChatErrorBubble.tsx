@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { WarningIcon } from '@/ui/icons/WarningIcon'
-import { colors, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, radii, type } from '@/ui/tokens'
 
 interface ChatErrorBubbleProps {
     text: string
@@ -12,7 +12,7 @@ export function ChatErrorBubble({ text }: ChatErrorBubbleProps): ReactElement {
     return (
         <View style={styles.card} testID="chat-error">
             <View style={styles.row}>
-                <WarningIcon size={18} color={colors.orange} />
+                <WarningIcon size={iconSizes.control} color={colors.orange} />
                 <Text style={styles.text}>{text}</Text>
             </View>
         </View>

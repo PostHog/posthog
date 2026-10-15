@@ -11,8 +11,9 @@ import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import type { ReportPriority, ReportView, SnoozeChoice } from '@/model/types'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
+import { OverlayHost } from '@/ui/OverlayPortal'
 import { LoadingView, StateView } from '@/ui/StateView'
-import { colors, layout } from '@/ui/tokens'
+import { colors, iconSizes, layout } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { ActionBar } from '../handoff/ActionBar'
@@ -57,7 +58,11 @@ function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
 
 export function ReportScreen({ reportId }: ReportScreenProps): ReactElement {
     const demo = useDataMode() === 'demo'
-    return isReportId(reportId, demo) ? <ReportContent reportId={reportId} /> : <ReportNotFound />
+    return (
+        <OverlayHost>
+            {isReportId(reportId, demo) ? <ReportContent reportId={reportId} /> : <ReportNotFound />}
+        </OverlayHost>
+    )
 }
 
 function ReportNotFound(): ReactElement {
@@ -67,7 +72,7 @@ function ReportNotFound(): ReactElement {
         <View style={styles.screen}>
             <TopChrome onBack={goBack} />
             <StateView
-                icon={<WarningIcon size={28} color={colors.tertiary} />}
+                icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
                 title="Couldn't find this report"
                 message="This link doesn't point to a report. Go back and open the report from your inbox."
                 actionLabel="Go back"
@@ -114,7 +119,7 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
                     <LoadingView label="Loading the report" />
                 ) : (
                     <StateView
-                        icon={<WarningIcon size={28} color={colors.tertiary} />}
+                        icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
                         title="Couldn't load this report"
                         message={query.error?.message ?? 'Check your connection and try again.'}
                         actionLabel="Try again"
@@ -127,6 +132,16 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
     }
 
     const state = actionBarStateFor(report, { answer, handOffPending: actions.pending.handOff })
+    const task = report.task
+    const taskId = task?.taskId ?? report.work.assignee?.taskId
+    const openTaskChat = (): void => {
+        if (taskId) {
+            router.push({
+                pathname: '/chat',
+                params: { taskId, ...(task?.runId ? { runId: task.runId } : {}) },
+            })
+        }
+    }
     const snooze = async (choice: SnoozeChoice): Promise<void> => {
         await actions.snooze(choice)
         closeOverlay()
@@ -164,6 +179,7 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
                 onReassign={() => setOverlay('assignee')}
                 onSnooze={() => setOverlay('snooze')}
                 onChat={() => router.push({ pathname: '/chat', params: { reportId: report.id } })}
+                onTaskChat={taskId ? openTaskChat : undefined}
             />
             <HandoffSheet
                 visible={overlay === 'handoff'}

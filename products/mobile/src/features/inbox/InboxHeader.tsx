@@ -8,7 +8,7 @@ import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
 import { RefreshIcon } from '@/ui/icons/RefreshIcon'
 import { PillControl } from '@/ui/PillControl'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, layout, type } from '@/ui/tokens'
+import { colors, iconSizes, layout, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 const HEADER_TOP = 64
@@ -48,7 +48,7 @@ export function InboxHeader({ onRefresh, refreshing, onOpenMenu }: InboxHeaderPr
                     style={styles.button}
                     testID="inbox-refresh"
                 >
-                    <RefreshIcon size={22} color={refreshing ? colors.tertiary : colors.ink} />
+                    <RefreshIcon size={iconSizes.navigation} color={refreshing ? colors.tertiary : colors.ink} />
                 </Pressable44>
                 <Pressable44
                     onPress={onOpenMenu}
@@ -57,7 +57,7 @@ export function InboxHeader({ onRefresh, refreshing, onOpenMenu }: InboxHeaderPr
                     style={styles.button}
                     testID="inbox-more"
                 >
-                    <MoreIcon size={22} />
+                    <MoreIcon size={iconSizes.navigation} />
                 </Pressable44>
             </PillControl>
         </View>

@@ -163,23 +163,54 @@ function workFor(briefing: DemoBriefing): WorkView {
         case 'done':
             return { state: 'done', assignee: briefing.owner }
         case 'decision':
-            return { state: 'working', assignee: briefing.owner }
+            return {
+                state: 'working',
+                assignee: { kind: 'task', name: DEMO_AGENT.name },
+                pullRequests: [
+                    {
+                        url: 'https://github.com/example/app/pull/4191',
+                        number: 4191,
+                        title: 'Guard missing chart labels',
+                        state: 'draft',
+                    },
+                ],
+            }
         case 'pr_ready':
             return {
                 state: 'in_review',
-                assignee: briefing.owner,
-                pullRequest: {
-                    url: 'https://github.com/example/app/pull/4190',
-                    number: 4190,
-                    title: 'Parse typed date ranges before applyFilter',
-                    state: 'open',
-                    reviewDecision: 'review_required',
-                    filesChanged: 2,
-                    additions: 18,
-                    deletions: 4,
-                    checksPassed: true,
-                    note: 'Safari 17 verified on staging',
-                },
+                assignee: { kind: 'task', name: DEMO_AGENT.name },
+                pullRequests: [
+                    {
+                        url: 'https://github.com/example/app/pull/4190',
+                        number: 4190,
+                        title: 'Parse typed date ranges before applyFilter',
+                        state: 'open',
+                        reviewDecision: 'review_required',
+                        filesChanged: 2,
+                        additions: 18,
+                        deletions: 4,
+                        checksPassed: true,
+                        note: 'Safari 17 verified on staging',
+                    },
+                    {
+                        url: 'https://github.com/example/app/pull/4188',
+                        number: 4188,
+                        title: 'Add coverage for typed date ranges',
+                        state: 'merged',
+                    },
+                    {
+                        url: 'https://github.com/example/app/pull/4189',
+                        number: 4189,
+                        title: 'Update filter input handling',
+                        state: 'closed',
+                    },
+                    {
+                        url: 'https://github.com/example/app/pull/4192',
+                        number: 4192,
+                        title: 'Verify filter keyboard behavior',
+                        state: 'unknown',
+                    },
+                ],
             }
         case 'open':
             return { state: 'unclaimed' }
@@ -193,6 +224,8 @@ function taskFor(briefing: DemoBriefing): TaskRunView | undefined {
             runId: `${briefing.id}-run`,
             status: 'in_progress',
             stage: 'Waiting on you',
+            phase: 'idle',
+            connection: 'connected',
             pendingDecision: DEMO_DECISION_QUESTION,
         }
     }
@@ -200,8 +233,10 @@ function taskFor(briefing: DemoBriefing): TaskRunView | undefined {
         return {
             taskId: `${briefing.id}-task`,
             runId: `${briefing.id}-run`,
-            status: 'completed',
-            stage: 'PR #4190 ready',
+            status: 'in_progress',
+            phase: 'working',
+            connection: 'connected',
+            stage: 'Checking the filter regression tests',
         }
     }
     return undefined
@@ -310,7 +345,7 @@ function ownerFor(briefing: DemoBriefing): ReportOwner {
     if (!row || row[3] === 'alert') {
         return { kind: 'none' }
     }
-    return { kind: row[3] === 'agent' ? 'agent' : 'user', name: row[1] }
+    return { kind: row[3] === 'agent' ? 'agent' : 'user', name: row[3] === 'agent' ? DEMO_AGENT.name : row[1] }
 }
 
 function reportFor(briefing: DemoBriefing, anchor: Date): ReportView {

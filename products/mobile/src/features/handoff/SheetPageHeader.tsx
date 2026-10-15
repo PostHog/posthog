@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native'
 
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, type } from '@/ui/tokens'
+import { colors, iconSizes, type } from '@/ui/tokens'
 
 interface SheetPageHeaderProps {
     title: string
@@ -21,7 +21,7 @@ export function SheetPageHeader({ title, onBack, testID }: SheetPageHeaderProps)
                 style={styles.back}
                 testID={`${testID}-back`}
             >
-                <ChevronLeftIcon size={15} />
+                <ChevronLeftIcon size={iconSizes.control} />
             </Pressable44>
             <Text style={styles.title} accessibilityRole="header" numberOfLines={1}>
                 {title}

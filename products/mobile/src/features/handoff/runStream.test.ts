@@ -230,22 +230,212 @@ describe('runStream', () => {
             'evt-1'
         )
         const { state } = feed([frame(chunk, '1-0'), frame(chunk, '1-0')])
-        expect(state.lastMessage).toBe('Hello. ')
+        expect(state.activity).toBe(1)
     })
 
-    test('an ended turn waits for the user until the agent works again', () => {
+    test('an ended turn clears activity until the agent works again', () => {
         const ended = feed([
             frame(update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Should I ' } }, 'e1')),
             frame(update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'proceed?' } }, 'e2')),
             frame(posthog('_posthog/turn_complete', { stopReason: 'end_turn' })),
         ])
-        expect(ended.state).toMatchObject({ turnEnded: true, lastMessage: 'Should I proceed?' })
+        expect(ended.state).toMatchObject({
+            turnEnded: true,
+            phase: 'idle',
+            toolTitle: undefined,
+            progressLabel: undefined,
+        })
 
         const resumed = feed(
             [frame(update({ sessionUpdate: 'tool_call', toolCallId: 't9', title: 'Edit a.ts' }))],
             ended.state
         )
         expect(resumed.state.turnEnded).toBe(false)
+    })
+
+    test('old run messages, tools, progress and turn endings cannot change the current run', () => {
+        const events = [
+            frame(posthog('_posthog/run_started', { runId: 'run-0' }), 'log-1'),
+            frame(update({ sessionUpdate: 'tool_call', toolCallId: 'old', title: 'Read old.ts' }), 'log-2'),
+            frame(posthog('_posthog/progress', { status: 'in_progress', label: 'Old work' }), 'log-3'),
+            frame(posthog('_posthog/turn_complete', {}), 'log-4'),
+            frame({ type: 'task_run_state', status: 'failed' }, 'log-5'),
+        ]
+        const base = initialRunState('task-1', RUN, 'queued')
+        expect(feed(events, base).state).toEqual(base)
+    })
+
+    test.each(['completed', 'failed', 'cancelled'] as const)(
+        'a replayed current-run %s status clears pending input',
+        (status) => {
+            const { state } = feed([
+                frame(posthog('_posthog/permission_request', QUESTION_REQUEST), 'log-1'),
+                frame(
+                    {
+                        type: 'task_run_state',
+                        run_id: RUN,
+                        status,
+                        error_message: status === 'failed' ? 'Run failed' : null,
+                        output: { pr_url: 'https://github.com/example/app/pull/9' },
+                    },
+                    'log-2'
+                ),
+                frame({ type: 'task_run_state', run_id: RUN, status: 'in_progress' }, 'log-3'),
+            ])
+            expect(state).toMatchObject({
+                status,
+                phase: 'idle',
+                pending: undefined,
+                prUrls: ['https://github.com/example/app/pull/9'],
+            })
+            expect(state.errorMessage).toBe(status === 'failed' ? 'Run failed' : undefined)
+        }
+    )
+
+    test('an unscoped terminal replay frame cannot settle the current run', () => {
+        const { state } = feed([frame({ type: 'task_run_state', status: 'completed' }, 'log-1')])
+        expect(state).toMatchObject({ status: 'in_progress', phase: 'unknown' })
+    })
+
+    test('terminal status cannot be revived by replay or live activity', () => {
+        const { state } = feed([
+            frame({ type: 'task_run_state', run_id: RUN, status: 'completed' }),
+            frame(update({ sessionUpdate: 'tool_call', toolCallId: 'old', title: 'Read old.ts' }), 'log-1'),
+            frame({ type: 'task_run_state', run_id: RUN, status: 'in_progress' }, 'log-2'),
+            frame(update({ sessionUpdate: 'agent_message_chunk', text: 'Done' })),
+        ])
+        expect(state).toMatchObject({ status: 'completed', phase: 'idle', pending: undefined })
+        expect(displayStage(state)).toBeUndefined()
+    })
+
+    test('an incomplete output snapshot retains all PR URLs already seen', () => {
+        const { state } = feed([
+            frame({
+                type: 'task_run_state',
+                output: {
+                    pr_url: 'https://github.com/example/app/pull/1',
+                    pr_urls: ['https://github.com/example/app/pull/2'],
+                },
+            }),
+            frame({ type: 'task_run_state', output: { pr_url: 'https://github.com/example/app/pull/3' } }),
+        ])
+        expect(state.prUrls).toEqual([
+            'https://github.com/example/app/pull/1',
+            'https://github.com/example/app/pull/2',
+            'https://github.com/example/app/pull/3',
+        ])
+    })
+
+    test('a durable tool resolution clears a live request without reviving replay activity', () => {
+        const { state } = feed([
+            frame(QUESTION_REQUEST),
+            frame(
+                update({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 'tc-q',
+                    status: 'completed',
+                    title: 'Old title',
+                }),
+                'log-1'
+            ),
+        ])
+        expect(state.pending).toBeUndefined()
+        expect(state.toolTitle).toBeUndefined()
+    })
+
+    test('a new replayed request after reconnect surfaces while an ended request stays handled', () => {
+        const { state } = feed([
+            frame(QUESTION_REQUEST),
+            frame(posthog('_posthog/turn_complete', {})),
+            frame(posthog('_posthog/permission_request', QUESTION_REQUEST), 'log-1'),
+            frame(posthog('_posthog/permission_request', { ...QUESTION_REQUEST, requestId: 'req-new' }), 'log-2'),
+        ])
+        expect(state.pending?.record.requestId).toBe('req-new')
+    })
+
+    test('typed PR progress discovers every PR without inferring GitHub state', () => {
+        const { state } = feed([
+            frame(
+                posthog('_posthog/progress', {
+                    step: 'pr',
+                    status: 'completed',
+                    label: 'Opened pull request',
+                    detail: 'https://github.com/example/app/pull/9',
+                })
+            ),
+            frame(
+                posthog('_posthog/progress', {
+                    step: 'pr',
+                    status: 'completed',
+                    label: 'Pull request merged',
+                    detail: 'https://github.com/example/app/pull/10',
+                })
+            ),
+        ])
+        expect(state.prUrls).toEqual([
+            'https://github.com/example/app/pull/9',
+            'https://github.com/example/app/pull/10',
+        ])
+        expect(state.phase).toBe('unknown')
+    })
+
+    test('initial live run metadata does not suppress a pending request in replay', () => {
+        const { state } = feed([
+            frame({ type: 'task_run_state', run_id: RUN, status: 'in_progress' }),
+            frame(posthog('_posthog/permission_request', QUESTION_REQUEST), 'log-1'),
+        ])
+        expect(state.pending?.record.requestId).toBe('req-q')
+        expect(state.phase).toBe('unknown')
+    })
+
+    test('a monitoring progress label does not prove the agent is generating', () => {
+        const { state } = feed([
+            frame(posthog('_posthog/progress', { status: 'in_progress', label: 'Keeping CI green' })),
+        ])
+        expect(state.phase).toBe('unknown')
+    })
+
+    test('same-run replay cannot overwrite a live idle turn or status', () => {
+        const { state } = feed([
+            frame(posthog('_posthog/turn_complete', {})),
+            frame(update({ sessionUpdate: 'tool_call', toolCallId: 'old', title: 'Read old.ts' }), 'log-1'),
+            frame({ type: 'task_run_state', status: 'queued', stage: 'starting' }, 'log-2'),
+        ])
+        expect(state).toMatchObject({ status: 'in_progress', turnEnded: true, phase: 'idle' })
+        expect(displayStage(state)).toBeUndefined()
+    })
+
+    test('deduped inherited run markers still scope frames after a cursor reset', () => {
+        const cursor = new RunStreamCursor(RUN)
+        const marker = { ...posthog('_posthog/run_started', { runId: 'run-old' }), event_id: 'old-marker' }
+        cursor.accept(frame(marker, 'log-1'))
+        cursor.resetCursor()
+        expect(cursor.accept(frame(marker, 'log-1')).frame).toBeUndefined()
+        const result = cursor.accept(
+            frame(
+                update({ sessionUpdate: 'tool_call', toolCallId: 'old-tool', title: 'Read old.ts' }, 'old-tool-event'),
+                'log-2'
+            )
+        )
+        expect(result.frame?.context).toEqual({ source: 'replay', sourceRunId: 'run-old' })
+        const initial = initialRunState('task-1', RUN, 'in_progress')
+        expect(result.frame && reduceFrame(initial, result.frame.data, result.frame.context).state).toBe(initial)
+    })
+
+    test('discarding a cursor fork cannot skip unpublished frames on reconnect', () => {
+        const cursor = new RunStreamCursor(RUN)
+        const marker = { ...posthog('_posthog/run_started', { runId: 'run-old' }), event_id: 'old-marker' }
+        cursor.accept(frame(marker, 'log-1'))
+        const fork = cursor.fork()
+        expect(fork.accept(frame(marker, 'log-1')).frame).toBeUndefined()
+        const unseen = frame(
+            update({ sessionUpdate: 'agent_message_chunk', text: 'Historical reply' }, 'new-message'),
+            'log-2'
+        )
+        expect(fork.accept(unseen).frame?.context.sourceRunId).toBe('run-old')
+        expect(fork.cursor).toBe('log-2')
+        expect(cursor.cursor).toBe('log-1')
+        expect(cursor.accept(unseen).frame?.context.sourceRunId).toBe('run-old')
     })
 
     test.each<[string, SseEvent, StreamControl, boolean]>([

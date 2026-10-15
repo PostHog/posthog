@@ -2,42 +2,58 @@ import type { ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { Dot } from '@/ui/Dot'
+import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, fonts, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, radii, type } from '@/ui/tokens'
 
 interface AgentStatusCardProps {
-    mark: string
     title: string
     meta?: string
-    tone?: 'working' | 'stopped'
+    tone?: 'working' | 'idle' | 'stopped'
+    onOpenChat?: () => void
     onUndo?: () => void
     undoPending?: boolean
     testID?: string
 }
 
 export function AgentStatusCard({
-    mark,
     title,
     meta,
     tone = 'working',
+    onOpenChat,
     onUndo,
     undoPending,
     testID,
 }: AgentStatusCardProps): ReactElement {
     return (
-        <View style={styles.card} testID={testID} accessibilityRole="summary">
-            <View style={styles.mark}>
-                <Text style={styles.markText}>{mark}</Text>
-            </View>
-            <View style={styles.body}>
+        <View style={styles.card} testID={testID}>
+            <Pressable44
+                onPress={onOpenChat}
+                disabled={!onOpenChat}
+                accessibilityRole={onOpenChat ? 'button' : 'summary'}
+                accessibilityLabel={onOpenChat ? `View task activity in task chat: ${title}` : undefined}
+                pressedBackground={colors.pressOverlay}
+                style={styles.body}
+                hitSlop={0}
+            >
                 <View style={styles.titleRow}>
-                    <Dot color={tone === 'stopped' ? colors.orange : colors.blueLight} />
-                    <Text style={styles.title} numberOfLines={2}>
+                    <Dot color={tone === 'working' ? colors.blue : colors.tertiary} />
+                    <Text style={styles.title} numberOfLines={1}>
                         {title}
                     </Text>
+                    {onOpenChat ? (
+                        <View style={styles.taskChat}>
+                            <Text style={styles.taskChatText}>Task chat</Text>
+                            <ChevronRightIcon size={iconSizes.small} color={colors.muted} />
+                        </View>
+                    ) : null}
                 </View>
-                {meta ? <Text style={styles.meta}>{meta}</Text> : null}
-            </View>
+                {meta ? (
+                    <Text style={styles.meta} numberOfLines={1} ellipsizeMode="tail">
+                        {meta}
+                    </Text>
+                ) : null}
+            </Pressable44>
             {onUndo ? (
                 <Pressable44
                     onPress={onUndo}
@@ -58,30 +74,14 @@ const styles = StyleSheet.create({
     card: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
         minHeight: 52,
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-        borderRadius: radii.card,
-        backgroundColor: colors.ink,
-    },
-    mark: {
-        width: 36,
-        height: 36,
-        borderRadius: radii.markLarge,
-        backgroundColor: colors.blue,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    markText: {
-        fontFamily: fonts.mono,
-        fontSize: 13,
-        fontWeight: '600',
-        color: colors.background,
+        backgroundColor: colors.white,
     },
     body: {
         flex: 1,
         minWidth: 0,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
     },
     titleRow: {
         flexDirection: 'row',
@@ -89,17 +89,22 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     title: {
-        ...type.bodyStrong,
-        color: colors.background,
+        ...type.metaSmall,
+        fontWeight: '600',
+        color: colors.ink,
+        flex: 1,
         flexShrink: 1,
     },
     meta: {
-        ...type.metaSmall,
-        color: colors.disabled,
+        ...type.meta,
+        color: colors.muted,
         marginTop: 2,
     },
+    taskChat: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+    taskChatText: { ...type.meta, color: colors.muted },
     undo: {
         height: 34,
+        marginRight: 14,
         paddingHorizontal: 12,
         borderRadius: radii.pill,
         borderWidth: 1,
@@ -108,11 +113,11 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     undoPressed: {
-        borderColor: colors.background,
+        borderColor: colors.ink,
     },
     undoText: {
         fontSize: 13,
         fontWeight: '600',
-        color: colors.background,
+        color: colors.ink,
     },
 })

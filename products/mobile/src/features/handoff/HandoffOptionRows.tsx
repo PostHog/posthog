@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native'
 
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, radii, type } from '@/ui/tokens'
 
 export interface HandoffOptionRow {
     key: string
@@ -44,7 +44,7 @@ export function HandoffOptionRows({ rows, disabled }: HandoffOptionRowsProps): R
                             </Text>
                         ) : null}
                     </View>
-                    <ChevronRightIcon size={12} color={colors.tertiary} />
+                    <ChevronRightIcon size={iconSizes.small} color={colors.tertiary} />
                 </Pressable44>
             ))}
         </View>
