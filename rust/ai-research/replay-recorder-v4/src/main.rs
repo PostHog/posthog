@@ -1,6 +1,8 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{routing::get, Router};
+use common_database::{get_pool_with_config, PoolConfig};
 use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
@@ -11,6 +13,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use replay_recorder_v4::config::Config;
 use replay_recorder_v4::consumer::{create_consumer, run};
+use replay_recorder_v4::teams::TeamCache;
 
 common_alloc::used!();
 
@@ -65,13 +68,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("metrics server");
     });
 
+    // The first team list must load before any message is read: an empty list would skip every message as unknown.
+    let pool = get_pool_with_config(
+        &config.database_url,
+        PoolConfig {
+            max_connections: 2,
+            pool_name: Some("replay-recorder-v4".to_owned()),
+            ..Default::default()
+        },
+    )?;
+    let teams = Arc::new(TeamCache::default());
+    let loaded = teams.refresh(&pool).await?;
+    tracing::info!(teams = loaded, "loaded the team list");
+    tokio::spawn(
+        teams
+            .clone()
+            .refresh_every(pool, Duration::from_secs(config.team_refresh_secs)),
+    );
+
     let consumer = create_consumer(
         &config.kafka,
         &config.kafka_consumer_group,
         &config.kafka_consumer_offset_reset,
         &config.kafka_topic,
     )?;
-    tokio::spawn(run(consumer, config.sample_percentage, consumer_handle));
+    tokio::spawn(run(
+        consumer,
+        config.sample_percentage,
+        teams,
+        consumer_handle,
+    ));
 
     monitor.wait().await?;
     Ok(())
