@@ -441,7 +441,7 @@ describe('replayScannerLogic', () => {
                 ])
                 router.actions.push(urls.replayVisionScannerTemplate('new'), { experiment: '7' })
                 await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
-                expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 }, variantKey: null })
+                expect(logic.values.linkedExperimentContext).toMatchObject({ experiment: { id: 7 }, variantKey: null })
 
                 await expectLogic(logic, () =>
                     logic.actions.draftScannerFromGoal('where do people give up in billing')
@@ -450,6 +450,42 @@ describe('replayScannerLogic', () => {
                 expect(logic.values.scanner).toMatchObject({ name: 'Billing drop-off: Checkout redesign', ...expected })
             }
         )
+
+        it('does not carry an experiment picked in the editor into a later starting point', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [
+                        200,
+                        { id: 7, name: 'Checkout redesign', start_date: '2026-09-20T00:00:00Z' },
+                    ],
+                },
+            })
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'Dead ends',
+                    description: '',
+                    scanner_type: 'monitor',
+                    scanner_config: { prompt: 'Watch for dead ends.' },
+                    rationale: '',
+                    query: { kind: 'RecordingsQuery' },
+                },
+            ])
+            logic.actions.setScannerType('experiment')
+            await expectLogic(logic, () => logic.actions.setScannerExperiment(7)).toFinishAllListeners()
+            expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 } })
+            // The goal page and template step promise to keep watching only a linked experiment.
+            expect(logic.values.linkedExperimentContext).toBeNull()
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('where do people get stuck')
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({ name: 'Dead ends', scanner_type: 'monitor' })
+            expect(logic.values.experimentContext).toBeNull()
+        })
 
         it('drops a stale draft when the user has left the template step mid-request', async () => {
             draftSpy.mockReturnValue([
@@ -2012,6 +2048,22 @@ describe('replayScannerLogic', () => {
                 experiment: { experiment_id: 7, variants: ['test'] },
                 experiment_targeting: null,
             })
+        })
+
+        it('switching experiments drops the old context when the new one fails to load', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/7/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                    '/api/projects/:team/experiments/8/': () => [500, {}],
+                },
+            })
+            logic.actions.setScannerType('experiment')
+            await expectLogic(logic, () => logic.actions.setScannerExperiment(7)).toFinishAllListeners()
+            expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 } })
+
+            await expectLogic(logic, () => logic.actions.setScannerExperiment(8)).toFinishAllListeners()
+
+            expect(logic.values.experimentContext).toBeNull()
         })
     })
 

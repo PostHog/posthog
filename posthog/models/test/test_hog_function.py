@@ -4,6 +4,7 @@ from typing import Any, cast
 from posthog.test.base import QueryMatchingTest
 from unittest.mock import Mock, patch
 
+from django.db import transaction
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -64,6 +65,28 @@ class TestHogFunction(TestCase):
         function.refresh_from_db()
         assert function.inputs == {"message": {"value": "example-public-value"}}
         assert (function.encrypted_inputs or {}) == ({"credential": secret} if any(secret_flags) else {})
+
+    @parameterized.expand([(False, False), (True, False), (True, True)])
+    def test_managed_destination_reloads_only_after_commit(self, managed: bool, rollback: bool) -> None:
+        input_key = "mcp_credential" if managed else "credential"
+        with (
+            patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers") as reload,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            with transaction.atomic():
+                function = HogFunction.objects.create(
+                    team=self.team,
+                    type="destination",
+                    inputs_schema=[{"key": input_key, "type": "string", "secret": True}],
+                    inputs={input_key: {"value": "example-credential"}},
+                )
+                self.assertEqual(reload.call_count, 0 if managed else 1)
+                if rollback:
+                    transaction.set_rollback(True)
+        if rollback:
+            reload.assert_not_called()
+        else:
+            reload.assert_called_once_with(team_id=self.team.pk, hog_function_ids=[str(function.pk)])
 
     def test_hog_function_team_no_filters_compilation(self):
         item = HogFunction.objects.create(name="Test", team=self.team, type="destination")
