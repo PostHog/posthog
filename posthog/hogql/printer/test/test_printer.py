@@ -341,8 +341,8 @@ class TestPrinter(BaseTest):
         self._assert_select_error(query, expected_error)
 
     def test_lambda_style_clickhouse_prints(self):
-        printed = self._select("select lambda x: x + 1")
-        self.assertIn("x -> plus(x, 1)", printed)
+        printed = self._select("select arrayMap(lambda x: x + 1, [1])")
+        self.assertIn("arrayMap(x -> plus(x, 1), [1])", printed)
 
     def test_array_slice_clickhouse_prints_array_slice(self):
         printed = self._select("select [1, 2, 3][1:3]")
@@ -2137,7 +2137,7 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("this makes little sense", "mismatched input 'makes' expecting <EOF>")
         self._assert_expr_error("1;2", "mismatched input ';' expecting <EOF>")
         self._assert_expr_error("b.a(bla)", "You can only call simple functions in HogQL, not expressions")
-        self._assert_expr_error("a -> { print(2) }", "You can not use placeholders here")
+        self._assert_expr_error("arrayMap(a -> { print(2) }, [1])", "You can not use placeholders here")
 
     def test_boolean_and_optimization(self):
         self.assertEqual(

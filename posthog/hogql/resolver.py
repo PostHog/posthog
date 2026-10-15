@@ -447,6 +447,8 @@ class Resolver(CloningVisitor):
         # on a direct-connection table literal (so the external server expands the star); nested and
         # CTE-body stars still expand to explicit columns so enclosing queries can read them.
         self._entered_root_select: bool = False
+        # ClickHouse parses a lambda only as a direct function argument. Holds the ids of those lambdas.
+        self._lambda_argument_ids: set[int] = set()
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
         return self._scope_table_names.setdefault(id(scope), {})
@@ -2011,6 +2013,7 @@ class Resolver(CloningVisitor):
 
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
+        self._allow_lambda_arguments(node.args)
 
         if is_decision_call(node.name):
             spec = PromptJevCall.parse(node)
@@ -2299,8 +2302,18 @@ class Resolver(CloningVisitor):
     def visit_block(self, node: ast.Block):
         raise QueryError("You can not use blocks in HogQL")
 
+    def _allow_lambda_arguments(self, args: Optional[list[ast.Expr]]) -> None:
+        for arg in args or []:
+            if isinstance(arg, ast.Lambda):
+                self._lambda_argument_ids.add(id(arg))
+
     def visit_lambda(self, node: ast.Lambda):
         """Visit each SELECT query or subquery."""
+        if self.dialect == "clickhouse" and id(node) not in self._lambda_argument_ids:
+            raise QueryError(
+                "A lambda (x -> expression) can only be a function argument, for example arrayMap(x -> x * 2, arr). "
+                "To compare values, use an operator such as = or LIKE instead of ->."
+            )
         # Each Lambda is a new scope in field name resolution.
         # This type keeps track of all lambda arguments that are in scope.
         node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None, is_lambda_type=True)
@@ -2319,6 +2332,8 @@ class Resolver(CloningVisitor):
         return new_node
 
     def visit_window_function(self, node: ast.WindowFunction):
+        self._allow_lambda_arguments(node.exprs)
+        self._allow_lambda_arguments(node.args)
         node = cast(ast.WindowFunction, super().visit_window_function(node))
         value_exprs = [*(node.exprs or []), *(node.args or [])]
         arg_types = [(expr.type or ast.UnknownType()).resolve_constant_type(self.context) for expr in value_exprs]
