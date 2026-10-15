@@ -224,13 +224,17 @@ class TestTransactions:
         assert result.raised is None
         windows = transaction_windows(datetime(2016, 1, 1, tzinfo=UTC), NOW)
         api_requests = _api_requests(result)
-        assert [request.param("postedAfter") for request in api_requests] == [to_iso8601(s) for s, _ in windows]
-        assert [request.param("postedBefore") for request in api_requests] == [to_iso8601(e) for _, e in windows]
+        assert [request.param("postedAfter") for request in api_requests] == [
+            to_iso8601(window.posted_after) for window in windows
+        ]
+        assert [request.param("postedBefore") for request in api_requests] == [
+            to_iso8601(window.posted_before) for window in windows
+        ]
         assert api_requests[0].param("postedAfter") == EARLIEST_START
         assert api_requests[-1].param("postedBefore") == "2026-10-15T11:57:00Z"
         assert all(request.param("nextToken") is None for request in api_requests)
         assert result.saved_states == [
-            AmazonSellingPartnerResumeConfig(window_start=to_iso8601(start)) for start, _ in windows[1:]
+            AmazonSellingPartnerResumeConfig(window_start=to_iso8601(window.posted_after)) for window in windows[1:]
         ]
         assert len(result.rows) == len(windows)
 
@@ -423,8 +427,8 @@ def test_transaction_windows_are_contiguous_and_end_before_the_request_margin() 
 
     windows = transaction_windows(start, NOW)
 
-    assert [end - begin for begin, end in windows[:-1]] == [timedelta(days=179)] * 2
-    assert [windows[i][1] for i in range(len(windows) - 1)] == [windows[i + 1][0] for i in range(len(windows) - 1)]
-    assert windows[0][0] == start
-    assert windows[-1][1] == NOW - timedelta(seconds=180)
+    assert [window.posted_before - window.posted_after for window in windows[:-1]] == [timedelta(days=179)] * 2
+    assert [window.posted_before for window in windows[:-1]] == [window.posted_after for window in windows[1:]]
+    assert windows[0].posted_after == start
+    assert windows[-1].posted_before == NOW - timedelta(seconds=180)
     assert transaction_windows(NOW - timedelta(seconds=60), NOW) == []

@@ -98,13 +98,19 @@ def parse_marketplace_ids(value: str | None) -> list[str]:
     return [part.strip() for part in (value or "").split(",") if part.strip()]
 
 
-def transaction_windows(start: datetime, now: datetime) -> list[tuple[datetime, datetime]]:
+@frozen
+class TransactionWindow:
+    posted_after: datetime
+    posted_before: datetime
+
+
+def transaction_windows(start: datetime, now: datetime) -> list[TransactionWindow]:
     """Contiguous [postedAfter, postedBefore) windows from `start` up to the latest time Amazon accepts."""
     cutoff = now - timedelta(seconds=REQUEST_TIME_MARGIN_SECONDS)
-    windows: list[tuple[datetime, datetime]] = []
+    windows: list[TransactionWindow] = []
     while start < cutoff:
         end = min(start + timedelta(days=TRANSACTIONS_WINDOW_DAYS), cutoff)
-        windows.append((start, end))
+        windows.append(TransactionWindow(posted_after=start, posted_before=end))
         start = end
     return windows
 
@@ -255,8 +261,9 @@ def _transactions_resource(
     windows = transaction_windows(start, datetime.now(UTC))
 
     def pages() -> Iterator[Any]:
-        for index, (window_start, window_end) in enumerate(windows):
-            next_start = windows[index + 1][0] if index + 1 < len(windows) else None
+        for index, window in enumerate(windows):
+            window_start, window_end = window.posted_after, window.posted_before
+            next_start = windows[index + 1].posted_after if index + 1 < len(windows) else None
 
             def save_checkpoint(
                 state: dict[str, Any] | None,
