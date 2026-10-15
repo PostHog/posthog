@@ -1161,6 +1161,7 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
         ...columnDimensions.map(({ field }) => fieldExpression(field)),
         ...configuredValues.map(({ expression }) => expression),
         ...config.filters.map((filter) => filter.customExpression || fieldExpression(filter.field)),
+        ...(config.dateField ? [fieldExpression(config.dateField)] : []),
     ]
     const usedAliases = new Set([
         'bi_rows',
@@ -1174,7 +1175,10 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
     for (const dimension of [...rowDimensions, ...columnDimensions]) {
         const preferred = dimension.alias
         let suffix = 2
-        while (usedAliases.has(dimension.alias)) {
+        while (
+            usedAliases.has(dimension.alias) ||
+            expressions.some((expression) => expression.includes(dimension.alias))
+        ) {
             dimension.alias = `${preferred}_${suffix++}`
         }
         usedAliases.add(dimension.alias)
@@ -1203,6 +1207,15 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
     return { rowDimensions, columnDimensions, configuredValues }
 }
 
+function needsGeneratedDimensionAliases(dimensions: BIDimension[], hasMeasures: boolean): boolean {
+    const expressions = dimensions.map(({ field }) => fieldExpression(field))
+    return (
+        new Set(expressions).size !== expressions.length ||
+        (!hasMeasures && expressions.includes('count')) ||
+        expressions.some((expression) => expression.includes('%') || /^(true|false|null|team_id)$/i.test(expression))
+    )
+}
+
 export function getBIResultDimensions(config: BIConfig): { field: BIField; column: string; position?: number }[] {
     const { rowDimensions, columnDimensions } = computeBIQueryParts(config)
     const dimensions = [...rowDimensions, ...columnDimensions]
@@ -1216,6 +1229,7 @@ export function getBIResultDimensions(config: BIConfig): { field: BIField; colum
         )
     }
     const aliased =
+        needsGeneratedDimensionAliases(dimensions, config.values.length > 0) ||
         hasBIAnalysis(config) ||
         config.compareFilter?.compare ||
         (dimensions.length === 2 &&
@@ -1424,6 +1438,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
 
     const { rowDimensions, columnDimensions, configuredValues } = computeBIQueryParts(config)
     const dimensions = [...rowDimensions, ...columnDimensions]
+    const generatedDimensionAliases = needsGeneratedDimensionAliases(dimensions, configuredValues.length > 0)
     const comparing = !!config.compareFilter?.compare
     const dimensionExpressions = dimensions.map(({ field }) => fieldExpression(field))
     const isPivotTable = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
@@ -1444,9 +1459,9 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
               .filter((axis): axis is BIPivotAxis => axis !== null)
               .map(({ alias, expression }) => `${expression} AS ${alias}`)
         : dimensions.map(({ field, alias }) =>
-              hasSeriesBreakdown || comparing || hasBIAnalysis(config)
+              hasSeriesBreakdown || comparing || hasBIAnalysis(config) || generatedDimensionAliases
                   ? `${fieldExpression(field)} AS ${alias}`
-                  : fieldExpression(field)
+                  : `${fieldExpression(field)} AS ${escapeRawPropertyAsHogQLIdentifier(fieldExpression(field))}`
           )
     const valueExpressions =
         configuredValues.length > 0
@@ -1465,7 +1480,8 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
         `WHERE\n    ${[getBIFiltersPlaceholder(config), ...filters.map((filter) => `(${filter})`)].join('\n    AND ')}`
     )
     if (dimensionExpressions.length > 0) {
-        queryParts.push(`GROUP BY\n    ${dimensionExpressions.join(',\n    ')}`)
+        const grouping = generatedDimensionAliases ? dimensions.map(({ alias }) => alias) : dimensionExpressions
+        queryParts.push(`GROUP BY\n    ${grouping.join(',\n    ')}`)
     }
 
     const orderByExpression = buildOrderByExpression(config, dimensions, configuredValues)
@@ -1497,7 +1513,12 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
               }
             : {
                   xAxis: xDimension
-                      ? { column: hasBIAnalysis(config) ? xDimension.alias : fieldExpression(xDimension.field) }
+                      ? {
+                            column:
+                                hasBIAnalysis(config) || generatedDimensionAliases
+                                    ? xDimension.alias
+                                    : fieldExpression(xDimension.field),
+                        }
                       : undefined,
                   yAxis: configuredValues.length
                       ? configuredValues.map(({ alias }) => ({ column: alias }))
@@ -1536,7 +1557,11 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                 `SELECT\n    ${select.join(',\n    ')}`,
                 `FROM ${escapePropertyAsHogQLIdentifier(config.source!.table)}`,
                 `WHERE\n    ${[previous ? placeholder.replace('{filters', '{filters.previous') : placeholder, ...filters.map((filter) => `(${filter})`)].join('\n    AND ')}`,
-                ...(expressions.length ? [`GROUP BY ${[...expressions, 'bi_comparison'].join(', ')}`] : []),
+                ...(expressions.length
+                    ? [
+                          `GROUP BY ${[...(generatedDimensionAliases ? dimensions.map(({ alias }) => alias) : expressions), 'bi_comparison'].join(', ')}`,
+                      ]
+                    : []),
             ].join('\n')
         }
         query = limitBIComparisonQuery({
@@ -1704,7 +1729,10 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                                         .filter((axis): axis is BIPivotAxis => !!axis)
                                         .map((axis) => axis.alias)
                                   : dimensions.map((dimension) =>
-                                        hasBIAnalysis(config) || comparing || hasSeriesBreakdown
+                                        hasBIAnalysis(config) ||
+                                        comparing ||
+                                        hasSeriesBreakdown ||
+                                        generatedDimensionAliases
                                             ? dimension.alias
                                             : fieldExpression(dimension.field)
                                     )),
@@ -1713,7 +1741,11 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                           ].map((column) => {
                               const dimension = dimensions.find(
                                   (dimension) =>
-                                      (hasBIAnalysis(config) || comparing || hasSeriesBreakdown || isPivotTable
+                                      (hasBIAnalysis(config) ||
+                                      comparing ||
+                                      hasSeriesBreakdown ||
+                                      generatedDimensionAliases ||
+                                      isPivotTable
                                           ? dimension.alias
                                           : fieldExpression(dimension.field)) === column
                               )

@@ -38,7 +38,7 @@ Choose a connection in the **Data** panel, then select a table below it. **Run**
 
 Single-value filters distinguish selecting **(empty string)** from clearing the input: the former matches an empty value, while the latter removes the condition.
 
-Date dimensions sort oldest first by default, including in tables; explicit sorts still take precedence. Time charts show years centered below their date ticks. Clicking a bar opens the drill-down options for that result.
+Date dimensions sort oldest first by default, including in tables; explicit sorts still take precedence. Generated date dimensions retain their result-column identity, including expressions over column names containing spaces. Time charts show years centered below their date ticks. Clicking a bar opens the drill-down options for that result.
 
 **Auto update** is off by default and remembers your choice. Selecting a table leaves a blank worksheet, even with auto-update enabled. The blank worksheet offers **Start with daily row count** when a date field is available, or **Start with row count** otherwise. The suggestion adds fields only when clicked and respects auto-update. Identifier fields such as `person_id`, `distinct_id`, and `user_id` appear as measures and default to Count; their shelf menu can convert them to dimensions or change the aggregation. A worksheet with dimensions and no selected measure shows **Count of rows** on its shelf and value axis. Turning auto-update off keeps the current result; **Run** applies pending changes.
 
@@ -313,6 +313,8 @@ You'll need to install MS SQL drivers for the PostHog app to connect to a MS SQL
 ```text
 symbol not found in flat namespace '_bcp_batch'
 ```
+
+Repeated dimension pills use distinct result columns so their chart and table bindings stay unambiguous. Generated dimension aliases avoid source identifiers used by measures and filters. Expressions containing percent signs or matching reserved names use supported generated aliases while keeping their original calculation.
 
 BI chart settings preserve custom scatter axes and implicit count formatting. Numeric date parts can be used as scatter axes. Switching to a box plot initializes statistic mappings from matching result column names. Generated axis labels follow field renames, while custom axis labels remain unchanged.
 
