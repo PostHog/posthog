@@ -1276,7 +1276,10 @@ class HogFlowActionSerializer(serializers.Serializer):
         required=False,
         default=None,
         allow_null=True,
-        help_text="Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.",
+        help_text=(
+            "Output variable for downstream actions: {key, result_path?, spread?, label?, description?} or a list "
+            "of those. On an AI task step, description tells the agent what to put in an output.<name> field."
+        ),
     )
 
     def validate_output_variable(self, value):

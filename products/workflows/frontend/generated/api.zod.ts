@@ -843,7 +843,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                         .unknown()
                         .optional()
                         .describe(
-                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?, description?} or a list of those. On an AI task step, description tells the agent what to put in an output.<name> field.'
                         ),
                 })
             )
@@ -1239,7 +1239,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                         .unknown()
                         .optional()
                         .describe(
-                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?, description?} or a list of those. On an AI task step, description tells the agent what to put in an output.<name> field.'
                         ),
                 })
             )
@@ -1642,7 +1642,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                         .unknown()
                         .optional()
                         .describe(
-                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?, description?} or a list of those. On an AI task step, description tells the agent what to put in an output.<name> field.'
                         ),
                 })
             )
@@ -2305,7 +2305,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .unknown()
                             .optional()
                             .describe(
-                                'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                                'Output variable for downstream actions: {key, result_path?, spread?, label?, description?} or a list of those. On an AI task step, description tells the agent what to put in an output.<name> field.'
                             ),
                     })
                 )
@@ -3135,7 +3135,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                         .unknown()
                         .optional()
                         .describe(
-                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?, description?} or a list of those. On an AI task step, description tells the agent what to put in an output.<name> field.'
                         ),
                 })
             )

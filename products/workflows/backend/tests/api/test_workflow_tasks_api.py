@@ -12,7 +12,7 @@ from rest_framework import status
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 
-from products.tasks.backend.facade.workflow_tasks import MAX_ATTACHED_SKILLS
+from products.tasks.backend.facade.workflow_tasks import MAX_ATTACHED_SKILLS, MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH
 from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.presentation.views.workflow_tasks import WorkflowTaskCreateSerializer
 
@@ -153,6 +153,25 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
             ("output_field_bad_name", {"prompt": "p", "output_fields": {"task-result": "string"}}, "output_fields"),
             ("output_field_reserved_name", {"prompt": "p", "output_fields": {"pr_urls": "string"}}, "output_fields"),
             ("output_fields_empty", {"prompt": "p", "output_fields": {}}, "output_fields"),
+            (
+                "output_field_description_for_an_undeclared_field",
+                {"prompt": "p", "output_fields": {"verdict": "string"}, "output_field_descriptions": {"score": "s"}},
+                "output_fields",
+            ),
+            (
+                "output_field_description_too_long",
+                {
+                    "prompt": "p",
+                    "output_fields": {"verdict": "string"},
+                    "output_field_descriptions": {"verdict": "x" * (MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH + 1)},
+                },
+                "output_field_descriptions",
+            ),
+            (
+                "output_field_descriptions_without_output_fields",
+                {"prompt": "p", "output_field_descriptions": {"verdict": "ship or hold"}},
+                "output_field_descriptions",
+            ),
             (
                 "slack_context_bad_integration_id",
                 {

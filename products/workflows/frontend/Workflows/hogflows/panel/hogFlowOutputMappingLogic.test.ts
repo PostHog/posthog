@@ -66,6 +66,13 @@ describe('hogFlowOutputMappingLogic', () => {
                     { key: 'y', result_path: 'foo', spread: false },
                 ],
             },
+            {
+                description: 'mapping with an instruction for the agent',
+                raw: [{ key: 'verdict', result_path: 'output.verdict', description: 'ship or hold' }],
+                expected: [
+                    { key: 'verdict', result_path: 'output.verdict', spread: undefined, description: 'ship or hold' },
+                ],
+            },
         ])('returns $expected given $description', ({ raw, expected }) => {
             expect(normalizeOutputVariable(raw as HogFlowAction['output_variable'])).toEqual(expected)
         })
@@ -256,6 +263,17 @@ describe('hogFlowOutputMappingLogic', () => {
                     description: 'spread: true is included',
                     mappings: [{ key: 'myVar', result_path: '', spread: true }],
                     expected: { key: 'myVar', result_path: null, spread: true },
+                },
+                {
+                    description: 'an instruction for the agent is included',
+                    mappings: [
+                        { key: 'verdict', result_path: 'output.verdict', description: 'ship or hold' },
+                        { key: 'score', result_path: 'output.score', description: '  ' },
+                    ],
+                    expected: [
+                        { key: 'verdict', result_path: 'output.verdict', description: 'ship or hold' },
+                        { key: 'score', result_path: 'output.score' },
+                    ],
                 },
             ])('$description', async ({ mappings, expected }) => {
                 const node = makeActionNode(ACTION_ID)
