@@ -39,8 +39,8 @@ use cohort_stream_processor::merge::transfer::{
     PersonMergeEvent, Tombstone, MERGE_EVENT_SCHEMA_VERSION,
 };
 use cohort_stream_processor::partitions::{
-    merge_partition_key, partition_of, run_rebalance_worker, CohortConsumerContext, Follower,
-    FollowerSet, InputGroups, InputTopic, OffsetTracker, PartitionRouter, COHORT_PARTITION_COUNT,
+    merge_partition_key, partition_of, CohortConsumerContext, Follower, FollowerSet, InputGroups,
+    InputTopic, OffsetTracker, PartitionOwnership, PartitionRouter, COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
     CohortMembershipChange, KafkaCascadeSink, KafkaMembershipSink, KafkaStreamEventSink,
@@ -69,7 +69,6 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use serde_json::json;
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -257,9 +256,7 @@ fn events_client_config(group: &str) -> ClientConfig {
         .set("group.id", group)
         .set("enable.auto.commit", "false")
         .set("enable.auto.offset.store", "false")
-        .set("auto.offset.reset", "earliest")
-        .set("partition.assignment.strategy", "cooperative-sticky")
-        .set("session.timeout.ms", "6000");
+        .set("auto.offset.reset", "earliest");
     config
 }
 
@@ -733,28 +730,20 @@ async fn spawn_instance(
             .expect("create cascade follower consumer"),
     );
 
-    let followers = Arc::new(FollowerSet::new([
+    let ownership = PartitionOwnership::single(NUM_PARTITIONS as u16);
+    FollowerSet::new([
         Follower::new(merges_consumer.clone(), topics.merges.clone()),
         Follower::new(transfers_consumer.clone(), topics.transfers.clone()),
         Follower::new(cascade_consumer.clone(), topics.cascade.clone()),
-    ]));
+    ])
+    .assign(&ownership)
+    .expect("assign the followers");
 
-    let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
     let events_client: StreamConsumer<CohortConsumerContext> = events_client_config(&groups.events)
-        .create_with_context(context)
+        .create_with_context(CohortConsumerContext)
         .expect("create events consumer");
-    events_client
-        .subscribe(&[topics.events.as_str()])
-        .expect("subscribe events");
 
-    let (command_tx, command_rx) = mpsc::unbounded_channel();
-    let mut tasks = vec![tokio::spawn(run_rebalance_worker(
-        rebalance_rx,
-        dispatcher.clone(),
-        followers,
-        command_tx,
-        events_handle.shutdown_token(),
-    ))];
+    let mut tasks = Vec::new();
 
     let merge_follower = FollowerConsumer::<MergeRoute>::new(
         merges_consumer,
@@ -802,10 +791,10 @@ async fn spawn_instance(
         100,
         RECV_TIMEOUT,
         COMMIT_INTERVAL,
-        NUM_PARTITIONS as usize,
-        command_rx,
+        ownership,
         restore,
-    );
+    )
+    .expect("assign cohort_stream_events");
     tasks.push(tokio::spawn(events_consumer.process()));
 
     Instance {
@@ -815,8 +804,6 @@ async fn spawn_instance(
     }
 }
 
-/// `durable_restore_enabled && cohort_cascade_enabled` requires `durable_restore_single_pod &&
-/// pod_identity().is_some()` to pass `validate_startup`, so those knobs are set too.
 #[allow(clippy::too_many_arguments)]
 fn merge_durability_config(
     store_path: &Path,
@@ -829,7 +816,6 @@ fn merge_durability_config(
     env.insert("CHECKPOINT_ENABLED".into(), "true".into());
     env.insert("DURABLE_RESTORE_ENABLED".into(), "true".into());
     env.insert("COHORT_CASCADE_ENABLED".into(), "true".into());
-    env.insert("DURABLE_RESTORE_SINGLE_POD".into(), "true".into());
     // Ends in a StatefulSet ordinal, which checkpoints require.
     env.insert(
         "POD_NAME".into(),
@@ -997,6 +983,9 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
     let store_path = root.path().join("db");
     let checkpoint_dir = root.path().join("checkpoints");
     let config = merge_durability_config(&store_path, &checkpoint_dir, &prefix, &topics, &groups);
+    let ownership = config
+        .partition_ownership()
+        .expect("the pod name ends in an ordinal");
 
     let names = topics.names();
     let config_for_cleanup = config.clone();
@@ -1014,7 +1003,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
         let shutdown = handles[0].clone();
         let _monitor = manager.monitor_background();
 
-        let store1 = CohortStore::open(&config.store_config()).expect("open tenure-1 store");
+        let store1 = CohortStore::open(&config.store_config(ownership)).expect("open tenure-1 store");
         let instance = spawn_instance(
             &topics,
             &groups,
@@ -1127,6 +1116,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
         // Tenure 2: the boot restores from S3 and positions the follower groups; verify the state.
         let (store2, restore) = open_store(
             &config,
+            ownership,
             Some(config.checkpoint_lineage().expect("ordinal pod name")),
             input_groups.clone(),
         )
@@ -1137,10 +1127,12 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
         assert_eq!(restore.source().label(), "s3");
 
         // The followers resume past the merge on P_old's partition and the transfer on P_new's.
-        let merge_resume = restore.plan().positions(&InputTopic::new(topics.merges.as_str()));
+        let merge_resume = restore
+            .plan()
+            .positions(&InputTopic::new(topics.merges.as_str()), &ownership);
         let transfer_resume = restore
             .plan()
-            .positions(&InputTopic::new(topics.transfers.as_str()));
+            .positions(&InputTopic::new(topics.transfers.as_str()), &ownership);
         assert!(
             merge_resume.get(&part(p_old)).map(|offset| offset.get()) >= Some(1),
             "the merge follower resumes past the merge on P_old's partition: {merge_resume:?}",

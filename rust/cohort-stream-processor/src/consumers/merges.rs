@@ -1,8 +1,8 @@
 //! Merge-protocol follower consumers: `person_merge_events` (drain trigger, keyed by P_old) and
 //! `cohort_merge_state_transfer` (packaged state, keyed by P_new).
 //!
-//! Both use [`FollowerConsumer`] generic over a [`FollowerRoute`]. Followers never `subscribe()` —
-//! the events group's rebalance mirrors partition ownership onto them.
+//! Both use [`FollowerConsumer`] generic over a [`FollowerRoute`]. Followers never `subscribe()`:
+//! each is assigned the partitions this pod owns, like the events consumer.
 
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
