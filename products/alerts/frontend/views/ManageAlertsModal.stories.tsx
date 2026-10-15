@@ -125,3 +125,22 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const WithAlerts: Story = {}
+
+export const Empty: Story = {
+    args: {
+        insightLogicProps: {
+            ...meta.args!.insightLogicProps!,
+            cachedInsight: { ...meta.args!.insightLogicProps!.cachedInsight!, alerts: [] },
+        },
+    },
+}
+
+export const EmptyUnsupported: Story = {
+    ...Empty,
+    args: { ...Empty.args, canCreateAlertForInsight: false },
+}
+
+export const EmptyNarrow: Story = {
+    ...Empty,
+    parameters: { testOptions: { viewport: { width: 560, height: 800 } } },
+}

@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { Link } from '@posthog/lemon-ui'
 
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -17,6 +18,7 @@ import { buildAlertSummary } from '../components/alertSummary'
 import { AlertSummaryBanner } from '../components/AlertSummaryBanner'
 import { InsightAlertsLogicProps, alertsUnsupportedReason, insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { AlertType } from '../types'
+import { InsightAlertPreview } from './InsightAlertPreview'
 
 interface AlertListItemProps {
     alert: AlertType
@@ -69,7 +71,10 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
 
     const { alerts, alertsLoading, alertDestinationCounts, alertDestinationCountsLoading } = useValues(logic)
 
-    const showDeferredListSpinner = props.deferInitialAlertsLoad && props.isOpen && alertsLoading
+    const showListSpinner = props.isOpen && alertsLoading
+    const createAlertDisabledReason = !props.canCreateAlertForInsight
+        ? alertsUnsupportedReason({}, props.insightQuery)
+        : undefined
     const openAlert = (alertId: AlertType['id']): void => {
         if (props.onEditAlert) {
             props.onClose?.()
@@ -92,23 +97,26 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     return (
         <LemonModal onClose={props.onClose} isOpen={props.isOpen} width={600} simple title="">
             <LemonModal.Header>
-                <h3 className="!m-0">Manage Alerts</h3>
+                <h3 className="!m-0">Manage alerts</h3>
             </LemonModal.Header>
             <LemonModal.Content>
-                <div className="mb-4">
-                    With alerts, PostHog monitors your insight at a recurring interval and notifies you when conditions
-                    are met.
-                    <br />
-                    <Link to={urls.alerts()} target="_blank">
-                        View all your alerts here
-                    </Link>
-                </div>
+                {alerts.length > 0 && (
+                    <div className="mb-4">
+                        With alerts, PostHog monitors your insight at a recurring interval and notifies you when
+                        conditions are met.
+                        <br />
+                        <Link to={urls.alerts()} target="_blank">
+                            View all your alerts here
+                        </Link>
+                    </div>
+                )}
 
-                {showDeferredListSpinner ? (
+                {showListSpinner ? (
                     <div className="flex justify-center p-8">
                         <Spinner />
                     </div>
-                ) : alerts.length ? (
+                ) : null}
+                {!showListSpinner && alerts.length > 0 && (
                     <div className="deprecated-space-y-2">
                         <div>
                             <strong>{alerts?.length}</strong> {pluralize(alerts.length || 0, 'alert', 'alerts', false)}
@@ -124,28 +132,46 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                             />
                         ))}
                     </div>
-                ) : (
-                    <div className="flex flex-col p-4 items-center text-center">
-                        <h3>There are no alerts for this insight</h3>
-
-                        <p>Once alerts are created they will display here. </p>
-                    </div>
+                )}
+                {!showListSpinner && alerts.length === 0 && (
+                    <ProductIntroduction
+                        thingName="alert"
+                        titleOverride="Know when your metrics need attention"
+                        description="Get notified when a metric crosses a threshold or behaves unexpectedly. Choose how often PostHog checks this insight and who receives the alert."
+                        customHog={InsightAlertPreview}
+                        hogLayout="vertical"
+                        hogClassName="w-full sm:w-full lg:w-full max-w-96 mb-0"
+                        className="border-0 p-0 m-0"
+                        contentClassName="max-w-full"
+                        actionElementOverride={
+                            <LemonButton
+                                type="primary"
+                                onClick={createAlert}
+                                disabledReason={createAlertDisabledReason}
+                                data-attr="insight-empty-state-new-alert"
+                            >
+                                New alert
+                            </LemonButton>
+                        }
+                        docsURL="https://posthog.com/docs/insights/alerts"
+                    />
                 )}
             </LemonModal.Content>
 
             <LemonModal.Footer>
+                {alerts.length === 0 && (
+                    <LemonButton type="tertiary" to={urls.alerts()} targetBlank className="mr-auto">
+                        View all alerts
+                    </LemonButton>
+                )}
                 <LemonButton type="secondary" onClick={props.onClose}>
                     Close
                 </LemonButton>
-                <LemonButton
-                    type="primary"
-                    onClick={createAlert}
-                    disabledReason={
-                        !props.canCreateAlertForInsight ? alertsUnsupportedReason({}, props.insightQuery) : undefined
-                    }
-                >
-                    New alert
-                </LemonButton>
+                {alerts.length > 0 && (
+                    <LemonButton type="primary" onClick={createAlert} disabledReason={createAlertDisabledReason}>
+                        New alert
+                    </LemonButton>
+                )}
             </LemonModal.Footer>
         </LemonModal>
     )
