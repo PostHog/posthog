@@ -88,30 +88,36 @@ describe('CdpCohortMembershipTriggerConsumer', () => {
         ).toEqual([other.person_id])
     })
 
-    it('on redelivery after a partly failed queue, starts only the runs that were not queued', async () => {
-        hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE = 1
-        const flow = cohortFlow(42, 'entered')
-        flow.trigger_masking = HOG_FLOW_MASK_EXAMPLES.onceEver.trigger_masking
-        await insertHogFlow(hub.postgres, flow)
-        const queuedChange = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
-        const failedChange = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
-        const messages = [createKafkaMessage(queuedChange), createKafkaMessage(failedChange)]
-        mockQueueInvocations.mockImplementation((batch: CyclotronJobInvocationHogFlow[]) =>
-            batch[0].state.personId === failedChange.person_id
-                ? Promise.reject(new Error('queue unavailable'))
-                : Promise.resolve()
-        )
+    it.each([true, false])(
+        'on redelivery after a partly failed queue, starts only the runs that were not queued (parallel inserts: %s)',
+        async (parallel) => {
+            hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE = 1
+            hub.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES = parallel
+            const flow = cohortFlow(42, 'entered')
+            flow.trigger_masking = HOG_FLOW_MASK_EXAMPLES.onceEver.trigger_masking
+            await insertHogFlow(hub.postgres, flow)
+            const queuedChange = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+            const failedChange = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+            const messages = [createKafkaMessage(queuedChange), createKafkaMessage(failedChange)]
+            mockQueueInvocations.mockImplementation((batch: CyclotronJobInvocationHogFlow[]) =>
+                batch[0].state.personId === failedChange.person_id
+                    ? Promise.reject(new Error('queue unavailable'))
+                    : Promise.resolve()
+            )
 
-        const failed = await processor.processBatch(await processor._parseKafkaBatch(messages))
-        await expect(failed.backgroundTask).rejects.toThrow('queue unavailable')
-        mockQueueInvocations.mockResolvedValue(undefined)
-        const redelivered = await processor.processBatch(await processor._parseKafkaBatch(messages))
-        await redelivered.backgroundTask
+            const failed = await processor.processBatch(await processor._parseKafkaBatch(messages))
+            await expect(failed.backgroundTask).rejects.toThrow('queue unavailable')
+            mockQueueInvocations.mockResolvedValue(undefined)
+            const redelivered = await processor.processBatch(await processor._parseKafkaBatch(messages))
+            await redelivered.backgroundTask
 
-        expect(
-            redelivered.invocations.map((invocation) => (invocation as CyclotronJobInvocationHogFlow).state.personId)
-        ).toEqual([failedChange.person_id])
-    })
+            expect(
+                redelivered.invocations.map(
+                    (invocation) => (invocation as CyclotronJobInvocationHogFlow).state.personId
+                )
+            ).toEqual([failedChange.person_id])
+        }
+    )
 
     it('fails the batch when loading workflows fails, so the change is retried', async () => {
         jest.spyOn(processor['hogFlowManager'], 'getHogFlowsForTeam').mockRejectedValue(

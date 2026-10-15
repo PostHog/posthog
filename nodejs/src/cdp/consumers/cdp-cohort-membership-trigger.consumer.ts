@@ -50,7 +50,10 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
     protected hogflowQueue: JobQueue
     protected kafkaConsumer: KafkaConsumerInterface
     private hogFlowPipeline: HogFlowInvocationPipeline
-    private queueConfig: Pick<PluginsServerConfig, 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'>
+    private queueConfig: Pick<
+        PluginsServerConfig,
+        'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE' | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
+    >
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps, jobQueues: { hogflowQueue: JobQueue }) {
         super(config, deps)
@@ -95,16 +98,32 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
                     { key: 'cdp.background_task.queue_hogflow_invocations', sendException: false },
                     async () => {
                         // One insert per chunk, so a failure leaves a known set of runs queued.
+                        const batches = chunk(invocations, this.queueConfig.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
                         const queued: CyclotronJobInvocation[] = []
-                        try {
-                            for (const batch of chunk(
-                                invocations,
-                                this.queueConfig.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE
-                            )) {
-                                await this.hogflowQueue.queueInvocations(batch)
-                                queued.push(...batch)
+                        let failure: { error: unknown } | null = null
+                        if (this.queueConfig.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
+                            const results = await Promise.allSettled(
+                                batches.map((batch) => this.hogflowQueue.queueInvocations(batch))
+                            )
+                            results.forEach((result, index) => {
+                                if (result.status === 'fulfilled') {
+                                    queued.push(...batches[index])
+                                } else {
+                                    failure ??= { error: result.reason }
+                                }
+                            })
+                        } else {
+                            for (const batch of batches) {
+                                try {
+                                    await this.hogflowQueue.queueInvocations(batch)
+                                    queued.push(...batch)
+                                } catch (error) {
+                                    failure = { error }
+                                    break
+                                }
                             }
-                        } catch (err) {
+                        }
+                        if (failure) {
                             // The batch is retried. Runs that never reached the queue release their claims, or the
                             // retry finds them masked. Queued runs keep theirs, so their people do not run twice.
                             await release(queued)
@@ -114,7 +133,7 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
                                     .filter((invocation) => !queuedIds.has(invocation.id))
                                     .map((invocation) => invocation.id)
                             )
-                            throw err
+                            throw failure.error
                         }
                     }
                 ),
