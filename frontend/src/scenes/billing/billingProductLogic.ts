@@ -41,6 +41,11 @@ import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
 
+function calculateDefaultBillingLimit(product: BillingProductV2Type | BillingProductV2AddonType): number {
+    const projectedAmount = parseInt(product.projected_amount_usd || '0')
+    return product.tiers && projectedAmount ? projectedAmount * 1.5 : DEFAULT_BILLING_LIMIT
+}
+
 type UnsubscribeReason = {
     reason: string
     question: string
@@ -190,6 +195,13 @@ export interface billingProductLogicActions {
     } // billingLogic
     loadBilling: () => any // billingLogic
     loadBillingSuccess: (
+        billing: BillingType | null,
+        payload?: any
+    ) => {
+        billing: BillingType | null
+        payload?: any
+    } // billingLogic
+    loadBillingForecastSuccess: (
         billing: BillingType | null,
         payload?: any
     ) => {
@@ -539,6 +551,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'updateBillingLimitsSuccess',
                 'loadBilling',
                 'loadBillingSuccess',
+                'loadBillingForecastSuccess',
                 'deactivateProduct',
                 'setProductSpecificAlert',
                 'setScrollToProductKey',
@@ -1141,14 +1154,22 @@ export const billingProductLogic = kea<billingProductLogicType>([
             actions.billingLoaded()
         },
         billingLoaded: () => {
-            function calculateDefaultBillingLimit(product: BillingProductV2Type | BillingProductV2AddonType): number {
-                const projectedAmount = parseInt(product.projected_amount_usd || '0')
-                return product.tiers && projectedAmount ? projectedAmount * 1.5 : DEFAULT_BILLING_LIMIT
-            }
             actions.setIsEditingBillingLimit(false)
             actions.setBillingLimitInput(
                 values.hasCustomLimitSet ? values.customLimitUsd : calculateDefaultBillingLimit(props.product)
             )
+        },
+        loadBillingForecastSuccess: () => {
+            // The default limit uses the projected amount, which arrives with the forecast.
+            if (values.isEditingBillingLimit || values.hasCustomLimitSet) {
+                return
+            }
+            const product = values.billing?.products?.find(
+                (billingProduct) => billingProduct.type === props.product.type
+            )
+            if (product) {
+                actions.setBillingLimitInput(calculateDefaultBillingLimit(product))
+            }
         },
         reportSurveyShown: ({ surveyID }) => {
             posthog.capture(SurveyEventName.SHOWN, {

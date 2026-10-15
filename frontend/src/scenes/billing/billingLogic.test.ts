@@ -2,7 +2,7 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
+import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -181,6 +181,73 @@ describe('billingLogic', () => {
             expect(billingLogic.values.scrollToProductKey).toBe(null)
         }
     )
+
+    it.each([
+        { pathname: '/organization/billing/overview', expectedProjection: '42.00' },
+        { pathname: '/organization/billing/usage', expectedProjection: undefined },
+    ])(
+        'shows billing before the forecast and adds the forecast only on the overview, from $pathname',
+        async ({ pathname, expectedProjection }) => {
+            useMocks({
+                get: {
+                    '/api/billing': ({ request }) =>
+                        new URL(request.url).searchParams.get('include_forecasting') === 'false'
+                            ? [200, billingState]
+                            : [200, { ...billingState, projected_total_amount_usd: '42.00' }],
+                },
+            })
+            router.actions.push(pathname)
+            billingLogic.mount()
+
+            await expectLogic(billingLogic, () => billingLogic.actions.loadBilling())
+                .toDispatchActions(['loadBillingSuccess'])
+                .toMatchValues({ billingLoading: false })
+                .toFinishAllListeners()
+
+            expect(billingLogic.values.billing?.projected_total_amount_usd).toEqual(expectedProjection)
+            expect(billingLogic.values.billingLoading).toBe(false)
+        }
+    )
+
+    it('drops a forecast that a newer billing read replaced', async () => {
+        let releaseForecast: () => void = () => {}
+        const forecastHeld = new Promise<void>((resolve) => {
+            releaseForecast = resolve
+        })
+        const staleForecast = { ...billingState, projected_total_amount_usd: '42.00' }
+        useMocks({
+            get: {
+                '/api/billing': async ({ request }) => {
+                    if (new URL(request.url).searchParams.get('include_forecasting') === 'false') {
+                        return [200, billingState]
+                    }
+                    await forecastHeld
+                    return [200, staleForecast]
+                },
+            },
+        })
+        router.actions.push('/organization/billing/usage')
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        await expectLogic(billingLogic, () => router.actions.push('/organization/billing/overview')).toDispatchActions([
+            'loadBillingForecast',
+        ])
+
+        billingState = { ...billingState, custom_limits_usd: { product_analytics: 100 } }
+        router.actions.push('/organization/billing/usage')
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toDispatchActions([
+            'loadBillingSuccess',
+        ])
+        releaseForecast()
+
+        await expectLogic(billingLogic)
+            .toDispatchActions(['loadBillingForecastSuccess'])
+            .toMatchValues({
+                billing: partial({ custom_limits_usd: { product_analytics: 100 } }),
+            })
+            .toFinishAllListeners()
+        expect(billingLogic.values.billing?.custom_limits_usd).toEqual({ product_analytics: 100 })
+    })
 
     it.each([
         {
