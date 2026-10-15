@@ -205,7 +205,10 @@ def validate_conversations_settings(
                     seen.add(item)
                     cleaned.append(item)
             value["slack_channel_ids"] = cleaned[:50]
-        else:
+        elif raw is not None:
+            # Drop a malformed value instead of rejecting the save, but keep an explicit
+            # null so a clearing PATCH still overwrites the stored list (see
+            # merge_conversations_settings, which only replaces keys present here).
             value.pop("slack_channel_ids", None)
     icon_url = value.get("slack_bot_icon_url")
     if icon_url is not None:

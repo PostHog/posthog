@@ -4379,6 +4379,35 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         with self.assertRaises(serializers.ValidationError):
             serializer_class().validate_conversations_settings({"ai_reply_modes": ["not", "a", "dict"]})
 
+    @parameterized.expand(
+        [
+            (serializer, name, slack_channel_ids, expected_cleaned)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for name, slack_channel_ids, expected_cleaned in (
+                (
+                    "dedupes_and_caps_at_50",
+                    ["a", "a", "b"] + [f"c{i}" for i in range(50)],
+                    ["a", "b"] + [f"c{i}" for i in range(48)],
+                ),
+                ("null_clears_the_stored_list", None, None),
+            )
+        ]
+    )
+    def test_conversations_settings_slack_channel_ids_cleans_up_values(
+        self,
+        serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+        _name: str,
+        slack_channel_ids: list[str] | None,
+        expected_cleaned: list[str] | None,
+    ) -> None:
+        # A PATCH that sends null must clear the stored list, not silently keep the old one:
+        # merge_conversations_settings only overwrites keys present in the validated value, so
+        # dropping the key here (instead of keeping it as None) would make the clear a no-op.
+        cleaned = serializer_class().validate_conversations_settings({"slack_channel_ids": slack_channel_ids})
+        assert cleaned is not None
+        self.assertIn("slack_channel_ids", cleaned)
+        self.assertEqual(cleaned["slack_channel_ids"], expected_cleaned)
+
     @parameterized.expand([(None,), (True,), (123,), ([],), ({},), ("a" * 201,)])
     def test_invalid_logs_json_attribute_key(self, key):
         self._assert_field_error(
