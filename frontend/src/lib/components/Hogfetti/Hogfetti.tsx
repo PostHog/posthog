@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -55,7 +55,8 @@ interface HogfettiOptions {
 }
 
 interface HogfettiHook {
-    trigger: () => void
+    /** Returns false, and draws nothing, when the user prefers reduced motion. */
+    trigger: () => boolean
     HogfettiComponent: React.FC
 }
 
@@ -71,6 +72,20 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
         window.addEventListener('resize', handleResize)
         return () => window.removeEventListener('resize', handleResize)
     })
+
+    const pendingFrames = useRef(new Set<number>())
+    useOnMountEffect(() => {
+        const pending = pendingFrames.current
+        return () => pending.forEach((id) => cancelAnimationFrame(id))
+    })
+
+    const scheduleFrame = useCallback((callback: () => void): void => {
+        const id = requestAnimationFrame(() => {
+            pendingFrames.current.delete(id)
+            callback()
+        })
+        pendingFrames.current.add(id)
+    }, [])
 
     const { count = 50, power = 5, duration = 2000, maxSize = 60 } = options
 
@@ -88,7 +103,10 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
         }
     }
 
-    const trigger = useCallback((): void => {
+    const trigger = useCallback((): boolean => {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            return false
+        }
         const centerX = Math.random() * dimensions.width
         const centerY = Math.random() * dimensions.height * 0.5
 
@@ -111,13 +129,14 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
                         }))
                     )
                 )
-                requestAnimationFrame(animationFrame)
+                scheduleFrame(animationFrame)
             } else {
                 setParticleSets((prev) => prev.slice(1))
             }
         }
-        requestAnimationFrame(animationFrame)
-    }, [count, power, duration, maxSize, dimensions]) // oxlint-disable-line react-hooks/exhaustive-deps
+        scheduleFrame(animationFrame)
+        return true
+    }, [count, power, duration, maxSize, dimensions, scheduleFrame]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const HogfettiComponent: React.FC = () =>
         particleSets.length === 0 ? null : (
