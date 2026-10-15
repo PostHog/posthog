@@ -4,6 +4,7 @@ import {
     IconFlask,
     IconMessage,
     IconRewindPlay,
+    IconSupport,
     IconToggle,
     IconTrends,
     IconWarning,
@@ -32,6 +33,7 @@ const HIGHLIGHT_ICONS: Record<string, TodayRowIcon> = {
     flags: { color: 'var(--color-product-feature-flags-light)', glyph: <IconToggle /> },
     rage: { color: 'var(--color-product-session-replay-light)', glyph: <IconRewindPlay /> },
     surveys: { color: 'var(--color-product-surveys-light)', glyph: <IconMessage /> },
+    ticket_sla: { color: 'var(--color-product-support-light)', glyph: <IconSupport /> },
     warehouse_syncs: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
 }
 
