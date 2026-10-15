@@ -3,10 +3,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
+
+from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -35,6 +39,7 @@ from products.logs.backend.presentation.views.alerts_api import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     LogsAlertViewSet,
 )
+from products.logs.backend.tasks.tasks import follow_logs_alert_task
 
 PAGERDUTY_ROUTING_KEY = "0123456789abcdef0123456789abcdef"
 
@@ -417,6 +422,30 @@ class TestLogsAlertAPI(APIBaseTest):
             ).configurations
         copy = next((view for view in copies if str(view.legacy_configuration_id) == alert_id), None)
         assert (copy.enabled if copy else None) is copy_enabled
+
+    def test_a_copy_that_fails_is_handed_to_celery_to_retry(self) -> None:
+        self._create_via_api(name="Already on the platform")
+        backfill_platform_alert_configurations(team_id=self.team.id)
+        alert_id = self._create_via_api(name="New alert", enabled=False)["id"]
+        LogsAlertConfiguration.objects.filter(id=alert_id).update(enabled=True)
+
+        with (
+            patch(
+                "products.logs.backend.platform_alert_backfill.upsert_if_running",
+                side_effect=OperationalError("connection reset"),
+            ),
+            pytest.raises(Retry),
+        ):
+            follow_logs_alert_task.apply(args=[self.team.id, alert_id])
+        # Celery's eager mode stops at the retry, so the second attempt runs by hand.
+        retried = follow_logs_alert_task.apply(args=[self.team.id, alert_id])
+
+        with team_scope(self.team.id):
+            copies = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+            ).configurations
+        assert retried.state == "SUCCESS"
+        assert {str(view.legacy_configuration_id): view.enabled for view in copies}.get(alert_id) is True
 
     # --- first_enabled_at stamping ---
 

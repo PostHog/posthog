@@ -1,7 +1,6 @@
 import os
 import datetime as dt
 from datetime import UTC, datetime
-from functools import partial
 from typing import Any, Final, Literal, TypedDict, cast
 from zoneinfo import ZoneInfo
 
@@ -624,7 +623,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             updated = super().update(instance, validated_data)
             if enabled_change is True:
                 transaction.on_commit(
-                    partial(follow_logs_alert, team_id=updated.team_id, alert_id=updated.id), robust=True
+                    lambda: follow_logs_alert(team_id=updated.team_id, alert_id=updated.id), robust=True
                 )
             return updated
 
@@ -656,7 +655,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             created = super().create(validated_data)
             if created.enabled:
                 transaction.on_commit(
-                    partial(follow_logs_alert, team_id=created.team_id, alert_id=created.id), robust=True
+                    lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
                 )
             return created
 

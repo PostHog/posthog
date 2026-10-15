@@ -2,7 +2,7 @@ from uuid import UUID
 
 from django.db import transaction
 
-from products.logs.backend import alert_incidents, platform_alert_backfill
+from products.logs.backend import alert_incidents
 from products.logs.backend.alert_state_machine import FIRING_STATES, IncidentCloseReason, IncidentEdge, incident_edge
 from products.logs.backend.alert_utils import next_allowed_check_at
 from products.logs.backend.models import LogsAlertConfiguration
@@ -12,6 +12,7 @@ from products.logs.backend.natural_language_query import (
     is_valid_date,
     translate_natural_language_query,
 )
+from products.logs.backend.tasks.tasks import follow_logs_alert_task
 
 __all__ = [
     "NaturalLanguageQueryFailed",
@@ -46,10 +47,9 @@ def close_incident_on_commit(
 
 
 def follow_logs_alert(*, team_id: int, alert_id: UUID) -> None:
-    """Copy a logs alert that was just created or turned back on, if its team runs logs on the platform."""
-    alert = LogsAlertConfiguration.objects.filter(team_id=team_id, id=alert_id).first()
-    if alert is not None:
-        platform_alert_backfill.follow_logs_alert(alert)
+    """Queue the copy of a logs alert that was just created or turned back on, if its team runs logs
+    on the platform. The task retries a transient failure."""
+    follow_logs_alert_task.delay(team_id, str(alert_id))
 
 
 def close_incident_before_delete(*, team_id: int, alert_id: str, state: str) -> None:
