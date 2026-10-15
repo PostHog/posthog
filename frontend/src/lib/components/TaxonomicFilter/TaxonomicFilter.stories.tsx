@@ -877,7 +877,8 @@ export const EmptyTabWithJumpsToOtherCategories: Story = {
         }),
     ],
     parameters: {
-        testOptions: { waitForSelector: '[data-attr="taxonomic-switch-to-all"]' },
+        // Hidden tabs stay mounted and render the same jumps, so wait for the one on the open tab.
+        testOptions: { waitForSelector: '[data-attr="taxonomic-switch-to-all"] >> visible=true' },
         docs: {
             description: {
                 story: 'When the open tab has no results but another category does, the empty state names that category, with a jump to all categories as the fallback.',
