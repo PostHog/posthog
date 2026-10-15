@@ -14,3 +14,7 @@ aws-smithy-runtime-api = { workspace = true, optional = true }
 futures = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
