@@ -441,7 +441,7 @@ describe('replayScannerLogic', () => {
                 ])
                 router.actions.push(urls.replayVisionScannerTemplate('new'), { experiment: '7' })
                 await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
-                expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 }, variantKey: null })
+                expect(logic.values.linkedExperimentContext).toMatchObject({ experiment: { id: 7 }, variantKey: null })
 
                 await expectLogic(logic, () =>
                     logic.actions.draftScannerFromGoal('where do people give up in billing')
@@ -475,6 +475,8 @@ describe('replayScannerLogic', () => {
             logic.actions.setScannerType('experiment')
             await expectLogic(logic, () => logic.actions.setScannerExperiment(7)).toFinishAllListeners()
             expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 } })
+            // The goal page and template step promise to keep watching only a linked experiment.
+            expect(logic.values.linkedExperimentContext).toBeNull()
             router.actions.push(urls.replayVisionScannerTemplate('new'))
 
             await expectLogic(logic, () =>
