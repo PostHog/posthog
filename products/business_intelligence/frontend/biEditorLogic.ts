@@ -53,6 +53,7 @@ import {
     normalizeBIConfig,
 } from 'products/business_intelligence/frontend/biEditorTypes'
 
+import type { BIPaneSettings } from '../../../frontend/src/queries/schema/schema-business-intelligence'
 import { getBILocalFields, localFieldError, localFieldExpression, upsertBILocalField } from './biLocalFields'
 import { matchesBIFieldSearch } from './biPropertyFields'
 import { getBIDateField } from './biQueryFilters'
@@ -631,6 +632,9 @@ export interface biEditorLogicActions {
     setMissingDates: (missingDates: BIConfig['missingDates']) => {
         missingDates: 'gap' | 'zero' | undefined
     }
+    setPanes: (panes: BIConfig['panes']) => {
+        panes: BIPaneSettings | undefined
+    }
     setSort: (sort: BISort | null) => {
         sort: BISort | null
     }
@@ -850,6 +854,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
             update,
         }),
         setLimit: (limit: BIQueryLimit) => ({ limit }),
+        setPanes: (panes: BIConfig['panes']) => ({ panes }),
         setSort: (sort: BISort | null) => ({ sort }),
         setFieldExpression: (shelf: BIShelf, index: number, expression: string) => ({ shelf, index, expression }),
         setFieldDateBucket: (shelf: BIShelf, index: number, dateBucket: BIDateBucket | null) => ({
@@ -1190,6 +1195,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     ),
                 }),
                 setLimit: (config, { limit }) => normalizeBIConfig({ ...config, limit }),
+                setPanes: (config, { panes }) => normalizeBIConfig({ ...config, panes }),
                 setSort: (config, { sort }) => normalizeBIConfig({ ...config, sort }),
                 setFieldExpression: (config, { shelf, index, expression }) =>
                     setFieldExpressionInConfig(config, shelf, index, expression),
@@ -1547,6 +1553,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setFilterValue: () => actions.runAfterChange(),
         updateFilter: () => actions.runAfterChange(),
         setLimit: () => actions.runAfterChange(),
+        setPanes: () => actions.runAfterChange(),
         setSort: () => actions.runAfterChange(),
         setFieldExpression: () => actions.runAfterChange(),
         setFieldDateBucket: () => actions.runAfterChange(),
