@@ -19,6 +19,7 @@ import { BI_EDITOR_EVENTS } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import { BIEditorView, buildBIQuery } from './biEditorTypes'
 import { biMemberAliasesLogic } from './biMemberAliasesLogic'
+import { getBIScatterAxisOptions } from './biScatter'
 import { biSceneLogic } from './biSceneLogic'
 import { biSourcePreviewLogic } from './biSourcePreviewLogic'
 
@@ -377,6 +378,71 @@ describe('biSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     })
 
+    it.each(['x', 'y'] as const)('swaps scatter formatting and defers an unrun %s axis', async (pendingAxis) => {
+        const state = {
+            ...config,
+            chartType: ChartDisplayType.ScatterPlot,
+            rows: [{ ...eventField, type: 'integer' as const }],
+            columns: [],
+            values: [{ field: eventField, aggregation: 'count' as const }],
+        }
+        logic.actions.restoreWorksheet(worksheet(state))
+        editor.actions.setAutoUpdate(false)
+        const options = getBIScatterAxisOptions(state)
+        expect(options.map(({ value }) => value)).toEqual(['event', 'count_event'])
+        logic.actions.setChartSettings({
+            ...logic.values.worksheet.chartSettings,
+            xAxisLabel: 'Detail label',
+            leftYAxisSettings: { label: 'Measure label' },
+            xAxis: { column: 'event', settings: { formatting: { prefix: 'ID ' } } },
+        })
+        logic.actions.setScatterAxis('x', 'count_event')
+        expect(logic.values.worksheet.chartSettings).toMatchObject({
+            xAxis: { column: 'count_event' },
+            xAxisLabel: 'Measure label',
+            leftYAxisSettings: { label: 'Detail label' },
+            yAxis: [{ column: 'event', settings: { formatting: { prefix: 'ID ' } } }],
+        })
+        logic.actions.runQuery()
+        const displayed = logic.values.lastRunQuery
+        const previousOptions = new Set(getBIScatterAxisOptions(editor.values.config).map(({ value }) => value))
+        editor.actions.addFieldToShelf(
+            { ...eventField, id: 'amount', name: 'Amount', expression: 'amount', type: 'float' },
+            'values'
+        )
+        const pendingColumn = getBIScatterAxisOptions(editor.values.config).find(
+            ({ value }) => !previousOptions.has(value)
+        )!.value
+        logic.actions.setScatterAxis(pendingAxis, pendingColumn)
+        expect(logic.values.lastRunQuery).toBe(displayed)
+        const axisColumn = (query: BIVisualizationNode): string | undefined =>
+            pendingAxis === 'x' ? query.chartSettings?.xAxis?.column : query.chartSettings?.yAxis?.[0].column
+        expect(axisColumn(logic.values.worksheet)).toBe(pendingColumn)
+        logic.actions.runQuery()
+        expect(axisColumn(logic.values.lastRunQuery!)).toBe(pendingColumn)
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it('requires running pending config-only edits before drilling', async () => {
+        logic.actions.restoreWorksheet(worksheet(config))
+        editor.actions.setAutoUpdate(false)
+        logic.actions.runQuery()
+        expect(logic.values.displayedQueryIsCurrent).toBe(true)
+        const previousSource = logic.values.worksheet.source
+        editor.actions.restoreState({
+            editorView: BIEditorView.BI,
+            config: {
+                ...config,
+                memberAliases: [{ field: eventField, aliases: [{ value: 'x', label: 'New label' }] }],
+            },
+        })
+        expect(logic.values.worksheet.source).toEqual(previousSource)
+        expect(logic.values.displayedQueryIsCurrent).toBe(false)
+        logic.actions.runQuery()
+        expect(logic.values.displayedQueryIsCurrent).toBe(true)
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
     it('cancels only the source preview query when its modal closes', () => {
         const preview = biSourcePreviewLogic({ tabId: 'preview-cancel' })
         preview.mount()
@@ -577,6 +643,28 @@ describe('biSceneLogic', () => {
         aliases.actions.save()
         expect(editor.values.config.memberAliases?.[0].aliases).toEqual([{ value: 'example_b', label: 'Same label' }])
         unmount()
+    })
+
+    it('keeps hierarchy navigation pending with auto update off and records it for undo', async () => {
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
+        editor.actions.setAutoUpdate(false)
+        logic.actions.setChartSettings({ ...logic.values.worksheet.chartSettings, xAxisLabel: 'Custom label' })
+        const original = logic.values.worksheet
+        const displayed = logic.values.lastRunQuery
+        const next = worksheet({
+            ...original.config,
+            filters: [{ field: eventField, operator: 'equals', value: 'example' }],
+        })
+        logic.actions.navigateHierarchy(next)
+        expect(logic.values.chartSettingsDefaults).toBeNull()
+        expect(logic.values.worksheet.config.filters).toEqual(next.config.filters)
+        expect(logic.values.lastRunQuery).toEqual(displayed)
+        logic.actions.undo()
+        expect(logic.values.worksheet.config.filters).toEqual(original.config.filters)
+        logic.actions.redo()
+        expect(logic.values.worksheet.config.filters).toEqual(next.config.filters)
+        await expectLogic(editor, () => editor.actions.setAutoUpdate(true)).toFinishAllListeners()
+        expect(logic.values.lastRunQuery?.config.filters).toEqual(next.config.filters)
     })
 
     it('runs the restored worksheet when auto update is enabled', async () => {
