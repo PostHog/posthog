@@ -60,6 +60,7 @@ export async function prepareMcpEventDelivery({
     const subscription = params.mcp_event_subscription
     const logFailure = (category: AuthorizationFailureCategory | 'http_error', status?: number): void => {
         logger.warn('[MCP event delivery] Authorization request failed', {
+            invocationId: invocation.id,
             teamId: invocation.teamId,
             hogFunctionId: invocation.hogFunction.id,
             subscriptionId: subscription?.id,

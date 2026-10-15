@@ -35,7 +35,81 @@ tools:
             Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with
             document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use
             for any question about the team's own product, policies, domain knowledge, or internal docs. Set rerank=true
-            for a listwise LLM rerank pass when top-result precision matters.
+            for a listwise LLM rerank pass when top-result precision matters. Pass library_id to search one library, and
+            pass that same id to repository search and file read. Omit library_id to search every ready source.
+        feature_flag: product-business-knowledge
+    business-knowledge-libraries-create:
+        operation: business_knowledge_libraries_create
+        enabled: true
+        scopes:
+            - business_knowledge:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a business knowledge library
+        description: >
+            Create a library. It does not copy sources. Add sources with business-knowledge-sources-partial-update
+            library_ids, then pass the library id to document search, repository search, and file read.
+        feature_flag: product-business-knowledge
+    business-knowledge-libraries-destroy:
+        operation: business_knowledge_libraries_destroy
+        enabled: true
+        scopes:
+            - business_knowledge:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a business knowledge library
+        description: >
+            Delete a library and its links. Sources, documents, chunks, and selected repositories stay. Search without a
+            library id still sees them.
+        feature_flag: product-business-knowledge
+    business-knowledge-libraries-list:
+        operation: business_knowledge_libraries_list
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List business knowledge libraries
+        description: >
+            List libraries in this project. A library limits document search, repository search, and file read to its
+            members. Pass the same library id to all three. The default library is first. Omit a library id on those
+            tools to search everything.
+        feature_flag: product-business-knowledge
+    business-knowledge-libraries-partial-update:
+        operation: business_knowledge_libraries_partial_update
+        enabled: true
+        scopes:
+            - business_knowledge:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a business knowledge library
+        description: >
+            Rename a library, replace its sources, or replace this environment's repositories in it. Send only the
+            fields to change. source_ids replaces every source. repos replaces repositories this environment allows and
+            leaves repositories that only another environment allows.
+        feature_flag: product-business-knowledge
+    business-knowledge-libraries-retrieve:
+        operation: business_knowledge_libraries_retrieve
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a business knowledge library
+        description: >
+            Get one library by id, including how many sources it has and which selected repositories it includes for
+            this environment.
         feature_flag: product-business-knowledge
     business-knowledge-repositories-file-retrieve:
         operation: business_knowledge_repositories_file_retrieve
@@ -50,7 +124,8 @@ tools:
         description: >
             Read one file from a GitHub repository selected for business knowledge. The path must come from
             business-knowledge-repositories-search. Returns the file text and a permalink. Does not search file
-            contents.
+            contents. Pass library_id to read a repository in that library, using the same id as document search and
+            repository search. Omit library_id to read any selected repository.
         feature_flag: business-knowledge-github-repos
     business-knowledge-repositories-search:
         operation: business_knowledge_repositories_search
@@ -67,7 +142,8 @@ tools:
             business knowledge document search returns nothing. Pass file names or identifiers, not a full sentence.
             Each repository in the response includes its GitHub description. When a description says the repository
             holds a handbook or docs, search that repository for those words and read the file. Does not search inside
-            file contents and does not call GitHub code search.
+            file contents and does not call GitHub code search. Pass library_id to search repositories in that library,
+            using the same id as document search and file read. Omit library_id to search every selected repository.
         feature_flag: business-knowledge-github-repos
     business-knowledge-sources-list:
         operation: business_knowledge_sources_list
@@ -101,6 +177,7 @@ tools:
                 - next_refresh_at
                 - created_at
                 - updated_at
+                - library_ids
     business-knowledge-sources-partial-update:
         operation: business_knowledge_sources_partial_update
         enabled: true
@@ -115,7 +192,9 @@ tools:
             Update an existing business knowledge source by ID. Change its name, replace the text content (text sources
             only — triggers a re-chunk), or toggle `always_include`. Set `always_include: true` to inject this source's
             content into every support reply as general guidance (tone, policies, company direction); set false to make
-            it retrieval-only again. Only the fields you pass are changed.
+            it retrieval-only again. Pass library_ids to replace the libraries this source belongs to. An empty list
+            removes it from every library. Omit library_ids to leave membership unchanged. Only the fields you pass are
+            changed.
         feature_flag: product-business-knowledge
     business-knowledge-sources-retrieve:
         operation: business_knowledge_sources_retrieve

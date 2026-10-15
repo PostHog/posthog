@@ -105,6 +105,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.autoresearch.backend.presentation.views.views.AutoresearchTrainingRunViewSet",
     "products.batch_exports.backend.presentation.views.batch_export.runs.BatchExportRunViewSet",
     "products.batch_exports.backend.presentation.views.file_download.FileDownloadBatchExportOnDemandViewSet",
+    # Lists at most MAX_LIBRARIES_PER_TEAM (100) libraries, so it has no pages.
+    "products.business_knowledge.backend.api.libraries.KnowledgeLibraryViewSet",
     "products.business_knowledge.backend.api.playground.BusinessKnowledgePlaygroundChatViewSet",
     "products.business_knowledge.backend.api.views.KnowledgeGapSuggestionViewSet",
     "products.business_knowledge.backend.api.views.KnowledgeSourceViewSet",
@@ -112,6 +114,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.cdp.backend.api.hog_function.HogFunctionViewSet",
     "products.cdp.backend.api.hog_function_template.PublicHogFunctionTemplateViewSet",
     "products.cdp.backend.api.plugin_log_entry.PluginLogEntryViewSet",
+    # The facade supplies counted pages with stable ordering; the subscription API tests cover page boundaries.
+    "products.cdp.backend.presentation.mcp_event_subscriptions.MCPEventSubscriptionViewSet",
     "products.cohorts.backend.api.staff_tools.CohortsStaffToolsViewSet",
     "products.conversations.backend.api.ai_context.AIContextAccountPropertiesViewSet",
     "products.conversations.backend.api.ai_reply_playbook.AIReplyPlaybookViewSet",

@@ -9,6 +9,7 @@ jest.mock('~/common/utils/request', () => ({ internalFetch: jest.fn() }))
 
 describe('MCP event delivery authorization', () => {
     const invocation = {
+        id: '4f6c9f2a-5b1e-4f5b-9d3c-2a7e8c1d0b64',
         teamId: 123,
         hogFunction: {
             id: 'eae89749-3d0c-4ddb-875a-04771a7b9e34',
