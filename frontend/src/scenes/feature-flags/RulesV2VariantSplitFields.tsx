@@ -13,6 +13,7 @@ import { FeatureFlagLogicProps } from './featureFlagLogic'
 import {
     MAX_VARIANTS,
     MIN_VARIANTS,
+    NEW_HOLDOUT,
     moved,
     newVariant,
     withEqualWeights,
@@ -21,8 +22,6 @@ import {
 import { featureFlagRulesV2EditorLogic } from './featureFlagRulesV2EditorLogic'
 import { PercentageInput } from './PercentageInput'
 import { RulesV2ValueInput } from './RulesV2ValueInput'
-
-const NEW_HOLDOUT = { id: null, exclusion_percentage: 10 }
 
 interface VariantSplitFieldsProps extends FeatureFlagLogicProps {
     index: number
@@ -68,7 +67,7 @@ export function RulesV2VariantSplitGuards({ id, index, rule }: VariantSplitField
                 </LemonField.Pure>
                 {holdout && (
                     <LemonField.Pure
-                        label="Held out"
+                        label="Holdout excludes"
                         htmlFor={holdoutInputId}
                         className="w-40"
                         error={fieldError(`${path}.holdout.exclusion_percentage`)}

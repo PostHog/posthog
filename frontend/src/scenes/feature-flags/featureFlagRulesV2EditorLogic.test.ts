@@ -25,7 +25,7 @@ import {
 } from '~/types'
 
 import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
-import { moved, newVariant, rulesV2DraftErrors, withEqualWeights } from './featureFlagRulesV2Draft'
+import { NEW_HOLDOUT, moved, newVariant, rulesV2DraftErrors, withEqualWeights } from './featureFlagRulesV2Draft'
 import {
     NEW_TARGETED_RELEASE_RULE,
     featureFlagRulesV2EditorLogic,
@@ -47,7 +47,6 @@ const SPLIT_RULE = {
     description: 'Layout test',
     targeting: { properties: [] },
     metadata: { owner: 'growth' },
-    experiment_id: null,
     paused: false,
     rollout_percentage: 50,
     on_rollout_miss: 'continue',
@@ -59,7 +58,7 @@ const SPLIT_RULE = {
         { key: 'compact', weight: 33.33, value: 'compact' },
         { key: 'spacious', weight: 33.33, value: 'spacious' },
     ],
-    holdout: { id: null, seed: 'holdout-seed', exclusion_percentage: 5 },
+    holdout: { seed: 'holdout-seed', exclusion_percentage: 5 },
     some_future_field: { kept: true },
 }
 
@@ -155,6 +154,33 @@ describe('featureFlagRulesV2EditorLogic', () => {
             expect(rulesV2WriteBody(draft).filters).toEqual(STRING_FLAG.filters)
         })
 
+        it('sends a new variant split and a new holdout with only the fields the server accepts', () => {
+            const split = withRuleType(
+                NEW_TARGETED_RELEASE_RULE,
+                'experiment',
+                'boolean'
+            ) as FeatureFlagRulesV2DraftExperimentRule
+            const draft = rulesV2DraftFromFlag(V2_FLAG)
+            const body = rulesV2WriteBody({
+                ...draft,
+                config: { ...draft.config, rules: [{ ...split, holdout: NEW_HOLDOUT }] },
+            })
+
+            const [sent] = JSON.parse(JSON.stringify(body)).filters.rules
+            expect(Object.keys(sent).sort()).toEqual([
+                'assign_by',
+                'assignment_algorithm',
+                'holdout',
+                'on_rollout_miss',
+                'paused',
+                'rollout_percentage',
+                'rule_type',
+                'targeting',
+                'variants',
+            ])
+            expect(sent.holdout).toEqual({ exclusion_percentage: 10 })
+        })
+
         it('adds the rollout fields when a rule becomes a percentage rollout and drops them when it stops', () => {
             const rule = { ...NEW_TARGETED_RELEASE_RULE, id: 'rule-beta', description: 'Beta users' }
             const rollout = withRuleType(rule, 'percentage_rollout', 'boolean')
@@ -195,13 +221,12 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 rollout: { rollout_percentage: 30, on_rollout_miss: 'return_default' },
             },
         ] as { from: string; rule: FeatureFlagRulesV2DraftRule; rollout: Record<string, unknown> }[])(
-            'turns $from into a variant split with no experiment and no client seed',
+            'turns $from into a variant split with no client seed',
             ({ rule, rollout }) => {
                 const split = withRuleType(rule, 'experiment', 'string') as FeatureFlagRulesV2DraftExperimentRule
                 expect(split).toMatchObject({
                     id: rule.id,
                     rule_type: 'experiment',
-                    experiment_id: null,
                     paused: false,
                     assignment_algorithm: 'sha1_60_v1',
                     ...rollout,
@@ -303,7 +328,11 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 'Must be a non-empty string other than $false or $true.',
             ],
             [
-                { attr: 'filters', code: 'unknown_field', detail: 'filters.rules[0].variants[1].label: Unknown field.' },
+                {
+                    attr: 'filters',
+                    code: 'unknown_field',
+                    detail: 'filters.rules[0].variants[1].label: Unknown field.',
+                },
                 'filters.rules[0].variants[1]',
                 'filters.rules[0].variants[1].label: Unknown field.',
             ],
@@ -415,7 +444,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
         expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '8')
     })
 
-    it('creates a string flag with a variant split that carries no seed and no experiment', async () => {
+    it('creates a string flag with a variant split and a holdout that carry no seed', async () => {
         const create = jest.spyOn(api, 'create').mockResolvedValue({ ...STRING_FLAG, id: 10 })
         const logic = featureFlagRulesV2EditorLogic({ id: 'new' })
         logic.mount()
@@ -429,7 +458,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
         logic.actions.updateRule(0, {
             ...(logic.values.draft.config.rules[0] as FeatureFlagRulesV2DraftExperimentRule),
             paused: true,
-            holdout: { id: null, exclusion_percentage: 10 },
+            holdout: NEW_HOLDOUT,
         })
         expect(logic.values.saveDisabledReason).toBeNull()
         await expectLogic(logic, () => logic.actions.saveRulesV2Flag())
@@ -445,7 +474,6 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 {
                     rule_type: 'experiment',
                     targeting: { properties: [] },
-                    experiment_id: null,
                     paused: true,
                     rollout_percentage: 100,
                     on_rollout_miss: 'continue',
@@ -455,7 +483,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
                         { key: 'control', weight: 50, value: 'control' },
                         { key: 'test', weight: 50, value: 'test' },
                     ],
-                    holdout: { id: null, exclusion_percentage: 10 },
+                    holdout: { exclusion_percentage: 10 },
                 },
             ],
         })
@@ -756,7 +784,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
                     { key: 'spacious', weight: 50, value: 'spacious' },
                     { key: 'control', weight: 50, value: 'standard' },
                 ],
-                holdout: { id: null, seed: 'holdout-seed', exclusion_percentage: 7.5 },
+                holdout: { seed: 'holdout-seed', exclusion_percentage: 7.5 },
             })
         })
 
@@ -765,10 +793,10 @@ describe('featureFlagRulesV2EditorLogic', () => {
             logic.actions.updateRule(1, withoutHoldout)
             expect(split()).not.toHaveProperty('holdout')
 
-            setSplit({ holdout: { id: null, exclusion_percentage: 10 } })
+            setSplit({ holdout: NEW_HOLDOUT })
             expect(rulesV2WriteBody(logic.values.draft).filters.rules[1]).toMatchObject({
                 seed: 'split-seed',
-                holdout: { id: null, exclusion_percentage: 10 },
+                holdout: { exclusion_percentage: 10 },
             })
             expect(JSON.stringify(split().holdout)).not.toContain('seed')
         })
@@ -824,7 +852,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
             },
             {
                 check: 'a holdout above 100%',
-                edit: () => setSplit({ holdout: { id: null, exclusion_percentage: 101 } }),
+                edit: () => setSplit({ holdout: { exclusion_percentage: 101 } }),
                 field: 'filters.rules[1].holdout.exclusion_percentage',
                 error: 'Must be between 0 and 100.',
             },
@@ -838,7 +866,8 @@ describe('featureFlagRulesV2EditorLogic', () => {
         it('shows a server error on the variant field it names', async () => {
             jest.spyOn(api, 'update').mockRejectedValue({
                 status: 400,
-                detail: 'filters.rules[1].variants[2].value: Must be a non-empty string other than $false or $true.',
+                attr: 'filters__rules__1__variants__2__value',
+                detail: 'Must be a non-empty string other than $false or $true.',
             })
 
             await expectLogic(logic, () => logic.actions.saveRulesV2Flag()).toDispatchActions([

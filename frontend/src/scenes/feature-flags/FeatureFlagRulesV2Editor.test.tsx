@@ -66,7 +66,6 @@ const STRING_SPLIT_FLAG = {
                 id: 'rule-split',
                 rule_type: 'experiment',
                 targeting: { properties: [] },
-                experiment_id: null,
                 paused: false,
                 rollout_percentage: 50,
                 on_rollout_miss: 'continue',
@@ -76,7 +75,7 @@ const STRING_SPLIT_FLAG = {
                     { key: 'control', weight: 50, value: 'standard' },
                     { key: 'compact', weight: 50, value: 'compact' },
                 ],
-                holdout: { id: null, seed: 'holdout-seed', exclusion_percentage: 5 },
+                holdout: { seed: 'holdout-seed', exclusion_percentage: 5 },
             },
         ],
     },
@@ -156,7 +155,7 @@ describe('FeatureFlagRulesV2Editor', () => {
             expect(screen.getByLabelText('Variant 1 key')).toHaveValue('control')
             expect(screen.getByLabelText('Variant 2 value')).toHaveValue('compact')
             expect(screen.getByLabelText('Variant 2 weight')).toHaveValue('50')
-            expect(screen.getByLabelText('Held out')).toHaveValue('5')
+            expect(screen.getByLabelText('Holdout excludes')).toHaveValue('5')
             expect(screen.getByLabelText('Rollout percentage')).toHaveValue('50')
             expect(document.body).not.toHaveTextContent(/split-seed|holdout-seed/)
             expect(document.body.innerHTML).not.toMatch(/split-seed|holdout-seed/)
@@ -177,13 +176,17 @@ describe('FeatureFlagRulesV2Editor', () => {
             expect(split()).toMatchObject({ seed: 'split-seed', holdout: { seed: 'holdout-seed' } })
         })
 
-        it('pauses the split and removes its holdout', () => {
+        it('pauses the split, removes its holdout and adds a new one', async () => {
             click('rules-v2-split-paused')
             click('rules-v2-split-holdout')
 
             expect(split()).toMatchObject({ paused: true })
             expect(split()).not.toHaveProperty('holdout')
-            expect(screen.queryByLabelText('Held out')).not.toBeInTheDocument()
+            expect(screen.queryByLabelText('Holdout excludes')).not.toBeInTheDocument()
+
+            click('rules-v2-split-holdout')
+            expect(split().holdout).toEqual({ exclusion_percentage: 10 })
+            await waitFor(() => expect(screen.getByLabelText('Holdout excludes')).toHaveValue('10'))
         })
     })
 })

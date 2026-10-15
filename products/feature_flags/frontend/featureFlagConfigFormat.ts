@@ -101,12 +101,7 @@ function isRulesV2EditableRule(rule: FeatureFlagRulesV2Rule, returnType: Feature
         case 'percentage_rollout':
             return isRulesV2Value(rule.value, returnType)
         case 'experiment':
-            // A linked experiment and a shared holdout are managed with their experiment, not here.
-            return (
-                rule.experiment_id === null &&
-                (rule.holdout == null || rule.holdout.id === null) &&
-                rule.variants.every((variant) => isRulesV2Value(variant.value, returnType))
-            )
+            return rule.variants.every((variant) => isRulesV2Value(variant.value, returnType))
         default:
             return false
     }

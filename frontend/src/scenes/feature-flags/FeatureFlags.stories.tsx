@@ -18,7 +18,6 @@ const DELETED_FLAG_ID = 1526
 const SPLIT_RULE_FIELDS = {
     rule_type: 'experiment',
     targeting: { properties: [] },
-    experiment_id: null,
     assignment_algorithm: 'sha1_60_v1',
     assign_by: 'person',
 }
@@ -56,7 +55,7 @@ const RULES_V2_SPLIT_FLAG = {
                     { key: 'compact', weight: 33.33, value: 'compact' },
                     { key: 'spacious', weight: 33.33, value: 'spacious' },
                 ],
-                holdout: { id: null, seed: '5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d', exclusion_percentage: 5 },
+                holdout: { seed: '5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d', exclusion_percentage: 5 },
             },
             {
                 ...SPLIT_RULE_FIELDS,

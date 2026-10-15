@@ -13,7 +13,6 @@ const SPLIT_RULE = {
     id: 'rule-split',
     rule_type: 'experiment',
     targeting: { properties: [] },
-    experiment_id: null,
     paused: false,
     rollout_percentage: 100,
     on_rollout_miss: 'continue',
@@ -60,10 +59,10 @@ describe('featureFlagConfigFormat', () => {
     const EDITOR_ON = { [FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR]: true }
 
     it.each([
-        ['a variant split without an experiment', stringFlag({}), true],
+        ['a variant split', stringFlag({}), true],
         [
-            'a variant split with a holdout of its own',
-            stringFlag({ holdout: { id: null, seed: 'holdout-seed', exclusion_percentage: 5 } }),
+            'a variant split with a holdout',
+            stringFlag({ holdout: { seed: 'holdout-seed', exclusion_percentage: 5 } }),
             true,
         ],
         [
@@ -74,8 +73,6 @@ describe('featureFlagConfigFormat', () => {
             ),
             true,
         ],
-        ['a linked experiment', stringFlag({ experiment_id: 12 }), false],
-        ['a shared holdout', stringFlag({ holdout: { id: 3, seed: 'holdout-seed', exclusion_percentage: 5 } }), false],
         ['group assignment', stringFlag({}, { aggregation_group_type_index: 0 }), false],
         ['a variant value of another type', stringFlag({ variants: [{ key: 'a', weight: 100, value: 1 }] }), false],
         [

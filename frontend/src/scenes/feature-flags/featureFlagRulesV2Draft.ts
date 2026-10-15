@@ -1,6 +1,7 @@
 import {
     FeatureFlagRulesV2DraftConfig,
     FeatureFlagRulesV2DraftExperimentRule,
+    FeatureFlagRulesV2Holdout,
     FeatureFlagRulesV2ReturnType,
     FeatureFlagRulesV2Variant,
     JsonType,
@@ -36,9 +37,8 @@ function initialVariantValue(returnType: FeatureFlagRulesV2ReturnType, key: stri
 
 export function newVariantSplitFields(
     returnType: FeatureFlagRulesV2ReturnType
-): Pick<FeatureFlagRulesV2DraftExperimentRule, 'experiment_id' | 'paused' | 'variants'> {
+): Pick<FeatureFlagRulesV2DraftExperimentRule, 'paused' | 'variants'> {
     return {
-        experiment_id: null,
         paused: false,
         variants: ['control', 'test'].map((key, index) => ({
             key,
@@ -47,6 +47,8 @@ export function newVariantSplitFields(
         })),
     }
 }
+
+export const NEW_HOLDOUT: FeatureFlagRulesV2Holdout = { exclusion_percentage: 10 }
 
 export function newVariant(returnType: FeatureFlagRulesV2ReturnType, index: number): FeatureFlagRulesV2Variant {
     return { key: '', weight: 0, value: initialVariantValue(returnType, '', index) }
