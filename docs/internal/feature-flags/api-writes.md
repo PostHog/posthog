@@ -16,6 +16,8 @@ Supplied top-level v1 filter keys replace those keys in the stored state; `{}` r
 The existing validation rollout controls normalization and unknown-key preservation.
 Every write rejects the variant keys `$false` and `$true` with `reserved_variant_key`, whatever the validation rollout enforces.
 It also rejects a `"null"` variant key unless the stored flag already has a variant with that key, because `flag_evaluations` stores a `"null"` response the same as a null one.
+Copies follow the target flag, not the source.
+Duplicating an experiment with a new flag key, copying a flag or experiment to a project without that flag, and copying onto a target flag without a `"null"` variant all fail when the source flag has one.
 
 Dependency targets must also use v1 configurations.
 The dependency validator resolves IDs within the existing project scope, rejects disabled targets, and checks `filters.version` before accepting an edge.
