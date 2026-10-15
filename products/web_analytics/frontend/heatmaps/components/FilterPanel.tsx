@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconFilter, IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
@@ -109,6 +109,7 @@ export function FilterPanel({
     lockedWidth?: number
     dateControl?: JSX.Element
 }): JSX.Element {
+    useMountedLogic(heatmapCoverageLogic)
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
     const [isEventFilterOpen, setIsEventFilterOpen] = useState(false)
     const {

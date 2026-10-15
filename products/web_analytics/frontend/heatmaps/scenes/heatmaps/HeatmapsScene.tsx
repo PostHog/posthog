@@ -74,7 +74,7 @@ export function HeatmapsScene(): JSX.Element {
                         <span className="text-xs text-muted flex flex-wrap gap-x-1">
                             {row.created_at && <TZLabel time={row.created_at} />}
                             {row.created_by && (
-                                <span className="truncate">{`by ${row.created_by.first_name || row.created_by.email}`}</span>
+                                <span className="truncate ph-no-capture">{`by ${row.created_by.first_name || row.created_by.email}`}</span>
                             )}
                         </span>
                     </div>
