@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +41,63 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BrazeSource(ResumableSource[BrazeSourceConfig, BrazeResumeConfig]):
+    codebase_detection = detect(
+        env=("^BRAZE_",),
+        script_hosts=("js.appboycdn.com",),
+        npm=(
+            "@braze/web-sdk",
+            "@braze/react-native-sdk",
+            "@braze/web-sdk-core",
+            "appboy-web-sdk",
+            "@braze/expo-plugin",
+            "@braze/service-worker",
+            "@braze/web-sdk-no-amd",
+            "@braze/javascript-sdk",
+            "@braze/vega-sdk",
+            "react-native-appboy-sdk",
+            "braze-api",
+        ),
+        pypi=("braze-client", "braze-mcp-server"),
+        cocoapods=(
+            "BrazeKit",
+            "Appboy-iOS-SDK",
+            "BrazeUI",
+            "BrazeLocation",
+            "BrazeNotificationService",
+            "BrazePushStory",
+            "BrazeKitCompat",
+            "Appboy-tvOS-SDK",
+            "Appboy-Push-Story",
+            "Segment-Appboy",
+        ),
+        composer=("braze/sdk",),
+        maven=(
+            "com.braze:android-sdk-ui",
+            "com.braze:android-sdk-base",
+            "com.braze:android-sdk-location",
+            "com.braze:android-sdk-jetpack-compose",
+            "com.braze:android-sdk-unity",
+            "com.braze:braze-segment-kotlin",
+            "com.braze:braze-segment-android",
+            "com.appboy:android-sdk-ui",
+            "com.appboy:android-sdk-base",
+            "com.appboy:android-sdk-location",
+            "com.appboy:appboy-segment-integration",
+        ),
+        pub=("braze_plugin",),
+        rubygems=("braze_api_client", "braze_ruby", "appboy"),
+        swiftpm=(
+            "github.com/braze-inc/braze-swift-sdk",
+            "github.com/braze-inc/braze-ios-sdk",
+            "github.com/braze-inc/braze-swift-sdk-prebuilt-dynamic",
+            "github.com/braze-inc/braze-swift-sdk-prebuilt-static",
+            "github.com/braze-inc/braze-segment-swift",
+            "github.com/appboy/appboy-ios-sdk",
+            "github.com/appboy/appboy-segment-ios",
+        ),
+        alternative_to=(ProductKey.WORKFLOWS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.braze.com/docs/api/basics/"
 

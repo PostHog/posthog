@@ -653,7 +653,7 @@ describe('onboardingLogic — flow composition', () => {
             [ProductKey.SESSION_REPLAY, /replay/i],
             [ProductKey.FEATURE_FLAGS, /feature_flag/i],
             [ProductKey.SURVEYS, /survey/i],
-            [ProductKey.ERROR_TRACKING, /error_tracking/i],
+            [ProductKey.ERROR_TRACKING, /error-tracking/i],
             [ProductKey.AI_OBSERVABILITY, /ai-observability/i],
             [ProductKey.WORKFLOWS, /workflow/i],
             [ProductKey.LOGS, /log/i],

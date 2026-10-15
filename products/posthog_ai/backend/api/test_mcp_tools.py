@@ -37,6 +37,7 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.exceptions_capture import ambient_exception_properties, capture_exception
 from posthog.models import Organization, Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
@@ -230,8 +231,35 @@ class TestMCPToolsAPI(APIBaseTest):
             expected["error_type"] = error_type
         else:
             self.assertEqual(mock_capture.call_args.args, (error,))
+            error_id = mock_capture.call_args.kwargs["properties"]["error_id"]
+            expected["content"] = f"{content} Error id: {error_id}"
         self.assertEqual(response.json(), expected)
         mock_runner_cls.return_value.run.assert_called_once()
+
+    @patch("posthoganalytics.api_key", "test-key")
+    @patch("posthoganalytics.capture_exception")
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_error_id_is_available_to_upstream_exception_capture(self, mock_runner_cls, mock_capture):
+        error = RuntimeError("private backend detail")
+        context_before = ambient_exception_properties().copy()
+
+        def capture_and_raise(*args, **kwargs):
+            capture_exception(error)
+            raise error
+
+        mock_runner_cls.return_value.run.side_effect = capture_and_raise
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_tools/read_taxonomy/",
+            {"args": {"query": {"kind": "events"}}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        first_capture = mock_capture.call_args_list[0]
+        self.assertIs(first_capture.args[0], error)
+        error_id = first_capture.kwargs["properties"]["error_id"]
+        self.assertTrue(response.json()["content"].endswith(f"Error id: {error_id}"))
+        self.assertEqual(ambient_exception_properties(), context_before)
 
     @parameterized.expand(
         [
@@ -514,8 +542,9 @@ class TestMCPToolsAPI(APIBaseTest):
             expected["error_code"] = expected_error_code
         self.assertEqual(response.json(), expected)
 
+    @patch("products.posthog_ai.backend.api.mcp_tools.capture_exception")
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
-    def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
+    def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute, mock_capture):
         mock_execute.side_effect = RuntimeError("unexpected")
 
         response = self.client.post(
@@ -525,11 +554,12 @@ class TestMCPToolsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
+        error_id = mock_capture.call_args.kwargs["properties"]["error_id"]
         self.assertEqual(
             response.json(),
             {
                 "success": False,
-                "content": "The tool raised an internal error. Do not immediately retry the tool call.",
+                "content": f"The tool raised an internal error. Do not immediately retry the tool call. Error id: {error_id}",
             },
         )
 

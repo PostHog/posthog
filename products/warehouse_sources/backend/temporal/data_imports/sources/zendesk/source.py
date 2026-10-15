@@ -1,6 +1,9 @@
 import re
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -39,6 +42,108 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZendeskSource(ResumableSource[ZendeskSourceConfig, ZendeskResumeConfig]):
+    codebase_detection = detect(
+        env=("^ZENDESK_",),
+        script_hosts=("static.zdassets.com", "ekr.zdassets.com", "v2.zopim.com", "assets.zendesk.com", "cdn.smooch.io"),
+        npm=(
+            "node-zendesk",
+            "zendesk_app_framework_sdk",
+            "@zendesk/zcli",
+            "react-zendesk",
+            "react-native-zendesk-messaging",
+            "@types/zendesk-web-widget",
+            "smooch",
+            "sunshine-conversations-client",
+            "passport-zendesk",
+            "@zendesk/connector-sdk",
+            "@zendesk/zendesk-app-scripts",
+        ),
+        pypi=("zenpy", "sunshine-conversations-client"),
+        cocoapods=(
+            "ZendeskSupportSDK",
+            "ZendeskSDKMessaging",
+            "ZendeskChatSDK",
+            "ZendeskChatProvidersSDK",
+            "ZendeskAnswerBotSDK",
+            "ZendeskAnswerBotProvidersSDK",
+            "ZendeskSupportProvidersSDK",
+            "ZendeskCoreSDK",
+            "ZendeskCommonUISDK",
+            "ZendeskMessagingSDK",
+            "ZendeskMessagingAPISDK",
+            "ZendeskSDK",
+            "ZendeskSDKConfigurationsSDK",
+            "ZendeskSDKGuideKit",
+            "ZendeskSDKConversationKit",
+            "ZendeskSDKCoreUtilities",
+            "ZendeskSDKUIComponents",
+            "ZendeskTalkSDK",
+            "ZDCChat",
+            "Smooch",
+        ),
+        composer=("zendesk/zendesk_api_client_php", "huddledigital/zendesk-laravel"),
+        go=("github.com/nukosuke/go-zendesk",),
+        maven=(
+            "zendesk.messaging:messaging-android",
+            "zendesk.guidekit:guidekit-android",
+            "zendesk.talk:talk-android",
+            "zendesk.conversationkit:conversationkit-android",
+            "zendesk.ui:ui-android",
+            "com.zendesk:support",
+            "com.zendesk:support-providers",
+            "com.zendesk:chat",
+            "com.zendesk:chat-providers",
+            "com.zendesk:answerbot",
+            "com.zendesk:answerbot-providers",
+            "com.zendesk:messaging",
+            "com.zendesk:messaging-api",
+            "com.zendesk:core",
+            "com.zendesk:common-ui",
+            "com.zendesk:guide",
+            "com.zendesk:guide-providers",
+            "com.zendesk:sdk",
+            "com.zendesk:sdk-providers",
+            "com.zendesk:sdk-configurations",
+            "com.zopim.android:sdk",
+            "io.smooch:core",
+            "io.smooch:ui",
+            "com.zendesk:sunshine-conversations-client",
+            "io.smooch:api",
+            "com.cloudbees.thirdparty:zendesk-java-client",
+        ),
+        pub=("zendesk_messaging",),
+        rubygems=(
+            "zendesk_api",
+            "zendesk_apps_tools",
+            "zendesk_apps_support",
+            "sunshine-conversations-client",
+            "smooch-api",
+        ),
+        swiftpm=(
+            "github.com/zendesk/sdk_messaging_ios",
+            "github.com/zendesk/support_sdk_ios",
+            "github.com/zendesk/support_providers_sdk_ios",
+            "github.com/zendesk/chat_sdk_ios",
+            "github.com/zendesk/chat_providers_sdk_ios",
+            "github.com/zendesk/answer_bot_sdk_ios",
+            "github.com/zendesk/answer_bot_providers_sdk_ios",
+            "github.com/zendesk/core_sdk_ios",
+            "github.com/zendesk/commonui_sdk_ios",
+            "github.com/zendesk/messaging_sdk_ios",
+            "github.com/zendesk/messagingapi_sdk_ios",
+            "github.com/zendesk/sdk_zendesk_ios",
+            "github.com/zendesk/sdkconfigurations_sdk_ios",
+            "github.com/zendesk/talk_sdk_ios",
+            "github.com/zendesk/sdk_guide_kit_ios",
+            "github.com/zendesk/sdk_conversation_kit_ios",
+            "github.com/zendesk/sdk_core_utilities_ios",
+            "github.com/zendesk/sdk_ui_components_ios",
+            "github.com/zendesk/sunshine-conversations-ios",
+        ),
+        alternative_to=(ProductKey.CONVERSATIONS,),
+    )
+    setup_requires_ui = True
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.zendesk.com/api-reference"

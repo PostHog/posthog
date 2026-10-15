@@ -1,9 +1,9 @@
-import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { ResultSeries, getResultSeries } from 'scenes/insights/utils/resultSeries'
 
 import type { Noun } from '~/models/groupsModel'
 import type { InsightQueryNode } from '~/queries/schema/schema-general'
 
+import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 export type TrendsSeriesMeta = {

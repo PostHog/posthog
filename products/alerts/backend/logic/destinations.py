@@ -71,8 +71,20 @@ def alert_destination_group_key(*, template_id: str, inputs: dict[str, Any] | No
     if spec is None:
         return AlertDestinationGroupKey(template_id, None)
     data = spec.read(inputs or {})
-    config = {key: value for key, value in data.items() if key != "type"}
+    config = {key: _hashable(value) for key, value in data.items() if key != "type"}
     return AlertDestinationGroupKey(template_id, tuple(sorted(config.items())) if config else None)
+
+
+class _FrozenMapping(tuple):
+    """A dict value, such as added webhook headers, held as sorted pairs so a group key stays hashable."""
+
+
+def _hashable(value: Any) -> Any:
+    return _FrozenMapping(sorted(value.items())) if isinstance(value, dict) else value
+
+
+def _thawed(value: Any) -> Any:
+    return dict(value) if isinstance(value, _FrozenMapping) else value
 
 
 def group_alert_destination_rows(rows: Collection[AlertDestinationRow]) -> dict[AlertDestinationGroupKey, set[UUID]]:
@@ -113,7 +125,9 @@ def list_alert_destination_groups(
         spec = SPEC_BY_TEMPLATE_ID.get(key.template_id)
         if spec is None:
             continue
-        data = cast(AlertDestinationData, {"type": spec.type, **dict(key.config or ())})
+        data = cast(
+            AlertDestinationData, {"type": spec.type, **{name: _thawed(value) for name, value in key.config or ()}}
+        )
         groups.append(
             AlertDestinationGroup(
                 hog_function_ids=tuple(sorted(ids)),
@@ -125,18 +139,22 @@ def list_alert_destination_groups(
 
 
 def owned_alert_destinations_qs(
-    *, team_id: int, alert_ids: Collection[str], allowed_event_ids: Collection[str]
+    *,
+    team_id: int,
+    alert_ids: Collection[str],
+    allowed_event_ids: Collection[str],
+    known_templates_only: bool = True,
 ) -> QuerySet[HogFunction]:
     alert_id_filter = Q(pk__in=[])
     for alert_id in alert_ids:
         alert_id_filter |= Q(filters__properties__contains=[{"key": "alert_id", "value": alert_id}])
-    return HogFunction.objects.filter(
+    functions = HogFunction.objects.filter(
         alert_id_filter,
         _allowed_event_filter(allowed_event_ids),
         team_id=team_id,
         deleted=False,
-        template_id__in=SPEC_BY_TEMPLATE_ID,
     )
+    return functions.filter(template_id__in=SPEC_BY_TEMPLATE_ID) if known_templates_only else functions
 
 
 def list_owned_alert_destinations(
@@ -407,7 +425,8 @@ def _allowed_event_filter(allowed_event_ids: Collection[str]) -> Q:
 
     event_filter = Q()
     for event_id in allowed_event_ids:
-        event_filter |= Q(filters__events__contains=[{"id": event_id, "type": "events"}])
+        # `type` is optional in a stored filter, and the internal events consumer matches on the id alone.
+        event_filter |= Q(filters__events__contains=[{"id": event_id}])
     return event_filter
 
 

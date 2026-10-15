@@ -1439,6 +1439,7 @@ export interface PaginatedTaskListItemListApi {
 
 /**
  * * `onboarding` - Onboarding
+ * * `account_audit` - Account audit
  * * `error_tracking` - Error Tracking
  * * `eval_clusters` - Eval Clusters
  * * `user_created` - User Created
@@ -1468,6 +1469,7 @@ export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof t
 
 export const TaskOriginProductEnumApi = {
     Onboarding: 'onboarding',
+    AccountAudit: 'account_audit',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
@@ -1548,6 +1550,7 @@ export interface TaskCreateApi {
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -1783,6 +1786,7 @@ export interface TaskWriteApi {
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -1919,6 +1923,7 @@ export interface PatchedTaskWriteApi {
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -3499,6 +3504,13 @@ export interface TaskRunArtifactsUploadResponseApi {
     artifacts: TaskRunArtifactResponseApi[]
 }
 
+export interface TaskRunArtifactPreviewResponseApi {
+    /** Short-lived URL for the isolated HTML preview */
+    url: string
+    /** Whether the caller can request a preview that runs scripts. False when whoever wrote this artifact version had limited network access, or when the version has no record of it. */
+    scripts_available: boolean
+}
+
 export interface TaskRunArtifactsDismissRequestApi {
     /**
      * Manifest ids of the artifacts to update. Pass every version of a file together so the whole file is dismissed rather than a single upload of it.
@@ -3559,6 +3571,11 @@ export interface TaskRunArtifactFinalizeUploadApi {
     content_type?: string
     /** Skill bundle metadata, required when the artifact type is skill_bundle. */
     metadata?: TaskRunSkillBundleMetadataApi
+    /**
+     * ID of the artifact in the same run that this file edits. An HTML edit can run scripts only when its base artifact can.
+     * @maxLength 255
+     */
+    base_artifact_id?: string
 }
 
 export interface TaskRunArtifactsFinalizeUploadRequestApi {
@@ -5316,6 +5333,7 @@ export type TasksListParams = {
      * Exclude tasks with this origin product from the results
      *
      * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -5461,6 +5479,7 @@ export type TasksListExcludeOriginProduct =
 
 export const TasksListExcludeOriginProduct = {
     Onboarding: 'onboarding',
+    AccountAudit: 'account_audit',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
@@ -5592,6 +5611,17 @@ export type TasksRunsListParams = {
      * @minimum 0
      */
     offset?: number
+}
+
+export type TasksRunsArtifactsPreviewRetrieveParams = {
+    /**
+     * Return a URL whose page runs its scripts. Without it the page renders with scripts off. Refused when scripts_available is false.
+     */
+    scripts?: boolean
+    /**
+     * Living artifact version
+     */
+    version?: number
 }
 
 export type TasksRunsSessionLogsRetrieveParams = {
