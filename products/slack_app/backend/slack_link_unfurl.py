@@ -59,7 +59,6 @@ from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_access import may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_insight_unfurl_charts_enabled
 from products.slack_app.backend.logic.link_unfurl_charts import chat_unfurl_kwargs
 from products.slack_app.backend.services.followup_invite import build_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
@@ -1028,8 +1027,6 @@ def start_unfurl_charts(
     sharing gets no charts.
     """
     if not integration.team.organization.allow_publicly_shared_resources:
-        return
-    if not is_slack_app_insight_unfurl_charts_enabled(integration, distinct_id=str(user.distinct_id)):
         return
     channel = event["channel"]
     message_ts = event["message_ts"]
