@@ -80,6 +80,7 @@ from products.signals.backend.scout_harness.tools.profile import (
     compute_project_profile,
     get_project_profile,
 )
+from products.signals.backend.tasks import build_signal_project_profile
 from products.skills.backend.models.skills import LLMSkill
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
@@ -1117,17 +1118,34 @@ class TestGetProjectProfile(BaseTest):
         assert fresh is not None and fresh.profile_id != cached.profile_id
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 2
 
-    def test_lazy_build_false_returns_none_on_cache_miss_without_building(self) -> None:
+    @parameterized.expand([("no_row", False), ("row_on_an_older_schema", True)])
+    def test_lazy_build_false_returns_none_on_cache_miss_without_building(
+        self, _name: str, seed_old_schema_row: bool
+    ) -> None:
         # Read-only callers (untrusted, CSRF-reachable GETs) pass `lazy_build=False` so a
         # miss returns None instead of running the inventory build + persisting a row.
-        assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
+        if seed_old_schema_row:
+            old = compute_project_profile(team=self.team)
+            SignalProjectProfile.objects.filter(id=old.profile_id).update(source_version="v0_legacy")
+        rows_before = SignalProjectProfile.objects.filter(team=self.team).count()
         result = get_project_profile(team_id=self.team.id, lazy_build=False)
         assert result is None
-        assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == rows_before
 
-    def test_lazy_build_false_returns_cached_row_when_fresh(self) -> None:
+    def test_background_build_lets_a_read_only_caller_find_a_profile(self) -> None:
+        assert get_project_profile(team_id=self.team.id, lazy_build=False) is None
+        build_signal_project_profile(self.team.id)
+        result = get_project_profile(team_id=self.team.id, lazy_build=False)
+        assert result is not None and result.stale is False
+
+    @parameterized.expand([("fresh", timedelta(minutes=30), False), ("expired", -timedelta(days=1), True)])
+    def test_lazy_build_false_returns_newest_row_whatever_its_age(
+        self, _name: str, expires_in: timedelta, stale: bool
+    ) -> None:
         cached = compute_project_profile(team=self.team)
+        SignalProjectProfile.objects.filter(id=cached.profile_id).update(expires_at=timezone.now() + expires_in)
         result = get_project_profile(team_id=self.team.id, lazy_build=False)
         assert result is not None and result.profile_id == cached.profile_id
+        assert result.stale is stale
         # No new row — the read-only path served the cache.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1

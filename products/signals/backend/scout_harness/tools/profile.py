@@ -5,8 +5,9 @@ so a fresh scout doesn't burn 4-5 orientation tool calls on `inbox-source-config
 `inbox-reports-list` / `read-data-schema` before having a baseline picture of the team.
 
 `get_project_profile` returns the newest non-expired `SignalProjectProfile` row for the
-team, or builds a fresh one on cache miss. `compute_project_profile` is the explicit
-build path used by the cache-miss branch and (in Phase 7) by the daily Temporal workflow.
+team, or builds a fresh one on cache miss. A read-only caller gets the newest row of any age
+instead, marked `stale` when it is past `expires_at`. `compute_project_profile` is the explicit
+build path. The cache-miss branch and the `build_signal_project_profile` Celery task call it.
 
 Profile is *deterministic ground truth* (computed from authoritative tables). Distinct
 from `SignalScratchpad`, which is the *scout's inferred learnings* (TTL'd, possibly wrong).
@@ -29,8 +30,8 @@ from products.signals.backend.models import SignalProjectProfile
 from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, build_inventory
 
 # Soft cache TTL — `get_project_profile` recomputes when the newest row is older than this.
-# Aligned to the coordinator tick (60min in prod, 15min in dev) so an active team's
-# agent runs see fresh ground-truth at most one tick stale. The TTL is a freshness
+# A scout run reads the profile at start, so a team whose scouts run more often than this
+# sees ground truth at most one TTL stale. The TTL is a freshness
 # floor, not a smoothing knob — smoothing comes from the time windows the inventory
 # builders themselves query. Profile builds are single-flighted under the advisory
 # lock below, so per-team build rate is bounded by 1/TTL regardless of fan-out width.
@@ -39,9 +40,8 @@ from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERS
 PROFILE_TTL = timedelta(hours=1)
 
 # Keep the last N profiles per team. The table is append-only on cache miss; without
-# pruning a single active team accumulates indefinitely. Phase 7 diff logic only needs
-# the previous row, so N=10 leaves comfortable slack for diff windows and debugging
-# without unbounded growth.
+# pruning a single active team accumulates indefinitely. N=10 keeps some history for
+# debugging without unbounded growth.
 PROFILE_KEEP_N = 10
 
 # Advisory-lock namespace key for `pg_advisory_xact_lock(ns, team_id)`. Picked
@@ -63,8 +63,8 @@ SUMMARY_SECTIONS = ("emit_eligibility", "existing_inbox_reports")
 class ProjectProfile:
     """Wire shape for a `SignalProjectProfile` row.
 
-    `payload` is the structured snapshot — currently `{inventory: {...}}`; Phase 7 fills
-    in `deltas`, `activity_notes`, and `narrative`. Surfaced as a dict because consumers
+    `payload` is the structured snapshot: `{inventory: {...}}`. `stale` is true when the
+    row is past `expires_at`, which only a read-only caller can get. Surfaced as a dict because consumers
     (the agent, the scout's prompts) read it as JSON, but the `inventory` block is
     validated against the `Inventory` schema on write (see `profile/schema.py`), so the
     stored jsonb is schema-backed rather than free-form.
@@ -74,6 +74,7 @@ class ProjectProfile:
     computed_at: str
     expires_at: str
     source_version: str
+    stale: bool = False
     payload: dict[str, Any] = field(default_factory=dict)
 
     def summary(self) -> dict[str, Any]:
@@ -94,15 +95,15 @@ def get_project_profile(*, team_id: int, force_refresh: bool = False, lazy_build
     """Return a fresh project profile for a team, computing on cache miss.
 
     Reads the newest `SignalProjectProfile` row; if expired or absent, recomputes inline
-    and persists. The lazy compute path keeps brand-new teams (no profile yet) usable
-    without waiting for the daily Temporal workflow.
+    and persists. The lazy compute path keeps brand-new teams (no profile yet) usable.
 
-    `lazy_build=False` turns this into a pure cache read: on a miss it returns `None`
-    instead of building. Untrusted read callers (a session-authenticated GET, or a
-    `signal_scout:read` PAK without the internal scope) pass this so the read can't trigger
-    the expensive inventory rebuild + row write — DRF exempts safe methods from CSRF, so a
-    build on cache miss would otherwise be CSRF-reachable. The headless scout (internal
-    token) and the Temporal workflow keep the default build-on-miss path. `force_refresh`
+    `lazy_build=False` turns this into a pure read: it returns the newest row on the
+    current `source_version` whatever its age, with `stale=True` when it is past
+    `expires_at`, and `None` only when the team has no such row. Untrusted read callers (a
+    session-authenticated GET, or a `signal_scout:read` PAK without the internal scope) pass
+    this so the read can't trigger the expensive inventory rebuild + row write — DRF exempts
+    safe methods from CSRF, so a build on cache miss would otherwise be CSRF-reachable. The
+    headless scout (internal token) keeps the default build-on-miss path. `force_refresh`
     always builds, regardless of `lazy_build`.
 
     `SignalProjectProfile` is a `TeamScopedRootMixin` model, so `RootTeamMixin.save()`
@@ -124,12 +125,12 @@ def get_project_profile(*, team_id: int, force_refresh: bool = False, lazy_build
     """
     team_id = resolve_effective_team_id(team_id)
     if not force_refresh:
-        cached = _latest_fresh_profile(team_id=team_id)
+        # A read-only caller gets an expired row rather than nothing, because it cannot
+        # build a fresh one, and an old snapshot still orients better than a 404.
+        cached = _latest_profile(team_id=team_id, include_expired=not lazy_build)
         if cached is not None:
             return _to_dataclass(cached)
         if not lazy_build:
-            # Pure cache read: a miss returns None rather than triggering an inline build,
-            # so an untrusted (CSRF-reachable) GET stays side-effect-free.
             return None
     team = Team.objects.get(id=team_id)
     return compute_project_profile(team=team, force=force_refresh)
@@ -142,8 +143,8 @@ def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfil
     `PROFILE_TTL` (until `expires_at`); `get_project_profile` reads the newest
     non-expired row before paying the build cost again.
 
-    Concurrent cache misses (Temporal coordinator + lazy MCP call hitting the same team
-    at once) take a Postgres advisory lock keyed on team_id and re-check the cache after
+    Concurrent cache misses (several scout runs, or a scout run and the
+    `build_signal_project_profile` task, hitting the same team at once) take a Postgres advisory lock keyed on team_id and re-check the cache after
     acquiring it. Without this, a thundering herd would each run `build_inventory` and
     insert a separate row; the lock collapses them into a single build with the losers
     returning the winner's freshly persisted row. After persisting, prune so only the
@@ -158,8 +159,8 @@ def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfil
     """
     # Canonicalize: `RootTeamMixin.save()` stores the row under the root team, so the
     # advisory lock, post-lock cache re-check, and prune must all key on the canonical
-    # id too. `get_project_profile` already passes a canonical team; this guards the
-    # direct / Phase-7 call path where an environment (child) team could be passed in.
+    # id too. `get_project_profile` already passes a canonical team; this guards a
+    # direct call where an environment (child) team could be passed in.
     parent_team = team.parent_team
     if parent_team is not None:
         team = parent_team
@@ -168,7 +169,7 @@ def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfil
             cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_PROFILE_LOCK_NAMESPACE, team.id])
         if not force:
             # Re-check after the lock — another worker may have just persisted a fresh row.
-            existing = _latest_fresh_profile(team_id=team.id)
+            existing = _latest_profile(team_id=team.id)
             if existing is not None:
                 return _to_dataclass(existing)
         payload: dict[str, Any] = {"inventory": build_inventory(team).model_dump(mode="json")}
@@ -194,7 +195,7 @@ def _prune_stale_profiles(*, team_id: int) -> int:
 
     `team_id` is the canonical id (callers resolve it before getting here), so query
     `.unscoped()` and filter on it explicitly rather than leaning on ambient team
-    context — keeps the prune correct off the request path (Phase-7 Temporal) too.
+    context — keeps the prune correct off the request path (the Celery build) too.
     """
     keep_ids = list(
         SignalProjectProfile.objects.unscoped()
@@ -206,12 +207,13 @@ def _prune_stale_profiles(*, team_id: int) -> int:
     return deleted
 
 
-def _latest_fresh_profile(*, team_id: int) -> SignalProjectProfile | None:
-    """Newest profile for the team that's still within its TTL and on the current schema.
+def _latest_profile(*, team_id: int, include_expired: bool = False) -> SignalProjectProfile | None:
+    """Newest profile for the team on the current schema, within its TTL unless `include_expired`.
 
     Both checks matter: an expired row should be recomputed even if its schema matches,
     and a row on an older `source_version` is treated as a miss so a schema bump silently
-    invalidates stale shapes without a manual backfill.
+    invalidates stale shapes without a manual backfill. `include_expired` drops only the
+    TTL check, for read-only callers that cannot rebuild.
 
     `team_id` is the canonical id (callers resolve it before getting here), so query
     `.unscoped()` and filter on it explicitly. Going through the fail-closed manager
@@ -221,17 +223,10 @@ def _latest_fresh_profile(*, team_id: int) -> SignalProjectProfile | None:
     never hit. Filtering on the resolved canonical id directly keeps read symmetric with
     `RootTeamMixin.save()`'s canonicalized write.
     """
-    now = timezone.now()
-    return (
-        SignalProjectProfile.objects.unscoped()
-        .filter(
-            team_id=team_id,
-            expires_at__gt=now,
-            source_version=INVENTORY_SOURCE_VERSION,
-        )
-        .order_by("-computed_at")
-        .first()
-    )
+    rows = SignalProjectProfile.objects.unscoped().filter(team_id=team_id, source_version=INVENTORY_SOURCE_VERSION)
+    if not include_expired:
+        rows = rows.filter(expires_at__gt=timezone.now())
+    return rows.order_by("-computed_at").first()
 
 
 def _to_dataclass(row: SignalProjectProfile) -> ProjectProfile:
@@ -240,5 +235,6 @@ def _to_dataclass(row: SignalProjectProfile) -> ProjectProfile:
         computed_at=row.computed_at.isoformat(),
         expires_at=row.expires_at.isoformat(),
         source_version=row.source_version,
+        stale=row.expires_at <= timezone.now(),
         payload=dict(row.payload or {}),
     )
