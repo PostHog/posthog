@@ -93,6 +93,7 @@ interface TraceDialogSession {
     loadStartedAtMs: number
     spansSelected: number
     keyboardSteps: number
+    collapseToggles: number
     tabsViewed: Set<SpanInspectorTab>
 }
 
@@ -103,6 +104,7 @@ function captureClosed(session: TraceDialogSession, reason: TraceDialogCloseReas
         seconds_open: Math.round((Date.now() - session.openedAtMs) / 1000),
         spans_selected: session.spansSelected,
         keyboard_steps: session.keyboardSteps,
+        collapse_toggles: session.collapseToggles,
         tabs_viewed: [...session.tabsViewed],
     })
 }
@@ -194,6 +196,12 @@ export interface traceDialogLogicActions {
     } // sessionPlayerModalLogic
     closeTraceDialog: (reason?: TraceDialogCloseReason) => {
         reason: TraceDialogCloseReason
+    }
+    collapseSelectedSpan: () => {
+        value: true
+    }
+    expandSelectedSpan: () => {
+        value: true
     }
     loadTraceSpans: (trace: TraceLinkParams) => TraceLinkParams
     loadTraceSpansFailure: (
@@ -326,6 +334,8 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         openInTracing: true,
         selectNextSpan: true,
         selectPreviousSpan: true,
+        collapseSelectedSpan: true,
+        expandSelectedSpan: true,
         closeTraceDialog: (reason: TraceDialogCloseReason = 'dismissed') => ({ reason }),
         selectSpan: (spanId: string) => ({ spanId }),
         toggleSpanCollapsed: (spanId: string) => ({ spanId }),
@@ -591,6 +601,7 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                 loadStartedAtMs: Date.now(),
                 spansSelected: 0,
                 keyboardSteps: 0,
+                collapseToggles: 0,
                 tabsViewed: new Set(),
             }
             cache.session = session
@@ -614,7 +625,12 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                     if (typing || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) {
                         return
                     }
-                    const step = { j: actions.selectNextSpan, k: actions.selectPreviousSpan }[event.key.toLowerCase()]
+                    const step = {
+                        j: actions.selectNextSpan,
+                        k: actions.selectPreviousSpan,
+                        arrowleft: actions.collapseSelectedSpan,
+                        arrowright: actions.expandSelectedSpan,
+                    }[event.key.toLowerCase()]
                     if (step) {
                         event.preventDefault()
                         event.stopPropagation()
@@ -690,8 +706,41 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                 actions.selectSpan(previous.span.span_id)
             }
         },
+        // Left collapses the selected span, or moves up to its parent once there is nothing to collapse.
+        collapseSelectedSpan: () => {
+            const node = values.spanTree.nodesById.get(values.missingParentSpanId ?? values.selectedSpan?.span_id ?? '')
+            if (!node) {
+                return
+            }
+            if (cache.session) {
+                cache.session.keyboardSteps += 1
+            }
+            if (node.children.length > 0 && !values.collapsedSpanIds.has(node.span.span_id)) {
+                actions.toggleSpanCollapsed(node.span.span_id)
+            } else if (node.parent) {
+                actions.selectSpan(node.parent.span.span_id)
+            }
+        },
+        // Right expands the selected span, or steps into its first child once it is open.
+        expandSelectedSpan: () => {
+            const node = values.spanTree.nodesById.get(values.missingParentSpanId ?? values.selectedSpan?.span_id ?? '')
+            if (!node || node.children.length === 0) {
+                return
+            }
+            if (!values.collapsedSpanIds.has(node.span.span_id)) {
+                actions.selectNextSpan()
+                return
+            }
+            if (cache.session) {
+                cache.session.keyboardSteps += 1
+            }
+            actions.toggleSpanCollapsed(node.span.span_id)
+        },
         // Collapsing the span that holds the selection selects it, so the inspector shows a span on screen.
         toggleSpanCollapsed: ({ spanId }) => {
+            if (cache.session) {
+                cache.session.collapseToggles += 1
+            }
             if (!values.collapsedSpanIds.has(spanId) || !values.selectedSpanId) {
                 return
             }
