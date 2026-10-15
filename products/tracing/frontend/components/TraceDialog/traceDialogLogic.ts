@@ -139,12 +139,12 @@ export interface traceDialogLogicMeta {
         dialogEnabled: (featureFlags: FeatureFlagsSet) => boolean
         spanTree: (traceSpans: TraceDialogSpans | null) => TraceDialogTree
         spanRows: (
-            spanTree: any,
-            collapsedSpanIds: any,
-            fullChildListSpanIds: any,
+            spanTree: TraceDialogTree,
+            collapsedSpanIds: Set<string>,
+            fullChildListSpanIds: Set<string>,
             trace: TraceLinkParams | null
         ) => TraceDialogRow[]
-        flatSpans: (spanRows: any) => SpanNode[]
+        flatSpans: (spanRows: TraceDialogRow[]) => SpanNode[]
         serviceColorMap: (traceSpans: TraceDialogSpans | null) => Map<string, number>
         timeline: (traceSpans: TraceDialogSpans | null) => TraceDialogTimeline
         summary: (traceSpans: TraceDialogSpans | null) => TraceDialogSummary
