@@ -74,7 +74,7 @@ def reconcile_stranded_ready_events() -> None:
         .values_list("team_id", "id", "ready_event_emitted_at", "ready_event_source_products")[:_RECONCILE_BATCH_SIZE]
     )
     for team_id, report_id, claimed_at, source_products in stranded:
-        if not _renew_stale_claim(team_id, str(report_id), claimed_at):
+        if claimed_at is None or not _renew_stale_claim(team_id, str(report_id), claimed_at):
             continue
         try:
             _publish_ready_event(team_id, str(report_id), source_products or [])

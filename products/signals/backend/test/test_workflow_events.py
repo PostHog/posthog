@@ -102,18 +102,22 @@ class TestEmitInboxReportReadyEvent(BaseTest):
 
     @parameterized.expand(
         [
-            ("rejected_on_produce", RuntimeError("broker down"), None),
-            ("rejected_on_delivery", None, KafkaException("message timed out")),
+            ("rejected_on_produce", RuntimeError("broker down"), None, RuntimeError),
+            ("rejected_on_delivery", None, KafkaException("message timed out"), KafkaException),
         ]
     )
     def test_a_failed_publish_raises_and_the_sweep_sends_it_again(
-        self, _name: str, produce_error: Exception | None, delivery_error: Exception | None
+        self,
+        _name: str,
+        produce_error: Exception | None,
+        delivery_error: Exception | None,
+        expected_error: type[Exception],
     ) -> None:
         failed_delivery = MagicMock()
         failed_delivery.get.side_effect = delivery_error
         self.produce.side_effect = [produce_error or failed_delivery, MagicMock()]
 
-        with pytest.raises(type(produce_error or delivery_error)):
+        with pytest.raises(expected_error):
             self._emit()
         self._sweep_after(timedelta(minutes=16))
         self._sweep_after(timedelta(hours=1))

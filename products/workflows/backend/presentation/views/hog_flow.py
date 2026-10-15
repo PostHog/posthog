@@ -6062,14 +6062,16 @@ class HogFlowViewSet(
         response["Referrer-Policy"] = "no-referrer"
         return response
 
-    def _deny_assets_of_inbox_report_runs(self, request: Request, function_id: str, invocation_ids: list[str]) -> None:
+    def _deny_assets_of_inbox_report_runs(
+        self, request: Request, function_id: str, invocation_ids: Sequence[str]
+    ) -> None:
         if _may_read_inbox_reports(request, self.team):
             return
         run_globals = fetch_hog_invocation_globals(
             team_id=self.team_id,
             function_kind=self.function_kind,
             function_id=function_id,
-            invocation_ids=invocation_ids,
+            invocation_ids=list(invocation_ids),
         )
         if any(_is_inbox_report_run(invocation_globals) for invocation_globals in run_globals.values()):
             raise exceptions.PermissionDenied(INBOX_REPORT_ACCESS_MESSAGE)
