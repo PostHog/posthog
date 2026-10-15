@@ -114,6 +114,19 @@ class TestCanvasFileSystemVisibility(APIBaseTest):
         self.assertTrue(self.public_canvas.deleted)
         self.assertFalse(FileSystem.objects.filter(id=entry.id).exists())
 
+    def test_restoring_a_hidden_canvas_through_undo_delete_is_refused(self) -> None:
+        self.personal_canvas.deleted = True
+        self.personal_canvas.save()
+        self.client.force_login(self.other)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "canvas", "ref": str(self.personal_canvas.id), "path": "Unfiled/Canvases/Mine"}]},
+            format="json",
+        )
+        self.assertIn(response.status_code, (400, 403), response.content)
+        self.personal_canvas.refresh_from_db()
+        self.assertTrue(self.personal_canvas.deleted)
+
     def test_deleting_a_hidden_canvas_row_is_refused(self) -> None:
         entry = FileSystem.objects.get(team=self.team, type="canvas", ref=str(self.personal_canvas.id))
         self.client.force_login(self.other)

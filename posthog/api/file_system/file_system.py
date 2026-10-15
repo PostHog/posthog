@@ -344,7 +344,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         user_id = getattr(self.request.user, "id", None)
-        visible_canvas = canvas_facade.visible_canvas_refs(user_id).filter(
+        visible_canvas = canvas_facade.visible_canvas_refs(user_id, project_id=self.team.project_id).filter(
             team_id=OuterRef("team_id"), ref=OuterRef("ref")
         )
         return queryset.filter(~Q(type="canvas") | Exists(visible_canvas))

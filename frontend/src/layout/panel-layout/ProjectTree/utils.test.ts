@@ -26,6 +26,27 @@ const catalogProducts = [...getDefaultTreeProducts(), ...getDefaultTreeData()].f
 )
 
 describe('project tree utils', () => {
+    describe('isFileSystemEntryTypeEnabled', () => {
+        it.each([
+            ['a Today type with its flag on', 'canvas', { 'today-rail-nav': true }, true],
+            ['a Today type with its flag off', 'canvas', {}, false],
+            ['a type behind another flag, with that flag off', 'task', {}, true],
+            ['an unflagged type', 'dashboard', {}, true],
+            ['a subtype of an unflagged type', 'insight/trends', {}, true],
+            ['a folder', 'folder', {}, true],
+            ['the Unfiled folder of a Today type with its flag off', 'folder:Unfiled/Canvases', {}, false],
+            [
+                'the Unfiled folder of a Today type with its flag on',
+                'folder:Unfiled/Canvases',
+                { 'today-rail-nav': true },
+                true,
+            ],
+        ])('keeps %s: %s', (_label, typeAndPath, featureFlags, expected) => {
+            const [type, path] = typeAndPath.split(':')
+            expect(isFileSystemEntryTypeEnabled({ type, path }, featureFlags)).toBe(expected)
+        })
+    })
+
     describe('isProjectTreeItemActive', () => {
         const insight: TreeDataItem = {
             id: 'project/sql-insight',
@@ -258,17 +279,5 @@ describe('project tree utils', () => {
                 )
             }
         )
-    })
-})
-
-describe('isFileSystemEntryTypeEnabled', () => {
-    it.each([
-        ['a flagged type with its flag on', 'canvas', { 'today-rail-nav': true }, true],
-        ['a flagged type with its flag off', 'canvas', {}, false],
-        ['an unflagged type', 'dashboard', {}, true],
-        ['a subtype of an unflagged type', 'insight/trends', {}, true],
-        ['a folder', 'folder', {}, true],
-    ])('keeps %s: %s', (_label, type, featureFlags, expected) => {
-        expect(isFileSystemEntryTypeEnabled({ type }, featureFlags)).toBe(expected)
     })
 })

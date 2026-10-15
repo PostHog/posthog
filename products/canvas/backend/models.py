@@ -126,7 +126,9 @@ class Canvas(FileSystemSyncMixin, TeamScopedRootMixin, UUIDModel):
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Canvas"]:
         # The unfiled sweep runs outside a request, so the fail-closed manager needs the team spelled out.
-        base_qs = cls.objects.for_team(team.id).filter(**cls.FILED_ANALYSIS_FILTER)
+        # `for_team` resolves an environment to its project, so the exact team keeps an environment's sweep
+        # from filing the project's canvases a second time under its own id.
+        base_qs = cls.objects.for_team(team.id).filter(team_id=team.id, **cls.FILED_ANALYSIS_FILTER)
         return cls._filter_unfiled_queryset(base_qs, team, type="canvas", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
