@@ -51,7 +51,7 @@ The status is right either way, because the work did not run, and it is what the
 
 An event for an installation **no** region holds is receipted with 202, and that is a deliberate change from the 404 the endpoint used to answer.
 By the time the primary region has looked, both regions have looked, and no later attempt can find an installation that does not exist, so a failure status reports a failure that will never resolve.
-The miss is still reported: the primary region, which looks last, logs `vercel_webhook_unknown_config` or `vercel_webhook_deauthorize_unknown_config` at warning level.
+The miss is still reported: the primary region, which looks last, logs `vercel_webhook_unknown_config`, `vercel_webhook_deauthorize_unknown_config` or `vercel_webhook_transfer_unknown_config` at warning level.
 The secondary region logs the same at info, because there a local miss is what the forward is for, and a warning per delivery would fire for every event of every installation the other region holds.
 
 ## Consumers
@@ -60,5 +60,5 @@ One consumer, `vercel_marketplace`, declared in `ee/api/vercel/webhook_consumers
 A build without an `ee/` tree skips it and has no Vercel endpoint either.
 
 The handler runs inside the request. It hands a billing event to the billing service, which waits up to 30 seconds, and a deauthorization to `VercelIntegration.delete_installation`.
-A transfer goes to `VercelIntegration.refresh_installation_account`, which reads the installation's new team from Vercel's account endpoint and stores it, because Vercel does not call the installation endpoint during a transfer.
 That 30 seconds is why `forward_timeout_seconds` is 35: a shorter deadline would make the receiving region give up on an invoice the other region is still processing.
+A transfer goes to `VercelIntegration.refresh_installation_account`, which reads the installation's new team from Vercel's account endpoint and stores it, because Vercel does not call the installation endpoint during a transfer.

@@ -151,8 +151,14 @@ def _handle_transfer(config_id: str, in_receiving_region: bool) -> VercelEventOu
         _log_unknown_config("vercel_webhook_transfer_unknown_config", config_id, TRANSFER_EVENT, in_receiving_region)
         return VercelEventOutcome.UNKNOWN_CONFIG
 
+    # A linked account is billed through PostHog. Vercel account details stored on it would point
+    # its billing page at Vercel invoices and change who gets Owner on login.
+    if integration.config.get("type") == "connectable":
+        logger.info("vercel_webhook_transfer_connectable_ignored", config_id=config_id)
+        return VercelEventOutcome.IGNORED
+
     try:
-        VercelIntegration.refresh_installation_account(config_id)
+        VercelIntegration.refresh_installation_account(integration)
     except Exception as e:
         logger.exception("vercel_webhook_transfer_refresh_failed", config_id=config_id)
         capture_exception(e, {"config_id": config_id})

@@ -327,3 +327,12 @@ class TestVercelResourceAPI(VercelTestBase):
 
         self.assert_success(response)
         self.assertEqual([plan["id"] for plan in response.json()["plans"]], ["posthog-usage-based"])
+
+    def test_resource_plans_reject_a_token_for_another_installation(self):
+        other_installation = self.create_installation()
+        url = f"{self.primary_resource['resource_url']}plans/"
+        headers = self.auth_headers(other_installation["id"], "system")
+
+        response = self.client.get(url, **headers)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

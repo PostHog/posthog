@@ -481,19 +481,21 @@ class VercelIntegration:
         return {"finalized": True}
 
     @staticmethod
-    def refresh_installation_account(installation_id: str) -> None:
-        installation = VercelIntegration._get_installation(installation_id)
+    def refresh_installation_account(installation: OrganizationIntegration) -> None:
+        installation_id = installation.integration_id
         access_token = VercelIntegration._get_access_token(installation)
         if not access_token:
             raise RuntimeError(f"No access token for Vercel installation {installation_id}")
 
         account = VercelAPIClient(bearer_token=access_token).get_installation_account(installation_id)
 
-        # Re-read after the network call, so that a user mapping saved meanwhile is not overwritten.
-        installation.refresh_from_db(fields=["config"])
-        contact = account.get("contact") or installation.config.get("account", {}).get("contact")
-        installation.config["account"] = {"url": account["url"], "name": account.get("name"), "contact": contact}
-        installation.save(update_fields=["config"])
+        # SSO saves user mappings under a lock on this row. Take the same lock, so that a mapping
+        # saved while the request to Vercel was in flight is not overwritten.
+        with transaction.atomic():
+            locked = OrganizationIntegration.objects.select_for_update().get(pk=installation.pk)
+            contact = account.get("contact") or locked.config.get("account", {}).get("contact")
+            locked.config["account"] = {"url": account["url"], "name": account.get("name"), "contact": contact}
+            locked.save(update_fields=["config"])
         logger.info("Refreshed Vercel installation account", installation_id=installation_id, integration="vercel")
 
     @staticmethod

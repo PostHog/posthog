@@ -8,7 +8,7 @@ from django.db import OperationalError
 from django.test import override_settings
 
 from parameterized import parameterized
-from requests import RequestException
+from requests import HTTPError, RequestException
 
 from posthog.ingress.dispatch.loading import reset_consumer_registry
 from posthog.models.organization_integration import OrganizationIntegration
@@ -58,6 +58,17 @@ class TestVercelWebhooks(VercelTestBase):
 
     def _deauthorization_payload(self, installation_id: str) -> dict:
         return {"type": "integration-configuration.removed", "payload": {"installationId": installation_id}}
+
+    def _transfer_payload(self, installation_id: str) -> dict:
+        return {
+            "type": "integration-configuration.transferred",
+            "payload": {
+                "installationId": installation_id,
+                "configuration": {"id": installation_id},
+                "previousTeamId": "team_old",
+                "newTeamId": "team_new",
+            },
+        }
 
     def test_an_invalid_signature_is_refused(self):
         response = self._post(self._billing_payload(self.installation_id), signature="invalid_signature")
@@ -139,11 +150,16 @@ class TestVercelWebhooks(VercelTestBase):
     )
     @patch("ee.vercel.client.requests.Session.request")
     def test_a_transfer_stores_the_new_team_from_vercel(self, _name, live_contact, stored_contact, vercel_request):
-        self.installation.config["account"] = {
-            "url": "https://vercel.com/old-team/~/integrations/posthog/icfg_old",
-            "name": "Old team",
-            "contact": {"email": "old-owner@example.com", "name": "Old owner"},
+        self.installation.config = {
+            "billing_plan_id": "free",
+            "user_mappings": {"vercel_user_1": self.user.pk},
+            "account": {
+                "url": "https://vercel.com/old-team/~/integrations/posthog/icfg_old",
+                "name": "Old team",
+                "contact": {"email": "old-owner@example.com", "name": "Old owner"},
+            },
         }
+        self.installation.sensitive_config = {"credentials": {"access_token": "test_token", "token_type": "Bearer"}}
         self.installation.save()
         vercel_response = MagicMock(status_code=200)
         vercel_response.json.return_value = {
@@ -153,17 +169,7 @@ class TestVercelWebhooks(VercelTestBase):
         }
         vercel_request.return_value = vercel_response
 
-        response = self._post(
-            {
-                "type": "integration-configuration.transferred",
-                "payload": {
-                    "installationId": self.installation_id,
-                    "configuration": {"id": self.installation_id},
-                    "previousTeamId": "team_old",
-                    "newTeamId": "team_new",
-                },
-            }
-        )
+        response = self._post(self._transfer_payload(self.installation_id))
 
         self.assertEqual(response.status_code, 202)
         self.assertEqual(
@@ -172,13 +178,43 @@ class TestVercelWebhooks(VercelTestBase):
         )
         self.installation.refresh_from_db()
         self.assertEqual(
-            self.installation.config["account"],
+            self.installation.config,
             {
-                "url": "https://vercel.com/new-team/~/integrations/posthog/icfg_old",
-                "name": "New team",
-                "contact": stored_contact,
+                "billing_plan_id": "free",
+                "user_mappings": {"vercel_user_1": self.user.pk},
+                "account": {
+                    "url": "https://vercel.com/new-team/~/integrations/posthog/icfg_old",
+                    "name": "New team",
+                    "contact": stored_contact,
+                },
             },
         )
+
+    @patch("ee.vercel.client.requests.Session.request")
+    def test_a_transfer_of_a_linked_account_changes_nothing(self, vercel_request):
+        self.installation.config["type"] = "connectable"
+        self.installation.save()
+        config_before = dict(self.installation.config)
+
+        response = self._post(self._transfer_payload(self.installation_id))
+
+        self.assertEqual(response.status_code, 202)
+        vercel_request.assert_not_called()
+        self.installation.refresh_from_db()
+        self.assertEqual(self.installation.config, config_before)
+
+    @patch("ee.vercel.client.requests.Session.request")
+    def test_a_transfer_whose_account_lookup_fails_is_not_receipted(self, vercel_request):
+        vercel_response = MagicMock(status_code=500, text="upstream error")
+        vercel_response.raise_for_status.side_effect = HTTPError(response=vercel_response)
+        vercel_request.return_value = vercel_response
+        config_before = dict(self.installation.config)
+
+        response = self._post(self._transfer_payload(self.installation_id))
+
+        self.assertEqual(response.status_code, 500)
+        self.installation.refresh_from_db()
+        self.assertEqual(self.installation.config, config_before)
 
     @patch("ee.api.vercel.webhook_events.BillingManager")
     def test_an_event_type_this_integration_does_not_act_on_runs_nothing(self, billing_manager):
