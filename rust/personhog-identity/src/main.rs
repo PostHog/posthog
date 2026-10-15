@@ -240,6 +240,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pools = create_pools(&config);
     let storage = Arc::new(PostgresIdentityStorage::new(pools.clone(), config.tables()));
     let merge_warnings = warnings::install(&config.ingestion_warnings_settings(), warnings_handle);
+    let warnings_to_flush = merge_warnings.clone();
 
     // Pre-warm the DB connection pools before accepting traffic.
     // connect_lazy() starts with zero connections; without this, the first
@@ -448,6 +449,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     monitor.wait().await?;
+
+    if let Err(e) = tokio::task::spawn_blocking(move || warnings_to_flush.flush()).await {
+        tracing::warn!(error = %e, "ingestion warnings flush task panicked");
+    }
 
     Ok(())
 }

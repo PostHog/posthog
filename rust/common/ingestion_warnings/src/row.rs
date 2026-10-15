@@ -4,6 +4,7 @@
 //! `team:type:key` limiter, so one offending entity re-presenting the same
 //! condition warns once per period while a different entity warns at once.
 
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::Duration;
 
 use common_kafka::kafka_producer::ThreadedKafkaContext;
@@ -58,6 +59,15 @@ impl KafkaRowWarningEmitter {
     }
 }
 
+/// The scope is caller data of unbounded length (a distinct id, say), and
+/// the throttle retains every key for the period, so the key carries a
+/// fixed-width digest of it instead.
+pub fn throttle_key(team_id: i64, scope: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    scope.hash(&mut hasher);
+    format!("{team_id}:{:016x}", hasher.finish())
+}
+
 fn count(warning: WarningType, source: WarningSource, outcome: &'static str) {
     counter!(
         INGESTION_WARNINGS_TOTAL,
@@ -72,10 +82,9 @@ fn count(warning: WarningType, source: WarningSource, outcome: &'static str) {
 impl RowWarningEmitter for KafkaRowWarningEmitter {
     fn emit(&self, team_id: i64, scope: &str, source: WarningSource, warning: Warning) {
         let warning_type = warning.warning_type();
-        let throttle_key = format!("{team_id}:{scope}");
         if let Some(outcome) = self
             .throttle
-            .check(&throttle_key, warning_type)
+            .check(&throttle_key(team_id, scope), warning_type)
             .drop_outcome()
         {
             count(warning_type, source, outcome);
@@ -268,6 +277,16 @@ mod tests {
             outcomes(&snapshotter),
             vec![("emitted".to_string(), 1), ("queue_full".to_string(), 1)]
         );
+    }
+
+    #[test]
+    fn the_throttle_key_is_fixed_width_whatever_the_scope_length() {
+        let huge = "x".repeat(1 << 20);
+        let key = throttle_key(7, &huge);
+        assert_eq!(key.len(), throttle_key(7, "did").len());
+        assert_ne!(key, throttle_key(7, &format!("{huge}y")));
+        assert_ne!(key, throttle_key(8, &huge));
+        assert_eq!(key, throttle_key(7, &huge));
     }
 
     #[test]

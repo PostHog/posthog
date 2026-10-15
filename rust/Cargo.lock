@@ -8951,7 +8951,6 @@ dependencies = [
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
- "metrics-util",
  "personhog-common",
  "personhog-coordination",
  "personhog-proto",

@@ -155,6 +155,13 @@ impl MergeWarnings {
             illegal_target_warning(pair),
         );
     }
+
+    /// Blocking; call from a blocking task once every tracked component that
+    /// enqueues warnings has drained. The emitter's own task is advisory and
+    /// receives shutdown alongside the gRPC server, so it cannot flush last.
+    pub fn flush(&self) {
+        self.emitter.flush(SHUTDOWN_FLUSH);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -255,10 +262,6 @@ pub fn install(settings: &WarningsSettings, handle: Option<lifecycle::Handle>) -
                 _ = sweep.tick() => background.sweep_throttle(),
                 _ = handle.shutdown_recv() => break,
             }
-        }
-        if let Err(e) = tokio::task::spawn_blocking(move || background.flush(SHUTDOWN_FLUSH)).await
-        {
-            tracing::warn!(error = %e, "ingestion warnings flush task panicked");
         }
     });
 
