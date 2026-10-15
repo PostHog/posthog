@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp
     emitted_rows_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    aretry_staged_delete,
     aretry_staged_read,
     aretry_staged_write,
 )
@@ -392,7 +393,11 @@ class CDPProducer:
                         CDP_PRODUCER_ROWS_TOTAL.labels(team_id=str(self.team_id)).inc(row_index)
                     await self.logger.adebug(f"Produced {row_index} rows")
                     await self.logger.adebug(f"Deleting file {file_path}")
-                    await asyncio.to_thread(fs.delete_file, file_path)
+
+                    async def _delete_staged_file(path: str = file_path) -> None:
+                        await asyncio.to_thread(fs.delete_file, path)
+
+                    await aretry_staged_delete(_delete_staged_file, path=file_path, logger=self.logger)
 
             await self.logger.adebug("Finished producing all CDP data to Kafka")
 
