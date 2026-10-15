@@ -33,6 +33,12 @@ FH_EVENT_MONITOR_TYPES = ["STATS"]
 # A monitor can write a metric point dated before the newest point of another monitor (daily
 # buckets land after hourly ones), so incremental syncs re-read a trailing overlap; merge dedupes it.
 FH_EVENTS_OVERLAP = timedelta(days=2)
+# A dbt run that started before the watermark can upload its test results after a newer run has
+# synced, so incremental syncs re-read a trailing overlap of run start times; merge dedupes it.
+DBT_TEST_RESULTS_OVERLAP = timedelta(days=2)
+# getJobExecutions only filters by whole days back and a job's startTime stays fixed while it
+# runs, so one extra day catches status updates on jobs that finished after the last sync.
+JOB_EXECUTIONS_OVERLAP = timedelta(days=1)
 
 
 class MonteCarloRetryableError(Exception):
@@ -335,7 +341,7 @@ def _get_dbt_test_result_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     """getDbtTestResults requires a run start time range, so walk windows oldest-first like alerts."""
     now = datetime.now(UTC)
-    start = _window_start(db_incremental_field_last_value, now)
+    start = _window_start(db_incremental_field_last_value, now, overlap=DBT_TEST_RESULTS_OVERLAP)
     windows, resume_cursor = _resumed_windows(start, now, resume, logger, config.name)
 
     for window_after, window_before in windows:
@@ -441,7 +447,7 @@ def _get_job_execution_rows(
     """Fan out over monitors. getJobExecutions only filters by a whole number of days back, so
     incremental syncs ask for the days since the watermark."""
     now = datetime.now(UTC)
-    start = _window_start(db_incremental_field_last_value, now)
+    start = _window_start(db_incremental_field_last_value, now, overlap=JOB_EXECUTIONS_OVERLAP)
     history_days = max(1, math.ceil((now - start) / timedelta(days=1)))
     start_offset = resume.offset if resume is not None and resume.offset else 0
 

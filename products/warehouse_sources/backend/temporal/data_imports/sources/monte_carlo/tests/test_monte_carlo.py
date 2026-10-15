@@ -327,7 +327,8 @@ class TestDbtTestResultsWindowing:
     @parameterized.expand(
         [
             ("first_sync", True, None, 13, "2025-07-15T12:00:00Z"),
-            ("incremental", True, datetime(2026, 6, 1, tzinfo=UTC), 2, "2026-06-01T00:00:00Z"),
+            # Re-reads two days before the watermark so late-arriving test results are not skipped.
+            ("incremental", True, datetime(2026, 6, 1, tzinfo=UTC), 2, "2026-05-30T00:00:00Z"),
             ("full_refresh_ignores_watermark", False, datetime(2026, 6, 1, tzinfo=UTC), 13, "2025-07-15T12:00:00Z"),
         ]
     )
@@ -372,7 +373,7 @@ class TestDbtTestResultsWindowing:
         assert first.requests[1].json()["variables"]["after"] == "cursor-1"
         assert (
             MonteCarloResumeConfig(
-                cursor="cursor-1", window_after="2026-07-01T00:00:00Z", window_before="2026-07-15T12:00:00Z"
+                cursor="cursor-1", window_after="2026-06-29T00:00:00Z", window_before="2026-07-15T12:00:00Z"
             )
             in first.committed_states
         )
@@ -460,7 +461,8 @@ class TestMonitorFanOut:
 
     @parameterized.expand(
         [
-            ("incremental", True, datetime(2026, 7, 10, 18, tzinfo=UTC), 5),
+            # One extra day of overlap for jobs that finished after the last sync.
+            ("incremental", True, datetime(2026, 7, 10, 18, tzinfo=UTC), 6),
             ("first_sync", True, None, 365),
             ("full_refresh_ignores_watermark", False, datetime(2026, 7, 10, tzinfo=UTC), 365),
         ]
