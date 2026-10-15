@@ -54,9 +54,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertFalse(any(field.read_only for field in serializer.fields.values()))
 
     def test_conversations_settings_ai_reply_modes_requires_an_object(self):
-        # End-to-end check that the real PATCH request wires up the shared validator: a bad
-        # ai_reply_modes value used to save silently through this endpoint (see the unit-level
-        # checks in test_team.py for the other cases the shared validator covers).
+        # Checks that the real PATCH request runs the shared validator. test_team.py covers its other cases.
         response = self.client.patch(
             f"/api/projects/{self.project.id}/",
             {"conversations_settings": {"ai_reply_modes": ["not", "a", "dict"]}},
