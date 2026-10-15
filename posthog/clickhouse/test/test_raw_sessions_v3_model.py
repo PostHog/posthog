@@ -450,6 +450,27 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
 
         assert f"ttclid={expected}" in result[0]["entry_ad_ids_set"]
 
+    def test_ad_id_url_param_decodes_plus_as_space(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$current_url": "https://example.com/?utm_id=spring+sale",
+            },
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        # The SDK promotes this property as 'spring sale', so a fallback that kept the plus
+        # would split one campaign across two values.
+        assert "utm_id=spring sale" in result[0]["entry_ad_ids_set"]
+
     def test_ad_id_url_param_with_undecodable_bytes_is_normalized(self):
         distinct_id = create_distinct_id()
         session_id = create_session_id()
