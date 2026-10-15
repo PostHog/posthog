@@ -7624,18 +7624,16 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
-    /**
-     * Issue ranking column.
-     */
-    export type ErrorTrackingListWidgetConfigOrderBy = typeof ErrorTrackingListWidgetConfigOrderBy[keyof typeof ErrorTrackingListWidgetConfigOrderBy];
+    export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
 
 
-    export const ErrorTrackingListWidgetConfigOrderBy = {
+    export const ErrorTrackingOrderBy = {
       LastSeen: 'last_seen',
       FirstSeen: 'first_seen',
       Occurrences: 'occurrences',
       Users: 'users',
       Sessions: 'sessions',
+      Severity: 'severity',
     } as const;
 
     /**
@@ -7690,7 +7688,7 @@ export namespace Schemas {
          */
       limit?: number;
       /** Issue ranking column. */
-      orderBy?: ErrorTrackingListWidgetConfigOrderBy;
+      orderBy?: ErrorTrackingOrderBy;
       /** Sort direction for orderBy. */
       orderDirection?: ErrorTrackingListWidgetConfigOrderDirection;
       /** Issue status filter. */
@@ -10038,18 +10036,6 @@ export namespace Schemas {
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
-
-
-    export const ErrorTrackingOrderBy = {
-      LastSeen: 'last_seen',
-      FirstSeen: 'first_seen',
-      Occurrences: 'occurrences',
-      Users: 'users',
-      Sessions: 'sessions',
-      Severity: 'severity',
-    } as const;
 
     export type OrderDirection2 = typeof OrderDirection2[keyof typeof OrderDirection2];
 
@@ -14091,6 +14077,36 @@ export namespace Schemas {
     export type AutoresearchPipelineInferencePopulation = { [key: string]: unknown };
 
     /**
+     * * `7` - 7
+     * * `14` - 14
+     * * `30` - 30
+     * * `60` - 60
+     * * `90` - 90
+     */
+    export type ResearchIntervalDaysEnum = typeof ResearchIntervalDaysEnum[keyof typeof ResearchIntervalDaysEnum];
+
+
+    export const ResearchIntervalDaysEnum = {
+      Number7: 7,
+      Number14: 14,
+      Number30: 30,
+      Number60: 60,
+      Number90: 90,
+    } as const;
+
+    /**
+     * * `explore` - Explore
+     * * `maintain` - Maintain
+     */
+    export type TrainingPhaseEnum = typeof TrainingPhaseEnum[keyof typeof TrainingPhaseEnum];
+
+
+    export const TrainingPhaseEnum = {
+      Explore: 'explore',
+      Maintain: 'maintain',
+    } as const;
+
+    /**
      * * `draft` - Draft
      * * `bootstrapping` - Bootstrapping
      * * `running` - Running
@@ -14188,13 +14204,33 @@ export namespace Schemas {
          */
       cadence_days?: number;
       /**
-         * Total training iterations allowed for the autoresearch loop.
+         * Deprecated: scheduled training no longer reads it. Use iterations_per_run.
          * @minimum -2147483648
          * @maximum 2147483647
          */
       iteration_budget?: number;
-      /** Iterations remaining in the current budget. */
+      /** Deprecated: scheduled training no longer reads or spends it. */
       readonly iteration_budget_remaining: number;
+      /** Experiments the agent may try in each training run (1-50). Each experiment costs agent time and queries, so a higher value costs more per run. Scheduled runs and Train now use it. */
+      readonly iterations_per_run: number;
+      /** Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. Null means only when asked: no scheduled research, so the only training cost comes from runs you start and from rescue runs for a model that cannot score. A shorter interval costs more.
+       *
+       * * `7` - 7
+       * * `14` - 14
+       * * `30` - 30
+       * * `60` - 60
+       * * `90` - 90 */
+      readonly research_interval_days: ResearchIntervalDaysEnum | null;
+      /** explore: a research run on each scoring day until a run does not promote a better model, or until 5 research runs have run. maintain: one research run every research_interval_days.
+       *
+       * * `explore` - Explore
+       * * `maintain` - Maintain */
+      readonly training_phase: TrainingPhaseEnum;
+      /**
+         * Start of the UTC day from which the daily sweep can start the next scheduled research run. Null when research_interval_days is null.
+         * @nullable
+         */
+      readonly next_research_at: string | null;
       /**
          * Target AUC threshold. Training stops early if this score is reached.
          * @nullable
@@ -14346,11 +14382,25 @@ export namespace Schemas {
          */
       cadence_days?: number;
       /**
-         * Total training iterations allowed for the autoresearch loop (1-500). Default: 50.
+         * Deprecated: scheduled training no longer reads it. Use iterations_per_run.
          * @minimum 1
          * @maximum 500
          */
       iteration_budget?: number;
+      /**
+         * Experiments the agent may try in each training run (1-50). Each experiment costs agent time and queries, so a higher value costs more per run. Scheduled runs and Train now use it. Default: 5.
+         * @minimum 1
+         * @maximum 50
+         */
+      iterations_per_run?: number;
+      /** Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. Null means only when asked: no scheduled research, so the only training cost comes from runs you start and from rescue runs for a model that cannot score. A shorter interval costs more. Default: 7.
+       *
+       * * `7` - 7
+       * * `14` - 14
+       * * `30` - 30
+       * * `60` - 60
+       * * `90` - 90 */
+      research_interval_days?: ResearchIntervalDaysEnum | null;
       /**
          * Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.
          * @minimum 0
@@ -14532,6 +14582,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `explore` - Explore
+     * * `scheduled` - Scheduled
+     * * `rescue` - Rescue
+     * * `manual` - Manual
+     */
+    export type AutoresearchTrainingRunKickoffReasonEnum = typeof AutoresearchTrainingRunKickoffReasonEnum[keyof typeof AutoresearchTrainingRunKickoffReasonEnum];
+
+
+    export const AutoresearchTrainingRunKickoffReasonEnum = {
+      Explore: 'explore',
+      Scheduled: 'scheduled',
+      Rescue: 'rescue',
+      Manual: 'manual',
+    } as const;
+
+    /**
      * One iteration referenced from a run summary's ladder or dead-ends list.
      */
     export interface TrainingRunSummaryLadderItem {
@@ -14665,6 +14731,13 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `failed` - Failed */
       readonly status: ZendeskImportJobStatusEnum;
+      /** Why the run started: explore (the first burst of daily runs), scheduled (the research interval), rescue (the champion cannot score) or manual (a person or an agent asked). Null for older runs.
+       *
+       * * `explore` - Explore
+       * * `scheduled` - Scheduled
+       * * `rescue` - Rescue
+       * * `manual` - Manual */
+      readonly kickoff_reason: AutoresearchTrainingRunKickoffReasonEnum | null;
       /**
          * Maximum iterations allowed for this run.
          * @minimum -2147483648
@@ -41420,6 +41493,7 @@ export namespace Schemas {
      * * `occurrences` - occurrences
      * * `users` - users
      * * `sessions` - sessions
+     * * `severity` - severity
      */
     export type ErrorTrackingIssueOrderByEnum = typeof ErrorTrackingIssueOrderByEnum[keyof typeof ErrorTrackingIssueOrderByEnum];
 
@@ -41430,6 +41504,7 @@ export namespace Schemas {
       Occurrences: 'occurrences',
       Users: 'users',
       Sessions: 'sessions',
+      Severity: 'severity',
     } as const;
 
     export interface ErrorTrackingIssueQueryRequest {
@@ -41610,7 +41685,8 @@ export namespace Schemas {
        * * `first_seen` - first_seen
        * * `occurrences` - occurrences
        * * `users` - users
-       * * `sessions` - sessions */
+       * * `sessions` - sessions
+       * * `severity` - severity */
       orderBy?: ErrorTrackingIssueOrderByEnum;
       /** Sort direction. Defaults to DESC.
        *
@@ -61127,6 +61203,27 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface KnowledgeLibrary {
+      /** Library id. */
+      id: string;
+      /** Library name. Unique in this project, ignoring case. */
+      name: string;
+      /** True for the library new learned sources join. There is at most one. */
+      is_default: boolean;
+      /** How many sources are in this library. */
+      source_count: number;
+      /** Selected repositories in this library that this environment is allowed to read. */
+      repos: string[];
+    }
+
+    export interface KnowledgeLibraryCreate {
+      /**
+         * Name for the new library.
+         * @maxLength 255
+         */
+      name: string;
+    }
+
     /**
      * One ranked chunk from a business knowledge search.
      *
@@ -61268,6 +61365,8 @@ export namespace Schemas {
       /** @nullable */
       readonly file_size_bytes: number | null;
       readonly always_include: boolean;
+      /** Libraries this source belongs to. Empty when the source is in none. */
+      readonly library_ids: readonly string[];
     }
 
     /**
@@ -69239,7 +69338,7 @@ export namespace Schemas {
      */
     export interface OpenTrainingRun {
       /**
-         * Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted.
+         * Iteration budget for this run. Defaults to the pipeline's iterations_per_run if omitted.
          * @minimum 1
          * @maximum 500
          */
@@ -78524,11 +78623,25 @@ export namespace Schemas {
          */
       cadence_days?: number;
       /**
-         * Total training iterations allowed for the autoresearch loop (1-500). Default: 50.
+         * Deprecated: scheduled training no longer reads it. Use iterations_per_run.
          * @minimum 1
          * @maximum 500
          */
       iteration_budget?: number;
+      /**
+         * Experiments the agent may try in each training run (1-50). Each experiment costs agent time and queries, so a higher value costs more per run. Scheduled runs and Train now use it. Default: 5.
+         * @minimum 1
+         * @maximum 50
+         */
+      iterations_per_run?: number;
+      /** Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. Null means only when asked: no scheduled research, so the only training cost comes from runs you start and from rescue runs for a model that cannot score. A shorter interval costs more. Default: 7.
+       *
+       * * `7` - 7
+       * * `14` - 14
+       * * `30` - 30
+       * * `60` - 60
+       * * `90` - 90 */
+      research_interval_days?: ResearchIntervalDaysEnum | null;
       /**
          * Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.
          * @minimum 0
@@ -82159,6 +82272,18 @@ export namespace Schemas {
          * @nullable
          */
       js_snippet_version?: string | null;
+    }
+
+    export interface PatchedKnowledgeLibraryUpdate {
+      /**
+         * New name. Omit to keep the current name.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Replaces every source in this library. Omit to leave sources unchanged. An empty list removes them all. */
+      source_ids?: string[];
+      /** Replaces this environment's repositories in the library. Omit to leave them unchanged. Repositories only another environment allows stay. */
+      repos?: string[];
     }
 
     /**
@@ -86986,6 +87111,8 @@ export namespace Schemas {
       text?: string;
       /** When true, this source's content is injected into every support reply prompt as general context. */
       always_include?: boolean;
+      /** Replaces the libraries this source belongs to. Omit to leave membership unchanged. An empty list removes it from every library. */
+      library_ids?: string[];
     }
 
     /**
@@ -107977,7 +108104,7 @@ export namespace Schemas {
 
     export interface StartTrainingRequest {
       /**
-         * Override the pipeline iteration budget for this training run.
+         * Iterations for this training run. Defaults to the pipeline's iterations_per_run.
          * @minimum 1
          * @maximum 500
          */
@@ -119311,6 +119438,8 @@ export namespace Schemas {
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `KnowledgeSource` - KnowledgeSource
+     * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
@@ -119420,6 +119549,8 @@ export namespace Schemas {
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
+      KnowledgeSource: 'KnowledgeSource',
+      KnowledgeLibrary: 'KnowledgeLibrary',
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
@@ -119515,6 +119646,8 @@ export namespace Schemas {
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `KnowledgeSource` - KnowledgeSource
+     * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
@@ -119612,6 +119745,8 @@ export namespace Schemas {
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
+      KnowledgeSource: 'KnowledgeSource',
+      KnowledgeLibrary: 'KnowledgeLibrary',
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
@@ -120440,6 +120575,10 @@ export namespace Schemas {
 
     export type BusinessKnowledgeDocumentsSearchListParams = {
     /**
+     * Limit retrieval to sources in this library. Pass the same id to repository search and file read. Omit to search every ready source.
+     */
+    library_id?: string;
+    /**
      * Maximum number of ranked chunks to return. Defaults to 10, capped at 20.
      */
     limit?: number;
@@ -120470,6 +120609,10 @@ export namespace Schemas {
 
     export type BusinessKnowledgeRepositoriesFileRetrieveParams = {
     /**
+     * Require the repository to be in this library. Pass the same id used for document search and repository search. Omit to read any selected repository.
+     */
+    library_id?: string;
+    /**
      * File path returned by the repository search.
      * @minLength 1
      */
@@ -120482,6 +120625,10 @@ export namespace Schemas {
     };
 
     export type BusinessKnowledgeRepositoriesSearchParams = {
+    /**
+     * Limit the search to repositories in this library. Pass the same id to document search and file read. Omit to search every selected repository.
+     */
+    library_id?: string;
     /**
      * File names, path fragments, or identifiers to match. Not a full sentence.
      * @minLength 1
@@ -120499,6 +120646,10 @@ export namespace Schemas {
      */
     added_by?: BusinessKnowledgeSourcesListAddedBy;
     /**
+     * Return only sources in this library. Do not combine with unfiled.
+     */
+    library_id?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -120514,6 +120665,10 @@ export namespace Schemas {
      * Filter to a single source type (text, url, or file).
      */
     source_type?: BusinessKnowledgeSourcesListSourceType;
+    /**
+     * When true, return only sources that are in no library. Do not combine with library_id.
+     */
+    unfiled?: boolean;
     };
 
     export type BusinessKnowledgeSourcesListAddedBy = typeof BusinessKnowledgeSourcesListAddedBy[keyof typeof BusinessKnowledgeSourcesListAddedBy];

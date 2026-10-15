@@ -11,7 +11,11 @@ import { urls } from 'scenes/urls'
 
 import { runHeadline } from '../agentSearch'
 import { autoresearchPipelineLogic, trainingRunProgress } from '../autoresearchPipelineLogic'
-import { type AutoresearchRunApi, AutoresearchTrainingRunApi } from '../generated/api.schemas'
+import {
+    type AutoresearchRunApi,
+    AutoresearchTrainingRunApi,
+    type AutoresearchTrainingRunKickoffReasonEnumApi,
+} from '../generated/api.schemas'
 import { RunFeatureComparison } from './RunFeatureComparison'
 
 // Derived from the field rather than the standalone enum: this pending/running/completed/failed
@@ -26,6 +30,13 @@ const RUN_STATUS: Record<
     running: { type: 'highlight', label: 'Running' },
     completed: { type: 'success', label: 'Completed' },
     failed: { type: 'danger', label: 'Failed' },
+}
+
+const KICKOFF_REASON: Record<AutoresearchTrainingRunKickoffReasonEnumApi, { label: string; tooltip: string }> = {
+    explore: { label: 'Exploring', tooltip: 'One of the first daily runs that look for a better model' },
+    scheduled: { label: 'Scheduled', tooltip: 'Started on the research schedule set on the Setup tab' },
+    rescue: { label: 'Rescue', tooltip: 'A short run to replace a model that stopped scoring' },
+    manual: { label: 'Manual', tooltip: 'Started by a person or an agent' },
 }
 
 /** The agent-authored report.md for a run, rendered as markdown (with mermaid charts). */
@@ -117,6 +128,11 @@ export function TrainingRunRow({
                                 {duration ? ` · ${duration}` : ''}
                             </span>
                         </Tooltip>
+                        {run.kickoff_reason && (
+                            <Tooltip title={KICKOFF_REASON[run.kickoff_reason].tooltip}>
+                                <span>· {KICKOFF_REASON[run.kickoff_reason].label}</span>
+                            </Tooltip>
+                        )}
                         {run.task_url && (
                             <Link
                                 to={run.task_url}

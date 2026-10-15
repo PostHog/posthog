@@ -890,7 +890,7 @@ def _describe_unscorable_champion(unscorable: UnscorableChampion | None, *, resc
     if rescue:
         rescue_text = """
 
-            **This is a rescue run.** The pipeline has no iteration budget left, so this run gets a
+            **This is a rescue run.** No research run is due for this pipeline, so this run gets a
             small fixed budget only to make scoring work again. Prefer a cheap, simple model whose
             `features.sql` scores today's inference population well inside the query limits over a
             model with a higher `holdout_score`."""
@@ -941,6 +941,7 @@ def run_training(
     iteration_budget: int,
     user_id: int | None,
     rescue: bool = False,
+    kickoff_reason: str = AutoresearchTrainingRun.KickoffReason.MANUAL,
 ) -> AutoresearchTrainingRun:
     """
     Launch a real agent sandbox training run.
@@ -972,6 +973,7 @@ def run_training(
         training_run = AutoresearchTrainingRun.objects.create(
             pipeline=pipeline,
             status=AutoresearchTrainingRun.Status.RUNNING,
+            kickoff_reason=kickoff_reason,
             iteration_budget=iteration_budget,
             started_at=now,
         )
