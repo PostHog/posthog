@@ -1915,7 +1915,10 @@ class TestHogqlTableModifiers:
             ("Array(IPv4)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
             ("Array(IPv6)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
             ("Array(DateTime)", "arrayMap(x -> toTimeZone(x, %(hogql_val_0)s), person_ids) AS person_ids"),
+            ("Array(Nullable(UUID))", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
             ("Array(String)", None),
+            ("Array(Tuple(uuid String))", None),
+            ("Array(Array(UUID))", None),
         ],
     )
     async def test_applies_arrow_conversions_to_array_elements(

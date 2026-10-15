@@ -663,11 +663,29 @@ async def hogql_table(
         "IPv6": ("toString", ()),
     }
 
+    def _conversion_target(ch_type: str) -> str:
+        # Arrays are converted per element, so only the element's own type name can select a conversion.
+        # Matching the whole string would also hit names nested deeper, e.g. the `uuid` field of
+        # `Array(Tuple(uuid String))`, and wrongly stringify structures Arrow already supports.
+        if not ch_type.lower().startswith("array("):
+            return ch_type
+        element = ch_type[len("array(") : -1].strip()
+        while element.lower().startswith(("nullable(", "lowcardinality(")):
+            element = element[element.index("(") + 1 : -1].strip()
+        return element.split("(", 1)[0]
+
     def _needs_conversion(ch_type: str) -> bool:
-        return any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion)
+        target = _conversion_target(ch_type).lower()
+        return any(uat.lower() in target for uat in arrow_type_conversion)
 
     get_call_tuple = lambda ch_type: next(
-        iter([call_tuple for uat, call_tuple in arrow_type_conversion.items() if uat.lower() in ch_type.lower()])
+        iter(
+            [
+                call_tuple
+                for uat, call_tuple in arrow_type_conversion.items()
+                if uat.lower() in _conversion_target(ch_type).lower()
+            ]
+        )
     )
 
     try:
