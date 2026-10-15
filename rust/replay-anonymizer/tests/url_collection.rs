@@ -512,7 +512,7 @@ fn unusable_srcset_keeps_the_src_fallback() {
         "https://cdn.example.com/a.png?token=secret 2x",
         "https://127.0.0.1/a.png 2x",
         "data:image/png;base64,%%% 2x",
-        "data:image/svg+xml;base64,PHN2Zz4= 2x",
+        "data:image/svg+xml;base64,bm90IHN2Zw== 2x",
     ] {
         for (engine, result) in run(
             json!({

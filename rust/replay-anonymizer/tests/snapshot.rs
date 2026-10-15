@@ -1016,8 +1016,7 @@ fn image_collection_off_blanks_images_and_returns_no_bytes() {
 }
 
 #[test]
-fn image_collection_blanks_svg() {
-    // SVG is text — PII inside it must not ride to the scrub topic as an "image".
+fn image_collection_sends_svg_to_the_scrub_as_its_document() {
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
     use base64::Engine;
     let svg = base64::engine::general_purpose::STANDARD.encode(
@@ -1045,14 +1044,8 @@ fn image_collection_blanks_svg() {
     )
     .expect("anonymizes");
     let lines = String::from_utf8(out.lines.clone()).unwrap();
-    assert!(out.meta.images.is_empty(), "svg must not be collected");
-    assert!(out.meta.image_sources.is_empty());
+    assert_eq!(out.meta.images.len(), 1, "collected once");
+    assert!(out.image_bytes.starts_with(b"<svg"));
     assert!(!lines.contains(&svg), "raw svg must not pass through");
-    let drops: Vec<_> = out
-        .meta
-        .scrub_drops
-        .iter()
-        .map(|d| (d.reason, d.count))
-        .collect();
-    assert_eq!(drops, vec![("image_svg", 1)]);
+    assert!(out.meta.scrub_drops.is_empty());
 }

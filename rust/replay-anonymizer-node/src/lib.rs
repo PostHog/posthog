@@ -8,12 +8,13 @@
 //! `tests/fixtures/`, which the Jest suite runs against through this addon.
 //!
 //! It also carries the image-scrub sidecar's pixel layout conversions (`pixels`), which fill model
-//! inputs in place in typed arrays that the sidecar allocates, and the produce lanes' ref dedup
-//! caches (`dedup`), which hold their entries outside the V8 heap.
+//! inputs in place in typed arrays that the sidecar allocates, its SVG rasterizer (`svg`), and the
+//! produce lanes' ref dedup caches (`dedup`), which hold their entries outside the V8 heap.
 
 mod brotli;
 mod dedup;
 mod pixels;
+mod svg;
 
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
@@ -512,6 +513,15 @@ fn rgb_to_rgba_ffi(mut cx: FunctionContext) -> JsResult<JsUndefined> {
     convert_in_place(&mut cx, rgb, rgba, pixels::rgb_to_rgba)
 }
 
+fn rasterize_svg_ffi(mut cx: FunctionContext) -> JsResult<JsBuffer> {
+    let document = cx.argument::<JsUint8Array>(0)?;
+    let rendered = svg::rasterize_svg(document.as_slice(&cx));
+    match rendered {
+        Ok(png) => JsBuffer::from_slice(&mut cx, &png),
+        Err(reason) => cx.throw_error(reason),
+    }
+}
+
 fn ref_dedup_cache_new(mut cx: FunctionContext) -> JsResult<JsBox<DedupCacheHandle>> {
     let capacity = cx.argument::<JsNumber>(0)?.value(&mut cx);
     if !(capacity.is_finite() && capacity >= 0.0 && capacity.fract() == 0.0) {
@@ -628,6 +638,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("rgbToChw", rgb_to_chw_ffi)?;
     cx.export_function("rgbToNormalizedChw", rgb_to_normalized_chw_ffi)?;
     cx.export_function("rgbToRgba", rgb_to_rgba_ffi)?;
+    cx.export_function("rasterizeSvg", rasterize_svg_ffi)?;
     cx.export_function("refDedupCacheNew", ref_dedup_cache_new)?;
     cx.export_function("refDedupCacheClaimRefs", ref_dedup_cache_claim_refs)?;
     cx.export_function("refDedupCacheReleaseRefs", ref_dedup_cache_release_refs)?;

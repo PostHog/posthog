@@ -12,7 +12,7 @@ use anyhow::{bail, Result};
 use serde::Serialize;
 
 use crate::allow_lists::AllowLists;
-use crate::assets::PLACEHOLDER_SRC;
+use crate::assets::{is_numbered_placeholder, PLACEHOLDER_SRC};
 use crate::collect::{
     collectable_data_uri_bytes, is_image_ref, CollectedImage, ImageCollection, ImageCollector,
     DROP_COLLECTION_OFF, DROP_MESSAGE_CAP, MAX_IMAGE_BYTES,
@@ -123,6 +123,14 @@ impl<'a> Ctx<'a> {
     /// to the caller for the out-of-band scrub. An image the lane cannot take is replaced by
     /// `fallback` and counted, never passed through or scrubbed here.
     pub(crate) fn scrub_image(&self, original: &str, fallback: ImageFallback) -> String {
+        // This anonymizer's own stand-ins, met again on a re-scrub, carry no page content. A numbered
+        // placeholder's digits are free text a page could forge, so it is trusted only on a re-scrub.
+        if original == PLACEHOLDER_SRC
+            || original == blank_image_data_uri()
+            || (self.keeps_image_refs() && is_numbered_placeholder(original))
+        {
+            return original.to_string();
+        }
         match self.collect_image(original) {
             Ok(reference) => reference,
             Err(reason) => {
@@ -406,6 +414,38 @@ mod tests {
     }
 
     #[test]
+    fn this_anonymizers_own_stand_ins_are_never_collected() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let lane = || Some(ImageCollection::new("42".to_string(), "k".repeat(32)));
+        let numbered = crate::assets::numbered_placeholder(7);
+        let cases = [
+            (
+                Ctx::with_image_collection(&allow, lane()),
+                PLACEHOLDER_SRC.to_string(),
+                true,
+            ),
+            (
+                Ctx::with_image_collection(&allow, lane()),
+                blank_image_data_uri(),
+                true,
+            ),
+            (
+                Ctx::with_image_collection(&allow, lane()).preserving_image_refs(),
+                numbered.clone(),
+                true,
+            ),
+            // Untrusted input: the digits could carry anything, so it goes through the scrub.
+            (Ctx::with_image_collection(&allow, lane()), numbered, false),
+        ];
+        for (ctx, original, kept) in cases {
+            let scrubbed = ctx.scrub_image(&original, ImageFallback::Placeholder);
+            assert_eq!(scrubbed == original, kept, "{original}");
+            assert!(ctx.take_scrub_drops().is_empty());
+            assert_eq!(ctx.into_collected_images().is_empty(), kept);
+        }
+    }
+
+    #[test]
     fn an_image_the_lane_cannot_take_is_blanked_and_counted() {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let png = png_data_uri(8, 8, [10, 20, 30, 255]);
@@ -424,7 +464,7 @@ mod tests {
             ),
             (
                 Ctx::with_image_collection(&allow, lane()),
-                "data:image/svg+xml;base64,PHN2Zz4=".to_string(),
+                "data:image/svg+xml;base64,bm90IHN2Zw==".to_string(),
                 crate::collect::DROP_SVG,
             ),
             (

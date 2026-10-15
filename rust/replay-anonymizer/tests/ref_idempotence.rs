@@ -124,8 +124,8 @@ fn a_namespaced_url_ref_survives_only_a_trusted_rescrub() {
     for url_ref in [URL_REF, LEGACY_URL_REF] {
         let mut line = img_line(url_ref, "data-anon-image-ref-src");
         let attrs = &mut line[1]["data"]["adds"][0]["node"]["attributes"];
-        attrs["src"] = json!("data:image/svg+xml;base64,PHN2Zz4=");
-        attrs["srcset"] = json!("data:image/svg+xml;base64,PHN2Zz4=");
+        attrs["src"] = json!("data:image/svg+xml;base64,bm90IHN2Zw==");
+        attrs["srcset"] = json!("data:image/svg+xml;base64,bm90IHN2Zw==");
         assert!(scrub_trusted(&line).contains(url_ref));
         assert!(!scrub_default(&line).contains("data-anon-image-ref-src"));
         for byte_walk in [true, false] {
