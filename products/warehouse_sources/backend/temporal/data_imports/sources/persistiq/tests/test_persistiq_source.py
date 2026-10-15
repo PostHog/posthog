@@ -20,7 +20,7 @@ class TestPersistIqSource:
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
         assert config.label == "PersistIq"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         # A finished source is visible — it must not carry the scaffolding flag.
         assert not config.unreleasedSource
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/persistiq"

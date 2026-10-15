@@ -127,7 +127,7 @@ class AutumnSource(ResumableSource[AutumnSourceConfig, AutumnResumeConfig]):
             docsUrl="https://posthog.com/docs/cdp/sources/autumn",
             iconPath="/static/services/autumn.png",
             keywords=["billing", "subscriptions", "useautumn"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

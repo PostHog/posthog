@@ -121,7 +121,7 @@ class ClarifaiSource(ResumableSource[ClarifaiSourceConfig, ClarifaiResumeConfig]
             label="Clarifai",
             iconPath="/static/services/clarifai.png",
             docsUrl="https://docs.clarifai.com/control/authentication/pat/",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create a personal access token in Clarifai under Settings > Secrets. "
                 "Grant read access for models, workflows, datasets, and concepts that you want to sync. "

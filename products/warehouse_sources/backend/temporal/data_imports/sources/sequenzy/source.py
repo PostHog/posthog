@@ -109,7 +109,7 @@ class SequenzySource(ResumableSource[SequenzySourceConfig, SequenzyResumeConfig]
             docsUrl="https://posthog.com/docs/cdp/sources/sequenzy",
             iconPath="/static/services/sequenzy.png",
             keywords=["email marketing", "newsletter"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

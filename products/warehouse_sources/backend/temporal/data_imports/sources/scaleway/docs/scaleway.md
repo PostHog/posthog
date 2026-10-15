@@ -10,9 +10,9 @@ beta: true
 import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../\_snippets/alpha-release.mdx"
+import BetaRelease from "../\_snippets/beta-release.mdx"
 
-<AlphaRelease />
+<BetaRelease />
 
 Sync your [Scaleway](https://www.scaleway.com) organization data — billing invoices, IAM identities, projects, audit trail events, and compute instances — into PostHog to build cost, security, and infrastructure reporting alongside your product data.
 

@@ -10,9 +10,9 @@ beta: true
 import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../\_snippets/alpha-release.mdx"
+import BetaRelease from "../\_snippets/beta-release.mdx"
 
-<AlphaRelease />
+<BetaRelease />
 
 [Firecrawl](https://www.firecrawl.dev) is a web scraping and crawling API. This connector syncs your Firecrawl account's operational data - job activity, credit and token usage, active crawls, and change-detection monitors - into the PostHog Data warehouse, so you can track your scraping usage and spend alongside the rest of your data.
 

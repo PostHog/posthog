@@ -60,7 +60,7 @@ import SourceSetupIntro from "../_snippets/source-setup-intro.mdx"
 import SyncModes from "../_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../_snippets/dw-troubleshooting-link.mdx"
 
-<!-- Alpha/beta only: import AlphaRelease from "../_snippets/alpha-release.mdx" and render <AlphaRelease /> here -->
+<!-- Beta only: import BetaRelease from "../_snippets/beta-release.mdx" and render <BetaRelease /> here -->
 
 One or two sentences: what this connector syncs and the typical use case.
 
@@ -99,7 +99,7 @@ Source-specific errors and fixes (optional but encouraged), then:
 
 ### Essential sections (every source)
 
-Status callout (alpha/beta only) → intro → Prerequisites → Adding a data source → Sync modes →
+Status callout (beta only) → intro → Prerequisites → Adding a data source → Sync modes →
 Configuration → Supported tables → Troubleshooting.
 
 ### Optional sections (when applicable)
@@ -115,7 +115,7 @@ Reuse these instead of re-writing the same prose (they live in `contents/docs/cd
 
 - `source-setup-intro.mdx` — the standard "Adding a data source" steps.
 - `sync-modes.mdx` — sync-mode summary linking to the canonical explanation.
-- `alpha-release.mdx` / `beta-release.mdx` — status callouts (also set `beta: true` in frontmatter).
+- `beta-release.mdx` — status callout (also set `beta: true` in frontmatter).
 - `dw-troubleshooting-link.mdx` — the troubleshooting/support footer.
 - `inbound-ip-addresses.mdx` — IP allowlist table for DB sources.
 - `feedback-questions.mdx` — feedback/FAQ footer.
@@ -148,7 +148,7 @@ Renaming a published doc also needs a 301 in `posthog.com/vercel.json` for both
 
 - [ ] Frontmatter `sourceId` matches the `ExternalDataSourceType` value exactly
 - [ ] Intro, Prerequisites, Adding a data source, Sync modes, Configuration, Supported tables, Troubleshooting
-- [ ] Status snippet + `beta: true` if alpha/beta
+- [ ] Status snippet + `beta: true` if beta
 - [ ] Shared snippets used instead of bespoke prose
 - [ ] `<SourceParameters />` and `<SourceTables />` present (don't hand-write fields or the table list)
 - [ ] If the rendered table list is empty/thin and the source is fixed-schema, enrich its code

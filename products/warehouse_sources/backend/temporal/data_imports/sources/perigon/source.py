@@ -57,7 +57,7 @@ class PerigonSource(ResumableSource[PerigonSourceConfig, PerigonResumeConfig]):
             name=ExternalDataSourceType.PERIGON,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Perigon",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["news", "media", "goperigon"],
             caption="""Enter your Perigon API key to sync news articles, story clusters, journalists, sources, people, companies, and topics into the PostHog Data warehouse.
 

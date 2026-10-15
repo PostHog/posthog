@@ -71,7 +71,7 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
             caption="Connect to Trino to run read-only SQL against the catalogs available to this user.",
             iconPath="/static/services/trino.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/trino",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

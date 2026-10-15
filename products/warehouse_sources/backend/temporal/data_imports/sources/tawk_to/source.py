@@ -56,7 +56,7 @@ class TawkToSource(ResumableSource[TawkToSourceConfig, TawkToResumeConfig]):
             name=ExternalDataSourceType.TAWKTO,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="tawk.to",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["tawkto", "live chat"],
             caption="""Enter your tawk.to REST API key to pull your chats, tickets, properties, and property members into the PostHog Data warehouse.
 

@@ -64,7 +64,7 @@ Enter your instance URL (e.g. `https://nexus.example.com`) and the username and 
 The tasks table additionally requires the `nx-tasks-read` privilege; deselect it if your user doesn't have it.""",
             iconPath="/static/services/sonatype_nexus.png",
             docsUrl="https://posthog.com/docs/cdp/sources/sonatype-nexus",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

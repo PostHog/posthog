@@ -18,9 +18,9 @@ in the posthog repo long-term. Once moved, run:
 import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../\_snippets/alpha-release.mdx"
+import BetaRelease from "../\_snippets/beta-release.mdx"
 
-<AlphaRelease />
+<BetaRelease />
 
 [AppFollow](https://appfollow.io) aggregates App Store and Google Play data for app analytics, review
 management, and app store optimization. This connector pulls your tracked apps, their reviews, their

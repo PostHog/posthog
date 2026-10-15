@@ -10,9 +10,9 @@ beta: true
 import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../\_snippets/alpha-release.mdx"
+import BetaRelease from "../\_snippets/beta-release.mdx"
 
-<AlphaRelease />
+<BetaRelease />
 
 [Mixmax](https://www.mixmax.com) is a sales-engagement and email-productivity platform for Gmail (sequences, meeting scheduling, snippets, and live email tracking). This connector syncs your Mixmax sequences, messages, snippets, rules, live feed, and related resources into the PostHog Data warehouse so you can join outreach activity with your product and revenue data.
 

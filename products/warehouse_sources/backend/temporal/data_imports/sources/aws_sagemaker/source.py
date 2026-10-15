@@ -140,7 +140,7 @@ class AwsSagemakerSource(ResumableSource[AwsSagemakerSourceConfig, AwsSagemakerR
                 "Models also support incremental sync by creation time."
             ),
             iconPath="/static/services/aws_sagemaker.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

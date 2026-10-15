@@ -75,7 +75,6 @@ class DataWarehouseSourceCategory(StrEnum):
 
 
 class ReleaseStatus(StrEnum):
-    ALPHA = "alpha"
     BETA = "beta"
     GA = "ga"
 

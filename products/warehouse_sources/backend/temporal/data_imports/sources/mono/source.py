@@ -140,5 +140,5 @@ class MonoSource(ResumableSource[MonoSourceConfig, MonoResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

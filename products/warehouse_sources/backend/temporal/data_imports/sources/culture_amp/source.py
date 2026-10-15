@@ -66,7 +66,7 @@ class CultureAmpSource(ResumableSource[CultureAmpSourceConfig, CultureAmpResumeC
 An account admin can generate API credentials in Culture Amp under Settings > Integrations > Culture Amp API. Grant the employees, employee demographics, and performance evaluations read permissions. The account ID is the entity ID shown alongside your credentials.""",
             iconPath="/static/services/culture_amp.png",
             docsUrl="https://posthog.com/docs/cdp/sources/culture-amp",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -91,7 +91,7 @@ class PeecAISource(ResumableSource[PeecAISourceConfig, PeecAIResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_schemas(

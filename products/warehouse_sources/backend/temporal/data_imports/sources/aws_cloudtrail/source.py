@@ -147,7 +147,7 @@ The event stores table imports CloudTrail Lake settings, not stored events.
 CloudTrail Lake is available only to existing customers after May 31, 2026.""",
             iconPath="/static/services/aws_cloudtrail.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-cloudtrail",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "cloudtrail", "audit", "events"],
             fields=cast(
                 list[FieldType],

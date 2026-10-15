@@ -10,9 +10,9 @@ beta: true
 import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../\_snippets/alpha-release.mdx"
+import BetaRelease from "../\_snippets/beta-release.mdx"
 
-<AlphaRelease />
+<BetaRelease />
 
 The env0 connector syncs your infrastructure-as-code data into PostHog: organizations, projects, teams, templates, organization members, environments, deployment history, the resources behind each deployment, drift causes, and cloud cost at the environment, project, and organization level. You can attribute cloud spend to teams and projects and analyze deployment and drift activity alongside your product data.
 

@@ -149,7 +149,7 @@ class KommoSource(ResumableSource[KommoSourceConfig, KommoResumeConfig]):
             docsUrl="https://posthog.com/docs/cdp/sources/kommo",
             iconPath="/static/services/kommo.png",
             keywords=["amocrm", "crm"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

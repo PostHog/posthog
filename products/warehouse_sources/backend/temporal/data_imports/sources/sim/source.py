@@ -134,5 +134,5 @@ class SimSource(ResumableSource[SimSourceConfig, SimResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

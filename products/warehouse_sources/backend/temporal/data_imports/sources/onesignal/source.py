@@ -84,7 +84,7 @@ class OneSignalSource(ResumableSource[OneSignalSourceConfig, OneSignalResumeConf
             ),
             iconPath="/static/services/onesignal.png",
             docsUrl="https://posthog.com/docs/cdp/sources/onesignal",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -144,5 +144,5 @@ You can find or generate a workspace access token in Census under **Workspace se
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

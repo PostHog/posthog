@@ -76,7 +76,7 @@ class AppdynamicsSource(ResumableSource[AppdynamicsSourceConfig, AppdynamicsResu
             name=ExternalDataSourceType.APPDYNAMICS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Splunk AppDynamics (Cisco)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["appdynamics", "cisco", "splunk", "apm"],
             caption="""Sync your Splunk AppDynamics (Cisco) APM data (applications, business transactions, tiers, nodes, backends, events, transaction snapshots, health rules, health rule violations, anomalies, metric paths, metric time series, and monitored database servers) into the PostHog Data warehouse.
 

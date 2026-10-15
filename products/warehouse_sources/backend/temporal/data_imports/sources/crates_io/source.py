@@ -49,7 +49,7 @@ class CratesIOSource(SimpleSource[CratesIOSourceConfig]):
             name=ExternalDataSourceType.CRATESIO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="crates.io",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["rust", "cargo", "crates"],
             caption="""Pull metadata, versions, owners, dependencies, and daily download counts for Rust crates from the [crates.io](https://crates.io) API into the PostHog Data warehouse.
 

@@ -58,7 +58,7 @@ class EtsySource(ResumableSource[EtsySourceConfig, EtsyResumeConfig]):
             name=ExternalDataSourceType.ETSY,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Etsy",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["etsy", "receipts", "orders", "marketplace"],
             caption="""Sync your Etsy shop's orders, listings, reviews and payment ledger into the PostHog Data warehouse.
 
