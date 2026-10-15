@@ -54,12 +54,20 @@ class _StubEngine:
         return CitationCheck(engine=self.name, model=self.model, cited_urls=["https://posthog.com/docs"])
 
 
-def test_run_records_checks_and_rotates_without_a_team_scope(team: Team, settings) -> None:
+@pytest.mark.parametrize("via_child_environment", [False, True])
+def test_run_records_checks_and_rotates_without_a_team_scope(team: Team, settings, via_child_environment: bool) -> None:
     settings.AEO_TARGET_DOMAINS = ["posthog.com"]
-    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic=f"t{i % 2}") for i in range(4)])
+    runner_team = (
+        Team.objects.create(organization=team.organization, name="child env", parent_team=team)
+        if via_child_environment
+        else team
+    )
+    upsert_prompts(
+        runner_team, [PromptCandidate(text=f"q{i}?", source="imported", topic=f"t{i % 2}") for i in range(4)]
+    )
 
-    first, _ = run_citation_checks(team, engines=[_StubEngine()], limit=2)
-    second, _ = run_citation_checks(team, engines=[_StubEngine()], limit=2)
+    first, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
+    second, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
 
     assert (first.rows_written, second.rows_written) == (2, 2)
     checks = AEOCitationCheck.objects.for_team(team.id)

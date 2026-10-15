@@ -1,5 +1,5 @@
 import math
-from typing import Any
+from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import posthog_feature_flag_enabled
 
@@ -24,6 +25,7 @@ from products.aeo.backend.facade.contracts import (
 )
 
 MAX_PROMPTS_PER_IMPORT = 2000
+DEFAULT_PAGE_SIZE = 100
 # Bounds the request body. Prompts longer than the engines accept are counted as skipped, not rejected.
 MAX_IMPORTED_PROMPT_CHARS = 10_000
 
@@ -104,6 +106,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["partial_update", "bulk_import"]
+    pagination_class = PrecountedLimitOffsetPagination
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -121,7 +124,12 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         tags=["web_analytics"],
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
-        page = self.paginate_queryset(list_prompts(self.team_id))
+        paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
+        prompts, count = list_prompts(
+            self.team_id, limit=paginator.get_limit(request) or DEFAULT_PAGE_SIZE, offset=paginator.get_offset(request)
+        )
+        paginator.set_count(count)
+        page = self.paginate_queryset(prompts)
         return self.get_paginated_response(AEOPromptSerializer(page, many=True).data)
 
     @validated_request(

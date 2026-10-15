@@ -85,3 +85,13 @@ def test_oversized_and_empty_prompts_are_skipped(team: Team) -> None:
 
     assert result == {"created": 1, "updated": 0, "skipped": 2}
     assert [p.prompt for p in AEOPrompt.objects.for_team(team.id)] == ["What is the best web analytics tool?"]
+
+
+def test_import_through_a_child_environment_lands_on_the_parent(team: Team) -> None:
+    child = Team.objects.create(organization=team.organization, name="child env", parent_team=team)
+    upsert_prompts(team, [_candidate("Best session replay?")])
+
+    result = upsert_prompts(child, [_candidate("best session replay?"), _candidate("Best feature flags?")])
+
+    assert result == {"created": 1, "updated": 1, "skipped": 0}
+    assert AEOPrompt.objects.for_team(team.id).count() == 2

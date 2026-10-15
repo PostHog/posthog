@@ -60,6 +60,8 @@ def run_citation_checks(
         return _empty_summary(team, "no active prompts — run `seed_aeo_prompts` first"), []
 
     run_id = str(uuid.uuid4())
+    # bulk_create skips RootTeamMixin.save(), so map a child environment to its parent here, as reads do.
+    canonical_team_id = team.parent_team_id or team.id
     target_domains: list[str] = settings.AEO_TARGET_DOMAINS
     checks: list[dict[str, Any]] = []
     engine_failures = 0
@@ -103,7 +105,7 @@ def run_citation_checks(
                 ),
                 "prompt_topic": prompt.topic,
             }
-            prompt_rows.append(AEOCitationCheck(team=team, **fields))
+            prompt_rows.append(AEOCitationCheck(team_id=canonical_team_id, **fields))
             checks.append(fields)
 
         if record and prompt_rows:
@@ -111,7 +113,7 @@ def run_citation_checks(
             try:
                 # The fail-closed manager refuses writes without a team scope, and none of the callers
                 # (the Celery task, the management command) run inside one.
-                with team_scope(team.id):
+                with team_scope(canonical_team_id):
                     AEOCitationCheck.objects.bulk_create(prompt_rows)
                 rows_written += len(prompt_rows)
                 AEOPrompt.objects.for_team(team.id).filter(id=prompt.id).update(last_checked_at=timezone.now())

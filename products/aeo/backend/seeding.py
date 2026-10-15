@@ -78,6 +78,8 @@ def upsert_prompts(team: Team, candidates: list[PromptCandidate]) -> dict[str, i
     single prompt from bloating every check event it appears on, and it matches
     what a check event records for prompt_text.
     """
+    # bulk_create skips RootTeamMixin.save(), so map a child environment to its parent here, as reads do.
+    team_id = team.parent_team_id or team.id
     skipped = 0
     rows: dict[str, AEOPrompt] = {}
     now = timezone.now()
@@ -89,7 +91,7 @@ def upsert_prompts(team: Team, candidates: list[PromptCandidate]) -> dict[str, i
         key = prompt_hash(text)
         # Keyed by hash because one upsert statement cannot touch the same row twice; the later copy wins.
         rows[key] = AEOPrompt(
-            team=team,
+            team_id=team_id,
             prompt=text,
             prompt_hash=key,
             prompt_source=candidate.source,
@@ -100,7 +102,7 @@ def upsert_prompts(team: Team, candidates: list[PromptCandidate]) -> dict[str, i
             updated_at=now,
         )
     valid = len(candidates) - skipped
-    with team_scope(team.id):
+    with team_scope(team_id):
         existing = set(AEOPrompt.objects.filter(prompt_hash__in=rows.keys()).values_list("prompt_hash", flat=True))
         # `active` is left out of the update, so a re-import keeps prompts someone turned off.
         AEOPrompt.objects.bulk_create(
