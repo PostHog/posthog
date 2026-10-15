@@ -82,7 +82,7 @@ The final summary retains the legacy PostHog results link alongside the offline 
 
 The temporary [Radu evals test workflow](../../.github/workflows/ci-radu-evals-test.yml) runs only `sql/eval_sql::eval_sql`, the suite currently enrolled in offline publishing.
 It has a manual `workflow_dispatch` trigger and a temporary label trigger limited to PR #114538 in `PostHog/posthog`.
-Before merging, add the `radu-evals-test` label to that PR to run all SQL cases with one trial each.
+Before merging, add the `radu-evals-test` label to that PR to run `sql_pageviews_by_browser` with one trial as a publishing smoke test.
 Pushes do not start another run; remove and re-add the label to test new commits.
 Remove the temporary label trigger after validating the pilot.
 Once the workflow is on `master`, open **Actions → Radu evals test → Run workflow**, choose a branch, and optionally supply a SQL case name substring and the number of trials per case.
@@ -90,7 +90,7 @@ An empty case filter runs all SQL cases; the default trial count is one.
 
 The workflow requires `POSTHOG_OFFLINE_EVAL_API_KEY` plus the existing `BRAINTRUST_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` Actions secrets.
 It fails before setup if a required secret is unavailable.
-It runs one Docker sandbox at a time and puts the final harness summary, including the PostHog link or upload status, in the Actions run summary.
+It runs one Docker sandbox at a time, enables detailed console logs for setup diagnostics, and puts the final harness summary, including the PostHog link or upload status, in the Actions run summary.
 Publishing failures remain warnings, so check the upload status even when the workflow is green.
 The harness sets the SDK's `run_source` to `ci` when `CI` is set, including manual Actions runs, and to `local` otherwise.
 
