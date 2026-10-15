@@ -1,5 +1,6 @@
 import time
-from datetime import UTC, datetime
+import dataclasses
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -7,11 +8,13 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from posthog.api.capture import CaptureInternalError, CaptureInternalResult
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.team_capture import (
     EMIT_EVENT_RETRY_POLICY,
+    EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
     TOKEN_CACHE_TTL_SECONDS,
     CaptureEventDropped,
     TeamNotFound,
@@ -110,20 +113,23 @@ class TestTeamCapture(BaseTest):
 class TestRaiseEmitFailure(SimpleTestCase):
     @parameterized.expand(
         [
-            ("retry_left", 1, NonReportableApplicationError),
-            ("final_attempt", EMIT_EVENT_RETRY_POLICY.maximum_attempts, CaptureInternalError),
+            ("retry_left", 1, 3600, NonReportableApplicationError),
+            ("final_attempt", EMIT_EVENT_RETRY_POLICY.maximum_attempts, 3600, CaptureInternalError),
+            ("backoff_lands_past_deadline", 1, 2, CaptureInternalError),
         ]
     )
-    def test_only_the_final_attempt_raises_a_reportable_error(self, _name, attempt, expected_error):
-        with (
-            patch("temporalio.activity.in_activity", return_value=True),
-            patch(
-                "temporalio.activity.info",
-                return_value=MagicMock(
-                    attempt=attempt, retry_policy=EMIT_EVENT_RETRY_POLICY, schedule_to_close_timeout=None
-                ),
-            ),
-        ):
-            with self.assertRaises(Exception) as ctx:
-                raise_emit_failure(CaptureInternalError("blip"))
+    def test_only_the_final_attempt_raises_a_reportable_error(
+        self, _name, attempt, seconds_to_deadline, expected_error
+    ):
+        schedule_to_close = EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(
+            env.info,
+            attempt=attempt,
+            retry_policy=EMIT_EVENT_RETRY_POLICY,
+            schedule_to_close_timeout=schedule_to_close,
+            scheduled_time=datetime.now(UTC) - schedule_to_close + timedelta(seconds=seconds_to_deadline),
+        )
+        with self.assertRaises(Exception) as ctx:
+            env.run(raise_emit_failure, CaptureInternalError("blip"))
         assert type(ctx.exception) is expected_error

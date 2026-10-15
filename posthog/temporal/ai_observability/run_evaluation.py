@@ -297,8 +297,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     # keeps the workflow RUNNING forever, and USE_EXISTING then blocks every later
                     # trigger for this (evaluation, event) pair.
                     schedule_to_close_timeout=HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
-                    # The activity emits too, so it retries on the emit schedule. A hog or
-                    # sentiment run is local and deterministic, so repeating it is cheap.
+                    # A hog or sentiment run is local and deterministic, so repeating it on the emit schedule is cheap.
                     retry_policy=EMIT_EVENT_RETRY_POLICY,
                 )
             except temporalio.exceptions.ActivityError as e:
