@@ -1,13 +1,13 @@
 import type { ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
-import { DecisionCard } from '@/features/handoff/DecisionCard'
+import { DecisionRequest } from '@/features/handoff/DecisionRequest'
 import type { DecisionAnswerInput } from '@/model/types'
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, type } from '@/ui/tokens'
+import { colors, iconSizes, type } from '@/ui/tokens'
 
-import type { SessionDecision, SessionDecisionKind } from './types'
+import type { SessionDecision } from './types'
 
 interface SessionDecisionPanelProps {
     decision: SessionDecision | undefined
@@ -15,12 +15,6 @@ interface SessionDecisionPanelProps {
     pending: boolean
     onAnswer: (input: DecisionAnswerInput) => void
     onDismissNotice: () => void
-}
-
-const EYEBROWS: Record<SessionDecisionKind, string> = {
-    question: 'NEEDS YOUR DECISION',
-    permission: 'NEEDS YOUR DECISION',
-    plan: 'APPROVE THE PLAN',
 }
 
 export function SessionDecisionPanel({
@@ -44,17 +38,17 @@ export function SessionDecisionPanel({
                         style={styles.close}
                         hitSlop={10}
                     >
-                        <CloseIcon size={14} color={colors.orange} />
+                        <CloseIcon size={iconSizes.inline} color={colors.orange} />
                     </Pressable44>
                 </View>
             ) : null}
             {decision ? (
                 <View testID="session-decision">
-                    <DecisionCard
+                    <DecisionRequest
                         question={decision.question}
                         onAnswer={onAnswer}
                         pending={pending}
-                        eyebrow={EYEBROWS[decision.kind]}
+                        notice={notice}
                     />
                 </View>
             ) : null}

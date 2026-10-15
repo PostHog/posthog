@@ -12,7 +12,7 @@ import { OpenAIIcon } from '@/ui/icons/OpenAIIcon'
 import { PlusSquareIcon } from '@/ui/icons/PlusSquareIcon'
 import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, radii, type } from '@/ui/tokens'
 import { useScreenInsets } from '@/ui/useScreenInsets'
 
 import { BranchPage } from './BranchPage'
@@ -239,7 +239,7 @@ export function HandoffSheet({ visible, report, onClose, onHandOff, pending }: H
                                 </Pressable44>
                             </View>
                             <View style={styles.context}>
-                                <PlusSquareIcon size={15} color={colors.tertiary} />
+                                <PlusSquareIcon size={iconSizes.inline} color={colors.tertiary} />
                                 <Text style={styles.contextText}>{report.contextNote}</Text>
                             </View>
                             <Text style={styles.sectionLabel}>Use your own agent</Text>
@@ -296,7 +296,7 @@ export function HandoffSheet({ visible, report, onClose, onHandOff, pending }: H
                         accessibilityLabel={copied ? 'Copied' : 'Copy prompt'}
                         testID="copy-prompt"
                     >
-                        <CopyIcon size={16} color={colors.muted} />
+                        <CopyIcon size={iconSizes.inline} color={colors.muted} />
                         <Text style={styles.copyText}>{copied ? 'Copied' : 'Copy prompt'}</Text>
                     </Pressable44>
                 </>

@@ -9,6 +9,16 @@ jest.mock('react-native-reanimated', () => ({
     ...jest.requireActual('react-native-reanimated/mock'),
     useReducedMotion: () => true,
 }))
+jest.mock(
+    'react-native-safe-area-context',
+    () => jest.requireActual('react-native-safe-area-context/jest/mock').default
+)
+
+jest.mock('@/features/handoff/usePullRequestChecks', () => ({
+    usePullRequestChecks: () => ({ status: 'unavailable', isRefreshing: false }),
+}))
+
+jest.mock('@/demo/demoMode', () => ({ useDataMode: () => 'live' }))
 
 function session(overrides: Partial<Session> = {}): Session {
     return {
@@ -90,12 +100,18 @@ describe('SessionThread', () => {
         expect(screen.getByTestId('session-tool-c1')).toBeTruthy()
     })
 
-    test('closes the last group once it settles and shows the PR card when idle', () => {
-        const props = { items: TWO_GROUPS, phase: 'working' as const }
+    test('keeps the PR visible while working and once the last group settles', () => {
+        const props = {
+            items: TWO_GROUPS,
+            phase: 'working' as const,
+            pullRequest: { url: 'https://github.com/example/repo/pull/7', number: 7, state: 'unknown' as const },
+        }
         const { rerender } = render(
             <SessionThread session={session({ ...props, invocations: INVOCATIONS })} onRetryHistory={jest.fn()} />
         )
         expect(screen.getByTestId('session-tool-c3')).toBeTruthy()
+        expect(screen.getByTestId('pr-ready-card')).toBeTruthy()
+        expect(screen.getByTestId('pull-request-state')).toHaveTextContent('Status unavailable')
 
         const settled = new Map(INVOCATIONS)
         settled.set('c3', { ...EDITING, status: 'completed' })

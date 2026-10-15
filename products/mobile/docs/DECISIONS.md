@@ -63,11 +63,12 @@ Choices the build contract left open, with the reason for each.
   [DESIGN.md](DESIGN.md#reading-handoff-values).
 - **Web preview insets.** The web build uses the prototype's 54pt status bar and 34pt home
   indicator as insets, so it previews like a phone.
-- **Floating chrome blurs what scrolls under it.** The inbox header, the report top chrome and the Settings chrome sit on
+- **Floating chrome blurs what scrolls under it.** The inbox header, bottom tab bar, report top chrome and Settings chrome sit on
   `BlurEdge` (`expo-blur` masked by the `FadeEdge` gradient through `@react-native-masked-view/masked-view`)
   under a 72% background tint, so rows soften and dissolve under the chrome instead of vanishing behind
   a solid block. Android uses the experimental `dimezisBlurView` method; without it the view is only a
   tint. The web build has no masked view, so it masks the blur with CSS `mask-image`.
+  Top chrome fades down into the content; the bottom tab bar fades up, with the same blur intensity and tint.
 - **Shadows.** Native uses `shadow*` + `elevation`; web uses the exact CSS `boxShadow`, because
   react-native-web renders `shadowRadius` as a blur half the handoff's size.
 - **Text wrapping.** `lineBreakStrategyIOS="standard"` on iOS and CSS `text-wrap: pretty` on web
@@ -190,7 +191,7 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **Pages of 20**, the most `for_you/` returns in one call. The next page loads when the user scrolls within half a screen of the end.
 - **A refresh keeps only the first page.** Refetching every loaded page would rank the whole list once per page.
 - **Prev/Next wrap only over the whole list.** While more pages exist, Next on the last loaded report waits for the next page instead of going back to the top.
-- **Report screen waits** for the report, work log and Today page, and for signals only when there is no page. The task loads after and fills in, so the action bar can show "handed" from the claim before the run status arrives.
+- **Report screen waits** for the report, work log and Today page, and for signals only when there is no page. The task loads after and fills in; ownership from a claim does not prove that execution is running.
 - **Report prefetch is a window with a concurrency cap.** The inbox prefetches the first two pages (40 reports) and the rows near the visible ones, two reports at a time, not the whole list at once.
   Each report is 3 to 4 requests, so a full-list prefetch would load the phone's radio and the server for reports nobody opens.
   It fetches only what the report screen waits for before its first render: the report, the work log, the Today page, and the signals when there is no page.
@@ -229,28 +230,40 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **Sign-out tasks.** `addSignOutTask()` lets the notifications feature unregister its token without the auth store importing a feature.
   `addSessionEndTask()` runs device cleanup on every session end, an expired session too: the snooze feature clears its store and cancels the reminders, and the hand-off feature clears its store.
 - **Push prompt.** The app asks for notification permission once, right after the first sign in, never on the sign-in screen. Later prompts come only from the Settings button.
-- **Foreground pushes** show a banner without sound or badge.
+- **Foreground pushes** show a banner without sound or badge only when they need attention outside the report
+  currently on screen. Report pushes and task pushes associated through cached task/report data are suppressed
+  for the viewed report or an active local time snooze. The handler never fetches data: unknown associations and
+  legacy pushes without a project remain visible. Signal snooze labels do not mute pushes because the server
+  decides when those reports wake.
+- **Foreground duplicate protection** remembers up to 256 event/request keys for 24 hours in memory, scoped to
+  the account and project. Repeated terminal outcomes for one run, first-visible report events, message events,
+  and the same OS notification are suppressed. Different turns, questions and PR-ready events are preserved:
+  their payloads do not yet identify a distinct occurrence reliably. This does not change OS delivery while
+  backgrounded or after termination, and the memory resets when the process restarts.
+- **Notification taps wait for sign-in.** A cold-start response stays pending until navigation and the account
+  are ready. Receiving the same response through both startup and the listener opens it once.
 - **Task pushes name their project.** Routing looks the task up in that project only. A push without `projectId` (sent before the server added it) looks in the current project first, then the others, up to 8 lookups, and opens the inbox when none has it.
 - **Analytics.** `src/lib/posthogClient.ts` creates the `posthog-react-native` client only when `EXPO_PUBLIC_POSTHOG_KEY` is set (host `EXPO_PUBLIC_POSTHOG_HOST`, default `https://us.i.posthog.com`). It identifies by `distinct_id` after sign in and on restore, and resets on sign out. `track()` stays the only capture call site.
 
 ## Hand-off and task runs
 
 - **The prompt reads the report fresh.** `handOff` only has the report id (it is composed into `useReportActions`), so the kickoff fetches `GET signals/reports/{id}/` for the title and summary. It is the same data the web prompt uses, and it avoids a side channel from the screen to the action.
-- **One run follows per report screen.** The run this device started wins until the app restarts; otherwise the report's `task`. The run is `GET tasks/{id}/`'s `latest_run`, because an artefact's run id can be stale.
+- **One run follows per report screen.** The current claim's task wins over local starts and historical artefacts. A user or external claim suppresses historical execution. The run is `GET tasks/{id}/`'s `latest_run`, because an artefact's run id can be stale.
 - **Live state lives in a zustand store** (`handoffStore.ts`), keyed by report, so the answer action can read the pending request and mark it handled while the stream keeps writing. Screens subscribe with an equality check (`sameVisibleEntry`) so message chunks do not re-render the screen many times a second.
 - **The overlay hook is `useReportWithLiveRun` in its own file**, not in `handoff/hooks.ts`, because `report/hooks.ts` imports `useHandoffActions` from there and the overlay imports `useReport` from `report/hooks.ts`.
 - **The tool policy is a faithful port** of the web's, including full-auto routing and "never answer a replayed request for the user". If allowing fails, the request becomes a decision.
 - **Replayed requests show as decisions.** On first connect the durable log replays. A request still unresolved at the end is something the agent waits on, so the card shows it, like the web.
 - **Another client's answer clears a live card** when the asked-about tool call completes or fails, or the turn or run ends, because resolution frames only appear in the replay.
-- **A turn that ends without a PR asks for a reply.** The agent's last words show as a "WAITING FOR YOUR REPLY" card with only a text field, sent as `user_message`. Without it, a run that stops to ask in plain text would wait on a phone that offers no way to answer.
+- **A completed turn is idle, not an input request.** Only a structured outstanding question, plan or permission produces the Needs your answer row and decision sheet. Continue the implementation in its task chat; report discussion remains a separate conversation.
 - **Several questions in one request show one at a time.** Earlier picks stay on the device and all answers go out together, because the agent expects one reply with every answer.
 - **Typed text never approves.** A typed reply to a permission or plan goes with the option that takes text, else a reject option. Only a question's typed answer uses `option_0`, as the web does.
 - **Plan approval offers the web's two modes**, "Approve the plan" (`auto`) and "Approve in full auto" (`bypassPermissions`), with the web's mode descriptions shortened.
 - **The decided card outlives delivery.** After the agent confirms an answer the card stays, without Undo, until the run shows new activity (a tool call, a step, a message). Undo is offered only while the answer is in flight.
 - **Errors show in the footer.** Hand-off and answer actions resolve and put one orange line above the cards, because every caller fires them without awaiting. This differs from the `ReportActions` doc comment ("rejects with an Error").
-- **A stopped run is not "on it".** `actionBarStateFor` ignores an agent claim when the report's own run is failed, canceled or completed, so a run that died without releasing its claim offers the hand-off again with a "PostHog couldn't finish" card above it.
+- **Execution, attention and PR state are independent.** Known PRs stay available through working, idle, unknown, failed and canceled execution. Claims do not imply execution; reconnecting and unavailable streams do not imply the run stopped. PR URL discovery does not imply review readiness, and missing CI stays unknown.
 - **Tool titles read as progress.** Paths become file names and Read, Edit, Write, Find, Fetch and Search become "Reading", "Editing" and so on, to match the design's "Reading ChartLegend.tsx".
-- **PR card mono line.** With diff stats it reads like the design. A PR known only from `output.pr_url` shows `owner/repo · open` and the review decision instead of invented counts.
+- **PR cards preserve known state.** Draft, open, merged, closed and unknown PRs remain discoverable. Several PRs use a compact selector. A URL from `output.pr_url` starts unknown until the report confirms its state; absent diff stats or CI are not invented.
+- **Foreground freshness.** Only the focused report polls detail, artefacts and task every 15 seconds. Foreground return refreshes them, and meaningful PR/status/turn stream changes refresh them at most once per two seconds. Cached PRs remain visible during loading. Today pages and signals are outside that interval.
 - **Stream cursors stay in memory per run**, so coming back to a report resumes after the last event instead of replaying the log.
 - **Abort errors are plain `Error`s named `AbortError`** (`src/lib/abort.ts`), used by `sleep` and `readSse`. Expo installs `DOMException` and `TextDecoder` on native, so this and the `TextDecoder` check in `readSse` only matter in a runtime without Expo's globals.
 

@@ -6,7 +6,7 @@ import { Dot } from '@/ui/Dot'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { MonoText } from '@/ui/MonoText'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, motion, type } from '@/ui/tokens'
+import { colors, iconSizes, motion, type } from '@/ui/tokens'
 
 import { isActivityRunning, summarizeActivity } from './sessionDisplay'
 import type { SessionActivityGroup, SessionThoughtItem, SessionToolInvocation } from './types'
@@ -93,7 +93,7 @@ function ActivityGroupRowImpl({ group, invocations, isLast, waitingToolCallId }:
                     {summary}
                 </Text>
                 <Animated.View style={chevronStyle}>
-                    <ChevronDownIcon size={14} color={colors.tertiary} />
+                    <ChevronDownIcon size={iconSizes.inline} color={colors.tertiary} />
                 </Animated.View>
             </Pressable44>
             {expanded ? (

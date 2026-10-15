@@ -43,7 +43,6 @@ export type InboxItemState = 'open' | 'done' | 'dismissed' | 'left' | 'snoozed'
 
 export interface AgentBadge {
     name: string
-    mark: string
 }
 
 export interface InboxItem {
@@ -177,13 +176,16 @@ export type WorkState = 'unclaimed' | 'working' | 'in_review' | 'done'
 export interface WorkAssignee {
     kind: 'user' | 'task' | 'agent' | 'system'
     name: string
+    taskId?: string
+    claimId?: string
 }
 
 export interface PullRequestView {
+    id?: string
     url: string
     number?: number
     title?: string
-    state: 'open' | 'closed' | 'merged' | 'draft'
+    state: 'open' | 'closed' | 'merged' | 'draft' | 'unknown'
     reviewDecision?: 'approved' | 'changes_requested' | 'review_required'
     filesChanged?: number
     additions?: number
@@ -196,6 +198,7 @@ export interface WorkView {
     state: WorkState
     assignee?: WorkAssignee
     pullRequest?: PullRequestView
+    pullRequests?: PullRequestView[]
 }
 
 export type TaskRunStatus = 'not_started' | 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
@@ -216,6 +219,8 @@ export interface TaskRunView {
     taskId: string
     runId?: string
     status: TaskRunStatus
+    phase?: 'working' | 'idle' | 'unknown'
+    connection?: 'connecting' | 'connected' | 'reconnecting' | 'unavailable'
     stage?: string
     pendingDecision?: DecisionQuestion
 }
@@ -289,7 +294,13 @@ export interface DecisionAnswer {
     meta?: string
 }
 
-export type ActionBarState = 'idle' | 'handed' | 'decision' | 'decided' | 'pr_ready' | 'resolved'
+export interface ActionBarState {
+    pullRequests: PullRequestView[]
+    activity?: { title: string; meta?: string; tone: 'working' | 'idle' | 'stopped' }
+    request?: DecisionQuestion
+    showHandoff: boolean
+    answer?: DecisionAnswer
+}
 
 export interface ActionBarLocalState {
     answer?: DecisionAnswer

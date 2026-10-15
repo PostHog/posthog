@@ -1,38 +1,29 @@
-import { type ReactElement, useEffect, useState } from 'react'
+import { type ReactElement, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
-import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated'
 
+import { ChatMarkdown } from '@/features/chat/ChatMarkdown'
 import type { DecisionAnswerInput, DecisionQuestion } from '@/model/types'
-import { Eyebrow } from '@/ui/Eyebrow'
 import { ArrowUpIcon } from '@/ui/icons/ArrowUpIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
-import { ChevronUpIcon } from '@/ui/icons/ChevronUpIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, inputReset, motion, prettyWrap, radii, shadows, type } from '@/ui/tokens'
+import { colors, iconSizes, inputReset, radii, type } from '@/ui/tokens'
 
 interface DecisionCardProps {
     question: DecisionQuestion
     onAnswer: (input: DecisionAnswerInput) => void
     pending: boolean
-    eyebrow?: string
+    onReplyFocus?: () => void
+    onReplyBlur?: () => void
 }
 
 export function DecisionCard({
     question,
     onAnswer,
     pending,
-    eyebrow = 'NEEDS YOUR DECISION',
+    onReplyFocus,
+    onReplyBlur,
 }: DecisionCardProps): ReactElement {
-    const [collapsed, setCollapsed] = useState(false)
     const [reply, setReply] = useState('')
-    const reduceMotion = useReducedMotion()
-    const rotation = useSharedValue(0)
-
-    useEffect(() => {
-        rotation.value = withTiming(collapsed ? 180 : 0, { duration: reduceMotion ? 0 : motion.chevron })
-    }, [collapsed, reduceMotion, rotation])
-
-    const chevronStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${rotation.value}deg` }] }))
     const canSend = reply.trim().length > 0 && !pending
 
     const sendReply = (): void => {
@@ -41,83 +32,57 @@ export function DecisionCard({
             return
         }
         onAnswer({ questionId: question.id, text })
-        setReply('')
     }
 
     return (
-        <View style={[styles.card, shadows.card]} testID="decision-card">
-            <Pressable44
-                onPress={() => setCollapsed((value) => !value)}
-                accessibilityLabel={collapsed ? 'Show the question' : 'Hide the question'}
-                accessibilityState={{ expanded: !collapsed }}
-                style={styles.header}
-                hitSlop={4}
-            >
-                <View style={styles.headerLabel}>
-                    <Eyebrow color={colors.orange} withDot>
-                        {eyebrow}
-                    </Eyebrow>
-                </View>
-                <Animated.View style={chevronStyle}>
-                    <ChevronUpIcon size={16} color={colors.tertiary} />
-                </Animated.View>
-            </Pressable44>
-            {collapsed ? null : (
-                <>
-                    <Text
-                        style={[styles.question, prettyWrap]}
-                        lineBreakStrategyIOS="standard"
-                        // A reply card quotes the agent's last words, which can run long in the footer.
-                        numberOfLines={question.options.length === 0 ? 6 : undefined}
-                    >
-                        {question.question}
-                    </Text>
-                    {question.options.length > 0 ? (
-                        <View style={styles.options}>
-                            {question.options.map((option) => (
-                                <Pressable44
-                                    key={option.id}
-                                    onPress={() =>
-                                        onAnswer({ questionId: question.id, optionId: option.id, text: option.title })
-                                    }
-                                    disabled={pending}
-                                    pressedBackground={colors.pressed}
-                                    style={styles.option}
-                                    testID={`decision-option-${option.id}`}
-                                >
-                                    <View style={styles.optionBody}>
-                                        <Text style={styles.optionTitle}>{option.title}</Text>
-                                        {option.meta ? <Text style={styles.optionMeta}>{option.meta}</Text> : null}
-                                    </View>
-                                    <ChevronRightIcon size={14} color={colors.disabled} strokeWidth={2.8} />
-                                </Pressable44>
-                            ))}
-                        </View>
-                    ) : null}
-                    <View style={styles.reply}>
-                        <TextInput
-                            value={reply}
-                            onChangeText={setReply}
-                            onSubmitEditing={sendReply}
-                            placeholder={question.options.length > 0 ? 'Or type your answer' : 'Type your reply'}
-                            placeholderTextColor={colors.tertiary}
-                            returnKeyType="send"
-                            style={styles.input}
-                            accessibilityLabel="Your answer"
-                        />
+        <View style={styles.card} testID="decision-card">
+            <ChatMarkdown text={question.question} />
+            {question.options.length > 0 ? (
+                <View style={styles.options}>
+                    {question.options.map((option) => (
                         <Pressable44
-                            onPress={sendReply}
-                            disabled={!canSend}
-                            accessibilityLabel="Send"
-                            accessibilityState={{ disabled: !canSend, busy: pending }}
-                            style={[styles.send, { backgroundColor: canSend ? colors.orange : colors.border }]}
-                            hitSlop={4}
+                            key={option.id}
+                            onPress={() =>
+                                onAnswer({ questionId: question.id, optionId: option.id, text: option.title })
+                            }
+                            disabled={pending}
+                            pressedBackground={colors.pressed}
+                            style={styles.option}
+                            testID={`decision-option-${option.id}`}
                         >
-                            <ArrowUpIcon size={16} color={colors.white} />
+                            <View style={styles.optionBody}>
+                                <Text style={styles.optionTitle}>{option.title}</Text>
+                                {option.meta ? <Text style={styles.optionMeta}>{option.meta}</Text> : null}
+                            </View>
+                            <ChevronRightIcon size={iconSizes.inline} color={colors.disabled} strokeWidth={2.8} />
                         </Pressable44>
-                    </View>
-                </>
-            )}
+                    ))}
+                </View>
+            ) : null}
+            <View style={styles.reply}>
+                <TextInput
+                    value={reply}
+                    onChangeText={setReply}
+                    onFocus={onReplyFocus}
+                    onBlur={onReplyBlur}
+                    onSubmitEditing={sendReply}
+                    placeholder={question.options.length > 0 ? 'Or type your answer' : 'Type your reply'}
+                    placeholderTextColor={colors.tertiary}
+                    returnKeyType="send"
+                    style={styles.input}
+                    accessibilityLabel="Your answer"
+                />
+                <Pressable44
+                    onPress={sendReply}
+                    disabled={!canSend}
+                    accessibilityLabel="Send"
+                    accessibilityState={{ disabled: !canSend, busy: pending }}
+                    style={[styles.send, { backgroundColor: canSend ? colors.orange : colors.border }]}
+                    hitSlop={4}
+                >
+                    <ArrowUpIcon size={iconSizes.control} color={colors.white} />
+                </Pressable44>
+            </View>
         </View>
     )
 }
@@ -125,28 +90,8 @@ export function DecisionCard({
 const styles = StyleSheet.create({
     card: {
         gap: 14,
-        padding: 16,
-        borderRadius: radii.softCard,
-        backgroundColor: colors.white,
-        borderWidth: 1,
-        borderColor: colors.hairline,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        minHeight: 28,
-    },
-    headerLabel: {
-        flex: 1,
-        minWidth: 0,
-    },
-    question: {
-        fontSize: 17,
-        lineHeight: 23.8,
-        fontWeight: '600',
-        letterSpacing: -0.17,
-        color: colors.ink,
+        paddingHorizontal: 4,
+        paddingBottom: 8,
     },
     options: {
         gap: 8,
@@ -193,7 +138,7 @@ const styles = StyleSheet.create({
         ...inputReset,
         flex: 1,
         minWidth: 0,
-        fontSize: 16,
+        ...type.input,
         color: colors.ink,
         paddingVertical: 0,
     },

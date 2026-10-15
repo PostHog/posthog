@@ -2,20 +2,16 @@ import type { ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { KeyboardStickyView } from 'react-native-keyboard-controller'
 
-import { POSTHOG_AGENT } from '@/model/agent'
-import type { ActionBarState, ReportActions, ReportView, TaskRunView } from '@/model/types'
-import { colors, layout, type } from '@/ui/tokens'
+import type { ActionBarState, ReportActions, ReportView } from '@/model/types'
+import { colors, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { ActionPill } from './ActionPill'
 import { AgentStatusCard } from './AgentStatusCard'
-import { DecisionCard } from './DecisionCard'
+import { DecisionRequest } from './DecisionRequest'
 import { HandoffSplitButton } from './HandoffSplitButton'
-import { isReplyPrompt } from './liveReport'
-import { PrReadyCard } from './PrReadyCard'
-import { type HandoffAnswer, runErrorMessage } from './types'
-
-const DEFAULT_HANDED_META = 'A PR will land here to review'
+import { PullRequestCard } from './PullRequestCard'
+import type { HandoffAnswer } from './types'
 
 interface ActionBarProps {
     report: ReportView
@@ -27,19 +23,7 @@ interface ActionBarProps {
     onReassign: () => void
     onSnooze: () => void
     onChat: () => void
-}
-
-function stoppedRun(task: TaskRunView | undefined): { title: string; meta: string } | undefined {
-    if (task?.status === 'failed') {
-        return {
-            title: `${POSTHOG_AGENT.name} couldn't finish`,
-            meta: runErrorMessage(task) ?? 'Hand off again to retry.',
-        }
-    }
-    if (task?.status === 'cancelled') {
-        return { title: 'The run was canceled', meta: 'Hand off again to start over.' }
-    }
-    return undefined
+    onTaskChat?: () => void
 }
 
 export function ActionBar({
@@ -52,64 +36,80 @@ export function ActionBar({
     onReassign,
     onSnooze,
     onChat,
+    onTaskChat,
 }: ActionBarProps): ReactElement {
     const insets = useScreenInsets()
-    const pending = report.task?.pendingDecision
-    const stopped = state === 'idle' ? stoppedRun(report.task) : undefined
+    const hasPullRequests = state.pullRequests.length > 0
+    const activity = state.activity
+    const footerState = state.request
+        ? 'decision'
+        : hasPullRequests
+          ? 'pr_ready'
+          : state.answer
+            ? 'decided'
+            : state.showHandoff
+              ? 'idle'
+              : activity
+                ? 'handed'
+                : 'resolved'
+    const activityContent = (
+        <>
+            {activity ? (
+                <AgentStatusCard
+                    title={activity.title}
+                    meta={activity.meta}
+                    tone={activity.tone}
+                    onOpenChat={hasPullRequests ? undefined : onTaskChat}
+                    testID={activity.tone === 'stopped' ? 'agent-stopped-card' : 'agent-status-card'}
+                />
+            ) : null}
+            {state.answer ? (
+                <AgentStatusCard
+                    title={state.answer.text}
+                    meta={state.answer.meta}
+                    tone="idle"
+                    onOpenChat={hasPullRequests ? undefined : onTaskChat}
+                    {...(answer?.canUndo ? { onUndo: () => void actions.undoDecision() } : {})}
+                    testID="decided-card"
+                />
+            ) : null}
+            {state.request ? (
+                <DecisionRequest
+                    key={state.request.id}
+                    question={state.request}
+                    pending={actions.pending.answer}
+                    onAnswer={(input) => void actions.answerDecision(input)}
+                    notice={notice}
+                />
+            ) : null}
+        </>
+    )
 
     return (
         <KeyboardStickyView offset={{ opened: insets.bottom }}>
-            <View style={[styles.bar, { paddingBottom: bottomOffset(insets, 38) }]} testID={`action-bar-${state}`}>
+            <View
+                style={[styles.bar, { paddingBottom: bottomOffset(insets, 38) }]}
+                testID={`action-bar-${footerState}`}
+            >
                 {notice ? (
                     <Text style={styles.notice} accessibilityRole="alert" testID="handoff-notice">
                         {notice}
                     </Text>
                 ) : null}
-                {stopped ? (
-                    <AgentStatusCard
-                        mark={POSTHOG_AGENT.mark}
-                        title={stopped.title}
-                        meta={stopped.meta}
-                        tone="stopped"
-                        testID="agent-stopped-card"
-                    />
+                {hasPullRequests ? (
+                    <PullRequestCard pullRequests={state.pullRequests} onTaskChat={onTaskChat} reportId={report.id}>
+                        {activity || state.request || state.answer ? activityContent : null}
+                    </PullRequestCard>
+                ) : activity || state.request || state.answer ? (
+                    <View style={styles.panel}>{activityContent}</View>
                 ) : null}
-                {state === 'idle' ? (
+                {state.showHandoff ? (
                     <HandoffSplitButton
                         report={report}
                         onHandOff={() => void actions.handOff()}
                         onOpenPicker={onOpenHandoff}
                         pending={actions.pending.handOff}
                     />
-                ) : null}
-                {state === 'handed' ? (
-                    <AgentStatusCard
-                        mark={POSTHOG_AGENT.mark}
-                        title={`${POSTHOG_AGENT.name} is on it`}
-                        meta={report.task?.stage ?? DEFAULT_HANDED_META}
-                        testID="agent-status-card"
-                    />
-                ) : null}
-                {state === 'decision' && pending ? (
-                    <DecisionCard
-                        key={pending.id}
-                        question={pending}
-                        onAnswer={(input) => void actions.answerDecision(input)}
-                        pending={actions.pending.answer}
-                        {...(isReplyPrompt(pending) ? { eyebrow: 'WAITING FOR YOUR REPLY' } : {})}
-                    />
-                ) : null}
-                {state === 'decided' && answer ? (
-                    <AgentStatusCard
-                        mark={POSTHOG_AGENT.mark}
-                        title={answer.text}
-                        meta={answer.meta ?? report.task?.stage}
-                        {...(answer.canUndo ? { onUndo: () => void actions.undoDecision() } : {})}
-                        testID="decided-card"
-                    />
-                ) : null}
-                {state === 'pr_ready' && report.work.pullRequest ? (
-                    <PrReadyCard pullRequest={report.work.pullRequest} />
                 ) : null}
                 <ActionPill onReassign={onReassign} onSnooze={onSnooze} onChat={onChat} />
             </View>
@@ -126,9 +126,12 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: colors.footerHairline,
     },
-    notice: {
-        ...type.metaSmall,
-        color: colors.orange,
-        paddingHorizontal: 4,
+    panel: {
+        borderWidth: 1,
+        borderColor: colors.hairline,
+        borderRadius: radii.card,
+        overflow: 'hidden',
+        backgroundColor: colors.white,
     },
+    notice: { ...type.metaSmall, color: colors.orange, paddingHorizontal: 4 },
 })

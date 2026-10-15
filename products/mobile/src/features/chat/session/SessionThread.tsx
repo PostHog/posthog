@@ -1,10 +1,10 @@
 import { memo, type ReactElement, type ReactNode, useMemo, useRef } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 
-import { PrReadyCard } from '@/features/handoff/PrReadyCard'
+import { PullRequestCard } from '@/features/handoff/PullRequestCard'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LoadingView, StateView } from '@/ui/StateView'
-import { colors, type } from '@/ui/tokens'
+import { colors, iconSizes, type } from '@/ui/tokens'
 
 import { ChatErrorBubble } from '../ChatErrorBubble'
 import { ChatMarkdown } from '../ChatMarkdown'
@@ -50,16 +50,18 @@ function statusLine(session: Session): string | null {
 
 export function SessionThread({ session, onRetryHistory }: SessionThreadProps): ReactElement {
     const scroll = useRef<ScrollView>(null)
+    const positioned = useRef(false)
     const displayItems = useMemo(() => groupSessionItems(session.items), [session.items])
     const lastGroupId = useMemo(() => displayItems.findLast((item) => item.kind === 'activity')?.id, [displayItems])
 
     if (session.history.status === 'loading') {
+        positioned.current = false
         return <LoadingView label="Loading session" />
     }
     if (session.history.status === 'error') {
         return (
             <StateView
-                icon={<WarningIcon size={28} color={colors.orange} />}
+                icon={<WarningIcon size={iconSizes.empty} color={colors.orange} />}
                 title="Couldn't load this session"
                 message={session.history.error?.message}
                 actionLabel="Try again"
@@ -98,20 +100,24 @@ export function SessionThread({ session, onRetryHistory }: SessionThreadProps): 
 
     const status = statusLine(session)
     const isEmpty = displayItems.length === 0 && !session.decision
+    const pullRequests = session.pullRequests ?? (session.pullRequest ? [session.pullRequest] : [])
 
     return (
         <ScrollView
             ref={scroll}
             style={styles.scroll}
             contentContainerStyle={styles.content}
-            onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })}
+            onContentSizeChange={() => {
+                scroll.current?.scrollToEnd({ animated: positioned.current })
+                positioned.current = true
+            }}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             testID="session-thread"
         >
             {isEmpty ? <Text style={styles.quiet}>The agent hasn't said anything yet.</Text> : null}
             {displayItems.map(renderItem)}
-            {session.pullRequest && session.phase === 'idle' ? <PrReadyCard pullRequest={session.pullRequest} /> : null}
+            {pullRequests.length > 0 ? <PullRequestCard pullRequests={pullRequests} /> : null}
             {status ? <ChatProgressLine text={status} /> : null}
             {shouldShowRunError(session.items, session.runStatus, session.runError) ? (
                 <ChatErrorBubble text={session.runError} />

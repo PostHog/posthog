@@ -2,11 +2,10 @@ import { type ReactElement, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
 import { useAsyncAction } from '@/lib/useAsyncAction'
-import { POSTHOG_AGENT } from '@/model/agent'
 import type { ReportView } from '@/model/types'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, fonts, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, radii, type } from '@/ui/tokens'
 
 import { openExternalHandoff } from './externalHandoff'
 import { handoffAgentName, useHandoffPreferenceStore } from './handoffPreferenceStore'
@@ -61,17 +60,7 @@ export function HandoffSplitButton({
                     style={styles.main}
                     testID="handoff-button"
                 >
-                    {target === 'posthog' ? (
-                        <View style={styles.mark}>
-                            {busy ? (
-                                <ActivityIndicator size="small" color={colors.white} />
-                            ) : (
-                                <Text style={styles.markText}>{POSTHOG_AGENT.mark}</Text>
-                            )}
-                        </View>
-                    ) : busy ? (
-                        <ActivityIndicator size="small" color={colors.white} />
-                    ) : null}
+                    {busy ? <ActivityIndicator size="small" color={colors.white} /> : null}
                     <Text style={styles.label} numberOfLines={1}>
                         Hand off to {agentName}
                     </Text>
@@ -84,7 +73,7 @@ export function HandoffSplitButton({
                     style={styles.chevron}
                     testID="handoff-picker-button"
                 >
-                    <ChevronDownIcon size={14} color={colors.white} strokeWidth={2.6} />
+                    <ChevronDownIcon size={iconSizes.inline} color={colors.white} strokeWidth={2.6} />
                 </Pressable44>
             </View>
         </>
@@ -108,20 +97,6 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         gap: 10,
         paddingHorizontal: 12,
-    },
-    mark: {
-        width: 24,
-        height: 24,
-        borderRadius: radii.markSmall,
-        backgroundColor: colors.onAccentTile,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    markText: {
-        fontFamily: fonts.mono,
-        fontSize: 11,
-        fontWeight: '600',
-        color: colors.white,
     },
     label: {
         ...type.button,

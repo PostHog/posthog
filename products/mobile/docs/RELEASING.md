@@ -90,6 +90,139 @@ Someone with these accounts does each step once. An agent cannot do them.
 8. Check that the repository secret `EXPO_TOKEN` exists. The desktop mobile workflows already use it.
    The "Mobile Build" workflow reads the same secret.
 
+## Install the current checkout on a connected iPhone
+
+Use a local Release build to put the current source on a phone with its JavaScript bundled in.
+It runs without Metro or a connection to the Mac. This builds the selected checkout, including
+uncommitted changes; it does not fetch a newer branch or install the latest store release.
+Check the branch and local changes first. The displayed app version comes from `app.config.ts`,
+so two local builds can show the same version while containing different code.
+
+### Prepare the Mac and phone
+
+- Use macOS with Xcode and its command-line tools selected (`xcode-select -p`), CocoaPods,
+  the Node version in `.node-version`, and pnpm 10.
+- Add an Apple Developer account in Xcode's Settings, Accounts. Its team must be allowed to
+  sign `com.posthog.code.mobile`, the `HedgehogWidget` extension, and their shared App Group.
+  A signing certificate alone does not establish access to those identifiers.
+- Connect the iPhone by USB, unlock it, and accept **Trust This Computer** if prompted.
+  On iOS 16 and later, enable **Developer Mode** in Settings, Privacy & Security, and complete
+  the restart and confirmation. Keep the phone connected through installation and launch.
+
+Run commands from this app's workspace, not the repository root:
+
+```sh
+cd products/mobile
+pnpm install --frozen-lockfile
+pnpm typecheck
+xcrun devicectl list devices
+```
+
+Select a row whose reality is `physical`, rather than a simulator. Copy its identifier and
+use the Apple team ID from Xcode's account settings; do not reuse another developer's device
+identifier or assume their signing team is available:
+
+```sh
+export DEVICE_ID='<physical device identifier>'
+export APPLE_TEAM_ID='<Apple Developer team ID>'
+xcrun devicectl device info details --device "$DEVICE_ID"
+security find-identity -v -p codesigning
+```
+
+The device details should report a paired, connected phone with Developer Mode enabled.
+`security find-identity` should list a valid Apple Development identity with its private key
+available in the login keychain. Xcode manages the corresponding provisioning profiles.
+
+### Generate, build and install
+
+```sh
+CI=1 pnpm exec expo prebuild --platform ios --pnpm --skip-dependency-update react,react-native
+CI=1 pnpm exec expo run:ios --device "$DEVICE_ID" --configuration Release --no-bundler --no-install
+```
+
+The first command regenerates the ignored `ios/` directory and installs CocoaPods. With the
+current Expo CLI, regeneration clears the existing native directory by default; preserve any
+manual native experiments before running it. Native changes belong in config plugins or
+the source under `modules/` and `targets/`, so they survive regeneration. This also applies
+the app's scene-lifecycle plugin and generates the widget target.
+
+The second command builds the workspace for that physical device, signs both targets,
+installs the app, and launches it. `Release` embeds the current JavaScript and assets.
+The output can still say **Starting Metro Bundler** while generating that bundle;
+`--no-bundler` avoids leaving a development server running. `--no-install` skips another
+dependency installation because prebuild already installed the pods.
+Expo can also print **Waiting on http://localhost:8081** at the end of a successful Release
+build. That message alone does not mean the installed app requires Metro.
+
+Install over the existing app to retain its data when signing is compatible. Do not uninstall
+as a routine update step. These local builds use development signing and do not consume the
+EAS remote build-number counter or select an EAS update channel. Use the preview or production
+profiles below when testing channel updates or distributing a build to other people.
+
+### Verify the installation
+
+```sh
+xcrun devicectl device info apps --device "$DEVICE_ID" --bundle-id com.posthog.code.mobile
+xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing com.posthog.code.mobile
+xcrun devicectl device info processes --device "$DEVICE_ID" --search PostHog
+```
+
+Confirm that the installed version matches `app.config.ts`, the launch succeeds, and the
+PostHog process remains running. Inspect the phone: the app should render its sign-in screen
+or the existing session, rather than a development-server picker or an error screen.
+Relaunch without Metro to check that the embedded bundle works. Launch success alone does
+not verify sign-in, API calls, push notifications, or the full [demo walkthrough](TESTING.md).
+
+On Xcode versions that provide screen capture, a local screenshot can help verify rendering:
+
+```sh
+xcrun devicectl device capture screenshot --device "$DEVICE_ID" --destination /tmp/posthog-mobile-install.png
+```
+
+Keep device identifiers, signing details, logs and screenshots out of committed notes;
+screenshots of an existing session can contain private project data.
+
+### If installation or launch fails
+
+- **Signing or provisioning fails:** open `ios/PostHog.xcworkspace` in Xcode and check
+  Signing & Capabilities for both PostHog and HedgehogWidget. Use the authorized team and
+  automatic signing. Resolve certificate, device-registration and App Group access through
+  that team; do not change the app's identifiers to bypass an error.
+- **The build succeeds but installation fails:** reconnect and unlock the phone, then retry
+  the signed `.app` from the successful build with the commands below. Set `APP_PATH` to the
+  actual `Release-iphoneos/PostHog.app` path from that build, not a simulator binary.
+- **The phone is locked:** unlock it and retry launch. Trust and Developer Mode prompts
+  require interaction on the phone.
+- **A native module or scene-lifecycle error appears:** regenerate with prebuild and rebuild;
+  restarting Metro does not update native code. Build through the `.xcworkspace`, which
+  includes Pods, rather than the `.xcodeproj`.
+
+```sh
+export APP_PATH='<absolute path to the signed Release-iphoneos/PostHog.app>'
+xcrun devicectl device install app --device "$DEVICE_ID" "$APP_PATH"
+xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing com.posthog.code.mobile
+```
+
+For an Android phone or an iPhone that is not connected to the build Mac, use the
+[preview-build distribution process](#share-a-preview-build). Android takes the APK directly;
+iOS ad hoc builds must include each recipient's device in the provisioning profile.
+TestFlight uses production builds and does not require registering each tester's device.
+
+References: [Expo local builds](https://docs.expo.dev/guides/local-app-development/),
+[Expo CLI](https://docs.expo.dev/more/expo-cli/), and
+[Apple Developer Mode](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device).
+
+### Verification record
+
+On October 14, 2026, this process installed app version `1.1.0` (local build `1`) from the
+current working tree on a physical iPhone running iOS 26.2, using Xcode 27.0 and Expo SDK 57.
+The frozen dependency install, type check, prebuild and Release build succeeded.
+The signed app and embedded extension passed `codesign --verify --deep --strict`.
+After installation, an explicit relaunch succeeded, the PostHog process remained running,
+and a local screenshot confirmed that the inbox rendered with the existing session.
+No server was listening on Metro's default port 8081. Full feature QA and installation on
+other devices were not performed; the parameters and distribution options above cover reuse.
+
 ## Install a development build on an iPhone
 
 A development build is the app with the Expo dev client.

@@ -23,7 +23,7 @@ describe('inbox adapters', () => {
         ])
         expect(items).toMatchObject([
             { reportId: 'a', needsInput: true, sourceProduct: 'session_replay', accent: 'alert', state: 'open' },
-            { reportId: 'b', needsInput: false, agent: { name: 'PostHog', mark: 'ph' } },
+            { reportId: 'b', needsInput: false, agent: { name: 'PostHog' } },
             { reportId: 'c', state: 'done', accent: 'resolved', sourceProduct: 'other', sourceLabel: 'Report' },
         ])
         expect(items[0]?.agent).toBeUndefined()

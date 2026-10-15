@@ -2,7 +2,7 @@ import type { ActionBarState, DecisionAnswer, ReportView, WorkView } from '@/mod
 
 import { actionBarStateFor } from './actionBarState'
 import type { ReportHandoff, StoredAnswer } from './handoffStore'
-import { currentDecision, mergeLiveRun, visibleAnswer } from './liveReport'
+import { currentDecision, mergeLiveRun, runTarget, visibleAnswer } from './liveReport'
 import { parsePermissionRequest, requestKind } from './permissionRequest'
 import { initialRunState } from './runStream'
 import type { RunStreamState } from './types'
@@ -63,75 +63,97 @@ const ANSWERED: StoredAnswer = {
 
 function footer(base: ReportView, entry: ReportHandoff): ActionBarState {
     const merged = mergeLiveRun(base, entry)
-    const stored = visibleAnswer(entry, currentDecision(entry, false))
+    const stored = visibleAnswer(entry, currentDecision(entry))
     const answer: DecisionAnswer | undefined = stored ? { questionId: stored.questionId, text: stored.text } : undefined
     return actionBarStateFor(merged, { answer })
 }
 
 describe('liveReport', () => {
-    test.each<[string, ReportView, ReportHandoff, ActionBarState]>([
-        [
-            'a run started here shows as handed before the report knows it',
-            { ...report(), task: undefined },
-            { refresh: 0, started: { taskId: 'task-2', runId: 'run-2' } },
-            'handed',
-        ],
-        [
-            'a pending question asks for a decision',
-            report(),
-            { refresh: 0, live: live({ pending: QUESTION }) },
-            'decision',
-        ],
-        [
-            'a delivered answer stays until the run shows new activity',
-            report(),
-            { refresh: 0, live: live({ activity: 3 }), answer: ANSWERED },
-            'decided',
-        ],
-        [
-            'the run moving on clears the delivered answer',
-            report(),
-            { refresh: 0, live: live({ activity: 4 }), answer: ANSWERED },
-            'handed',
-        ],
-        [
-            'a PR the stream reports is ready to review',
-            report(),
-            { refresh: 0, live: live({ prUrl: PR_URL, prUrls: [PR_URL] }) },
-            'pr_ready',
-        ],
-        [
-            'the report still wins on a PR it knows was merged',
-            report({ state: 'in_review', pullRequest: { url: PR_URL, state: 'merged' } }),
-            { refresh: 0, live: live({ status: 'completed', prUrl: PR_URL, prUrls: [PR_URL] }) },
-            'idle',
-        ],
-        [
-            'an ended turn without a PR waits for a reply',
-            report(),
-            { refresh: 0, live: live({ turnEnded: true, lastMessage: 'Should I also patch the API?' }) },
-            'decision',
-        ],
-        [
-            'an ended turn with an open PR shows the PR',
-            report(),
-            {
-                refresh: 0,
-                live: live({ turnEnded: true, lastMessage: 'Opened the PR.', prUrl: PR_URL, prUrls: [PR_URL] }),
-            },
-            'pr_ready',
-        ],
-        ['a failed run offers the hand-off again', report(), { refresh: 0, live: live({ status: 'failed' }) }, 'idle'],
-    ])('%s', (_name, base, entry, expected) => {
-        expect(footer(base, entry)).toBe(expected)
+    test('an ended turn stays idle with a draft PR through another turn', () => {
+        const pr = { url: PR_URL, state: 'draft' as const }
+        const base = report({ state: 'in_review', pullRequest: pr })
+        for (const state of [live({ turnEnded: true }), live({ phase: 'working' }), live({ turnEnded: true })]) {
+            const output = footer(base, { refresh: 0, live: state })
+            expect(output.pullRequests).toEqual([pr])
+            expect(output.request).toBeUndefined()
+            expect(output.showHandoff).toBe(false)
+        }
     })
 
-    test('the live overlay fills the PR number and the error', () => {
-        const merged = mergeLiveRun(report(), {
-            refresh: 0,
-            live: live({ status: 'failed', errorMessage: 'Sandbox crashed', prUrl: PR_URL, prUrls: [PR_URL] }),
+    test('a real question and its answer coexist with all PRs', () => {
+        const second = 'https://github.com/example/app/pull/43'
+        const base = report({ state: 'in_review', pullRequest: { url: PR_URL, state: 'merged' } })
+        const entry = { refresh: 0, live: live({ pending: QUESTION, prUrls: [`${PR_URL}/`, second], activity: 3 }) }
+        expect(footer(base, entry)).toMatchObject({
+            request: ANSWERED.question,
+            pullRequests: [{ state: 'merged' }, { state: 'unknown' }],
         })
-        expect(merged.work.pullRequest).toEqual({ url: PR_URL, state: 'open', number: 42 })
+        const answered = footer(base, { ...entry, answer: ANSWERED })
+        expect(answered.request).toBeUndefined()
+        expect(answered.answer).toMatchObject({ text: 'SDK' })
+        expect(answered.pullRequests).toHaveLength(2)
+    })
+
+    test('a new local task wins historical work until the canonical claim catches up', () => {
+        const started = { taskId: 'new-task', runId: 'new-run' }
+        expect(runTarget(report(), { refresh: 0, started })).toEqual(started)
+        const claimed = report({ state: 'working', assignee: { kind: 'task', name: 'PostHog', taskId: 'task-1' } })
+        expect(runTarget(claimed, { refresh: 0, started })).toEqual({ taskId: 'task-1', runId: 'run-1' })
+    })
+
+    test('canonical claims supersede optimistic or historical tasks', () => {
+        const started = { taskId: 'task-old', runId: 'run-old' }
+        const external = report({ state: 'working', assignee: { kind: 'agent', name: 'Codex' } })
+        const entry = { refresh: 0, started, live: live({ phase: 'working', pending: QUESTION }) }
+        expect(runTarget(external, entry)).toBeUndefined()
+        expect(mergeLiveRun(external, entry).task).toBeUndefined()
+        const canonical = report({ state: 'working', assignee: { kind: 'task', name: 'PostHog', taskId: 'task-1' } })
+        expect(runTarget(canonical, entry)).toEqual({ taskId: 'task-1', runId: 'run-1' })
+    })
+
+    test('canonical terminal status wins over a stale live state for the same run', () => {
+        const base = { ...report(), task: { taskId: 'task-1', runId: 'run-1', status: 'completed' as const } }
+        const merged = mergeLiveRun(base, {
+            refresh: 0,
+            live: live({ phase: 'working', pending: QUESTION, prUrls: [PR_URL] }),
+        })
+        expect(merged.task).toMatchObject({ status: 'completed', phase: 'idle', pendingDecision: undefined })
+        expect(merged.work.pullRequests).toHaveLength(1)
+    })
+
+    test('an older run cannot change a newer task status or request', () => {
+        const base = { ...report(), task: { taskId: 'task-1', runId: 'run-2', status: 'completed' as const } }
+        const merged = mergeLiveRun(base, {
+            refresh: 0,
+            live: live({ phase: 'working', pending: QUESTION, prUrls: [PR_URL] }),
+        })
+        expect(merged.task).toEqual(base.task)
+        expect(merged.work.pullRequests).toEqual([])
+    })
+
+    test('canonical PR state survives normalized streamed URLs and more PRs', () => {
+        const merged = mergeLiveRun(report({ state: 'done', pullRequest: { url: PR_URL, state: 'merged' } }), {
+            refresh: 0,
+            live: live({
+                status: 'failed',
+                errorMessage: 'Sandbox crashed',
+                prUrls: [`${PR_URL}/?tab=checks`, 'https://github.com/example/app/pull/43'],
+                prUrl: 'https://github.com/example/app/pull/44',
+            }),
+        })
+        expect(merged.work.pullRequest).toEqual({ url: PR_URL, state: 'merged' })
+        expect(merged.work.pullRequests).toEqual([
+            { url: PR_URL, state: 'merged' },
+            { url: 'https://github.com/example/app/pull/43', state: 'unknown', number: 43 },
+            { url: 'https://github.com/example/app/pull/44', state: 'unknown', number: 44 },
+        ])
         expect(merged.task).toMatchObject({ status: 'failed', errorMessage: 'Sandbox crashed' })
+    })
+
+    test('new activity clears the delivered answer without manufacturing another request', () => {
+        expect(
+            footer(report(), { refresh: 0, live: live({ activity: 4, turnEnded: true }), answer: ANSWERED }).answer
+        ).toBeUndefined()
+        expect(currentDecision({ refresh: 0, live: live({ turnEnded: true }) })).toBeUndefined()
     })
 })

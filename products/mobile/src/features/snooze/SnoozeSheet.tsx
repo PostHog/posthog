@@ -6,7 +6,7 @@ import type { SnoozeChoice } from '@/model/types'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { ClockIcon } from '@/ui/icons/ClockIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, radii, type } from '@/ui/tokens'
 
 import { CustomSnoozePicker } from './CustomSnoozePicker'
 import { formatSnoozeWhen, SNOOZE_SIGNAL_COUNT, snoozeUntil, type TimePreset } from './snoozeTimes'
@@ -44,7 +44,7 @@ function SnoozeRow({ label, sub, when, onPress, disabled, testID }: RowProps): R
             style={styles.row}
             testID={testID}
         >
-            <ClockIcon size={20} />
+            <ClockIcon size={iconSizes.control} />
             <View style={styles.rowBody}>
                 <Text style={styles.label}>{label}</Text>
                 {sub ? <Text style={styles.sub}>{sub}</Text> : null}

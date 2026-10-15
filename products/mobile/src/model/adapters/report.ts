@@ -102,6 +102,15 @@ function isPersonActor(artefact: ReportArtefactApi): boolean {
     return artefact.actor_kind === 'user' || artefact.actor_kind === 'agent'
 }
 
+export function pullRequestKey(url: string): string {
+    try {
+        const parsed = new URL(url)
+        return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '').toLowerCase()
+    } catch {
+        return url.trim().replace(/\/+$/, '').toLowerCase()
+    }
+}
+
 export function pullRequestNumber(url: string): number | undefined {
     const match = /\/pull\/(\d+)/.exec(url)
     return match?.[1] ? Number(match[1]) : undefined
@@ -114,6 +123,9 @@ function isImplementationRun(artefact: ReportArtefactApi): boolean {
 export function reportTaskId(report: SignalReportApi, artefacts: readonly ReportArtefactApi[]): string | undefined {
     if (report.assignee?.kind === 'task' && report.assignee.task_id) {
         return report.assignee.task_id
+    }
+    if (report.assignee && report.assignee.kind !== 'task') {
+        return undefined
     }
     const run = artefacts.find(isImplementationRun)
     return text(asRecord(run?.content)?.task_id) ?? run?.task_id ?? undefined
@@ -298,7 +310,7 @@ function assigneeName(assignee: ReportAssigneeApi): string {
         case 'user':
             return userName(assignee.user) ?? 'Someone'
         case 'agent':
-            return agentClientName(assignee.agent) ?? POSTHOG_AGENT.name
+            return agentClientName(assignee.agent) ?? 'External agent'
         default:
             return POSTHOG_AGENT.name
     }
@@ -427,12 +439,21 @@ function activityFor(
 }
 
 function assigneeView(assignee: ReportAssigneeApi | null): WorkAssignee | undefined {
-    return assignee ? { kind: assignee.kind, name: assigneeName(assignee) } : undefined
+    return assignee
+        ? {
+              kind: assignee.kind,
+              ...(assignee.claim_id ? { claimId: assignee.claim_id } : {}),
+              name: assigneeName(assignee),
+              ...(assignee.task_id ? { taskId: assignee.task_id } : {}),
+          }
+        : undefined
 }
 
 function primaryPullRequest(report: SignalReportApi): ReportPullRequestApi | undefined {
     return (
-        report.pull_requests.find((pr) => pr.url === report.implementation_pr_url) ??
+        report.pull_requests.find(
+            (pr) => pullRequestKey(pr.url) === pullRequestKey(report.implementation_pr_url ?? '')
+        ) ??
         report.pull_requests[0] ??
         undefined
     )
@@ -442,11 +463,11 @@ function pullRequestView(pr: ReportPullRequestApi | undefined): PullRequestView 
     if (!pr) {
         return undefined
     }
-    // `unknown` means GitHub has not reported a state yet; the server counts it as open work.
-    const state = pr.merged ? 'merged' : pr.state === 'unknown' ? 'open' : pr.state
+    const state = pr.merged ? 'merged' : pr.state
     const number = pullRequestNumber(pr.url)
     return {
         url: pr.url,
+        ...(pr.id ? { id: pr.id } : {}),
         state,
         ...(number ? { number } : {}),
         ...(pr.review_decision ? { reviewDecision: pr.review_decision } : {}),
@@ -456,7 +477,26 @@ function pullRequestView(pr: ReportPullRequestApi | undefined): PullRequestView 
 function workView(report: SignalReportApi): WorkView {
     const assignee = assigneeView(report.assignee)
     const pullRequest = pullRequestView(primaryPullRequest(report))
-    return { state: report.work_state, ...(assignee ? { assignee } : {}), ...(pullRequest ? { pullRequest } : {}) }
+    const pullRequests = report.pull_requests.flatMap((pr) => {
+        const view = pullRequestView(pr)
+        return view ? [view] : []
+    })
+    if (
+        report.implementation_pr_url &&
+        !pullRequests.some((pr) => pullRequestKey(pr.url) === pullRequestKey(report.implementation_pr_url ?? ''))
+    ) {
+        pullRequests.push({
+            url: report.implementation_pr_url,
+            state: 'unknown',
+            number: pullRequestNumber(report.implementation_pr_url),
+        })
+    }
+    return {
+        state: report.work_state,
+        ...(assignee ? { assignee } : {}),
+        pullRequests,
+        ...(pullRequest || pullRequests[0] ? { pullRequest: pullRequest ?? pullRequests[0] } : {}),
+    }
 }
 
 export function reviewersFromArtefacts(artefacts: readonly ReportArtefactApi[]): Reviewer[] {

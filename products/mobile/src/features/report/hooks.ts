@@ -1,5 +1,5 @@
-import { useQueries, useQuery } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo } from 'react'
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { NotSignedInError } from '@/api/client'
 import { reportKeys, retryUnlessMissing } from '@/api/reports'
@@ -14,24 +14,30 @@ import type { InboxItem, QueryState, ReportActions, ReportView } from '@/model/t
 
 import { useHandoffActions } from '../handoff/hooks'
 import { buildReportImplementationPrompt } from '../handoff/prompt'
+import { useAppActive } from '../handoff/useTaskRun'
 import { type InboxQueryState, useMarkReadAction } from '../inbox/hooks'
 import { useSetPriorityAction } from '../priority/hooks'
 import { useSetReviewersAction } from '../reviewers/hooks'
 import { useSnoozeAction } from '../snooze/hooks'
 import { reportArtefactsQuery, reportDetailQuery, reportPageQuery, reportSignalsQuery } from './queries'
 
+export const REPORT_POLL_INTERVAL_MS = 15_000
+
 /** `TaskSerializer` also returns who created the task, which names who handed the report off. */
 type TaskWithCreator = TaskApi & Pick<ReportTaskInput, 'created_by'>
 
 // The screen waits for the Today page to answer (a 404 means no Today), and for the signals only when there is no
 // page, because they are the evidence then.
-function useLiveReport(reportId: string, enabled: boolean): QueryState<ReportView> {
+function useLiveReport(reportId: string, enabled: boolean, refreshWhileVisible: boolean): QueryState<ReportView> {
     const scope = useProjectScope()
-    const active = enabled && scope !== null
+    const appActive = useAppActive()
+    const active = enabled && appActive && scope !== null
+    const queryClient = useQueryClient()
+    const refetchInterval = active && refreshWhileVisible ? REPORT_POLL_INTERVAL_MS : false
     const [report, artefacts, page, signals] = useQueries({
         queries: [
-            { ...reportDetailQuery(scope, reportId), enabled: active, refetchOnMount: 'always' },
-            { ...reportArtefactsQuery(scope, reportId), enabled: active, refetchOnMount: 'always' },
+            { ...reportDetailQuery(scope, reportId), enabled: active, refetchInterval, refetchOnMount: 'always' },
+            { ...reportArtefactsQuery(scope, reportId), enabled: active, refetchInterval, refetchOnMount: 'always' },
             { ...reportPageQuery(scope, reportId), enabled: active, refetchOnMount: 'always' },
             { ...reportSignalsQuery(scope, reportId), enabled: active, refetchOnMount: 'always' },
         ],
@@ -42,9 +48,22 @@ function useLiveReport(reportId: string, enabled: boolean): QueryState<ReportVie
         queryFn: ({ signal }) => getTask(taskId as string, signal) as Promise<TaskWithCreator>,
         enabled: active && taskId !== undefined,
         retry: retryUnlessMissing,
+        refetchInterval,
         // `useQuery` keeps its observer when Prev/Next changes `taskId`, so `refetchOnMount` cannot refresh the task.
         staleTime: 0,
     })
+
+    const wasActive = useRef(active)
+    useEffect(() => {
+        if (active && !wasActive.current) {
+            void queryClient.invalidateQueries({ queryKey: reportKeys.detail(scope, reportId) })
+            void queryClient.invalidateQueries({ queryKey: reportKeys.artefacts(scope, reportId) })
+            if (taskId) {
+                void queryClient.invalidateQueries({ queryKey: reportKeys.task(scope, taskId) })
+            }
+        }
+        wasActive.current = active
+    }, [active, queryClient, scope, reportId, taskId])
 
     // Retrying missing evidence resets its status to pending, but must not hide an already loaded report.
     const pageSettled = page.isFetched
@@ -102,10 +121,10 @@ function useLiveReport(reportId: string, enabled: boolean): QueryState<ReportVie
     return { ...loadingQuery<ReportView>(), refetch }
 }
 
-export function useReport(reportId: string): QueryState<ReportView> {
+export function useReport(reportId: string, refreshWhileVisible = false, enabled = true): QueryState<ReportView> {
     const mode = useDataMode()
     const demoQuery = useDemoReportQuery(reportId)
-    const liveQuery = useLiveReport(reportId, mode === 'live')
+    const liveQuery = useLiveReport(reportId, mode === 'live' && enabled, refreshWhileVisible)
     if (mode === 'loading') {
         return loadingQuery()
     }

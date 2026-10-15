@@ -1,11 +1,12 @@
 import * as Notifications from 'expo-notifications'
-import { router, useRootNavigationState } from 'expo-router'
+import { router, usePathname, useRootNavigationState } from 'expo-router'
 import { useEffect } from 'react'
 
 import { useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 
+import { setViewedNotificationReport } from './foregroundNotifications'
 import { notificationKind, resolveNotificationRoute } from './notificationRouting'
 import { notificationsSupported } from './pushSupport'
 import { findTask } from './taskLookup'
@@ -14,6 +15,10 @@ import { findTask } from './taskLookup'
 const handled = new Set<string>()
 
 async function openFromNotification(response: Notifications.NotificationResponse): Promise<void> {
+    const auth = useAuthStore.getState()
+    if (auth.status !== 'signed_in') {
+        return
+    }
     const id = response.notification.request.identifier
     if (handled.has(id)) {
         return
@@ -22,10 +27,6 @@ async function openFromNotification(response: Notifications.NotificationResponse
     Notifications.clearLastNotificationResponse()
     const data: unknown = response.notification.request.content.data
     track('mobile_push_opened', { kind: notificationKind(data) })
-    const auth = useAuthStore.getState()
-    if (auth.status !== 'signed_in') {
-        return
-    }
     const route = await resolveNotificationRoute(data, {
         currentProjectId: auth.projectId,
         projectIds: auth.projects.map((project) => project.id),
@@ -51,10 +52,24 @@ async function openFromNotification(response: Notifications.NotificationResponse
 // Waits until the navigator is mounted and the session has loaded, because the route depends on the user's projects.
 export function useNotificationRouting(): void {
     const navigationReady = Boolean(useRootNavigationState()?.key)
-    const sessionLoaded = useAuthStore((state) => state.status !== 'loading')
+    const signedIn = useAuthStore((state) => state.status === 'signed_in')
+    const host = useAuthStore((state) => state.host)
+    const userUuid = useAuthStore((state) => state.user?.uuid)
+    const projectId = useAuthStore((state) => state.projectId)
+    const pathname = usePathname()
 
     useEffect(() => {
-        if (!navigationReady || !sessionLoaded || !notificationsSupported()) {
+        const reportId = /^\/report\/([^/]+)$/.exec(pathname)?.[1]
+        setViewedNotificationReport(
+            signedIn && host && userUuid && projectId !== null && reportId
+                ? { accountKey: `${host.replace(/\/$/, '')}|${userUuid}`, projectId, reportId }
+                : null
+        )
+        return () => setViewedNotificationReport(null)
+    }, [signedIn, host, userUuid, projectId, pathname])
+
+    useEffect(() => {
+        if (!navigationReady || !signedIn || !notificationsSupported()) {
             return
         }
         const open = (response: Notifications.NotificationResponse): void => {
@@ -66,5 +81,5 @@ export function useNotificationRouting(): void {
         }
         const subscription = Notifications.addNotificationResponseReceivedListener(open)
         return () => subscription.remove()
-    }, [navigationReady, sessionLoaded])
+    }, [navigationReady, signedIn])
 }

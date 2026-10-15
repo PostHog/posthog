@@ -81,8 +81,10 @@ Every data hook returns `QueryState<T>`, which TanStack Query's `UseQueryResult<
 
 The report screen reads `useReportWithLiveRun(id)`, which takes `useReport(id)` and overlays the
 live task run (status, stage, pending question, PR URL) and the hand-off prompt.
-The footer state comes from the pure `actionBarStateFor(report, local)` in
-`features/handoff/actionBarState.ts`.
+The footer reads independent execution, attention and PR state from the pure
+`actionBarStateFor(report, local)` in `features/handoff/actionBarState.ts`. The focused report
+polls lightweight report/artefact/task snapshots in the foreground; stream changes trigger
+throttled invalidations without refetching on message chunks.
 
 Mutations go through `useAsyncAction`, which exposes a `pending` flag and drops a second call
 while one is in flight. Buttons read the flag to disable and show progress.
@@ -95,7 +97,8 @@ Hand-off and decision actions resolve on failure and surface the error through
 | --- | --- | --- |
 | Inbox rows | `GET signals/reports/for_you/?include_unowned=false&limit=20&offset=` one page at a time | A server without `next` shows the first page only |
 | Report page | `GET signals/reports/{id}/`, `/signals/`, `/artefacts/`, `GET today/reports/{id}/page/` | Signals only when the Today page is unavailable |
-| Current run | `GET tasks/{taskId}/` then `GET .../runs/{runId}/stream/` (SSE) | Polling the run on stream errors |
+| Selected PR checks | `GET signals/reports/{id}/pr_checks/?pull_request_id={canonicalPrId}` | No id or failed/missing checks stay unavailable; focused foreground polling at 30 seconds |
+| Current run | `GET tasks/{taskId}/` then `GET .../runs/{runId}/stream/` (SSE) | Bounded reconnects and focused foreground task polling, including later resumes |
 | New chat | `POST tasks/` then `POST tasks/{id}/run/` (`mode: interactive`) | A refused run deletes the new task |
 | Follow-up | `POST tasks/{id}/runs/{run}/command/` (`set_config_option` for changed options, then `user_message`) | `POST tasks/{id}/run/` with `resume_from_run_id` when the run ended |
 | Chats list | `GET tasks/?created_by={user id}&ordering=-last_activity_at&basic=true&limit=30` | A 403 or 404 means no sessions |
@@ -124,7 +127,8 @@ Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT
 | `useMetricValue(metric)` | `features/report/metrics/useMetricValue.ts` | `MetricValueState`: the live value, else the snapshot with its measured time |
 | `useChartPoints(data, fallback?)` | `features/report/metrics/useChartPoints.ts` | `{ points, isLoading, isError }` for `MetricChart`, from live buckets or the snapshot series |
 | `useHandoffActions(id)`, `useDecisionAnswer(id)`, `useHandoffNotice(id)` | `features/handoff/hooks.ts` | actions, the device-side answer, the footer error line |
-| `useTaskRun(taskId, runId)` | `features/handoff/useTaskRun.ts` | live run state from the stream |
+| `usePullRequestChecks(reportId?, pullRequestId?, enabled?)` | `features/handoff/usePullRequestChecks.ts` | status, local `observedAt`, `isRefreshing` |
+| `useTaskRun(reportId, target, enabled, onRefresh?, onTaskSnapshot?)` | `features/handoff/useTaskRun.ts` | `void`; follows the current run into the report store, with scoped connection state |
 | `useSnoozeAction(id)`, `useSnoozeEntries()` | `features/snooze/hooks.ts` | `AsyncAction<[SnoozeChoice]>`, active snoozes |
 | `useAvailableReviewers(query)` | `features/reviewers/hooks.ts` | `QueryState<Person[]>` |
 | `useSetReviewersAction(id)` | `features/reviewers/hooks.ts` | `AsyncAction<[string[]]>` (full replace) |

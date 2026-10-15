@@ -29,6 +29,7 @@ import { answerErrorMessage } from '@/features/handoff/hooks'
 import { RunNotStartedError, withWarmRetry } from '@/features/handoff/kickoff'
 import { pullRequestFromUrl } from '@/features/handoff/liveReport'
 import { decisionQuestionFor, planAnswer, requestKind } from '@/features/handoff/permissionRequest'
+import { HYDRATION_QUIET_MS } from '@/features/handoff/runHydration'
 import {
     applyRunSnapshot,
     displayStage,
@@ -53,7 +54,7 @@ import { toChatError } from '../chatErrors'
 import { type ChatRunOptions, DEFAULT_CHAT_RUN_OPTIONS } from '../chatRunOptions'
 import { bareQuestion, chatPrompt } from '../contextPrompt'
 import type { ChatContext } from '../types'
-import { historyFrames, initialSessionThread, sessionThreadReducer } from './sessionReducer'
+import { historyFrames, initialSessionThread, type SessionFrame, sessionThreadReducer } from './sessionReducer'
 import {
     applyConfigChange,
     chatRunFields,
@@ -125,12 +126,14 @@ interface PartialAnswer {
 interface Follow {
     runId: string
     key: number
+    fresh?: boolean
 }
 
 interface CursorEntry {
     cursor: RunStreamCursor
     /** A later connection with no cursor replays the log again, so the thread rebuilds from it. */
     followed: boolean
+    hydrate: boolean
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
@@ -251,6 +254,7 @@ function demoReplyFrames(reply: string): unknown[] {
 
 interface FollowHandlers {
     onOpen: () => void
+    onHistory: (frames: SessionFrame[]) => void
     onFrame: (data: unknown, context: FrameContext) => void
     onResync: () => void
     onReconnecting: (reconnecting: boolean) => void
@@ -268,13 +272,36 @@ interface ConnectionResult {
 async function readConnection(
     taskId: string,
     runId: string,
-    cursor: RunStreamCursor,
+    entry: CursorEntry,
     outer: AbortSignal,
     handlers: FollowHandlers
 ): Promise<ConnectionResult> {
     const connection = new AbortController()
     const abort = (): void => connection.abort()
     outer.addEventListener('abort', abort, { once: true })
+    const cursor = entry.cursor.fork()
+    let hydrating = entry.hydrate
+    const frames: SessionFrame[] = []
+    let quietTimer: ReturnType<typeof setTimeout> | undefined
+    const cancelQuiet = (): void => {
+        if (quietTimer) {
+            clearTimeout(quietTimer)
+            quietTimer = undefined
+        }
+    }
+    const publishHistory = (): void => {
+        cancelQuiet()
+        if (!hydrating || outer.aborted) {
+            return
+        }
+        hydrating = false
+        handlers.onHistory([...frames])
+        frames.length = 0
+        entry.cursor = cursor
+    }
+    if (!hydrating) {
+        entry.cursor = cursor
+    }
     let idleTimer: ReturnType<typeof setTimeout> | undefined
     const resetIdle = (): void => {
         if (idleTimer) {
@@ -289,17 +316,46 @@ async function readConnection(
             lastEventId: cursor.cursor,
             signal: connection.signal,
         })
+        if (outer.aborted) {
+            return result
+        }
         handlers.onOpen()
         await readSse(
             response,
             (event) => {
+                if (outer.aborted) {
+                    return
+                }
                 resetIdle()
                 const outcome = cursor.accept(event)
                 if (outcome.frame) {
                     result.progressed = true
-                    handlers.onFrame(outcome.frame.data, outcome.frame.context)
+                    if (hydrating) {
+                        // Redis frames can also be backlog, so catch-up must not trigger live effects.
+                        frames.push({
+                            frame: outcome.frame.data,
+                            context: { ...outcome.frame.context, source: 'replay' },
+                        })
+                    } else {
+                        handlers.onFrame(outcome.frame.data, outcome.frame.context)
+                    }
+                }
+                if (hydrating) {
+                    if (event.event === 'keepalive' || outcome.control?.type === 'ended') {
+                        publishHistory()
+                    } else if (event.event === 'message') {
+                        cancelQuiet()
+                        if (!event.id?.startsWith('log-')) {
+                            // The protocol has no catch-up marker. Only the Redis tail can settle on silence.
+                            quietTimer = setTimeout(publishHistory, HYDRATION_QUIET_MS)
+                        }
+                    }
                 }
                 if (outcome.control) {
+                    cancelQuiet()
+                    if (outcome.control.type === 'resync') {
+                        entry.cursor.resetCursor()
+                    }
                     result.control = outcome.control
                     // The server closes after every control event; stop reading now.
                     connection.abort()
@@ -314,6 +370,8 @@ async function readConnection(
         }
         throw error
     } finally {
+        cancelQuiet()
+        entry.hydrate = true
         if (idleTimer) {
             clearTimeout(idleTimer)
         }
@@ -325,7 +383,7 @@ async function readConnection(
 async function followSessionRun(
     taskId: string,
     runId: string,
-    cursor: RunStreamCursor,
+    entry: CursorEntry,
     signal: AbortSignal,
     handlers: FollowHandlers
 ): Promise<FollowOutcome> {
@@ -335,7 +393,7 @@ async function followSessionRun(
         let control: StreamControl | undefined
         let retryAfterMs: number | undefined
         try {
-            const result = await readConnection(taskId, runId, cursor, signal, handlers)
+            const result = await readConnection(taskId, runId, entry, signal, handlers)
             control = result.control
             if (result.progressed) {
                 perDrop = 0
@@ -363,7 +421,17 @@ async function followSessionRun(
         }
         let state = handlers.getState()
         try {
-            state = handlers.onSnapshot(await getTaskRun(taskId, runId, signal))
+            const run = await getTaskRun(taskId, runId, signal)
+            if (isTerminalRunStatus(run.status) && control?.type !== 'ended') {
+                // A dropped connection can hide the last frames and its completion marker.
+                const entries = await getTaskRunLogs(taskId, runId, signal)
+                if (signal.aborted) {
+                    return 'aborted'
+                }
+                handlers.onResync()
+                handlers.onHistory(historyFrames(entries, runId, isResumeRun(run)))
+            }
+            state = handlers.onSnapshot(run)
         } catch (error) {
             if (isAbort(error, signal)) {
                 return 'aborted'
@@ -547,14 +615,16 @@ export function useSession(options: SessionOptions): Session {
                 return
             }
             const update = sessionUpdate(data)
-            if (update) {
-                generating.current.add(runId)
-            }
             const tracked = runConfigs.current.get(runId)
             if (tracked && context.source === 'live' && update?.sessionUpdate === 'current_mode_update') {
                 runConfigs.current.set(runId, withStreamModeReport(tracked))
             }
             const result = reduceFrame(current, data, context)
+            if (context.source === 'live' && result.state.phase === 'working') {
+                generating.current.add(runId)
+            } else if (result.state.phase !== 'working' || result.state.turnEnded) {
+                generating.current.delete(runId)
+            }
             if (result.state !== current) {
                 setLive(result.state)
                 if (!isTerminalRunStatus(current.status) && isTerminalRunStatus(result.state.status)) {
@@ -710,7 +780,7 @@ export function useSession(options: SessionOptions): Session {
         const { runId } = follow
         let entry = cursors.current.get(runId)
         if (!entry) {
-            entry = { cursor: new RunStreamCursor(runId), followed: false }
+            entry = { cursor: new RunStreamCursor(runId), followed: false, hydrate: !follow.fresh }
             cursors.current.set(runId, entry)
         }
         if (entry.followed && entry.cursor.cursor === undefined) {
@@ -720,8 +790,24 @@ export function useSession(options: SessionOptions): Session {
         setFollowEnded(false)
         const handlers: FollowHandlers = {
             onOpen: () => {
-                setHistory((current) => (current.status === 'idle' ? current : IDLE))
                 setReconnecting(false)
+            },
+            onHistory: (frames) => {
+                dispatchThread({ type: 'frames', frames })
+                const current = liveRef.current
+                if (current?.runId === runId) {
+                    let state: RunStreamState = { ...current, liveActivitySeen: false }
+                    for (const { frame, context } of frames) {
+                        if (context.sourceRunId === runId) {
+                            state = reduceFrame(state, frame, context).state
+                        }
+                    }
+                    setLive(state)
+                    if (isTerminalRunStatus(state.status)) {
+                        dispatchThread({ type: 'settle' })
+                    }
+                }
+                setHistory(IDLE)
             },
             onFrame: (data, context) => applyFrame(data, context, runId, signal),
             onResync: () => dispatchThread({ type: 'resuming' }),
@@ -729,13 +815,18 @@ export function useSession(options: SessionOptions): Session {
             onSnapshot: applySnapshot,
             getState: () => liveRef.current ?? initialRunState(activeTaskId, runId),
         }
-        void followSessionRun(activeTaskId, runId, entry.cursor, signal, handlers).then((outcome) => {
+        void followSessionRun(activeTaskId, runId, entry, signal, handlers).then((outcome) => {
             if (outcome === 'aborted' || signal.aborted) {
                 return
             }
             setReconnecting(false)
             setFollowEnded(true)
             if (outcome === 'gave_up') {
+                setHistory((current) =>
+                    current.status === 'loading'
+                        ? { status: 'error', error: { kind: 'network', message: CONNECTION_LOST } }
+                        : current
+                )
                 setNotice(CONNECTION_LOST)
             } else if (typeof outcome === 'object') {
                 const error = toChatError(outcome.fatal)
@@ -744,7 +835,7 @@ export function useSession(options: SessionOptions): Session {
             }
         })
         return () => controller.abort()
-    }, [active, activeTaskId, applyFrame, applySnapshot, demo, follow])
+    }, [active, activeTaskId, applyFrame, applySnapshot, demo, follow, setLive])
 
     const liveStatus = live?.status
     const liveTurnEnded = live?.turnEnded
@@ -822,7 +913,7 @@ export function useSession(options: SessionOptions): Session {
             }
             setPartial(null)
             setLive(applyRunSnapshot(initialRunState(id, run.id, run.status), run))
-            setFollow({ runId: run.id, key: 0 })
+            setFollow({ runId: run.id, key: 0, fresh: !previousRunId })
             return fields.initial_permission_mode
         },
         [configFor, setLive, setPartial]
@@ -1056,7 +1147,7 @@ export function useSession(options: SessionOptions): Session {
                 runDetail.current = run
                 runConfigs.current.set(run.id, runConfigAfterStart(run, requests.fields))
                 setLive(applyRunSnapshot(initialRunState(task.id, run.id, run.status), run))
-                setFollow({ runId: run.id, key: 0 })
+                setFollow({ runId: run.id, key: 0, fresh: true })
                 track('mobile_session_sent', sentProperties)
             } catch (error) {
                 if (epoch.current !== mine || signal.aborted) {
@@ -1181,7 +1272,14 @@ export function useSession(options: SessionOptions): Session {
         if (!taskId || !current || stoppingRef.current) {
             return
         }
-        if (current.status !== 'in_progress' || !generating.current.has(current.runId)) {
+        if (
+            !active ||
+            reconnecting ||
+            current.status !== 'in_progress' ||
+            current.phase !== 'working' ||
+            current.turnEnded ||
+            !generating.current.has(current.runId)
+        ) {
             setNotice(NOT_STARTED)
             return
         }
@@ -1202,7 +1300,7 @@ export function useSession(options: SessionOptions): Session {
                     setNotice(STOP_FAILED)
                 }
             })
-    }, [demo, endStopping])
+    }, [active, demo, endStopping, reconnecting])
 
     const dismissNotice = useCallback((): void => setNotice(undefined), [])
 
@@ -1228,7 +1326,7 @@ export function useSession(options: SessionOptions): Session {
     let phase: SessionPhase = 'idle'
     if (reconnecting) {
         phase = 'reconnecting'
-    } else if (demoPlaying || (live && !terminal && !live.turnEnded && following)) {
+    } else if (demoPlaying || (active && live?.phase === 'working' && !terminal && !live.turnEnded && following)) {
         phase = 'working'
     }
 
@@ -1246,6 +1344,9 @@ export function useSession(options: SessionOptions): Session {
         history,
         ...(decision ? { decision } : {}),
         ...(live?.prUrl ? { pullRequest: pullRequestFromUrl(live.prUrl) } : {}),
+        pullRequests: [...new Set([...(live?.prUrls ?? []), ...(live?.prUrl ? [live.prUrl] : [])])].map(
+            pullRequestFromUrl
+        ),
         ...(live?.errorMessage ? { runError: live.errorMessage } : {}),
         isSending,
         isStopping,

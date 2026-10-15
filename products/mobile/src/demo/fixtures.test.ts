@@ -2,6 +2,7 @@ import { formatActivityTime, isoDay } from '@/lib/dates'
 
 import { DEMO_BRIEFINGS } from './briefings'
 import { buildDemoFixtures, DEMO_DECISION_QUESTION } from './fixtures'
+import { demoSessionLog, demoSessionRunId } from './sessionThreads'
 
 // One anchor per weekday at 3 PM local, so "Today" and every weekday label are exercised.
 const ANCHORS = [4, 5, 6, 7, 8, 9, 10].map((day) => new Date(2026, 9, day, 15, 0))
@@ -28,6 +29,10 @@ describe('demo fixtures', () => {
             expect(report.headline.rest).not.toBe('')
             expect(report.facts.length).toBeGreaterThan(0)
             expect(report.prompt).not.toBe('')
+            if (report.task) {
+                expect(demoSessionLog(report.task.taskId)?.title).toBe(report.title)
+                expect(demoSessionRunId(report.task.taskId)).toBe(report.task.runId)
+            }
             const observation = report.observation
             if (observation?.data.kind !== 'static') {
                 throw new Error(`${report.id} has no static observation`)

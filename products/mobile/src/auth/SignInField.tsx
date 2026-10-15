@@ -55,7 +55,7 @@ const styles = StyleSheet.create({
         borderColor: colors.border,
         backgroundColor: colors.white,
         paddingHorizontal: 18,
-        fontSize: 17,
+        ...type.input,
         color: colors.ink,
     },
     disabled: {

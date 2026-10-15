@@ -1,6 +1,7 @@
 import type { ComponentType, ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
+import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
 import { ComposeIcon } from '@/ui/icons/ComposeIcon'
 import { HomeIcon } from '@/ui/icons/HomeIcon'
@@ -8,7 +9,7 @@ import { SpacesIcon } from '@/ui/icons/SpacesIcon'
 import type { IconProps } from '@/ui/icons/types'
 import { ViewsIcon } from '@/ui/icons/ViewsIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, shadows, type } from '@/ui/tokens'
+import { colors, iconSizes, layout, radii, shadows, type } from '@/ui/tokens'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 interface BottomBarProps {
@@ -40,7 +41,7 @@ function NavSlot({ label, Icon, onPress, disabled = false, testID }: NavSlotProp
             haptic="selection"
             testID={testID}
         >
-            <Icon size={22} />
+            <Icon size={iconSizes.navigation} />
         </Pressable44>
     )
 }
@@ -60,7 +61,7 @@ function SelectedSlot({ label, Icon, testID }: SelectedSlotProps): ReactElement 
             accessibilityState={{ selected: true }}
             testID={testID}
         >
-            <Icon size={22} />
+            <Icon size={iconSizes.navigation} />
         </View>
     )
 }
@@ -69,7 +70,8 @@ export function BottomBar({ selected, onHome, onChats, onViews, onNewChat }: Bot
     const insets = useScreenInsets()
     return (
         <View style={[styles.bar, { paddingBottom: bottomOffset(insets, 34) }]}>
-            <FadeEdge direction="up" solid={0.6} />
+            <BlurEdge direction="up" solid={0.6} />
+            <FadeEdge direction="up" solid={0.6} opacity={layout.chromeTint} />
             <View style={[styles.nav, shadows.floatingBar]} accessibilityRole="tablist">
                 {selected === 'home' ? (
                     <SelectedSlot label="Home" Icon={HomeIcon} testID="inbox-nav-home" />
@@ -96,7 +98,7 @@ export function BottomBar({ selected, onHome, onChats, onViews, onNewChat }: Bot
                 haptic="selection"
                 testID="inbox-chat"
             >
-                <ComposeIcon size={22} color={colors.white} />
+                <ComposeIcon size={iconSizes.navigation} color={colors.white} />
                 <Text style={styles.chatText}>Chat</Text>
             </Pressable44>
         </View>
@@ -113,6 +115,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 10,
+        paddingTop: 28,
         paddingHorizontal: 20,
         pointerEvents: 'box-none',
     },
@@ -159,7 +162,7 @@ const styles = StyleSheet.create({
         borderColor: colors.ink,
     },
     chatText: {
-        ...type.buttonLarge,
+        ...type.button,
         color: colors.white,
     },
 })

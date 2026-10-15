@@ -8,11 +8,10 @@ import { Avatar } from '@/ui/Avatar'
 import { Dot } from '@/ui/Dot'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, lineHeight, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, lineHeight, radii, type } from '@/ui/tokens'
 
 import { priorityTone } from '../priority/PrioritySheet'
 
-const GLYPH_SIZE = 13
 const AVATAR_SIZE = 18
 const PRIORITY_DOT_SIZE = 8
 
@@ -47,7 +46,7 @@ export function ReportMeta({ report, onReassign, onChangePriority }: ReportMetaP
             >
                 <View style={styles.segment}>
                     <View style={styles.glyph}>
-                        <Icon size={GLYPH_SIZE} color={colors.secondary} />
+                        <Icon size={iconSizes.inline} color={colors.secondary} />
                     </View>
                     <Text style={styles.bylineText}>{report.sourceLabel}</Text>
                     {/* The separator rides on the end of the segment before it, so a wrapped line never starts with a dot. */}
@@ -138,7 +137,7 @@ function Chip({ accessibilityLabel, leading, label, labelStyle, onPress, testID 
                 <Text numberOfLines={1} style={[styles.chipLabel, labelStyle]}>
                     {label}
                 </Text>
-                <ChevronDownIcon size={12} color={colors.tertiary} />
+                <ChevronDownIcon size={iconSizes.small} color={colors.tertiary} />
             </View>
         </Pressable44>
     )

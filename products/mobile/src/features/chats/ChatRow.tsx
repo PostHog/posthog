@@ -9,7 +9,7 @@ import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
 import { GitBranchIcon } from '@/ui/icons/GitBranchIcon'
 import { MonoText } from '@/ui/MonoText'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, radii, type } from '@/ui/tokens'
 
 import { sessionStatusDisplay } from './sessionStatus'
 
@@ -38,7 +38,13 @@ export const ChatRow = memo(function ChatRow({ item, now, onOpen }: ChatRowProps
             accessibilityLabel={`${item.title}, ${metaText}${item.pullRequestUrl ? ', has a pull request' : ''}`}
             testID={`chat-row-${item.id.replace(':', '-')}`}
         >
-            <IconTile>{item.origin === 'chat' ? <ChatBubbleIcon size={18} /> : <GitBranchIcon size={18} />}</IconTile>
+            <IconTile>
+                {item.origin === 'chat' ? (
+                    <ChatBubbleIcon size={iconSizes.navigation} />
+                ) : (
+                    <GitBranchIcon size={iconSizes.navigation} />
+                )}
+            </IconTile>
             <View style={styles.body}>
                 <Text style={styles.title} numberOfLines={1}>
                     {item.title}

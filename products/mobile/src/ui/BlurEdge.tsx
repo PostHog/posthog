@@ -6,18 +6,17 @@ import { Platform, StyleSheet, type ViewStyle } from 'react-native'
 import { FadeEdge } from './FadeEdge'
 
 interface BlurEdgeProps {
-    /** Fraction of the height, from the top, where the blur is full. Below it the blur dissolves to nothing. */
+    direction?: 'down' | 'up'
     solid: number
     intensity?: number
 }
 
-const DEFAULT_INTENSITY = 30
+const DEFAULT_INTENSITY = 11
 
-/** Blurs what scrolls under floating chrome. The blur dissolves at the bottom, so content softens instead of ending at a hard line. */
-export function BlurEdge({ solid, intensity = DEFAULT_INTENSITY }: BlurEdgeProps): ReactElement {
+export function BlurEdge({ direction = 'down', solid, intensity = DEFAULT_INTENSITY }: BlurEdgeProps): ReactElement {
     const blur = (
         <BlurView
-            style={[styles.fill, webMask(solid)]}
+            style={[styles.fill, webMask(direction, solid)]}
             intensity={intensity}
             tint="light"
             experimentalBlurMethod="dimezisBlurView"
@@ -28,18 +27,18 @@ export function BlurEdge({ solid, intensity = DEFAULT_INTENSITY }: BlurEdgeProps
     }
     // Only the alpha of the mask element matters, so the fade doubles as the mask.
     return (
-        <MaskedView style={styles.fill} maskElement={<FadeEdge direction="down" solid={solid} />}>
+        <MaskedView style={styles.fill} maskElement={<FadeEdge direction={direction} solid={solid} />}>
             {blur}
         </MaskedView>
     )
 }
 
 // The masked-view web shim draws its children without a mask, so the web build masks with CSS instead.
-function webMask(solid: number): ViewStyle | undefined {
+function webMask(direction: 'down' | 'up', solid: number): ViewStyle | undefined {
     if (Platform.OS !== 'web') {
         return undefined
     }
-    const gradient = `linear-gradient(to bottom, #000 ${Math.round(solid * 100)}%, transparent 100%)`
+    const gradient = `linear-gradient(to ${direction === 'down' ? 'bottom' : 'top'}, #000 ${Math.round(solid * 100)}%, transparent 100%)`
     return { maskImage: gradient, WebkitMaskImage: gradient } as unknown as ViewStyle
 }
 

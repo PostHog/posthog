@@ -1,4 +1,5 @@
 import type { ReportPriority } from '@/model/types'
+import type { PullRequestChecksResponseApi } from '../../../signals/frontend/generated/api.schemas'
 
 import { ApiError, apiJson, projectPath } from './client'
 
@@ -12,6 +13,7 @@ export interface ReportUserApi {
 }
 
 export interface ReportAssigneeApi {
+    claim_id?: string | null
     kind: 'user' | 'task' | 'agent' | 'system'
     user: ReportUserApi | null
     task_id: string | null
@@ -20,6 +22,7 @@ export interface ReportAssigneeApi {
 }
 
 export interface ReportPullRequestApi {
+    id?: string | null
     url: string
     state: 'unknown' | 'draft' | 'open' | 'closed' | 'merged'
     merged: boolean
@@ -264,4 +267,15 @@ export function fetchAvailableReviewers(query: string, signal?: AbortSignal): Pr
         query: { query: query || undefined },
         signal,
     })
+}
+
+export function fetchReportPullRequestChecks(
+    reportId: string,
+    pullRequestId: string,
+    signal?: AbortSignal
+): Promise<PullRequestChecksResponseApi> {
+    return apiJson<PullRequestChecksResponseApi>(
+        projectPath(`signals/reports/${encodeURIComponent(reportId)}/pr_checks/`),
+        { query: { pull_request_id: pullRequestId }, signal }
+    )
 }

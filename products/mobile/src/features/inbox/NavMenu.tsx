@@ -11,7 +11,7 @@ import { SettingsIcon } from '@/ui/icons/SettingsIcon'
 import { SignOutIcon } from '@/ui/icons/SignOutIcon'
 import type { IconProps } from '@/ui/icons/types'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, radii, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { SignOutConfirm } from '../settings/SignOutConfirm'
@@ -49,7 +49,7 @@ function MenuRow({ label, count = 0, Icon, selected = false, onPress, testID }: 
             style={[styles.row, selected && styles.selected]}
             testID={testID}
         >
-            <Icon size={22} />
+            <Icon size={iconSizes.control} />
             <Text style={styles.rowLabel}>{label}</Text>
             {count > 0 ? (
                 <Text style={styles.unreadCount} testID="nav-inbox-unread">
@@ -115,7 +115,7 @@ export function NavMenu({
                     <Text style={styles.project} numberOfLines={1}>
                         {projectName}
                     </Text>
-                    <ChevronUpDownIcon size={14} color={colors.tertiary} />
+                    <ChevronUpDownIcon size={iconSizes.small} color={colors.tertiary} />
                 </Pressable44>
                 <View style={styles.divider} />
                 {confirmingSignOut ? (
@@ -156,7 +156,8 @@ const styles = StyleSheet.create({
         paddingBottom: 12,
     },
     header: {
-        height: 52,
+        minHeight: 52,
+        paddingVertical: 12,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
@@ -164,10 +165,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.menuRow,
     },
     project: {
-        fontSize: 18,
-        lineHeight: 25.2,
-        fontWeight: '600',
-        letterSpacing: -0.18,
+        ...type.bodyStrong,
         color: colors.ink,
         flexShrink: 1,
     },
@@ -178,7 +176,8 @@ const styles = StyleSheet.create({
         marginBottom: 6,
     },
     row: {
-        height: 52,
+        minHeight: 52,
+        paddingVertical: 12,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 16,
@@ -192,6 +191,7 @@ const styles = StyleSheet.create({
     rowLabel: {
         ...type.menuRow,
         color: colors.ink,
+        flex: 1,
     },
     confirm: {
         paddingHorizontal: 14,

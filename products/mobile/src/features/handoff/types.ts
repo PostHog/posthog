@@ -52,11 +52,12 @@ export interface RunStreamState {
     taskId: string
     runId: string
     status: TaskRunStatus
+    phase?: TaskRunView['phase']
+    connection?: TaskRunView['connection']
     serverStage?: string
     toolTitle?: string
     latestToolCallId?: string
     progressLabel?: string
-    lastMessage?: string
     messageOpen: boolean
     prUrl?: string
     prUrls: string[]
@@ -66,6 +67,7 @@ export interface RunStreamState {
     handledRequestIds: string[]
     turnEnded: boolean
     activity: number
+    liveActivitySeen?: boolean
 }
 
 export type AnswerDelivery = 'sending' | 'delivered'

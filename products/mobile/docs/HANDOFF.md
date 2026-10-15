@@ -70,7 +70,7 @@ Hand off ──► kickOffReportTask ──► store.started ──► useTaskRu
 2. **Started.** `useHandoffActions(id).handOff` stores `{taskId, runId}` in the hand-off store,
    tracks `mobile_report_handed_off`, and invalidates the report and inbox queries. While the
    calls are in flight `handOffPending` already shows the status card.
-3. **Follow** (`useTaskRun.ts`). While the report screen is mounted and the app is in the
+3. **Follow** (`useTaskRun.ts`). While the report screen has focus and the app is in the
    foreground: `GET tasks/{task_id}/` (its `latest_run` wins over a run id from the report, which can
    be stale), falling back to `GET tasks/{task_id}/runs/{run_id}/`, then
    `GET tasks/{task_id}/runs/{run_id}/stream/`. A terminal run is not streamed.
@@ -129,9 +129,17 @@ The chat sheet (`src/features/chat/session/useSession.ts`, see [CHAT.md](CHAT.md
 
 ## Which run a report follows
 
-The run this device started (kept in memory until the app restarts), else `report.task` from the
-report adapter. The adapter picks the claim's task, else the newest implementation `task_run`
-artefact.
+The current task claim wins over the run this device started and over historical implementation
+artefacts. A claim by a user, an external agent, or a system without a task clears historical task
+execution from the report footer. When there is no claim, the adapter can use the newest
+implementation `task_run` artefact. Discussion tasks do not become implementation ownership.
+Within the current task, `GET tasks/{id}/` supplies its latest run; the bootstrap also updates
+the task query so a resumed run can replace the report's older run immediately.
+
+Tapping the action bar's agent status card opens that task's chat sheet, passing the task id and
+the displayed run id when available. A claim without a task id cannot open a task chat yet. The
+Reassign / Snooze / Chat pill's Chat action starts a new conversation with the report attached.
+The streamed command beneath the status title stays on one line and truncates at the end.
 
 ## Stream handling
 
@@ -140,10 +148,10 @@ Frames follow `products/tasks/backend/presentation/views/api.py` (stream view) a
 
 | SSE event | Handling |
 | --- | --- |
-| `keepalive` | Resets the 60 s idle timer. Nothing else. |
+| `keepalive` | Resets the 60 s idle timer and publishes any buffered report history. |
 | `end` `{"type":"rotated"}` | Connection cap reached. Reconnect at once with `Last-Event-ID`. |
 | `end` `{"type":"resync"}` | Drop the cursor, reconnect, take the full replay. |
-| `stream-end` | Run finished. Drop the cursor, fetch the run once more, stop. |
+| `stream-end` | Stream finished. Publish buffered history, drop the cursor, fetch the run once more, stop. The run snapshot determines whether the run is terminal. |
 | `error` | Server closes. Fetch the run; stop if terminal, else reconnect with backoff. |
 | content (no `event:`) | Saved as the cursor (`id`), deduped by envelope `event_id`, reduced below. |
 
@@ -153,21 +161,43 @@ The first connection sends no `Last-Event-ID` (and not `start=latest`), so the s
 durable log (`log-<n>` ids) and a question asked before the app connected reaches the decision
 card. Cursors stay in memory per run, so returning to the report resumes after the last event.
 
+Opening or reconnecting a report folds the initial stream privately in `RunHydration`, keeping
+the cached report and PRs visible. Durable `log-<n>` frames never paint individually. Once Redis
+frames arrive, a 250 ms quiet interval coalesces their initial tail into one publication; keepalive
+or explicit `stream-end` can also settle it. Subsequent live frames publish immediately. Rotation,
+resync, errors and unmarked EOF do not publish incomplete catchup. Rotation keeps the private
+state and cursor together; leaving the screen discards both unpublished copies. An authoritative
+terminal snapshot can settle accumulated PR metadata while clearing pending input. Cursors commit
+with their state and clear at session end, so reopening cannot skip unpublished history.
+
+All catchup frames, including Redis history, use replay permission policy: they cannot send
+automatic approval commands. The final unresolved request remains available to answer. Local
+answers and handled request ids written during catchup survive publication. A resumed cursor
+can apply work missed while disconnected without replaying its intermediate status changes.
+
+The server has no explicit catchup-complete event or snapshot watermark. A quiet Redis tail is a
+UI batching heuristic: Redis history delivered in arbitrarily slow chunks can still look live
+after the quiet interval. An authoritative boundary requires backend work listed in
+[GAPS.md](GAPS.md#agent-state-backend-backlog); the client does not use `start=latest` to skip
+history because doing so could lose an outstanding question.
+
 | Content frame | Effect on the live state |
 | --- | --- |
 | `task_run_state` | `status`, `stage`, `error_message`, `output.pr_url` / `pr_urls`. A terminal status clears the pending decision. |
 | `session/update` `tool_call` | Latest tool title becomes the stage, shortened: "Read /repo/src/ChartLegend.tsx" reads "Reading ChartLegend.tsx". |
 | `session/update` `tool_call_update` | Title updates of the latest call move the stage. A `completed` or `failed` update for the pending request's tool clears it (someone else answered). |
-| `session/update` `agent_message_chunk` / `agent_message` | Keeps the trailing 280 characters of the agent's latest message. |
+| `session/update` `agent_message_chunk` / `agent_message` | Records activity for the current run. Message text belongs in task chat. |
 | `session/update` `current_mode_update`, `session/new` `_meta.permissionMode` | Permission mode for the tool policy. |
 | `_posthog/progress` | `label` (else `detail`) overrides the tool title while the step runs; a finished step clears it. |
-| `_posthog/turn_complete` | The agent waits for a message. Clears the pending request. |
+| `_posthog/turn_complete` | The turn is idle. Clears pending requests and transient progress; it does not create an input request. |
 | `_posthog/error` | Keeps `message` as the run error. |
 | `permission_request` (live) and `_posthog/permission_request` (replay) | Runs the tool policy: allow it for the user, or surface it as a decision. Ignored when already handled, from an earlier run in the log, or when the run is terminal. |
 | `_posthog/permission_resolved` (replay) | Clears the matching request and remembers its id so a replay cannot bring it back. |
 
-The status card stage is the active step label, else the latest tool title, else the server's
-`stage`, else "A PR will land here to review". There is no "step N of M": the API has no step count.
+While execution is working, the status card stage is the active step label, else the latest tool
+title, else the server's `stage`. Idle and terminal runs clear this transient text. There is no
+"step N of M": the API has no step count. A claim identifies ownership, not execution; unknown
+execution and missing check data stay unknown.
 
 ## Tool policy
 
@@ -191,7 +221,6 @@ and waits; when the phone is the only client, a request it does not answer stall
 | Question | `_meta.questions[0].question`; options `option_<idx>` with the label as title and the description as meta. Several questions show one at a time and go out together. | `permission_response` with `optionId` (the picked `option_<idx>` of the first question, else `option_0`), `answers` keyed by question text, and `customInput` for typed text. |
 | Plan approval | "Approve the plan?" with "Approve the plan" (`auto`) and "Approve in full auto" (`bypassPermissions`), or the offered options when neither exists. | The picked mode. Typed text rejects with feedback (`customInput`). |
 | Permission | "Allow {tool title}?" with the offered options. | The picked option. Typed text goes with the option that takes text, else a reject option, else the first. |
-| Turn ended, no PR | "WAITING FOR YOUR REPLY" with the agent's last words and only a text field. | `user_message` (no `steer`). |
 
 Success is `jsonrpc: '2.0'`, no `error`, and `result.resolved === true`. A 503 `sandbox_not_ready`
 or `agent_session_not_ready` retries at 250, 500 and 1000 ms for up to 10 s. A 409
@@ -203,7 +232,7 @@ The decided card shows the answer while it is delivered, with Undo, and after th
 without Undo, until the run shows new activity. Undo aborts the request in flight and brings the
 card back. It is best effort: a request the server already received still reaches the agent, and
 answering again then gets "already moved on". Tracking: `mobile_decision_answered` with `kind`
-(`question`, `plan`, `permission`, `reply`) and `picked_option`.
+(`question`, `plan`, `permission`) and `picked_option`.
 
 ## Error copy
 
@@ -223,18 +252,54 @@ instead of rejecting, because every caller fires them without waiting.
 | Network | "Couldn't reach PostHog. Check your connection and try again." |
 | Anything else | "Couldn't hand off to PostHog. Try again." |
 
-A failed run shows "PostHog couldn't finish" with the run's `error_message`, and a canceled one
-"The run was canceled", above the hand-off button, which starts a new task.
+Execution, attention and pull requests are independent footer state. A failed or canceled run
+keeps its known PR available, alongside its run outcome and task-chat entry point. A completed
+turn with no outstanding request is idle; continuation happens in task chat. A connection failure
+shows reconnecting or unavailable, rather than claiming work is running or stopped.
 
 ## What is not possible
 
 - **Undo after delivery.** The agent acts on an answer at once; there is no command to take it back.
 - **Step counter.** The run has a free-text stage only, so there is no "Step N of M".
 - **Background following.** Nothing streams while the report screen is closed or the app is in the
-  background. A tool request that arrives then waits until a client connects; push notifications
+  background, or while another route covers the report. A tool request that arrives then waits until a client connects; push notifications
   (`awaiting`) cover the wait.
 - **Answers from other clients, live.** Resolutions appear only in the replayed log. Live, a
   request clears when its tool finishes, the turn ends, or the run ends.
 - **Continuing an ended run.** A message to a run whose workflow ended needs a resume run
-  (`POST tasks/{id}/run/` with `resume_from_run_id`); the report screen asks the user to hand off again instead.
-  The chat sheet does start that resume run, see [CHAT.md](CHAT.md#follow-ups-and-resume).
+  (`POST tasks/{id}/run/` with `resume_from_run_id`). Open the implementation task
+  chat to start that resume run, see [CHAT.md](CHAT.md#follow-ups-and-resume).
+
+## Pull request checks
+
+`usePullRequestChecks(reportId, selectedPr.id)` reads
+`GET signals/reports/{id}/pr_checks/?pull_request_id={selectedPr.id}`. The canonical PR id
+selects only that report-linked PR; a discovered URL without an id cannot fetch checks.
+The focused report checks every 30 seconds in live mode while the app is active, and fetches
+again on foreground return. Changing the selected PR uses a separate query entry.
+
+Checking, passing, failing, pending, no checks and unavailable are distinct states. Empty checks
+mean no checks, while missing or malformed data and request errors mean unavailable. A successful
+snapshot records when this client fetched it, including while cached data stays visible during
+refresh. This is a local observation time; the endpoint provides no server observation timestamp
+or head SHA, so it cannot prove that a cached green result describes the PR's newest commit.
+
+## Freshness and backend follow-ups
+
+The visible report polls its detail, artefacts and task snapshot every 15 seconds while the app is
+active. It takes a fresh lightweight snapshot on foreground or route return. Today pages and
+signals are not part of that interval. Known PRs stay visible during background refetches. Stream
+PR/status/turn changes invalidate these lightweight queries, throttled to one refresh per two
+seconds; message chunks do not cause network refetches. Task or run changes abort the old follower,
+and canceled responses and permission deliveries cannot update its successor.
+
+A dropped stream uses the bounded retry budget above, showing reconnecting during retries and
+unavailable after exhaustion or a fatal admission response. Terminal snapshots clear connection
+warnings. A nonterminal `stream-end` keeps an idle turn idle and otherwise makes execution unknown.
+Polling the current task continues to discover later resumes after the stream has ended.
+
+These frontend rules cannot prove that an external agent is active, that monitoring is scheduled,
+that a replayed input is still outstanding, or that CI belongs to the latest PR head. The API needs
+authoritative snapshots for those states. The concrete backend work is tracked in
+[GAPS.md](GAPS.md#agent-state-backend-backlog). Automatic permission routing remains the existing
+client policy; moving it to the server is separate backend work, not part of this frontend change.

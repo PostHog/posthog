@@ -4,7 +4,7 @@ import { StyleSheet, TextInput, View } from 'react-native'
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, inputReset, radii } from '@/ui/tokens'
+import { colors, iconSizes, inputReset, radii, type } from '@/ui/tokens'
 
 interface ChatsSearchFieldProps {
     value: string
@@ -14,7 +14,7 @@ interface ChatsSearchFieldProps {
 export function ChatsSearchField({ value, onChangeText }: ChatsSearchFieldProps): ReactElement {
     return (
         <View style={styles.field}>
-            <SearchIcon size={16} color={colors.tertiary} />
+            <SearchIcon size={iconSizes.control} color={colors.tertiary} />
             <TextInput
                 value={value}
                 onChangeText={onChangeText}
@@ -36,7 +36,7 @@ export function ChatsSearchField({ value, onChangeText }: ChatsSearchFieldProps)
                     style={styles.clear}
                     testID="chats-search-clear"
                 >
-                    <CloseIcon size={12} color={colors.secondary} />
+                    <CloseIcon size={iconSizes.inline} color={colors.secondary} />
                 </Pressable44>
             ) : null}
         </View>
@@ -63,7 +63,7 @@ const styles = StyleSheet.create({
         flex: 1,
         height: 42,
         paddingVertical: 0,
-        fontSize: 17,
+        ...type.input,
         color: colors.ink,
     },
     // Visual 32pt; the default hit slop brings the target to 44pt.

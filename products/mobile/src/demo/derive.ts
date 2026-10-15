@@ -32,6 +32,8 @@ export function deriveDemoReport(view: DemoView, fixture: DemoFixture): ReportVi
             runId: `${id}-handoff-run`,
             status: 'in_progress',
             stage: fixture.briefing.handedStage,
+            phase: 'working',
+            connection: 'connected',
         }
         report.work = { state: 'working', assignee: { kind: 'task', name: DEMO_AGENT.name } }
         report.owner = { kind: 'agent', name: DEMO_AGENT.name }

@@ -91,7 +91,8 @@ export const type = {
     bodyStrong: text(16, '600'),
     bodySmall: text(15, '400', { lineHeightRatio: 1.45 }),
     bodySmallStrong: text(15, '600'),
-    label: text(17, '400'),
+    label: text(16, '400'),
+    input: text(16, '400'),
     meta: text(13, '400', { lineHeightRatio: 1.3 }),
     metaSmall: text(14, '400'),
     eyebrow: text(12, '600', { em: 0.08 }),
@@ -100,8 +101,16 @@ export const type = {
     button: text(16, '600'),
     buttonLarge: text(17, '600'),
     buttonSmall: text(15, '600'),
-    menuRow: text(18, '500'),
+    menuRow: text(16, '500'),
 } as const satisfies Record<string, TextStyle>
+
+export const iconSizes = {
+    small: 14,
+    inline: 16,
+    control: 20,
+    navigation: 24,
+    empty: 28,
+} as const
 
 export const space = {
     2: 2,
@@ -144,7 +153,7 @@ export const layout = {
     designHomeIndicator: 34,
     /** Smallest bottom padding, for devices with a home button, where the safe-area inset is 0. */
     minBottomPadding: 16,
-    /** Opacity of the background tint over the blur behind floating top chrome, so the blurred content shows through. */
+    /** Opacity of the background tint over the blur behind floating chrome, so the blurred content shows through. */
     chromeTint: 0.72,
 } as const
 

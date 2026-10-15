@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native'
+import { AppState } from 'react-native'
 import { ApiError } from '@/api/client'
 import type { TaskApi, TaskCreateResponseApi, TaskRunApi } from '@/api/tasks'
 import * as tasks from '@/api/tasks'
@@ -72,8 +73,11 @@ function logLine(update: Record<string, unknown>): Record<string, unknown> {
     return { type: 'notification', notification: { method: 'session/update', params: { update } } }
 }
 
-/** A stream that stays open until the hook aborts it, and delivers the frames a test pushes as live events. */
-function liveStream(): { response: Response; push: (frame: unknown) => void } {
+/** A stream that stays open until the hook aborts it. */
+function liveStream(caughtUp = true): {
+    response: Response
+    push: (frame: unknown, id?: string, event?: string) => void
+} {
     const queue: Uint8Array[] = []
     let waiting: ((result: { value: Uint8Array | undefined; done: boolean }) => void) | null = null
     const reader = {
@@ -90,8 +94,10 @@ function liveStream(): { response: Response; push: (frame: unknown) => void } {
             waiting?.({ value: undefined, done: true })
         },
     }
-    const push = (frame: unknown): void => {
-        const chunk = new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`)
+    const push = (frame: unknown, id?: string, event = 'message'): void => {
+        const chunk = new TextEncoder().encode(
+            `${id ? `id: ${id}\n` : ''}event: ${event}\ndata: ${JSON.stringify(frame)}\n\n`
+        )
         if (waiting) {
             const resolve = waiting
             waiting = null
@@ -99,6 +105,9 @@ function liveStream(): { response: Response; push: (frame: unknown) => void } {
         } else {
             queue.push(chunk)
         }
+    }
+    if (caughtUp) {
+        push({}, undefined, 'keepalive')
     }
     return { response: { ok: true, body: { getReader: () => reader } } as unknown as Response, push }
 }
@@ -108,9 +117,137 @@ function sentCommands(): unknown[] {
 }
 
 describe('useSession', () => {
+    const originalAppState = AppState.currentState
+    beforeEach(() => {
+        AppState.currentState = 'active'
+    })
     afterEach(() => {
+        AppState.currentState = originalAppState
         jest.clearAllMocks()
     })
+
+    test.each(['keepalive', 'quiet', 'stream-end'])(
+        'opening a chat publishes its backlog together on %s, then streams new messages',
+        async (boundary) => {
+            jest.useFakeTimers()
+            const stream = liveStream(false)
+            mocked.openTaskRunStream.mockResolvedValueOnce(stream.response)
+            mocked.getTask.mockResolvedValue(task(run({ status: 'in_progress' })))
+            mocked.getTaskRun.mockResolvedValue(run({ status: 'completed' }))
+            const { result, unmount } = renderHook(() => useSession({ taskId: TASK_ID }))
+            try {
+                await act(async () => {})
+                expect(result.current.history.status).toBe('loading')
+                await act(async () => {
+                    stream.push(
+                        logLine({ sessionUpdate: 'user_message_chunk', content: { text: 'Explain the chart' } }),
+                        'log-0'
+                    )
+                    stream.push(logLine({ sessionUpdate: 'agent_message_chunk', content: { text: 'First ' } }), 'log-1')
+                })
+                await act(async () => {
+                    jest.advanceTimersByTime(1000)
+                })
+                expect(result.current.history.status).toBe('loading')
+                expect(result.current.items).toEqual([])
+                await act(async () => {
+                    stream.push(
+                        logLine({ sessionUpdate: 'agent_message_chunk', content: { text: 'answer.' } }),
+                        '100-0'
+                    )
+                    stream.push(
+                        { type: 'notification', notification: { method: '_posthog/turn_complete', params: {} } },
+                        '101-0'
+                    )
+                })
+                expect(result.current.items).toEqual([])
+                await act(async () => {
+                    if (boundary === 'quiet') {
+                        jest.advanceTimersByTime(250)
+                    } else {
+                        stream.push({}, undefined, boundary)
+                    }
+                })
+                expect(result.current.history.status).toBe('idle')
+                expect(result.current.items).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({ kind: 'user', text: 'Explain the chart' }),
+                        expect.objectContaining({ kind: 'assistant', text: 'First answer.', complete: true }),
+                    ])
+                )
+                expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
+                if (boundary !== 'stream-end') {
+                    await act(async () => {
+                        stream.push(
+                            logLine({ sessionUpdate: 'agent_message_chunk', content: { text: 'A new reply' } }),
+                            '102-0'
+                        )
+                    })
+                    expect(result.current.items.at(-1)).toMatchObject({
+                        kind: 'assistant',
+                        text: 'A new reply',
+                        complete: false,
+                    })
+                }
+            } finally {
+                unmount()
+                jest.useRealTimers()
+            }
+        }
+    )
+
+    test.each(['retry', 'completed'])(
+        'interrupted catch-up preserves the whole history when the run is %s',
+        async (outcome) => {
+            jest.useFakeTimers()
+            const interrupted = liveStream(false)
+            const reconnected = liveStream(false)
+            const first = {
+                ...logLine({ sessionUpdate: 'agent_message_chunk', content: { text: 'Saved ' } }),
+                event_id: 'first',
+            }
+            const last = {
+                ...logLine({ sessionUpdate: 'agent_message_chunk', content: { text: 'reply.' } }),
+                event_id: 'last',
+            }
+            mocked.openTaskRunStream
+                .mockResolvedValueOnce(interrupted.response)
+                .mockResolvedValueOnce(reconnected.response)
+            mocked.getTask.mockResolvedValue(task(run({ status: 'in_progress' })))
+            mocked.getTaskRun.mockResolvedValue(run({ status: outcome === 'completed' ? 'completed' : 'in_progress' }))
+            mocked.getTaskRunLogs.mockResolvedValue([first, last])
+            const { result, unmount } = renderHook(() => useSession({ taskId: TASK_ID }))
+            try {
+                await act(async () => {})
+                await act(async () => {
+                    interrupted.push(first, 'log-0')
+                })
+                expect(result.current.items).toEqual([])
+                await act(async () => {
+                    interrupted.push({ error: 'Connection interrupted' }, undefined, 'error')
+                })
+                if (outcome === 'retry') {
+                    expect(result.current.history.status).toBe('loading')
+                    await act(async () => {
+                        jest.advanceTimersByTime(2000)
+                    })
+                    expect(mocked.openTaskRunStream.mock.calls.at(-1)?.[2]?.lastEventId).toBeUndefined()
+                    await act(async () => {
+                        reconnected.push(first, 'log-0')
+                        reconnected.push(last, 'log-1')
+                        reconnected.push({}, undefined, 'keepalive')
+                    })
+                }
+                expect(result.current.history.status).toBe('idle')
+                expect(result.current.items).toEqual([
+                    expect.objectContaining({ kind: 'assistant', text: 'Saved reply.' }),
+                ])
+            } finally {
+                unmount()
+                jest.useRealTimers()
+            }
+        }
+    )
 
     test.each<[string, TaskRunApi, ChatRunOptions, Record<string, unknown>]>([
         [
@@ -428,11 +565,30 @@ describe('useSession', () => {
         ])
     })
 
-    test('stop before the agent generated anything asks to wait and sends no cancel', async () => {
-        mocked.getTask.mockResolvedValue(task(run({ status: 'in_progress' })))
+    test('historical tools and mode updates stay idle, and stop is available only after live generation', async () => {
+        const stream = liveStream()
+        mocked.openTaskRunStream.mockResolvedValueOnce(stream.response)
+        mocked.getTask.mockResolvedValue(
+            task(run({ status: 'in_progress', runtime_adapter: 'claude', state: { initial_permission_mode: 'plan' } }))
+        )
+        mocked.getTaskRunLogs.mockResolvedValue([
+            logLine({
+                sessionUpdate: 'tool_call',
+                toolCallId: 'old-tool',
+                title: 'Read source file',
+                status: 'completed',
+            }),
+        ])
+        mocked.sendTaskRunCommand.mockResolvedValue({ jsonrpc: '2.0', result: {} })
 
         const { result } = renderHook(() => useSession({ taskId: TASK_ID }))
         await waitFor(() => expect(result.current?.runStatus).toBe('in_progress'))
+        expect(result.current.phase).toBe('idle')
+        act(() => {
+            stream.push(logLine({ sessionUpdate: 'current_mode_update', currentModeId: 'auto' }))
+        })
+        await waitFor(() => expect(result.current.runConfig?.permissionMode).toBe('auto'))
+        expect(result.current.phase).toBe('idle')
         act(() => {
             result.current?.stop()
         })
@@ -440,5 +596,24 @@ describe('useSession', () => {
         expect(result.current?.notice).toBe("The agent hasn't started yet.")
         expect(result.current?.isStopping).toBe(false)
         expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
+        act(() => {
+            stream.push(
+                logLine({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 'live-tool',
+                    title: 'Run regression tests',
+                    status: 'in_progress',
+                })
+            )
+        })
+        await waitFor(() => expect(result.current.phase).toBe('working'))
+        act(() => {
+            result.current.stop()
+        })
+        expect(sentCommands()).toEqual([{ method: 'cancel' }])
+        act(() => {
+            stream.push({ type: 'notification', notification: { method: '_posthog/turn_complete', params: {} } })
+        })
+        await waitFor(() => expect(result.current.isStopping).toBe(false))
     })
 })

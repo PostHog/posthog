@@ -5,7 +5,7 @@ import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
 import { ClockIcon } from '@/ui/icons/ClockIcon'
 import { ReassignIcon } from '@/ui/icons/ReassignIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, shadows, type } from '@/ui/tokens'
+import { colors, iconSizes, radii, shadows, type } from '@/ui/tokens'
 
 interface ActionPillProps {
     onReassign: () => void
@@ -31,7 +31,7 @@ export function ActionPill({ onReassign, onSnooze, onChat }: ActionPillProps): R
                             style={styles.button}
                             testID={`action-${key}`}
                         >
-                            <Icon size={18} />
+                            <Icon size={iconSizes.control} />
                             <Text style={styles.label} numberOfLines={1}>
                                 {label}
                             </Text>
@@ -64,10 +64,11 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 8,
+        gap: 4,
     },
     label: {
-        ...type.button,
+        ...type.metaSmall,
+        fontWeight: '600',
         color: colors.ink,
     },
     divider: {

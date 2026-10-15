@@ -7,7 +7,7 @@ import { BottomSheet } from '@/ui/BottomSheet'
 import { Dot } from '@/ui/Dot'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, radii, type } from '@/ui/tokens'
 
 export const PRIORITIES: readonly ReportPriority[] = ['P0', 'P1', 'P2', 'P3', 'P4']
 
@@ -66,7 +66,11 @@ function PriorityRow({ priority, selected, busy, disabled, onPress }: RowProps):
                 <Dot color={tone.dot} size={10} />
             </View>
             <Text style={[styles.code, { color: tone.text }]}>{priority}</Text>
-            {busy ? <ActivityIndicator size="small" color={colors.ink} /> : selected ? <CheckIcon size={18} /> : null}
+            {busy ? (
+                <ActivityIndicator size="small" color={colors.ink} />
+            ) : selected ? (
+                <CheckIcon size={iconSizes.control} />
+            ) : null}
         </Pressable44>
     )
 }
@@ -144,7 +148,7 @@ const styles = StyleSheet.create({
     },
     // Matches the 20pt icon column of the other option sheets so the codes line up with their labels.
     dot: {
-        width: 20,
+        width: iconSizes.control,
         alignItems: 'center',
     },
     code: {

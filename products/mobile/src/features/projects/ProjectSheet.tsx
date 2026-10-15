@@ -9,7 +9,7 @@ import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, inputReset, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, inputReset, radii, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { filterProjects, groupByOrganization } from './projectList'
@@ -44,7 +44,7 @@ function ProjectRow({ project, selected, onPress }: ProjectRowProps): ReactEleme
             <Text style={styles.rowLabel} numberOfLines={1}>
                 {project.name}
             </Text>
-            {selected ? <CheckIcon size={18} /> : null}
+            {selected ? <CheckIcon size={iconSizes.control} /> : null}
         </Pressable44>
     )
 }
@@ -177,11 +177,11 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
                     pressedBackground={colors.hairline}
                     style={styles.close}
                 >
-                    <CloseIcon size={16} />
+                    <CloseIcon size={iconSizes.control} />
                 </Pressable44>
             </View>
             <View style={styles.search}>
-                <SearchIcon size={18} />
+                <SearchIcon size={iconSizes.control} />
                 <TextInput
                     value={query}
                     onChangeText={setQuery}
@@ -216,7 +216,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
     },
     title: {
-        ...type.sheetTitleLarge,
+        ...type.sheetTitle,
         color: colors.ink,
     },
     close: {
@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
         ...inputReset,
         flex: 1,
         minWidth: 0,
-        fontSize: 17,
+        ...type.input,
         color: colors.ink,
         paddingVertical: 0,
     },

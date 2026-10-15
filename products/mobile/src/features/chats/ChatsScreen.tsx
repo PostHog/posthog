@@ -12,7 +12,7 @@ import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
 import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LoadingView, StateView } from '@/ui/StateView'
-import { colors, layout } from '@/ui/tokens'
+import { colors, iconSizes, layout } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { ChatRow } from './ChatRow'
@@ -96,7 +96,7 @@ export function ChatsScreen(): ReactElement {
         <LoadingView label="Loading your chats" />
     ) : query.isError ? (
         <StateView
-            icon={<WarningIcon size={28} color={colors.tertiary} />}
+            icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
             title="Couldn't load your chats"
             message={query.error?.message ?? 'Check your connection and try again.'}
             actionLabel="Try again"
@@ -105,7 +105,7 @@ export function ChatsScreen(): ReactElement {
         />
     ) : hasItems ? (
         <StateView
-            icon={<SearchIcon size={28} color={colors.tertiary} />}
+            icon={<SearchIcon size={iconSizes.empty} color={colors.tertiary} />}
             title="No matches"
             message="No chat titles contain that text."
             actionLabel="Clear search"
@@ -114,7 +114,7 @@ export function ChatsScreen(): ReactElement {
         />
     ) : (
         <StateView
-            icon={<ChatBubbleIcon size={28} color={colors.tertiary} />}
+            icon={<ChatBubbleIcon size={iconSizes.empty} color={colors.tertiary} />}
             title="No chats yet"
             message="Chats you start show up here. Start one with New chat."
             actionLabel="New chat"

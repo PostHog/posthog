@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import type { PermissionModeApi, RuntimeAdapterApi } from '@/api/tasks'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, radii, type } from '@/ui/tokens'
+import { colors, iconSizes, radii, type } from '@/ui/tokens'
 
 import { modesForRuntimeAdapter } from './runOptions'
 import { SheetPageHeader } from './SheetPageHeader'
@@ -39,7 +39,7 @@ export function ModePage({ runtimeAdapter, current, onPick, onBack }: ModePagePr
                                 <Text style={styles.label}>{option.label}</Text>
                                 <Text style={styles.description}>{option.description}</Text>
                             </View>
-                            <View style={styles.check}>{selected ? <CheckIcon size={18} /> : null}</View>
+                            <View style={styles.check}>{selected ? <CheckIcon size={iconSizes.control} /> : null}</View>
                         </Pressable44>
                     )
                 })}
@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
         color: colors.muted,
     },
     check: {
-        width: 18,
+        width: iconSizes.control,
         alignItems: 'center',
     },
 })

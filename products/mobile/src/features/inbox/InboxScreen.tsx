@@ -10,7 +10,7 @@ import type { InboxItem } from '@/model/types'
 import { InboxIcon } from '@/ui/icons/InboxIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LoadingView, StateView } from '@/ui/StateView'
-import { colors, layout } from '@/ui/tokens'
+import { colors, iconSizes, layout } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { useExitDemo, useSignOutAction } from '../settings/useSignOut'
@@ -98,7 +98,7 @@ export function InboxScreen(): ReactElement {
         <LoadingView label="Loading your inbox" />
     ) : query.isError ? (
         <StateView
-            icon={<WarningIcon size={28} color={colors.tertiary} />}
+            icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
             title="Couldn't load your inbox"
             message={query.error?.message ?? 'Check your connection and try again.'}
             actionLabel="Try again"
@@ -107,7 +107,7 @@ export function InboxScreen(): ReactElement {
         />
     ) : (
         <StateView
-            icon={<InboxIcon size={28} color={colors.tertiary} />}
+            icon={<InboxIcon size={iconSizes.empty} color={colors.tertiary} />}
             title="Nothing needs you right now"
             message="New reports show up here when PostHog finds something worth a look."
             testID="inbox-empty"

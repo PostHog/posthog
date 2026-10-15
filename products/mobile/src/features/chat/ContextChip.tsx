@@ -5,7 +5,7 @@ import type { InboxItem, ReportView } from '@/model/types'
 import { Dot } from '@/ui/Dot'
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { accentColor, colors, radii } from '@/ui/tokens'
+import { accentColor, colors, iconSizes, radii } from '@/ui/tokens'
 
 import { useReport } from '../report/hooks'
 
@@ -42,7 +42,7 @@ export function ContextChip({ reportId, item, onReport, onRemove }: ContextChipP
                 style={styles.remove}
                 hitSlop={10}
             >
-                <CloseIcon size={11} color={colors.muted} strokeWidth={2.6} />
+                <CloseIcon size={iconSizes.small} color={colors.muted} strokeWidth={2.6} />
             </Pressable44>
         </View>
     )
