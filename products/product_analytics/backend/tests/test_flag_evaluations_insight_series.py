@@ -53,7 +53,7 @@ from products.product_analytics.backend.facade.queries import (
 TABLE = FLAG_EVALUATIONS_HOGQL_TABLE
 NOW = datetime(2025, 1, 10, 12, 0, tzinfo=UTC)
 DATE_RANGE = DateRange(date_from="2025-01-08", date_to="2025-01-10")
-PERSON_CREATED_AT = datetime(2025, 1, 8, 8, 0, tzinfo=UTC)
+IN_DATE_RANGE = datetime(2025, 1, 8, 8, 0, tzinfo=UTC)
 BEFORE_DATE_RANGE = datetime(2024, 12, 1, tzinfo=UTC)
 PROBE_FLAG = DataWarehousePropertyFilter(key="flag_key", operator=PropertyOperator.EXACT, value="probe-flag")
 
@@ -101,9 +101,9 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
         )
         table_gate.start()
         self.addCleanup(table_gate.stop)
-        alice = _create_person(team_id=self.team.pk, distinct_ids=["alice"], created_at=PERSON_CREATED_AT)
-        bob = _create_person(team_id=self.team.pk, distinct_ids=["bob"], created_at=PERSON_CREATED_AT)
-        alice_2 = _create_person(team_id=self.team.pk, distinct_ids=["alice-2"], created_at=PERSON_CREATED_AT)
+        alice = _create_person(team_id=self.team.pk, distinct_ids=["alice"], created_at=IN_DATE_RANGE)
+        bob = _create_person(team_id=self.team.pk, distinct_ids=["bob"], created_at=IN_DATE_RANGE)
+        alice_2 = _create_person(team_id=self.team.pk, distinct_ids=["alice-2"], created_at=IN_DATE_RANGE)
         for distinct_id, person, flag_key, response, occurred_at, properties in [
             (
                 "alice",
@@ -284,7 +284,7 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
             (
                 "by_group",
                 0,
-                {"new": [2, 0, 0], "returning": [0, 0, 0], "resurrecting": [0, 1, 0], "dormant": [0, -2, -1]},
+                {"new": [1, 0, 0], "returning": [0, 0, 0], "resurrecting": [1, 1, 0], "dormant": [0, -2, -1]},
             ),
         ]
     )
@@ -295,12 +295,14 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
         expected: dict[str, list[int]],
     ):
         for group_key, group_created_at in [
-            ("org-a", PERSON_CREATED_AT),
-            ("org-b", PERSON_CREATED_AT),
+            ("org-a", IN_DATE_RANGE),
+            ("org-b", BEFORE_DATE_RANGE),
             ("org-c", BEFORE_DATE_RANGE),
         ]:
             create_group(team_id=self.team.pk, group_type_index=0, group_key=group_key, timestamp=group_created_at)
-        # Carol and org-c existed before the date range, so their first call in it makes them resurrecting, not new.
+        # Carol, org-b and org-c predate the date range, so their first call in it makes them resurrecting, not new.
+        # Bob is org-b's only caller and was created inside the range.
+        # So by_group reads org-b as new if it uses the person's creation time instead of the group's.
         carol = _create_person(team_id=self.team.pk, distinct_ids=["carol"], created_at=BEFORE_DATE_RANGE)
         self._create_flag_call(
             "carol",

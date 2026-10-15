@@ -511,9 +511,12 @@ describe('insightVizDataLogic', () => {
             {
                 kind: NodeKind.FunnelsQuery,
                 flagCalls: { series: [{ ...flagCallsNode, kind: NodeKind.FunnelsDataWarehouseNode }] },
-                targets: (source: any) => [source.series[0].aggregation_target_field],
-                byGroup: ['$group_1'],
-                byPerson: ['person_id'],
+                targets: (source: any) => [
+                    source.series[0].aggregation_target_field,
+                    source.series[0].created_at_field,
+                ],
+                byGroup: ['$group_1', undefined],
+                byPerson: ['person_id', undefined],
             },
             {
                 kind: NodeKind.LifecycleQuery,
@@ -539,9 +542,11 @@ describe('insightVizDataLogic', () => {
                 targets: (source: any) => [
                     source.retentionFilter.targetEntity.aggregation_target_field,
                     source.retentionFilter.returningEntity.aggregation_target_field,
+                    source.retentionFilter.targetEntity.created_at_field,
+                    source.retentionFilter.returningEntity.created_at_field,
                 ],
-                byGroup: ['$group_1', '$group_1'],
-                byPerson: ['person_id', 'person_id'],
+                byGroup: ['$group_1', '$group_1', undefined, undefined],
+                byPerson: ['person_id', 'person_id', undefined, undefined],
             },
         ])('counts $kind flag calls by the aggregation group', ({ kind, flagCalls, targets, byGroup, byPerson }) => {
             const update = (source: Record<string, unknown>): void =>
