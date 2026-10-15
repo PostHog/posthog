@@ -688,6 +688,23 @@ export interface ChannelMembersWriteApi {
     user_ids: number[]
 }
 
+export interface SpaceResourceLinkApi {
+    /** Existing filesystem entry to include in this space. */
+    file_id: string
+    /** Show this resource in the space's pinned section. */
+    pinned?: boolean
+}
+
+export interface SpaceResourceConfigApi {
+    /**
+     * Canvas belonging to this space to feature on its overview.
+     * @nullable
+     */
+    featured_canvas?: string | null
+    /** References to existing files. Their access permissions are unchanged. */
+    resources: SpaceResourceLinkApi[]
+}
+
 /**
  * * `goal` - Goal
  * * `feature` - Feature

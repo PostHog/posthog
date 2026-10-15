@@ -10,7 +10,22 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Dashboards',
+    scenes: {
+        Reports: {
+            name: 'Custom dashboards',
+            description: 'Organize dashboards, insights, and supporting files in shared project folders.',
+            import: () => import('./frontend/ReportsScene'),
+            projectBased: true,
+            layout: 'app-full-scene-height',
+            iconType: 'dashboard',
+        },
+    },
+    routes: {
+        '/reports': ['Reports', 'reports'],
+    },
     urls: {
+        reports: (folder = ''): string => combineUrl('/reports', folder ? { folder } : {}).url,
+        reportsInsights: (): string => '/reports/insights',
         dashboards: (tab?: `${DashboardsTab}`): string => (tab ? `/dashboard?tab=${tab}` : '/dashboard'),
         dashboardTemplates: (): string => combineUrl('/dashboard', { templates: '1' }).url,
         dashboard: (id: string | number, highlightInsightId?: string): string =>

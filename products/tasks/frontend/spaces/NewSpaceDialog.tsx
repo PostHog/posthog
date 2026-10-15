@@ -36,7 +36,8 @@ export function NewSpaceDialog(): JSX.Element {
                 <DialogHeader>
                     <DialogTitle>New space</DialogTitle>
                     <DialogDescription>
-                        A space keeps related sessions together. Everyone in this project can find it.
+                        Bring related canvases, dashboards, insights, and sessions together. Everyone in this project
+                        can find this space.
                     </DialogDescription>
                 </DialogHeader>
                 <DialogBody>

@@ -158,6 +158,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-management/warehouse-properties': ['WarehouseProperties', 'warehouseProperties'],
     '/data-management/warehouse-properties/:tab': ['WarehouseProperties', 'warehouseProperties'],
+    '/reports': ['Reports', 'reports'],
     '/data-catalog': ['DataCatalog', 'dataCatalog'],
     '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     '/models': ['Models', 'models'],
@@ -331,6 +332,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/spaces': ['TaskSpaces', 'taskSpaces'],
     '/spaces/new': ['TaskNewSession', 'taskNewSession'],
     '/spaces/:id': ['TaskSpace', 'taskSpace'],
+    '/spaces/:id/activity': ['TaskSpace', 'taskSpaceActivity'],
     '/spaces/:id/canvases': ['TaskSpace', 'taskSpaceCanvases'],
     '/spaces/:id/new': ['TaskNewSession', 'taskSpaceNewSession'],
     '/spaces/:id/settings': ['TaskSpace', 'taskSpaceSettings'],
@@ -832,6 +834,13 @@ export const productConfiguration: Record<string, any> = {
         name: 'Warehouse properties',
         description: 'Add properties to your people and groups from a data warehouse table.',
         iconType: 'data_warehouse',
+    },
+    Reports: {
+        name: 'Custom dashboards',
+        description: 'Organize dashboards, insights, and supporting files in shared project folders.',
+        projectBased: true,
+        layout: 'app-full-scene-height',
+        iconType: 'dashboard',
     },
     DataCatalog: {
         projectBased: true,
@@ -1476,6 +1485,8 @@ export const productUrls = {
     customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,
     warehouseProperties: (tab?: WarehousePropertiesSceneTab): string =>
         `/data-management/warehouse-properties${tab ? `/${tab}` : ''}`,
+    reports: (folder = ''): string => combineUrl('/reports', folder ? { folder } : {}).url,
+    reportsInsights: (): string => '/reports/insights',
     dashboards: (tab?: `${DashboardsTab}`): string => (tab ? `/dashboard?tab=${tab}` : '/dashboard'),
     dashboardTemplates: (): string => combineUrl('/dashboard', { templates: '1' }).url,
     dashboard: (id: string | number, highlightInsightId?: string): string =>
@@ -1919,6 +1930,7 @@ export const productUrls = {
     taskSpaces: (): string => '/spaces',
     taskNewSession: (): string => '/spaces/new',
     taskSpace: (id: string): string => `/spaces/${id}`,
+    taskSpaceActivity: (id: string): string => `/spaces/${id}/activity`,
     taskSpaceCanvases: (id: string): string => `/spaces/${id}/canvases`,
     taskSpaceNewSession: (id: string): string => `/spaces/${id}/new`,
     taskSpaceSettings: (id: string): string => `/spaces/${id}/settings`,

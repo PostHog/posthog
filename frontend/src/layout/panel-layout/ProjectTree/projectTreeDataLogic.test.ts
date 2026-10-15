@@ -190,6 +190,58 @@ describe('projectTreeDataLogic', () => {
         expect(paths).toEqual(['Session replay'])
     })
 
+    it('groups the original navigation without changing enabled product identities or the newer sidebar', () => {
+        customProductsLogic.actions.loadCustomProductsSuccess(
+            ['Product analytics', 'Dashboards', 'Feature flags'].map((product_path, index) => ({
+                id: String(index),
+                product_path,
+                enabled: true,
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z',
+            }))
+        )
+        const original = projectTreeLogic({
+            key: 'original-products',
+            root: 'custom-products://',
+            groupAnalyticsNavigation: true,
+        })
+        const newer = projectTreeLogic({ key: 'newer-products', root: 'custom-products://' })
+        original.mount()
+        newer.mount()
+        const analytics = original.values.fullFileSystemFiltered.find((item) => item.name === 'Analytics')
+        expect(analytics?.children?.map((item) => item.name)).toEqual(['Product analytics', 'Web analytics'])
+        const reports = original.values.fullFileSystemFiltered.find((item) => item.name === 'Custom dashboards')
+        expect(reports?.record?.href).toEqual(urls.reports())
+        const originalDashboard = reports?.children?.find((item) => item.name === 'Dashboards')
+        const newerDashboard = newer.values.fullFileSystemFiltered.find((item) => item.name === 'Dashboards')
+        expect(originalDashboard?.id).toEqual(newerDashboard?.id)
+        expect(originalDashboard?.record).toEqual(newerDashboard?.record)
+        expect(newer.values.fullFileSystemFiltered.some((item) => item.name === 'Custom dashboards')).toBe(false)
+        original.unmount()
+        newer.unmount()
+    })
+
+    it('opens nested report folders without changing file links or the shared project browser', () => {
+        const folder = 'Sales & marketing/Quarter 1'
+        logic.actions.loadFolderSuccess(
+            folder,
+            [
+                { id: 'campaigns', type: 'folder', path: `${folder}/Campaigns` },
+                { id: 'overview', type: 'dashboard', path: `${folder}/Overview`, href: '/dashboard/1' },
+            ],
+            false,
+            0
+        )
+        const reports = projectTreeLogic({ key: 'report-links', root: `project://${folder}`, folderHref: urls.reports })
+        reports.mount()
+        const entries = reports.values.fullFileSystemFiltered
+        expect(entries.find((item) => item.name === 'Campaigns')?.record?.href).toEqual(
+            urls.reports(`${folder}/Campaigns`)
+        )
+        expect(entries.find((item) => item.name === 'Overview')?.record?.href).toEqual('/dashboard/1')
+        reports.unmount()
+    })
+
     it('shows Warehouse properties in Data when its persisted feature flag is enabled', () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]: false })
 

@@ -107343,6 +107343,23 @@ export namespace Schemas {
       errors_by_source: SourceValidationErrorsBySource;
     }
 
+    export interface SpaceResourceLink {
+      /** Existing filesystem entry to include in this space. */
+      file_id: string;
+      /** Show this resource in the space's pinned section. */
+      pinned?: boolean;
+    }
+
+    export interface SpaceResourceConfig {
+      /**
+         * Canvas belonging to this space to feature on its overview.
+         * @nullable
+         */
+      featured_canvas?: string | null;
+      /** References to existing files. Their access permissions are unchanged. */
+      resources: SpaceResourceLink[];
+    }
+
     /**
      * The setup task that was started for the channel.
      */

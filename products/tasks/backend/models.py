@@ -248,6 +248,9 @@ class Channel(TeamScopedRootMixin):
         blank=True,
         help_text="GitHub repositories inherited by new tasks in this channel",
     )
+    resource_config = models.JSONField(
+        null=True, blank=True, help_text="Featured canvas and file references organized in this space."
+    )
     auto_archive_after_days = models.PositiveSmallIntegerField(
         null=True,
         blank=True,

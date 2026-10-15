@@ -174,7 +174,11 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     /** Whether to expand all folders by default. Defaults to false. Disabled folders will not be expanded. */
     expandAllFolders?: boolean
     /** handler for folder clicks.*/
-    onFolderClick?: (folder: TreeDataItem | undefined, isExpanded: boolean) => void
+    onFolderClick?: (
+        folder: TreeDataItem | undefined,
+        isExpanded: boolean,
+        event?: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
+    ) => void
     /** handler for node clicks. */
     onItemClick?: (
         node: TreeDataItem | undefined,
@@ -1080,7 +1084,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             ? expandedItemIdsState.filter((id) => id !== item.id)
                             : [...expandedItemIdsState, item.id]
                         setExpandedItemIdsState(newExpandedIds)
-                        onFolderClick(item, expandedItemIdsState.includes(item.id))
+                        onFolderClick(item, expandedItemIdsState.includes(item.id), event)
                     }
                 }
                 if (item?.onClick) {
@@ -1284,11 +1288,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             if (currentItem.children && currentItem.children?.length >= 0) {
                                 // Toggle folder expanded state
                                 if (expandedItemIdsState.includes(currentItem.id)) {
-                                    onFolderClick?.(currentItem, false)
+                                    onFolderClick?.(currentItem, false, e)
                                     // Close folder by removing from expanded IDs
                                     setExpandedItemIdsState(expandedItemIdsState.filter((id) => id !== currentItem.id))
                                 } else {
-                                    onFolderClick?.(currentItem, true)
+                                    onFolderClick?.(currentItem, true, e)
                                     // Open folder by adding to expanded IDs
                                     const newExpandedIds = [...new Set([...expandedItemIdsState, currentItem.id])]
                                     setExpandedItemIdsState(newExpandedIds)

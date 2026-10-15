@@ -56,6 +56,7 @@ from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.integration import Integration
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
@@ -12208,3 +12209,48 @@ def accept_github_pull_request_review(delivery: WebhookDelivery) -> None:
     from products.tasks.backend.webhooks import handle_pull_request_review_event  # noqa: PLC0415
 
     handle_pull_request_review_event(dict(delivery.payload))
+
+
+def get_space_resource_config(
+    channel_id: str | UUID | None, team_id: int, user_id: int | None
+) -> dict[str, Any] | None:
+    if channel_id is None:
+        return None
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    return channel.resource_config or {"featured_canvas": None, "resources": []}
+
+
+def save_space_resource_config(
+    channel_id: str | UUID | None, team_id: int, user_id: int | None, config: dict[str, Any]
+) -> dict[str, Any] | str:
+
+    from products.canvas.backend.facade.access import (
+        live_canvas_summary,  # noqa: PLC0415 — keeps canvas off django.setup()
+    )
+
+    if channel_id is None:
+        return "not_found"
+    with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
+        if channel is None:
+            return "not_found"
+        existing_ids = {item["file_id"] for item in (channel.resource_config or {}).get("resources", [])}
+        file_ids = [item["file_id"] for item in config["resources"] if str(item["file_id"]) not in existing_ids]
+        if FileSystem.objects.filter(
+            team_id=team_id, id__in=file_ids, type__in=["dashboard", "insight", "notebook", "folder"]
+        ).count() != len(file_ids):
+            return "invalid_resource"
+        featured = config.get("featured_canvas")
+        if featured:
+            canvas = live_canvas_summary(team_id=team_id, canvas_id=str(featured))
+            if canvas is None or canvas.channel_id != channel.id:
+                return "invalid_resource"
+        saved = {
+            "featured_canvas": str(featured) if featured else None,
+            "resources": [{"file_id": str(item["file_id"]), "pinned": item["pinned"]} for item in config["resources"]],
+        }
+        channel.resource_config = saved
+        channel.save(update_fields=["resource_config", "updated_at"])
+    return saved

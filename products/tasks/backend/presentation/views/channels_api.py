@@ -49,6 +49,7 @@ from products.tasks.backend.presentation.serializers import (
     OnboardingSessionTestResponseSerializer,
     OnboardingSessionTestSerializer,
     ProvisionedChannelsSerializer,
+    SpaceResourceConfigSerializer,
     TaskActivityMarkReadResponseSerializer,
     TaskActivityMarkReadSerializer,
     TaskActivityPageSerializer,
@@ -107,6 +108,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "context_generation",
         "members",
         "contributors",
+        "resources",
     ]
     scope_object_write_actions = [
         "create",
@@ -123,6 +125,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "set_context_generation",
         "start_setup",
         "star",
+        "set_resources",
     ]
 
     def _user_id(self) -> int | None:
@@ -327,6 +330,26 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if channel is None:
             raise NotFound()
         return Response(ChannelSerializer(channel).data)
+
+    @extend_schema(responses=SpaceResourceConfigSerializer)
+    @action(detail=True, methods=["get"], url_path="resources")
+    def resources(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
+        config = tasks_facade.get_space_resource_config(pk, self.team_id, self._user_id())
+        if config is None:
+            raise NotFound()
+        return Response(config)
+
+    @extend_schema(request=SpaceResourceConfigSerializer, responses=SpaceResourceConfigSerializer)
+    @resources.mapping.put
+    def set_resources(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
+        serializer = SpaceResourceConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = tasks_facade.save_space_resource_config(pk, self.team_id, self._user_id(), serializer.validated_data)
+        if result == "not_found":
+            raise NotFound()
+        if result == "invalid_resource":
+            raise ValidationError("Choose files from this project and a canvas belonging to this space.")
+        return Response(result)
 
     @extend_schema(
         responses={

@@ -32,6 +32,7 @@ import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMen
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { navigateToHref } from 'lib/utils/navigateToHref'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -42,6 +43,7 @@ import { UserBasicType } from '~/types'
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { getSidebarProduct } from './defaultTree'
 import { isHomeFolder, withHomeFolderEmptyState } from './homeFolderUtils'
+import { isLegacyAnalyticsNavigationItemActive } from './legacyAnalyticsNavigation'
 import { MenuItems } from './menus/MenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
@@ -63,6 +65,8 @@ interface ProjectTreeBaseProps {
     showShortcutHelp?: boolean
     logicKey?: string // key override?
     root?: string
+    groupAnalyticsNavigation?: boolean
+    folderHref?: (folder: string) => string
     shortcutScope?: 'products' | 'files'
     shareDragAndDropContext?: boolean
     showRecents?: boolean // whether to show recents in the tree
@@ -123,7 +127,14 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     const { viableItems, shortcutData, shortcutEntryIdMap, currentHomeFolder } = useValues(projectTreeDataLogic)
     const { addShortcutItem, moveShortcutToFolder, reorderShortcutByDrag, setStarredNavigationRef } =
         useActions(projectTreeDataLogic)
-    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, shortcutScope, isActiveInPanel }
+    const projectTreeLogicProps = {
+        key: logicKey ?? uniqueKey,
+        root,
+        shortcutScope,
+        isActiveInPanel,
+        groupAnalyticsNavigation: props.groupAnalyticsNavigation,
+        folderHref: props.folderHref,
+    }
     const {
         fullFileSystemFiltered,
         lastViewedId,
@@ -170,7 +181,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         false
     )
 
-    const showFilterDropdown = root === 'project://'
+    const showFilterDropdown = root?.startsWith('project://')
     const showSortMenuItems = root === 'project://'
 
     let treeData: TreeDataItem[] = withHomeFolderEmptyState([...fullFileSystemFiltered], currentHomeFolder)
@@ -241,7 +252,11 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
             selectMode={selectMode}
             defaultSelectedFolderOrNodeId={lastViewedId || undefined}
             isItemActive={(item) =>
-                isProjectTreeItemActive(item, removeProjectIdIfPresent(window.location.pathname), projectTreeRef)
+                (props.groupAnalyticsNavigation ? isLegacyAnalyticsNavigationItemActive : isProjectTreeItemActive)(
+                    item,
+                    removeProjectIdIfPresent(window.location.pathname),
+                    projectTreeRef
+                )
             }
             size={treeSize}
             onItemChecked={onItemChecked}
@@ -297,7 +312,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 // False, because we handle focus of content in LemonTree with mainContentRef prop
                 resetPanelLayout(false)
             }}
-            onFolderClick={(folder, isExpanded) => {
+            onFolderClick={(folder, isExpanded, event) => {
                 if (folder) {
                     posthog.capture('project tree folder toggled', {
                         root: root ?? 'project://',
@@ -305,6 +320,18 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                         name: folder.name ?? null,
                     })
                     toggleFolderOpen(folder?.id || '', isExpanded)
+                    const keyboardActivation = event && 'key' in event && event.key === 'Enter'
+                    if (
+                        (props.groupAnalyticsNavigation || props.folderHref) &&
+                        folder.record?.href &&
+                        (event?.type === 'click' || keyboardActivation)
+                    ) {
+                        onItemClicked?.(folder)
+                        resetPanelLayout(false)
+                        if (keyboardActivation) {
+                            navigateToHref(folder.record.href)
+                        }
+                    }
                 }
             }}
             isItemEditing={(item) => {
@@ -395,7 +422,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 }
 
                 // hacky, if the item has a href, it should not be droppable
-                if (item.record?.href) {
+                if (item.record?.href && !(props.folderHref && item.record?.type === 'folder')) {
                     return false
                 }
 
@@ -405,6 +432,9 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 return false
             }}
             itemContextMenu={(item) => {
+                if (item.id.startsWith('legacy-navigation/')) {
+                    return undefined
+                }
                 if (item.record?.type !== 'folder') {
                     return undefined
                 }
@@ -426,6 +456,9 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 )
             }}
             itemSideAction={(item) => {
+                if (item.id.startsWith('legacy-navigation/')) {
+                    return undefined
+                }
                 if (selectMode === 'multi') {
                     return undefined
                 }
@@ -547,7 +580,13 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                         <TreeNodeDisplayIcon
                             item={item}
                             expandedItemIds={expandedFolders}
-                            defaultFolderIcon={isHomeFolder(item, currentHomeFolder) ? <IconHome /> : undefined}
+                            defaultFolderIcon={
+                                props.groupAnalyticsNavigation && item.id.startsWith('legacy-navigation/') ? (
+                                    item.icon
+                                ) : isHomeFolder(item, currentHomeFolder) ? (
+                                    <IconHome />
+                                ) : undefined
+                            }
                         />
                     </>
                 )

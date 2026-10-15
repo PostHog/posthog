@@ -28,10 +28,10 @@ export interface TodayPane {
 export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     home: { label: 'Home', title: 'Today', icon: <IconHome />, home: () => urls.projectHomepage() },
     spaces: {
-        label: 'Chats',
-        title: 'Chats',
+        label: 'Spaces',
+        title: 'Spaces',
         icon: <IconChat />,
-        home: () => urls.taskNewSession(),
+
         action: TodayNewChatButton,
     },
     views: { label: 'Views', title: 'Views', icon: <IconGridMasonry />, action: TodayNewViewButton },

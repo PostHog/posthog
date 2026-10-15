@@ -85,6 +85,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/CustomerJourneyTemplatesScene/CustomerJourneyTemplatesScene'),
     WarehouseProperties: () =>
         import('../../products/customer_analytics/frontend/scenes/WarehousePropertiesScene/WarehousePropertiesScene'),
+    Reports: () => import('../../products/dashboards/frontend/ReportsScene'),
     DataCatalog: () => import('../../products/data_catalog/frontend/DataCatalogScene'),
     DataCatalogMetric: () => import('../../products/data_catalog/frontend/DataCatalogMetricScene'),
     Models: () => import('../../products/data_modeling/frontend/ModelsScene'),

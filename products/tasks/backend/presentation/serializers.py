@@ -2684,6 +2684,29 @@ class ChannelMembersWriteSerializer(serializers.Serializer):
     )
 
 
+class SpaceResourceLinkSerializer(serializers.Serializer):
+    file_id = serializers.UUIDField(help_text="Existing filesystem entry to include in this space.")
+    pinned = serializers.BooleanField(default=False, help_text="Show this resource in the space's pinned section.")
+
+
+class SpaceResourceConfigSerializer(serializers.Serializer):
+    featured_canvas = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Canvas belonging to this space to feature on its overview.",
+    )
+    resources = SpaceResourceLinkSerializer(
+        many=True, max_length=200, help_text="References to existing files. Their access permissions are unchanged."
+    )
+
+    def validate_resources(self, value: list[dict]) -> list[dict]:
+        ids = [str(item["file_id"]) for item in value]
+        if len(set(ids)) != len(ids):
+            raise serializers.ValidationError("Each file can only appear once in a space.")
+        return value
+
+
 class ChannelUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(
         max_length=128,

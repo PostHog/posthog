@@ -398,6 +398,23 @@ export const TaskChannelsMembersUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const taskChannelsResourcesUpdateBodyResourcesItemPinnedDefault = false
+
+export const TaskChannelsResourcesUpdateBody = /* @__PURE__ */ zod.object({
+    featured_canvas: zod.uuid().nullish().describe('Canvas belonging to this space to feature on its overview.'),
+    resources: zod
+        .array(
+            zod.object({
+                file_id: zod.uuid().describe('Existing filesystem entry to include in this space.'),
+                pinned: zod
+                    .boolean()
+                    .default(taskChannelsResourcesUpdateBodyResourcesItemPinnedDefault)
+                    .describe("Show this resource in the space's pinned section."),
+            })
+        )
+        .describe('References to existing files. Their access permissions are unchanged.'),
+})
+
 /**
  * Starts one unattended task in the channel that resolves the metric, writes the context page and, for a goal, creates the tracking canvas and the loops. The task becomes the channel's context generation task.
  * @summary Set a space up for a goal or a feature
