@@ -17,7 +17,6 @@ interface SurveyFormAppearanceProps {
     previewPageIndex: number
     survey: NewSurvey | Survey
     handleSetSelectedPageIndex: (activePreview: number) => void
-    isEditingSurvey?: boolean
 }
 
 export function SurveyFormAppearance({
