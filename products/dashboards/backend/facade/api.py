@@ -205,6 +205,22 @@ def hide_tiles_for_insights(insight_ids: Collection[int]) -> None:
     DashboardTile.objects_including_soft_deleted.filter(insight_id__in=insight_ids).update(deleted=True)
 
 
+def _dashboard_edit_access_by_team(
+    dashboards: Collection[Dashboard], user_access_control: UserAccessControl | None
+) -> dict[int, UserAccessControl]:
+    """Resolve dashboard edit access against each dashboard's own team.
+
+    A tile's dashboard can belong to a sibling environment's team in the same project, and the
+    request-scoped UserAccessControl is bound to the requesting team. Resolving a sibling's
+    dashboard through it reads the wrong team's rules and can skip a dashboard the requester may
+    edit. `for_team_ids` returns one instance per dashboard team with the same user and
+    organization, so project scope is preserved.
+    """
+    if user_access_control is None:
+        return {}
+    return user_access_control.for_team_ids({dashboard.team_id for dashboard in dashboards})
+
+
 def restore_tiles_for_insights(insight_ids: Collection[int], *, user_access_control: UserAccessControl) -> None:
     """Re-activate soft-deleted tiles of these insights, on live dashboards the requester may edit.
 
@@ -212,13 +228,16 @@ def restore_tiles_for_insights(insight_ids: Collection[int], *, user_access_cont
     Tiles removed before the delete may also reappear; acceptable for the immediate-undo case
     this backs.
     """
-    candidate_tiles = DashboardTile.objects_including_soft_deleted.filter(
-        insight_id__in=insight_ids, deleted=True, dashboard__deleted=False
-    ).select_related("dashboard")
+    candidate_tiles = list(
+        DashboardTile.objects_including_soft_deleted.filter(
+            insight_id__in=insight_ids, deleted=True, dashboard__deleted=False
+        ).select_related("dashboard")
+    )
+    access_by_team = _dashboard_edit_access_by_team([tile.dashboard for tile in candidate_tiles], user_access_control)
     restorable_tile_ids = [
         tile.id
         for tile in candidate_tiles
-        if user_access_control.check_access_level_for_object(tile.dashboard, "editor")
+        if access_by_team[tile.dashboard.team_id].check_access_level_for_object(tile.dashboard, "editor")
     ]
     if restorable_tile_ids:
         DashboardTile.objects_including_soft_deleted.filter(id__in=restorable_tile_ids).update(deleted=False)
@@ -265,11 +284,12 @@ def plan_insight_tile_placement(
     # nosemgrep: idor-lookup-without-team (team check below)
     found = {dashboard.id: dashboard for dashboard in Dashboard.objects.filter(id__in=dashboard_ids)}
     dashboards = [found[dashboard_id] for dashboard_id in dict.fromkeys(dashboard_ids) if dashboard_id in found]
+    access_by_team = _dashboard_edit_access_by_team(dashboards, user_access_control)
     for dashboard in dashboards:
         if dashboard.team_id != team_id:
             raise DashboardNotFound
         # Adding a tile is an edit of the dashboard.
-        if user_access_control is not None and not user_access_control.check_access_level_for_object(
+        if user_access_control is not None and not access_by_team[dashboard.team_id].check_access_level_for_object(
             dashboard, "editor"
         ):
             raise CannotAddToDashboard(dashboard.id)
@@ -313,11 +333,13 @@ def update_insight_dashboard_membership(
 
     added_dashboard_ids: list[int] = []
     # nosemgrep: idor-lookup-without-team (team check after lookup)
-    for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
+    add_dashboards = list(Dashboard.objects.filter(id__in=ids_to_add))
+    add_access_by_team = _dashboard_edit_access_by_team(add_dashboards, user_access_control)
+    for dashboard in add_dashboards:
         if dashboard.team != insight.team:
             raise DashboardNotFound
 
-        if user_access_control is not None and not user_access_control.check_access_level_for_object(
+        if user_access_control is not None and not add_access_by_team[dashboard.team_id].check_access_level_for_object(
             dashboard, "editor"
         ):
             raise CannotAddToDashboard(dashboard.id)
@@ -335,10 +357,12 @@ def update_insight_dashboard_membership(
     removed_dashboard_ids: list[int] = []
     if ids_to_remove:
         # nosemgrep: idor-lookup-without-team (team check after lookup)
-        for dashboard in Dashboard.objects.filter(id__in=ids_to_remove):
-            if user_access_control is not None and not user_access_control.check_access_level_for_object(
-                dashboard, "editor"
-            ):
+        remove_dashboards = list(Dashboard.objects.filter(id__in=ids_to_remove))
+        remove_access_by_team = _dashboard_edit_access_by_team(remove_dashboards, user_access_control)
+        for dashboard in remove_dashboards:
+            if user_access_control is not None and not remove_access_by_team[
+                dashboard.team_id
+            ].check_access_level_for_object(dashboard, "editor"):
                 raise CannotRemoveFromDashboard(dashboard.id)
 
         # Capture the still-active tiles before soft-deleting so the caller can report one

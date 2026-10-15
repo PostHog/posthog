@@ -4543,6 +4543,48 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         # The insight comes back, but its tile on a dashboard the user can only view stays hidden.
         self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
 
+    def test_bulk_restore_resolves_each_dashboard_against_its_own_team(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        creator = self._create_user("creator@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        # A sibling environment in the same project owns the dashboard the insight sits on.
+        other_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        dashboard = Dashboard.objects.create(team=other_team, name="Sibling dashboard", created_by=creator)
+        insight = Insight.objects.create(team=self.team, name="My insight", saved=True, created_by=creator)
+        tile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        self.assertEqual(self._bulk_delete([insight.id]).status_code, status.HTTP_200_OK)
+
+        member = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        membership = member.organization_memberships.first()
+        # The requesting team's copy of the rule only grants view access...
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            access_level="viewer",
+            organization_member=membership,
+            role=None,
+        )
+        # ...but the dashboard's own team grants edit access, which is the one that counts.
+        AccessControl.objects.create(
+            team=other_team,
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            access_level="editor",
+            organization_member=membership,
+            role=None,
+        )
+        self.client.force_login(member)
+        response = self._bulk_restore([insight.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([item["id"] for item in response.json()["restored"]], [insight.id])
+        self.assertFalse(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
+
 
 class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
