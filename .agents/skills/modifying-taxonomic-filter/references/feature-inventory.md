@@ -1,7 +1,7 @@
 # Feature inventory
 
 Every user-facing feature of the picker, how much it is used, and its current status.
-Ratios are from a 14-day non-staff window (2026-10).
+Ratios are from a 14-day non-staff window (2026-10), on the legacy picker unless a row says otherwise.
 Update this file when you add, remove or change a feature.
 
 Status meanings:

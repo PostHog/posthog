@@ -33,6 +33,8 @@ The rebuild sends no `groupType` for its `all`, `recent` and `pinned` scopes (`t
 In a query over both surfaces, label an empty `groupType` from `rebuild-menu` as an unknown meta-scope.
 Do not fold it into Suggested or All, or treat it as Recent: the standalone Recent and Pinned picks are in there too.
 Telling the scopes apart needs new telemetry.
+HogQL and data warehouse commits (`menu/HogQLEditor.tsx`, `menu/DwhFlow.tsx`) also send no `groupType`, because they commit without a selection context.
+They still send `sourceGroupType`, so split those rows out by `sourceGroupType` before you label the rest as a meta-scope.
 
 ## Shared events (both surfaces)
 

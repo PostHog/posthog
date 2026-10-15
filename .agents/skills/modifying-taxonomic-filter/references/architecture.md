@@ -45,15 +45,15 @@ TaxonomicFilterMenu                     # menu/ — dropdown + combobox + DWH/Ho
                 └── fetchTaxonomicListPage
 ```
 
-| File                                                                              | Rebuild counterpart of                                                                                             |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `utils/buildTaxonomicGroups.tsx`                                                  | legacy `taxonomicGroups` selector                                                                                  |
-| `hooks/useTaxonomicFilter.ts`                                                     | legacy `taxonomicGroupTypes` selector + ordering                                                                   |
-| `hooks/useGroupList.ts` + `useTaxonomicResource.ts` + `fetchTaxonomicListPage.ts` | legacy `infiniteListLogic.ts`                                                                                      |
-| `hooks/useTaxonomicLocalOverrides.ts`                                             | feeds logic-backed group data the kea version got for free                                                         |
-| `hooks/useTaxonomicGroupsContext.ts`                                              | reads recents/pinned via the kea bridge (`useTaxonomicFilter.ts` and `useTaxonomicLocalOverrides.ts` also use kea) |
-| `menu/DwhFlow.tsx`                                                                | legacy DWH config inlined in `InfiniteList.tsx`                                                                    |
-| `menu/TaxonomicFilterMenu.tsx`                                                    | legacy telemetry in `taxonomicFilterLogic.tsx`                                                                     |
+| File                                                                              | Rebuild counterpart of                                                                             |
+| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `utils/buildTaxonomicGroups.tsx`                                                  | legacy `taxonomicGroups` selector                                                                  |
+| `hooks/useTaxonomicFilter.ts`                                                     | legacy `taxonomicGroupTypes` selector + ordering                                                   |
+| `hooks/useGroupList.ts` + `useTaxonomicResource.ts` + `fetchTaxonomicListPage.ts` | legacy `infiniteListLogic.ts`                                                                      |
+| `hooks/useTaxonomicLocalOverrides.ts`                                             | feeds logic-backed group data the kea version got for free, and reads recents and pins through kea |
+| `hooks/useTaxonomicGroupsContext.ts`                                              | the group-definition context bridge (recents are written in `useTaxonomicFilter.ts`)               |
+| `menu/DwhFlow.tsx`                                                                | legacy DWH config inlined in `InfiniteList.tsx`                                                    |
+| `menu/TaxonomicFilterMenu.tsx`                                                    | legacy telemetry in `taxonomicFilterLogic.tsx`                                                     |
 
 `headless/UX_SPEC.md` is the rebuild's design source of truth — update it
 when locking design, then build against it.
