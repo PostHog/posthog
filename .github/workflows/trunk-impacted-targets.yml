@@ -202,13 +202,10 @@ jobs:
               uses: ./.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
-                  pr-base-sha: ${{ github.event.pull_request.base.sha }}
-                  # Diff against master rather than the PR base, for the same
-                  # reason the changed-file diff above does: a stacked PR's
-                  # base is the layer below it, and an answer computed against
-                  # a different radius than the file list would read as a
-                  # disagreement and widen to every crate.
-                  base-branch: ${{ github.event.repository.default_branch }}
+                  # Reuse the master merge base the file list came from. A
+                  # stacked PR's base is the layer below it, and a graph diffed
+                  # against another base would drop crates the file list implies.
+                  base-ref: ${{ steps.changes.outputs.merge_base }}
                   # The checkout is shallow, so the action takes the file list
                   # resolved above instead of diffing against the merge base.
                   changed-files: ${{ runner.temp }}/changed-files.txt
