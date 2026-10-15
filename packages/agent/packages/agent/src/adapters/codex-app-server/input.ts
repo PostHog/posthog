@@ -15,7 +15,7 @@ function textInput(text: string): CodexUserInput {
 }
 
 /** A `file://` resource is surfaced as its path so codex reads it from disk. */
-function resourceLinkText(uri: string): string {
+export function resourceLinkText(uri: string): string {
   if (uri.startsWith("file://")) {
     try {
       return `Attached workspace file (read it from disk): ${fileURLToPath(uri)}`;
