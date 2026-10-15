@@ -29,9 +29,8 @@ class CodecovRetryableError(Exception):
 
 @dataclasses.dataclass
 class CodecovResumeConfig:
-    # Next page URL to fetch (of the parent list, for endpoints with a parent). None means
-    # "start the bookmarked repo's endpoint at its first page" — used when the bookmark advances
-    # to a repo whose first page URL isn't built yet.
+    # Next page URL to fetch. None means "start the bookmarked repo's endpoint at its first
+    # page" — used when the bookmark advances to a repo whose first page URL isn't built yet.
     next_url: str | None = None
     # The repository currently being processed during fan-out. A stable name bookmark (not a
     # positional index) so repos added/removed between a crash and the retry can't resume us
