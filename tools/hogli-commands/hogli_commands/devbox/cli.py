@@ -324,12 +324,12 @@ def _render_sync_status(workspace_name: str) -> str:
     return click.style(f"● {status}", fg="green")
 
 
-def _sync_workspace_parameters(name: str, extra: dict[str, str] | None = None) -> None:
-    """Push local config (git identity, dotfiles) to workspace parameters before start.
+def _workspace_start_parameters(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Collect local config (git identity, dotfiles) to apply as workspace parameters on start.
 
     `workspace_region` is intentionally not forwarded: it is immutable, so Coder
-    carries it forward on its own and rejects any explicit value on `coder
-    update` (see the comment on `WORKSPACE_REGION_PARAMETER`).
+    carries it forward on its own and rejects any explicit value on a later
+    build (see the comment on `WORKSPACE_REGION_PARAMETER`).
     """
     config = load_config()
     params: dict[str, str] = {}
@@ -347,8 +347,19 @@ def _sync_workspace_parameters(name: str, extra: dict[str, str] | None = None) -
     if extra:
         params.update(extra)
 
-    if params:
-        update_workspace_parameters(name, params)
+    return params
+
+
+def _start_with_parameters(name: str, workspace: dict[str, Any], parameters: dict[str, str], *, verbose: bool) -> None:
+    """Start a non-running workspace and apply ``parameters`` in the same build.
+
+    `coder start` keeps an outdated workspace on its old template version, so an
+    outdated one goes through `coder update`, which starts it on the active version.
+    """
+    if workspace.get("outdated"):
+        update_workspace(name, parameters=parameters, verbose=verbose)
+    else:
+        start_workspace(name, parameters=parameters, verbose=verbose)
 
 
 def _start_existing_workspace(
@@ -359,8 +370,8 @@ def _start_existing_workspace(
     if status == "running":
         click.echo(f"Devbox '{name}' is already running.")
         if start_app is not None:
-            # Pushing the parameter needs `coder update`, which rebuilds a
-            # running workspace -- only safe on the pre-start sync below.
+            # Applying the parameter needs a new build, which would restart a
+            # running workspace -- only safe when starting from stopped below.
             click.echo(_START_APP_NOT_APPLIED_NOTE)
         _print_connection_info(name)
         return
@@ -372,18 +383,18 @@ def _start_existing_workspace(
             click.echo(_START_APP_NOT_APPLIED_NOTE)
         return
 
-    _sync_workspace_parameters(name, extra=_start_app_param(start_app))
+    parameters = _workspace_start_parameters(extra=_start_app_param(start_app))
 
     if status == "stopped":
         click.echo(f"Starting devbox '{name}'...")
-        start_workspace(name, verbose=verbose)
+        _start_with_parameters(name, workspace, parameters, verbose=verbose)
         click.echo("Started.")
         _print_connection_info(name)
         return
 
     click.echo(f"Devbox '{name}' is in state: {status}")
     click.echo("Attempting to start...")
-    start_workspace(name, verbose=verbose)
+    _start_with_parameters(name, workspace, parameters, verbose=verbose)
     _print_connection_info(name)
 
 

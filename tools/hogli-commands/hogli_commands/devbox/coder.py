@@ -1474,9 +1474,14 @@ def clone_workspace(
         raise SystemExit(result.returncode)
 
 
-def start_workspace(name: str, *, verbose: bool = False) -> None:
-    """Start a stopped workspace."""
-    result = _run_build(["coder", "start", name, "--yes"], verbose=verbose)
+def start_workspace(name: str, parameters: dict[str, str] | None = None, *, verbose: bool = False) -> None:
+    """Start a stopped workspace, applying ``parameters`` to the start build.
+
+    ``coder update`` ignores ``--parameter`` on a workspace that is not
+    outdated, so mutable parameters reach a current workspace only this way.
+    """
+    base_args = ["coder", "start", name, "--use-parameter-defaults", "--yes"]
+    result = _run_with_param_retry(base_args, parameters or {}, verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
