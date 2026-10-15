@@ -10956,6 +10956,7 @@ dependencies = [
  "replay-core-v4",
  "serde_json",
  "sqlx",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracing-subscriber",
