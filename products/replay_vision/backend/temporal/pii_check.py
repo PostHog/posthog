@@ -25,7 +25,7 @@ from products.replay_vision.backend.distinct_ids import replay_vision_distinct_i
 from products.replay_vision.backend.error_kinds import FailureKind
 from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gateway_client
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error, gemini_api_key
+from products.replay_vision.backend.temporal.gemini import gemini_api_key, is_gateway_refusal
 
 logger = structlog.get_logger(__name__)
 
@@ -206,8 +206,8 @@ async def keep_unrequested_pii_out(
         )
     except Exception as e:
         record_pii_check("failed", scanner_type)
-        # A gateway refusal is our fault: the activity boundary classifies it as retryable.
-        if classify_gemini_error(e) is FailureKind.INFRA_TRANSIENT:
+        # A gateway refusal is our fault; the activity boundary decides whether it retries.
+        if is_gateway_refusal(e):
             raise
         raise ScannerFailureError(
             "The answer included personal data the scanner didn't ask for, and it could not be removed.",

@@ -550,13 +550,14 @@ async def test_a_provider_error_on_a_non_required_step_leaves_the_scan_standing(
     assert "media" not in out
 
 
+@pytest.mark.parametrize("code", [402, 429])
 @pytest.mark.asyncio
-async def test_a_gateway_refusal_on_a_non_required_step_fails_the_pass() -> None:
+async def test_a_gateway_refusal_on_a_non_required_step_fails_the_pass(code: int) -> None:
     steps = [
         MissionStep(name="summary", instruction="sum", response_model=_Core),
         MissionStep(name="media", instruction="pick", response_model=_Side, required=False),
     ]
-    refusal = ClientError(402, {"error": {"code": 402, "details": [{"domain": "posthog.com"}]}})
+    refusal = ClientError(code, {"error": {"code": code, "details": [{"domain": "posthog.com"}]}})
 
     class _RefusingModels(_FakeModels):
         async def generate_content(self, **kwargs: Any) -> _Resp:

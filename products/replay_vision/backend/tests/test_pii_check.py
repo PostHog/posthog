@@ -63,13 +63,14 @@ async def test_answer_still_flagged_after_the_rewrite_fails_the_observation() ->
     assert raised.value.non_retryable
 
 
-def _refusal(domain: str) -> genai_errors.ClientError:
-    return genai_errors.ClientError(402, {"error": {"code": 402, "details": [{"domain": domain}]}})
+def _refusal(domain: str, code: int = 402) -> genai_errors.ClientError:
+    return genai_errors.ClientError(code, {"error": {"code": code, "details": [{"domain": domain}]}})
 
 
+@pytest.mark.parametrize("code", [402, 404, 429])
 @pytest.mark.asyncio
-async def test_a_gateway_refusal_of_the_rewrite_reaches_the_activity_retry() -> None:
-    refusal = _refusal("posthog.com")
+async def test_a_gateway_refusal_of_the_rewrite_reaches_the_activity_boundary(code: int) -> None:
+    refusal = _refusal("posthog.com", code)
     with pytest.raises(genai_errors.ClientError) as raised:
         await _check(f"(t 12) {_SUBJECT} paid.", False, rewrite_error=refusal)
     assert raised.value is refusal

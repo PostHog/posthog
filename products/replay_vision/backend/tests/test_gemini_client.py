@@ -147,8 +147,21 @@ class TestReplayGatewayClient:
         assert body["contents"][0]["parts"][0]["inlineData"]["mimeType"] == "video/mp4"
         assert "httpOptions" not in body and "http_options" not in body
 
-    @pytest.mark.parametrize("code", [400, 401, 402, 403, 404])
-    def test_the_gateways_own_refusal_is_ours_and_retryable(self, code: int) -> None:
+    @pytest.mark.parametrize(
+        "code, kind",
+        [
+            (401, FailureKind.INFRA_TRANSIENT),
+            (402, FailureKind.INFRA_TRANSIENT),
+            (403, FailureKind.INFRA_TRANSIENT),
+            (429, FailureKind.INFRA_TRANSIENT),
+            (400, FailureKind.INTERNAL_ERROR),
+            (404, FailureKind.INTERNAL_ERROR),
+            (413, FailureKind.INTERNAL_ERROR),
+        ],
+    )
+    def test_the_gateways_own_refusal_is_ours_and_retries_only_when_it_can_clear(
+        self, code: int, kind: FailureKind
+    ) -> None:
         body = {
             "error": {
                 "code": code,
@@ -162,7 +175,7 @@ class TestReplayGatewayClient:
         with pytest.raises(genai_errors.ClientError) as exc_info:
             asyncio.run(client.aio.models.generate_content(model="gemini-test", contents="hi"))
 
-        assert classify_gemini_error(exc_info.value) == FailureKind.INFRA_TRANSIENT
+        assert classify_gemini_error(exc_info.value) == kind
 
     @pytest.mark.parametrize("code", [400, 401, 403, 404])
     def test_a_refusal_google_wrote_stays_a_rejection(self, code: int) -> None:

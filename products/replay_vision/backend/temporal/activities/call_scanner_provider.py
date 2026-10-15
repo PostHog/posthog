@@ -47,7 +47,12 @@ from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import build_events_index
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
+from products.replay_vision.backend.temporal.gemini import (
+    classify_gemini_error,
+    describe_gemini_error,
+    gemini_api_key,
+    is_gateway_refusal,
+)
 from products.replay_vision.backend.temporal.lookups import (
     LookupPlan,
     render_lookup_results,
@@ -792,8 +797,8 @@ async def _run_steps(
             convo.append(types.Part(text=instruction))
             result = await run_step(step=step, convo=convo)
         except Exception as exc:
-            # A gateway refusal is our fault, so it goes to the activity retry instead of dropping the step.
-            if step.required or classify_gemini_error(exc) is FailureKind.INFRA_TRANSIENT:
+            # A gateway refusal is our fault, so it fails the pass instead of dropping the step.
+            if step.required or is_gateway_refusal(exc):
                 raise
             # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.
             logger.warning("replay_vision.call_scanner_provider.optional_step_failed", step=step.name, error=str(exc))
