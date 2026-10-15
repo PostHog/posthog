@@ -188,6 +188,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                         onClick={createAlert}
                         disabledReason={createAlertDisabledReason}
                         loading={showListSpinner}
+                        data-attr={isEmpty ? 'insight-empty-state-new-alert' : undefined}
                     >
                         New alert
                     </LemonButton>
