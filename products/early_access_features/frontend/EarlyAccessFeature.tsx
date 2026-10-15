@@ -172,6 +172,7 @@ function enrolledPeopleAudience(earlyAccessFeature: EarlyAccessFeatureType): Mes
             featureName: earlyAccessFeature.name,
             featureDescription: earlyAccessFeature.description,
         }),
+        draftSource: { source: 'early_access', source_id: earlyAccessFeature.id },
         workflowTrigger: {
             type: 'event',
             filters: {

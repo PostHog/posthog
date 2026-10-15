@@ -6,11 +6,15 @@ import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { toOpaqueHex } from 'lib/utils/colors'
 import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { getDatumTitle, SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
+
+import { InsightTooltip } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/InsightTooltip'
+import {
+    getDatumTitle,
+    SeriesDatum,
+} from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 

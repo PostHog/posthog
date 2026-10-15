@@ -13,6 +13,7 @@ from ..logic import (
     briefings,
     code_excerpts,
     figure_sources,
+    highlights,
     report_page as report_pages,
 )
 from ..logic.jev import GatewayJev
@@ -46,8 +47,9 @@ def refresh_briefing(
 
 
 def delete_briefings_for_teams(team_ids: list[int]) -> None:
-    """Remove every briefing of the given teams. Called from team deletion, which no foreign key covers."""
+    """Remove every briefing and highlights row of the given teams. Called from team deletion, which no foreign key covers."""
     briefings.delete_for_teams(team_ids)
+    highlights.delete_for_teams(team_ids)
 
 
 def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> contracts.CandidateList:
@@ -81,3 +83,7 @@ def report_figure_marks(*, team: Team, user: User, report_id: str) -> list[contr
         return None
     artefacts = signals.report_agent_texts(team=team, report_id=report_id, types=figure_sources.RESEARCH_TYPES)
     return report_pages.figure_marks(page, artefacts, _jev(team, user, figure_sources.FIGURE_MODEL))
+
+
+def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> contracts.Highlights:
+    return highlights.get_highlights(team=team, user=user, scopes=scopes)

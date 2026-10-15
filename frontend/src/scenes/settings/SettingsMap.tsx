@@ -1908,7 +1908,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'environment-access-control',
                 title: 'Access control',
-                description: 'Manage who has access to this environment and what they can do.',
+                description: 'Manage who has access to this project and what they can do.',
                 docsUrl: 'https://posthog.com/docs/settings/access-control',
                 component: <TeamAccessControl />,
                 keywords: ['permission', 'role', 'access', 'rbac', 'team'],
@@ -2465,7 +2465,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-roles',
                 title: 'Roles',
                 description:
-                    'Use roles to group your organization members and assign them permissions. Roles are used for access control across your organization.',
+                    'Use roles to group members across your organization for access control and issue assignment in Error tracking.',
                 docsUrl: 'https://posthog.com/docs/settings/access-control',
                 component: <RolesAccessControls />,
                 keywords: ['role', 'permission', 'rbac', 'access control'],

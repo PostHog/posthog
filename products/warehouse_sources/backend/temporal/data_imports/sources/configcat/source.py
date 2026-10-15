@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +37,54 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ConfigCatSource(SimpleSource[ConfigCatSourceConfig]):
+    codebase_detection = detect(
+        env=("^CONFIGCAT_",),
+        npm=(
+            "configcat-node",
+            "configcat-js",
+            "configcat-react",
+            "configcat-js-ssr",
+            "@configcat/sdk",
+            "configcat-common",
+            "configcat-js-chromium-extension",
+            "configcat-nuxt",
+            "configcat-vue",
+            "@openfeature/config-cat-provider",
+            "@openfeature/config-cat-web-provider",
+            "@openfeature/config-cat-core",
+            "configcat-publicapi-node-client",
+            "@configcat/mcp-server",
+        ),
+        pypi=("configcat-client", "configcat-openfeature-provider"),
+        cargo=("configcat", "configcat-openfeature-provider"),
+        cocoapods=("ConfigCat",),
+        composer=(
+            "configcat/configcat-client",
+            "configcat/configcat-client-php7",
+            "configcat/openfeature-provider",
+            "pod-point/laravel-configcat",
+        ),
+        go=(
+            "github.com/configcat/go-sdk",
+            "github.com/open-feature/go-sdk-contrib/providers/configcat",
+            "github.com/configcat/configcat-publicapi-go-client",
+        ),
+        hex=("configcat",),
+        maven=(
+            "com.configcat:configcat-java-client",
+            "com.configcat:configcat-android-client",
+            "com.configcat:configcat-client",
+            "com.configcat:configcat-kotlin-client",
+            "com.configcat:configcat-openfeature-provider",
+            "com.configcat:configcat-publicapi-java-client",
+            "dev.openfeature.contrib.providers:configcat",
+        ),
+        pub=("configcat_client", "configcat_preferences_cache"),
+        rubygems=("configcat", "configcat-openfeature-provider"),
+        swiftpm=("github.com/configcat/swift-sdk", "github.com/configcat/openfeature-swift"),
+        alternative_to=(ProductKey.FEATURE_FLAGS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v1",)

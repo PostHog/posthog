@@ -368,6 +368,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
     class OriginProduct(models.TextChoices):
         ONBOARDING = "onboarding", "Onboarding"
+        ACCOUNT_AUDIT = "account_audit", "Account audit"
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
@@ -686,7 +687,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 event=event,
                 properties=all_properties,
                 groups=groups(team=self.team),
-                send_feature_flags=True,
+                send_feature_flags=event not in {"task_created", "task_run_created"},
             )
         except Exception as e:
             logger.warning("task.capture_event_failed", analytics_event=event, error=str(e))
@@ -786,9 +787,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         branch: str | None = None,
         acting_user_id: int | None = None,
         scheduled_at: datetime | None = None,
+        startup_requested_at: datetime | None = None,
     ) -> "TaskRun":
+        startup_requested_at = startup_requested_at or django_timezone.now()
         if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
             raise ValueError("scheduled_at must be timezone-aware")
+        if scheduled_at is not None:
+            startup_requested_at = max(startup_requested_at, scheduled_at)
 
         expected_created_by_id = self.created_by_id
         expected_ownership_version = self.ownership_version
@@ -821,6 +826,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}
             if extra_state:
                 state.update({k: v for k, v in extra_state.items() if k != "mode"})
+            state["startup_requested_at"] = startup_requested_at.isoformat()
             state.setdefault("repositories", task.repositories or ([task.repository] if task.repository else []))
             carry_config_snapshot = (
                 task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state
@@ -931,6 +937,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                         "run_environment": task_run.environment,
                         "is_resume": is_resume,
                         "has_pending_message": has_pending,
+                        "startup_requested_at": startup_requested_at.isoformat(),
+                        "startup_run_created_at": task_run.created_at.isoformat(),
+                        "startup_scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
                     },
                 )
 
@@ -1169,15 +1178,19 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        # A repo-less signals, autoresearch or metrics import task must carry no GitHub credential at
-        # all, team or personal. Provisioning injects whatever integration is attached, and these runs read
-        # text any member can write, so an attached token turns planted text into repository access.
-        github_resolution_allowed = bool(repository) or origin_product not in (
-            Task.OriginProduct.SIGNALS_CHAT,
-            Task.OriginProduct.SIGNAL_REPORT,
-            Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-            Task.OriginProduct.AUTORESEARCH,
-            Task.OriginProduct.METRICS_IMPORT,
+        # Audits and repo-less signals, autoresearch or metrics import tasks must carry no GitHub
+        # credential. Provisioning injects any attached integration; these runs read member-authored
+        # text, so an attached token turns planted text into repository access.
+        github_resolution_allowed = origin_product != Task.OriginProduct.ACCOUNT_AUDIT and (
+            bool(repository)
+            or origin_product
+            not in (
+                Task.OriginProduct.SIGNALS_CHAT,
+                Task.OriginProduct.SIGNAL_REPORT,
+                Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+                Task.OriginProduct.AUTORESEARCH,
+                Task.OriginProduct.METRICS_IMPORT,
+            )
         )
         github_integration = None
         if github_resolution_allowed:
@@ -1519,6 +1532,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_gateway_server_ids: list[str] | None = None,
         before_task_dispatch: Callable[[uuid.UUID], dict[str, JsonValue] | None] | None = None,
     ) -> "Task":
+        startup_requested_at = django_timezone.now()
         from products.tasks.backend.logic.services.workflow_dispatch import (
             WorkflowDispatchOptions,
             enqueue_or_start_workflow,
@@ -1614,6 +1628,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 branch=branch,
                 acting_user_id=user_id,
                 scheduled_at=scheduled_at,
+                startup_requested_at=startup_requested_at,
             )
             if before_task_dispatch is not None:
                 initial_state = before_task_dispatch(task_run.id)
@@ -2934,6 +2949,7 @@ class TaskRun(models.Model):
             # client's deployment-region super-property, so ship the run's
             # local/cloud value under an unclobbered name too.
             "run_environment": self.environment,
+            "startup_requested_at": (self.state or {}).get("startup_requested_at"),
             "mode": self.mode,
             "slack_session_id": self._slack_session_id(),
             **self._analytics_usage_properties(),
@@ -2976,7 +2992,7 @@ class TaskRun(models.Model):
                 "event": event,
                 "properties": all_properties,
                 "groups": groups(team=self.team),
-                "send_feature_flags": True,
+                "send_feature_flags": event != "task_run_created",
             }
             if event_uuid:
                 capture_kwargs["uuid"] = event_uuid
