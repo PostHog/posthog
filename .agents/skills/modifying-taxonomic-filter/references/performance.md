@@ -1,8 +1,7 @@
 # TaxonomicFilter performance
 
 Use this reference when you change TaxonomicFilter search, loading, pagination, or result reveal behavior.
-For the full profiling workflow, use
-[`profiling-slow-api-endpoints`](../../profiling-slow-api-endpoints/SKILL.md).
+For the full profiling workflow, use [`profiling-slow-api-endpoints`](../../profiling-slow-api-endpoints/SKILL.md).
 
 ## Where users wait
 
@@ -11,23 +10,27 @@ Only the legacy picker sends it, so these numbers say nothing about the rebuild.
 Refresh with query 9 in [refreshing-product-reality](refreshing-product-reality.md).
 
 - The median search is fast (~200ms) in every large group.
-- The slow tail is concentrated. Persons search has a p90 of ~4s and a p99 over 10s.
+- The slow tail is concentrated.
+  Persons search has a p90 of ~4s and a p99 over 10s.
   Pageview URLs have a slow p99.
-- Customers rarely report slowness. Failures that look like loading hurt more (see below).
+- Customers rarely report slowness.
+  Failures that look like loading or like "no results" hurt more (see below).
   Rank latency work against [failure-modes](failure-modes.md), not on its own.
 
-## A failed request must end the loading state
+## A failed request must show as an error
 
-`taxonomic filter fetch failed` fires on ~2% of timed searches. Cohorts, events, person
-properties and flags make up most of the failures.
-A failure that leaves a spinner looks like slowness to the user.
-A 403 must not look like a slow request.
+`taxonomic filter fetch failed` fires on ~2% of timed searches.
+Cohorts, events, person properties and flags make up most of the failures.
+Legacy ends loading and shows `InfiniteListErrorState` with a retry.
+The rebuild ends loading too, but `hooks/useGroupList.ts` drops `remote.error`, so a failure shows as an empty list with no retry.
+A 403 must not look like "no results".
 
-- End the loading state on error in both `infiniteListLogic.ts` and `hooks/useGroupList.ts`.
-- Show what failed and offer a retry.
+- Keep the legacy error state in `InfiniteList.tsx`.
+- In `hooks/useGroupList.ts`, show what failed and offer a retry.
 - Keep `taxonomic filter fetch failed` firing with `groupType`, `searchQuery` and `surface`.
-  Only `infiniteListLogic.ts` sends it. `hooks/useGroupList.ts` has no capture, so the rebuild's
-  failures are invisible. Add one before you use this metric to judge a rebuild loading change.
+  Only `infiniteListLogic.ts` sends it.
+  `hooks/useGroupList.ts` has no capture, so the rebuild's failures are invisible.
+  Add one before you use this metric to judge a rebuild loading change.
 
 ## Backend search plan
 

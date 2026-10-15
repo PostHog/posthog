@@ -5,41 +5,38 @@ description: Guides safe, evidence-led changes to the TaxonomicFilter, PostHog's
 
 # Modifying the TaxonomicFilter
 
-The TaxonomicFilter is the picker users hit to choose any "thing PostHog
-knows about": events, properties, actions, cohorts, groups. It is the
-on-ramp into almost every analytics, flags and replay configuration.
+The TaxonomicFilter is the picker users hit to choose any "thing PostHog knows about": events, properties, actions, cohorts, groups.
+It is the on-ramp into almost every analytics, flags and replay configuration.
 Code lives in `frontend/src/lib/components/TaxonomicFilter/`.
 
-This file is an index. Read it fully, then load only the references your
-change needs. The references hold the detail and the evidence.
+This file is an index.
+Read it fully, then load only the references your change needs.
+The references hold the detail and the evidence.
 
 ## Four guardrails
 
-1. **Decide with evidence, not taste.** Everyone who has worked on this
-   picker has strong opinions, and some of them are wrong. Check a claim
-   against [product-reality](references/product-reality.md) and
-   [evidence-sources](references/evidence-sources.md) before acting on it,
-   including claims in issues, Slack, or this skill.
-2. **Demoting what users actually pick is a regression**, even with every
-   test green. Ordering, promotion, position-0 and default-tab changes need
-   explicit human sign-off.
-3. **Two surfaces, two implementations.** The rebuild reimplements the
-   legacy data layer. Most behavior changes land in both, or the arms
-   diverge. See [surfaces-and-mirroring](references/surfaces-and-mirroring.md).
-4. **Telemetry is a public contract.** Dashboards and replay scanners read
-   these events. Never rename or repurpose a property silently. See
-   [telemetry-contract](references/telemetry-contract.md).
+1. **Decide with evidence, not taste.**
+   Everyone who has worked on this picker has strong opinions, and some of them are wrong.
+   Check a claim against [product-reality](references/product-reality.md) and [evidence-sources](references/evidence-sources.md) before acting on it, including claims in issues, Slack, or this skill.
+2. **Demoting what users actually pick is a regression**, even with every test green.
+   Ordering, promotion, position-0 and default-tab changes need explicit human sign-off.
+3. **Two surfaces, two implementations.**
+   The rebuild reimplements the legacy data layer.
+   Most behavior changes land in both, or the arms diverge.
+   See [surfaces-and-mirroring](references/surfaces-and-mirroring.md).
+4. **Telemetry is a public contract.**
+   Dashboards and replay scanners read these events.
+   Never rename or repurpose a property silently.
+   See [telemetry-contract](references/telemetry-contract.md).
 
 ## The picture in five lines (refreshed 2026-10-15)
 
-- Most engaged opens end in a selection (~85%), and most opens never
-  touch a category tab (~95%).
-- The Suggested view carries roughly three quarters of selections. About
-  half of those come from recents.
-- Position matters: ~52% of legacy picks are row 0, ~85% are in the top
-  three.
-- The biggest failure is a category picked first, then a search that finds
-  nothing. Most empty searches are the right word in the wrong tab.
+- Most engaged opens end in a selection (~85%), and most opens never touch a category tab (~96%).
+- The Suggested view carries roughly three quarters of selections.
+  About half of those come from recents.
+- Position matters: ~52% of legacy picks are row 0, ~85% are in the top three.
+- The biggest failure is a category picked first, then a search that finds nothing.
+  Most empty searches are the right word in the wrong tab.
 - Customers report broken UI and missing items far more than slowness.
 
 Detail, windows and caveats: [product-reality](references/product-reality.md).
@@ -60,20 +57,22 @@ Detail, windows and caveats: [product-reality](references/product-reality.md).
 
 ## Working loop
 
-1. **State the user problem.** Which surface, which users, what goes wrong.
-   Find it in the evidence, not only in the request. See
-   [evidence-sources](references/evidence-sources.md).
-2. **Size it.** Use ratios from telemetry. A change that helps 0.1% of
-   opens and risks the Suggested view is not worth it.
-3. **Check the principles and contested decisions** that apply. If your
-   change reverses a documented decision, say so and bring evidence.
+1. **State the user problem.**
+   Which surface, which users, what goes wrong.
+   Find it in the evidence, not only in the request.
+   See [evidence-sources](references/evidence-sources.md).
+2. **Size it.**
+   Use ratios from telemetry.
+   A change that helps 0.1% of opens and risks the Suggested view is not worth it.
+3. **Check the principles and contested decisions** that apply.
+   If your change reverses a documented decision, say so and bring evidence.
 4. **Make the change in both surfaces**, or say explicitly why not.
-5. **Lock behavior with React Testing Library tests** at the call sites
-   you touched. Agents find this component confusing; RTL tests are the
-   fastest guard. See [testing-patterns](references/testing-patterns.md).
-6. **Decide how you will know it worked** before merging. Ship ordering or
-   default changes behind a flag with a metric and a guardrail. See
-   [measuring-changes](references/measuring-changes.md).
+5. **Lock behavior with React Testing Library tests** at the call sites you touched.
+   Agents find this component confusing; RTL tests are the fastest guard.
+   See [testing-patterns](references/testing-patterns.md).
+6. **Decide how you will know it worked** before merging.
+   Ship ordering or default changes behind a flag with a metric and a guardrail.
+   See [measuring-changes](references/measuring-changes.md).
 
 ## Pre-change checklist
 
@@ -90,7 +89,5 @@ Detail, windows and caveats: [product-reality](references/product-reality.md).
 hogli test frontend/src/lib/components/TaxonomicFilter/
 ```
 
-Keep this skill honest: if the data contradicts it, fix the skill in the
-same PR. Refresh numbers with
-[refreshing-product-reality](references/refreshing-product-reality.md)
-when they are older than about three months.
+Keep this skill honest: if the data contradicts it, fix the skill in the same PR.
+Refresh numbers with [refreshing-product-reality](references/refreshing-product-reality.md) when they are older than about three months.

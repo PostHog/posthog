@@ -1,17 +1,18 @@
 # Feature inventory
 
-Every user-facing feature of the picker, how much it is used, and its
-current status. Ratios are from a 14-day non-staff window (2026-10).
+Every user-facing feature of the picker, how much it is used, and its current status.
+Ratios are from a 14-day non-staff window (2026-10).
 Update this file when you add, remove or change a feature.
 
 Status meanings:
 
-- **Protect:** carries real use. Changes need a metric and a guardrail.
+- **Protect:** carries real use.
+  Changes need a metric and a guardrail.
 - **Improve:** used, with a measured weakness.
 - **Fix:** broken or failing for a measurable share of users.
 - **Keep:** small, cheap and harmless.
-- **Candidate for removal:** low use relative to cost. Removal still needs
-  the checks in "Before removing anything".
+- **Candidate for removal:** low use relative to cost.
+  Removal still needs the checks in "Before removing anything".
 
 | Feature                                                                                   | Use                                          | Status                            | Notes                                                                                                    |
 | ----------------------------------------------------------------------------------------- | -------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------- |
@@ -22,7 +23,7 @@ Status meanings:
 | Event properties tab                                                                      | Large                                        | Improve                           | Ranking: selected items sit far down the list.                                                           |
 | Person properties tab                                                                     | Large, ~70% engaged open-to-selection        | Improve                           | Weakest big tab.                                                                                         |
 | Empty-result state                                                                        | ~4% of searches                              | Fix                               | Should show matches in other groups. Suggested is not counted.                                           |
-| Fetch error handling                                                                      | ~2% of timed searches fail                   | Fix                               | Must end loading and offer retry.                                                                        |
+| Fetch error handling                                                                      | ~2% of timed searches fail                   | Fix                               | Legacy shows an error with retry. The rebuild shows an empty list: add an error and retry.               |
 | Persons search latency                                                                    | p90 ~4s                                      | Fix                               | Slowest group.                                                                                           |
 | Custom key for unseen properties                                                          | Ticket theme                                 | Fix                               | Flags and cohorts especially.                                                                            |
 | Pin toggle                                                                                | ~4% of selections come from pins             | Keep                              | Cheap.                                                                                                   |
@@ -37,12 +38,12 @@ Status meanings:
 
 ## Before removing anything
 
-1. Measure use by `sourceGroupType`, not only by `groupType`. A tab can be
-   unused while its items are picked every day through Suggested.
-2. Separate "rarely used" from "failing". If a group's fetches fail, fix
-   them before judging use.
-3. Check both surfaces and every call site that passes the group. See
-   [call-sites-and-blast-radius](call-sites-and-blast-radius.md).
+1. Measure use by `sourceGroupType`, not only by `groupType`.
+   A tab can be unused while its items are picked every day through Suggested.
+2. Separate "rarely used" from "failing".
+   If a group's fetches fail, fix them before judging use.
+3. Check both surfaces and every call site that passes the group.
+   See [call-sites-and-blast-radius](call-sites-and-blast-radius.md).
 4. Check for a running experiment on the feature.
-5. Keep the telemetry event (or retire it on purpose) so dashboards don't
-   silently go flat. See [telemetry-contract](telemetry-contract.md).
+5. Keep the telemetry event (or retire it on purpose) so dashboards don't silently go flat.
+   See [telemetry-contract](telemetry-contract.md).

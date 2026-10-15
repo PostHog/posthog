@@ -1,19 +1,18 @@
 # Refreshing product reality
 
-Re-run these every ~3 months and update
-[product-reality](product-reality.md). **Public OSS repo: convert to
-ratios before writing back. Never commit absolute event or user counts.**
+Re-run these every ~3 months and update [product-reality](product-reality.md).
+**Public OSS repo: convert to ratios before writing back.
+Never commit absolute event or user counts.**
 
-Queries 1 to 7 use a 90-day window; keep that consistent so trends are
-comparable. Queries 8 to 12 use 7 days because they are heavier.
+Queries 1 to 7 use a 90-day window; keep that consistent so trends are comparable.
+Queries 8 to 12 use 7 days because they are heavier.
 
-Exclude staff when the question is about customers, for example with the
-project's test account filters.
+Exclude staff when the question is about customers, for example with the project's test account filters.
 
 ### 1. Selection breakdown by source group type
 
-Share of `taxonomic filter item selected` by `sourceGroupType`. Drives the
-"What users select" table.
+Share of `taxonomic filter item selected` by `sourceGroupType`.
+Drives the "What users select" table.
 
 ```sql
 SELECT
@@ -35,7 +34,8 @@ LIMIT 30
 
 ### 2. Top searches (share of top-N)
 
-Share of each term among the top 8 only. Avoids exposing search volume.
+Share of each term among the top 8 only.
+Avoids exposing search volume.
 
 ```sql
 WITH top_terms AS (
@@ -55,11 +55,10 @@ ORDER BY share_pct DESC
 
 ### 3. Top empty-result searches
 
-Reveals scope mismatches. Write back the qualitative finding (which terms
-are empty in which groups), not counts. The rebuild sends no `groupType`
-for its `all`, `recent` and `pinned` scopes, so the query splits by
-`surface`. Read an empty `group_type` on a `rebuild-menu` row as one of
-those scopes, not as a group.
+Reveals scope mismatches.
+Write back the qualitative finding (which terms are empty in which groups), not counts.
+The rebuild sends no `groupType` for its `all`, `recent` and `pinned` scopes, so the query splits by `surface`.
+Read an empty `group_type` on a `rebuild-menu` row as one of those scopes, not as a group.
 
 ```sql
 SELECT
@@ -77,11 +76,12 @@ LIMIT 40
 
 ### 4. Selection rate and dwell distribution
 
-Measures engaged opens only. The legacy picker sends `taxonomic filter
-closed` only after the user interacts, so untouched dismissals are
-missing. The rebuild sends it on every close, so the query splits by
-`surface`. Write back the `legacy-pill` row as the engaged-open rate.
-`legacy-control` and empty values come only from older clients. Never pool the rebuild row with them.
+Measures engaged opens only.
+The legacy picker sends `taxonomic filter closed` only after the user interacts, so untouched dismissals are missing.
+The rebuild sends it on every close, so the query splits by `surface`.
+Write back the `legacy-pill` row as the engaged-open rate.
+`legacy-control` and empty values come only from older clients.
+Never pool the rebuild row with them.
 
 ```sql
 SELECT
@@ -98,11 +98,11 @@ ORDER BY surface
 
 ### 5. Selection-source mix
 
-The buckets overlap. Write back relative shares only. `from_recents_pct`
-counts recents from any tab. `from_recents_in_suggested_pct` counts only
-the Suggested tab, which backs the "Recents inside Suggested" row in
-[feature-inventory](feature-inventory.md). The rebuild's merged `all`
-scope has no `groupType`, so its recents fall outside that column.
+The buckets overlap.
+Write back relative shares only.
+`from_recents_pct` counts recents from any tab.
+`from_recents_in_suggested_pct` counts only the Suggested tab, which backs the "Recents inside Suggested" row in [feature-inventory](feature-inventory.md).
+The rebuild's merged `all` scope has no `groupType`, so its recents fall outside that column.
 
 ```sql
 SELECT
@@ -118,8 +118,8 @@ WHERE event = 'taxonomic filter item selected'
 
 ### 6. Position distribution
 
-Legacy only. On the rebuild's merged `all` scope, `position` counts the
-recents and pinned rows at the top, so it does not match legacy rows.
+Legacy only.
+On the rebuild's merged `all` scope, `position` counts the recents and pinned rows at the top, so it does not match legacy rows.
 
 ```sql
 WITH positions AS (
@@ -161,20 +161,18 @@ ORDER BY share_pct DESC
 
 ### 8. The category trap (open level)
 
-Splits each session after every legacy `taxonomic filter closed`, so
-each chunk is close to one engaged legacy open. It is not exact: the
-event fires when the logic unmounts, not when the picker visibly closes.
-A picker that stays mounted (for example in `ColumnConfigurator.tsx`)
-can put several picks in one chunk, and two mounted pickers can
-interleave. Read the ratios as direction, not as exact rates. There is
-no better open boundary in legacy telemetry today. Then it compares opens with and
-without a category pick. Do not split on `taxonomic filter add filter
-clicked`: it fires only when a property filter row is added, so most
-opens have no start marker. The rebuild is left out, because its close
-event fires on every close and its category event is different.
-Suggested sends no `taxonomic filter empty result`, so the
-without-category empty rate is too low. `category_then_empty_ratio` only
-compares opens with a category pick, so it does not have this bias.
+Splits each session after every legacy `taxonomic filter closed`, so each chunk is close to one engaged legacy open.
+It is not exact: the event fires when the logic unmounts, not when the picker visibly closes.
+A picker that stays mounted (for example in `ColumnConfigurator.tsx`) can put several picks in one chunk, and two mounted pickers can interleave.
+Read the ratios as direction, not as exact rates.
+There is no better open boundary in legacy telemetry today.
+Then it compares opens with and without a category pick.
+Do not split on `taxonomic filter add filter clicked`: it fires only when a property filter row is added, so most opens have no start marker.
+The rebuild is left out, because its close event fires on every close and its category event is different.
+`taxonomic filter category selected` also fires when the user switches to Suggested, Recent or Pinned.
+Those switches do not narrow search, so the query drops them, and "category pick" means a real group.
+Suggested sends no `taxonomic filter empty result`, so the without-category empty rate is too low.
+With the switches dropped, `category_then_empty_ratio` only compares opens that picked a real group, so this gap does not skew it.
 Drives failure mode 1 in [failure-modes](failure-modes.md).
 
 ```sql
@@ -188,6 +186,9 @@ WITH sessions AS (
                   'taxonomic filter empty result', 'taxonomic filter item selected')
     -- the category event has no surface, and only legacy sends it
     AND (event = 'taxonomic filter category selected' OR coalesce(toString(properties.surface), '') != 'rebuild-menu')
+    -- a switch to a meta tab does not narrow search
+    AND NOT (event = 'taxonomic filter category selected'
+             AND toString(properties.groupType) IN ('suggested_filters', 'recent_filters', 'pinned_filters'))
     AND timestamp >= now() - INTERVAL 7 DAY
     AND $session_id IS NOT NULL
   GROUP BY sid
@@ -224,7 +225,8 @@ FROM per_open
 
 ### 9. Search latency by group
 
-Legacy only. The rebuild does not send `taxonomic filter search latency`.
+Legacy only.
+The rebuild does not send `taxonomic filter search latency`.
 
 ```sql
 SELECT
@@ -243,15 +245,12 @@ LIMIT 15
 
 ### 10. Fetch failures by group
 
-Only the legacy `infiniteListLogic` sends fetch failures, but both
-surfaces send `taxonomic_filter_search_query`. Filter both sides to
-`legacy-pill` so the rate does not fall as rebuild use grows. There is
-no honest rate per group: a list also fails while it feeds Suggested,
-and then the failure logs its own group but the search logs
-`suggested_filters`. Rank groups by share of failures, and report one
-overall rate. Failures also fire on initial loads, so the overall rate
-is per typed search, not per request. The health dashboard divides by
-timed searches instead, so its rate is higher.
+Only the legacy `infiniteListLogic` sends fetch failures, but both surfaces send `taxonomic_filter_search_query`.
+Filter both sides to `legacy-pill` so the rate does not fall as rebuild use grows.
+There is no honest rate per group: a list also fails while it feeds Suggested, and then the failure logs its own group but the search logs `suggested_filters`.
+Rank groups by share of failures, and report one overall rate.
+Failures also fire on initial loads, so the overall rate is per typed search, not per request.
+The health dashboard divides by timed searches instead, so its rate is higher.
 
 ```sql
 WITH f AS (
@@ -280,25 +279,19 @@ LIMIT 15
 
 ### 11. Assistive feature funnels
 
-Event match: answered, then suggested, then selected. Intent banner:
-banner shown, then switched. Write back the step ratios.
+Event match: answered, then suggested, then selected.
+Intent banner: banner shown, then switched.
+Write back the step ratios.
 
-- `event match suggested` carries no query or request ID, so no key
-  counts suggestions exactly. The raw count is too high: a tab switch
-  that reuses a cached answer sends it again. The distinct count per
-  person, session and suggestion list is too low: two queries with the
-  same list count once. The query returns both, and the true rate lies
-  between them.
-- The backend sends `event match answered` for every call, even when the
-  model never answered. The query leaves out `outcome` values
-  `unavailable`, `wrong_length` and `only_values`, so the base is real
-  model answers.
-- Selections have no exposure ID to pair with a suggestion, so the
-  selection step compares person-sessions on both sides.
-- Every experiment arm sends `search intent predicted`, but only the
-  `banner` arm can switch. On the banner arm, `shown` can be true when
-  `suggestsSwitch` is false (it seems to lag one prediction), so the
-  query needs both.
+- `event match suggested` carries no query or request ID, so no key counts suggestions exactly.
+  The raw count is too high: a tab switch that reuses a cached answer sends it again.
+  The distinct count per person, session and suggestion list is too low: two queries with the same list count once.
+  The query returns both, and the true rate lies between them.
+- The backend sends `event match answered` for every call, even when the model never answered.
+  The query leaves out `outcome` values `unavailable`, `wrong_length` and `only_values`, so the base is real model answers.
+- Selections have no exposure ID to pair with a suggestion, so the selection step compares person-sessions on both sides.
+- Every experiment arm sends `search intent predicted`, but only the `banner` arm can switch.
+  On the banner arm, `shown` can be true when `suggestsSwitch` is false (it seems to lag one prediction), so the query needs both.
 
 ```sql
 SELECT
@@ -322,10 +315,9 @@ WHERE event IN ('taxonomic filter event match answered', 'taxonomic filter event
 
 ### 12. Recovery after an empty result
 
-Share of empty results followed by a searched selection from the same
-person within 30 seconds. This counts every empty result, including
-repeats while typing, so it reads lower than the health dashboard's
-recovery tile. Compare each against its own history, not each other.
+Share of empty results followed by a searched selection from the same person within 30 seconds.
+This counts every empty result, including repeats while typing, so it reads lower than the health dashboard's recovery tile.
+Compare each against its own history, not each other.
 
 ```sql
 WITH empties AS (
@@ -349,11 +341,8 @@ ASOF LEFT JOIN picks p ON e.person_id = p.person_id AND p.t > e.t
 
 ## Updating the doc
 
-1. Run each query via the PostHog MCP `posthog:execute-sql` against project 2 on
-   us.posthog.com.
-2. Convert results to ratios. Drop absolute event and user counts.
-3. Update [product-reality](product-reality.md) and the five-line
-   picture in `SKILL.md`, and bump the "last refreshed" date.
-4. If the story changed, not just the numbers, revise the prose and
-   check [failure-modes](failure-modes.md) and
-   [feature-inventory](feature-inventory.md) still hold.
+1. Run each query via the PostHog MCP `posthog:execute-sql` against project 2 on us.posthog.com.
+2. Convert results to ratios.
+   Drop absolute event and user counts.
+3. Update [product-reality](product-reality.md) and the five-line picture in `SKILL.md`, and bump the "last refreshed" date.
+4. If the story changed, not just the numbers, revise the prose and check [failure-modes](failure-modes.md) and [feature-inventory](feature-inventory.md) still hold.

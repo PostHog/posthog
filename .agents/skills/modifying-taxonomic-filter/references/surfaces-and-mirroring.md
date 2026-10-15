@@ -1,73 +1,54 @@
 # Surfaces and mirroring
 
-There are two live surfaces, and the rebuild is a parallel
-reimplementation of the legacy data and group layer, not a skin over it.
+There are two live surfaces, and the rebuild is a parallel reimplementation of the legacy data and group layer, not a skin over it.
 A behavior change usually has to land in both, or the two arms diverge.
 
 ## Two surfaces
 
-A feature flag and a per-user toggle select between them in the shared
-wrappers. The flag `TAXONOMIC_FILTER_MENU_REBUILD` makes the rebuild
-available. The user's saved choice in
-`taxonomicMenuPreferenceLogic.useNewMenu` (the "Switch to the classic
-filter" toggle) then decides which one renders. It defaults to on, so a
-flag-on user gets the rebuild until they switch back. A bug report
-that doesn't reproduce locally is almost always a surface mismatch.
-Confirm which surface the reporter is on first: most `taxonomic filter *`
-events carry `surface` (see [telemetry-contract](telemetry-contract.md)
-for the exceptions).
+A feature flag and a per-user toggle select between them in the shared wrappers.
+The flag `TAXONOMIC_FILTER_MENU_REBUILD` makes the rebuild available.
+The user's saved choice in `taxonomicMenuPreferenceLogic.useNewMenu` (the "Switch to the classic filter" toggle) then decides which one renders.
+It defaults to on, so a flag-on user gets the rebuild until they switch back.
+A bug report that doesn't reproduce locally is almost always a surface mismatch.
+Confirm which surface the reporter is on first: most `taxonomic filter *` events carry `surface` (see [telemetry-contract](telemetry-contract.md) for the exceptions).
 
 | Surface        | When it renders                           | What renders                                  |
 | -------------- | ----------------------------------------- | --------------------------------------------- |
 | `legacy-pill`  | flag off, or flag on and `useNewMenu` off | classic picker with a category dropdown       |
 | `rebuild-menu` | flag on and `useNewMenu` on               | ground-up rewrite in `menu/` over `headless/` |
 
-- **legacy-pill** is the classic picker (`taxonomicFilterLogic.tsx` +
-  `InfiniteList`) with a suffix category dropdown. A person can pin the
-  category rail from that dropdown.
-- **rebuild-menu** is a fresh implementation: the `menu/` dropdown and
-  combobox UI on top of `headless/` (a hooks-based filter panel). It does
-  **not** route through `taxonomicFilterLogic` or `infiniteListLogic`. It
-  has its own group definitions, fetch, pagination and ordering. See
-  `headless/UX_SPEC.md` for its design source of truth. Some customers
-  still see it, so treat it as live.
+- **legacy-pill** is the classic picker (`taxonomicFilterLogic.tsx` + `InfiniteList`) with a suffix category dropdown.
+  A person can pin the category rail from that dropdown.
+- **rebuild-menu** is a fresh implementation: the `menu/` dropdown and combobox UI on top of `headless/` (a hooks-based filter panel).
+  It does **not** route through `taxonomicFilterLogic` or `infiniteListLogic`.
+  It has its own group definitions, fetch, pagination and ordering.
+  See `headless/UX_SPEC.md` for its design source of truth.
+  Some customers still see it, so treat it as live.
 
-Two **shared consumer wrappers** choose a surface:
-`TaxonomicPopover.tsx` and
-`PropertyFilters/components/TaxonomicPropertyFilter.tsx`. Both check
-`TAXONOMIC_FILTER_MENU_REBUILD` and `useNewMenu`, then render
-`<TaxonomicFilterMenu>` or the legacy `<TaxonomicFilter>`.
+Two **shared consumer wrappers** choose a surface: `TaxonomicPopover.tsx` and `PropertyFilters/components/TaxonomicPropertyFilter.tsx`.
+Both check `TAXONOMIC_FILTER_MENU_REBUILD` and `useNewMenu`, then render `<TaxonomicFilterMenu>` or the legacy `<TaxonomicFilter>`.
 
-Some call sites mount the rebuild directly and skip both checks. Today
-that is Error Tracking's issue filters
-(`products/error_tracking/frontend/components/IssueFilters/FilterGroup.tsx`),
-which mounts `TaxonomicFilterHeadless.Root` and `TaxonomicFilterMenu`. Every
-user there is on the rebuild, whatever the flag or toggle says. Find
-others with a search for direct imports of `menu/TaxonomicFilterMenu` or
-`headless` outside `TaxonomicFilter/` and `TaxonomicPopover/`.
+Some call sites mount the rebuild directly and skip both checks.
+Today that is Error Tracking's issue filters (`products/error_tracking/frontend/components/IssueFilters/FilterGroup.tsx`), which mounts `TaxonomicFilterHeadless.Root` and `TaxonomicFilterMenu`.
+Every user there is on the rebuild, whatever the flag or toggle says.
+Find others with a search for direct imports of `menu/TaxonomicFilterMenu` or `headless` outside `TaxonomicFilter/` and `TaxonomicPopover/`.
 
-A call site reaching one of those wrappers can still land on the legacy
-path. `TaxonomicPopover` renders the rebuild only when
-`newMenuSupportsCallSite` holds (`!allowClear && closeOnChange && ref ==
-null`), because the rebuilt menu can't honor those three capabilities.
-So "does this reach the rebuild?" depends on the wrapper and the props
-that call site passes. `ActionFilterRow` goes through `TaxonomicPopover`
-and passes none of the three, so it does reach the rebuild.
+A call site reaching one of those wrappers can still land on the legacy path.
+`TaxonomicPopover` renders the rebuild only when `newMenuSupportsCallSite` holds (`!allowClear && closeOnChange && ref == null`), because the rebuilt menu can't honor those three capabilities.
+So "does this reach the rebuild?" depends on the wrapper and the props that call site passes.
+`ActionFilterRow` goes through `TaxonomicPopover` and passes none of the three, so it does reach the rebuild.
 
-Many call sites skip the wrappers and mount the legacy picker directly,
-so they always render legacy. Examples are `ColumnConfigurator.tsx`
-(inline `<TaxonomicFilter>`), `UniversalFilters.tsx`
-(`PureTaxonomicFilter`) and `TaxonomicBreakdownPopover.tsx`. Search the
-repo for direct `<TaxonomicFilter` and `PureTaxonomicFilter` uses to find
-them all before you decide which surfaces a change touches.
+Many call sites skip the wrappers and mount the legacy picker directly, so they always render legacy.
+Examples are `ColumnConfigurator.tsx` (inline `<TaxonomicFilter>`), `UniversalFilters.tsx` (`PureTaxonomicFilter`) and `TaxonomicBreakdownPopover.tsx`.
+Search the repo for direct `<TaxonomicFilter` and `PureTaxonomicFilter` uses to find them all before you decide which surfaces a change touches.
 
 **Touching tab or group rendering means testing both surfaces.**
 
 ## Mirroring changes
 
-The same concern lives in two files. There is **no lint rule or test**
-enforcing parity; the only guard is "Mirrors the legacy…" comments. When
-you change one, change the other, or tell the reviewer you couldn't.
+The same concern lives in two files.
+There is **no lint rule or test** enforcing parity; the only guard is "Mirrors the legacy…" comments.
+When you change one, change the other, or tell the reviewer you couldn't.
 
 | Concern                                                  | Legacy                                                            | Rebuild                                                                           |
 | -------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------- |
@@ -79,16 +60,10 @@ you change one, change the other, or tell the reviewer you couldn't.
 | New `TaxonomicFilterGroupType` enum value                | `types.ts` (shared), then add group config in **both** rows above |                                                                                   |
 | Logic-backed group data (Actions, Dashboards, …)         | already in kea                                                    | also register in `hooks/useTaxonomicLocalOverrides.ts`                            |
 
-**Shared, change once:** `types.ts` (the enum),
-`utils/promoteProperties.ts` (`PROMOTED_PROPERTIES_BY_SEARCH_TERM`),
-`recentTaxonomicFiltersLogic.ts` and
-`taxonomicFilterPinnedPropertiesLogic.ts`. The rebuild reads recents and
-pins through these via a bridge; it doesn't fork them.
+**Shared, change once:** `types.ts` (the enum), `utils/promoteProperties.ts` (`PROMOTED_PROPERTIES_BY_SEARCH_TERM`), `recentTaxonomicFiltersLogic.ts` and `taxonomicFilterPinnedPropertiesLogic.ts`.
+The rebuild reads recents and pins through these via a bridge; it doesn't fork them.
 
-`redistributeTopMatches` is legacy-only: it lives in
-`taxonomicFilterLogic.tsx` and the rebuild never calls it.
+`redistributeTopMatches` is legacy-only: it lives in `taxonomicFilterLogic.tsx` and the rebuild never calls it.
 
-One intentional divergence is documented in `useTaxonomicFilter.ts`: both
-surfaces lead with SuggestedFilters when the picker has more than one
-substantive group. Preserve documented divergences; don't "fix" them
-into parity.
+One intentional divergence is documented in `useTaxonomicFilter.ts`: both surfaces lead with SuggestedFilters when the picker has more than one substantive group.
+Preserve documented divergences; don't "fix" them into parity.
