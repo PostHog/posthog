@@ -762,6 +762,25 @@ class TestWorkflowTasksAPI(APIBaseTest):
             assert claim is None
             assert linked_pr is None
 
+    @parameterized.expand(
+        [
+            ("overwrite", {"state": {"inbox_report_claim": {"report_id": "other", "claimed": False}}}),
+            ("remove", {"state_remove_keys": ["inbox_report_claim"]}),
+            ("append", {"state_append": {"inbox_report_claim": ["other"]}}),
+        ]
+    )
+    def test_the_run_api_cannot_change_the_inbox_report_claim(self, _name: str, payload: dict) -> None:
+        report, run = self._claimed_inbox_report_run()
+        self.client.force_login(self.user)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{run.task_id}/runs/{run.id}/", payload, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.state["inbox_report_claim"] == {"report_id": str(report.id), "claimed": True}
+
     def test_a_failed_claim_release_still_wakes_the_workflow_step(self) -> None:
         _, run = self._claimed_inbox_report_run()
 

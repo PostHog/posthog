@@ -129,6 +129,7 @@ from products.tasks.backend.logic.services.space_setup import (
     build_space_setup_prompt,
     space_setup_task_title,
 )
+from products.tasks.backend.logic.services.workflow_inbox_report_claim import INBOX_REPORT_CLAIM_STATE_KEY
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.logic.stream.backlog import TaskRunStreamBacklogIndex
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
@@ -2735,6 +2736,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_connect_token",
         "sandbox_jwt_kid",
         DEV_STACK_PREVIEW_STATE_KEY,
+        # The claim a workflow task holds on an Inbox report; ending the run releases it from here.
+        INBOX_REPORT_CLAIM_STATE_KEY,
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
         "sandbox_ttl_seconds",

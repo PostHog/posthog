@@ -48,20 +48,29 @@ def _record_outcome(task: Task, report_id: str, *, claimed: bool, reason: str | 
 
 def release_unused_inbox_report_claim(task_run: TaskRun) -> None:
     """A run that opened no pull request leaves the report free for anyone else to pick up."""
-    claim = (task_run.state or {}).get(INBOX_REPORT_CLAIM_STATE_KEY)
-    if not claim or not claim.get("claimed") or read_pr_urls(task_run.output or {}):
+    claimed_report_id = _claimed_report_id(task_run)
+    if claimed_report_id is None or read_pr_urls(task_run.output or {}):
         return
     # Deferred because the signals facade imports the tasks facade, which imports this module.
     from products.signals.backend.facade.api import release_report_claim_of_task  # noqa: PLC0415
 
     try:
         release_report_claim_of_task(
-            team_id=task_run.team_id, report_id=claim["report_id"], task_id=str(task_run.task_id)
+            team_id=task_run.team_id, report_id=claimed_report_id, task_id=str(task_run.task_id)
         )
     except Exception:
         logger.exception(
             "workflow_task_inbox_report_claim_release_failed", team_id=task_run.team_id, run_id=str(task_run.id)
         )
+
+
+def _claimed_report_id(task_run: TaskRun) -> str | None:
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    claim = state.get(INBOX_REPORT_CLAIM_STATE_KEY)
+    if not isinstance(claim, dict) or claim.get("claimed") is not True:
+        return None
+    report_id = claim.get("report_id")
+    return report_id if isinstance(report_id, str) else None
 
 
 @receiver(post_save, sender=TaskRun)
