@@ -27,6 +27,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     count_total_exposures,
     find_scheduled_recalculation_candidates,
     recent_recalculation_skip,
+    record_exposure_check,
 )
 
 logger = structlog.get_logger(__name__)
@@ -97,6 +98,7 @@ def _check_experiment_exposures_sync(experiment_id: int, hour: int) -> bool:
         capture_skip(experiment, hour, reason=SKIP_EXPOSURE_QUERY_FAILED, detail={"error_message": str(error)[:500]})
         logger.warning("scheduled_recalculation_exposure_query_failed", experiment_id=experiment_id)
         return False
+    record_exposure_check(experiment.id, total)
     if total < MIN_TOTAL_EXPOSURES:
         capture_skip(experiment, hour, reason=SKIP_INSUFFICIENT_EXPOSURES, detail={"total_exposures": total})
         return False
