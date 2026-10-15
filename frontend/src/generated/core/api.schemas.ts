@@ -539,6 +539,51 @@ export interface OrganizationInviteDelegateApi {
     step_at_delegation?: string
 }
 
+export interface GuestPreviewRequestApi {
+    /** The project the guest joins. */
+    project_id: number
+    /** The grants to preview, as a guest invite would send them. */
+    grants: GuestGrantApi[]
+}
+
+export interface GuestGrantIncludeApi {
+    /** The type of the included item: insight or session_recording. */
+    resource: string
+    /** The included item's ID. For a recording, its session ID. */
+    id: string
+    /**
+     * The included item's name. Null for a recording.
+     * @nullable
+     */
+    name: string | null
+}
+
+export interface GuestGrantPreviewApi {
+    /** The granted resource type.
+     *
+     * * `dashboard` - dashboard
+     * * `insight` - insight
+     * * `notebook` - notebook */
+    resource: GuestGrantResourceEnumApi
+    /**
+     * The granted object's ID. Null for every object of the type.
+     * @nullable
+     */
+    id: string | null
+    /**
+     * The granted object's name. Null for a whole type.
+     * @nullable
+     */
+    name: string | null
+    /** The insights and recordings the guest also sees through this grant. */
+    includes: GuestGrantIncludeApi[]
+}
+
+export interface GuestPreviewResponseApi {
+    /** One preview per grant, in grant order. Grants for objects not in the project are left out. */
+    results: GuestGrantPreviewApi[]
+}
+
 /**
  * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
  * * `discussions_mentioned` - discussions_mentioned

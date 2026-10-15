@@ -27,6 +27,10 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.dashboards.backend.facade import testing as dashboard_testing
+from products.dashboards.backend.facade.api import dashboard_refs
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.facade.models import Insight
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
@@ -2168,6 +2172,76 @@ class TestGuestInvites(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         response = self.client.post("/api/organizations/@current/invites/", self._payload(), format="json")
+        assert response.status_code in (status.HTTP_400_BAD_REQUEST, status.HTTP_403_FORBIDDEN), response.json()
+
+    def test_guest_preview_lists_what_each_grant_includes(self) -> None:
+        on_dashboard = Insight.objects.create(team=self.team, name="Weekly pageviews")
+        DashboardTile.objects.create(dashboard_id=self.dashboard_id, insight=on_dashboard)
+        embedded = Insight.objects.create(team=self.team, name="Feature adoption")
+        notebook = Notebook.objects.create(
+            team=self.team,
+            title="Onboarding review",
+            content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-query",
+                        "attrs": {"query": {"kind": "SavedInsightNode", "shortId": embedded.short_id}},
+                    },
+                    {"type": "ph-recording", "attrs": {"id": "session-1"}},
+                ],
+            },
+        )
+        other = Team.objects.create(organization=self.organization, name="Second")
+        foreign = dashboard_testing.create_dashboard(team_id=other.id, created_by_id=self.user.id)
+        response = self.client.post(
+            "/api/organizations/@current/invites/guest_preview/",
+            {
+                "project_id": self.team.id,
+                "grants": [
+                    {"resource": "dashboard", "id": str(self.dashboard_id)},
+                    {"resource": "notebook", "id": str(notebook.id)},
+                    {"resource": "dashboard", "id": str(foreign)},
+                    {"resource": "insight", "id": None},
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == [
+            {
+                "resource": "dashboard",
+                "id": str(self.dashboard_id),
+                "name": dashboard_refs([self.dashboard_id])[0].name,
+                "includes": [{"resource": "insight", "id": str(on_dashboard.id), "name": "Weekly pageviews"}],
+            },
+            {
+                "resource": "notebook",
+                "id": str(notebook.id),
+                "name": "Onboarding review",
+                "includes": [
+                    {"resource": "insight", "id": str(embedded.id), "name": "Feature adoption"},
+                    {"resource": "session_recording", "id": "session-1", "name": None},
+                ],
+            },
+            {"resource": "insight", "id": None, "name": None, "includes": []},
+        ]
+
+    @parameterized.expand([("member", OrganizationMembership.Level.MEMBER, None), ("other org project", None, "OTHER")])
+    def test_guest_preview_is_for_admins_in_their_own_projects(
+        self, _name: str, level: OrganizationMembership.Level | None, project: str | None
+    ) -> None:
+        if level is not None:
+            self.organization_membership.level = level
+            self.organization_membership.save()
+        project_id = self.team.id
+        if project == "OTHER":
+            project_id = Team.objects.create(organization=Organization.objects.create(name="Other"), name="X").id
+        response = self.client.post(
+            "/api/organizations/@current/invites/guest_preview/",
+            {"project_id": project_id, "grants": [{"resource": "dashboard", "id": None}]},
+            format="json",
+        )
         assert response.status_code in (status.HTTP_400_BAD_REQUEST, status.HTTP_403_FORBIDDEN), response.json()
 
     def test_member_invite_cannot_carry_guest_grants(self) -> None:

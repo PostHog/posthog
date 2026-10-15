@@ -1,6 +1,6 @@
 from collections.abc import Collection
 
-from .facade.contracts import AuthorizationNotebook
+from .facade.contracts import AuthorizationNotebook, NotebookEmbeds
 from .models import Notebook
 from .util import extract_referenced_insight_short_ids, extract_referenced_recording_ids
 
@@ -24,3 +24,17 @@ def active_authorization_notebook_ids(team_id: int, ids: Collection[str]) -> fro
         str(id)
         for id in Notebook.objects.filter(team_id=team_id, deleted=False, id__in=ids).values_list("id", flat=True)
     )
+
+
+def notebook_embeds(team_id: int, ids: Collection[str]) -> list[NotebookEmbeds]:
+    return [
+        NotebookEmbeds(
+            id=id,
+            title=title,
+            insight_short_ids=frozenset(extract_referenced_insight_short_ids(content)),
+            recording_ids=frozenset(extract_referenced_recording_ids(content)),
+        )
+        for id, title, content in Notebook.objects.filter(team_id=team_id, deleted=False, id__in=ids).values_list(
+            "id", "title", "content"
+        )
+    ]

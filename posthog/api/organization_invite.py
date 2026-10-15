@@ -13,6 +13,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, mixins, permissions, request, response, serializers, status, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.services.guest_grants_preview import GuestGrant, guest_grants_preview
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.constants import INVITE_DAYS_VALIDITY
@@ -177,6 +178,33 @@ class GuestGrantSerializer(serializers.Serializer):
         required=False,
         default=None,
         help_text="The ID of the object the guest may view. Null lets the guest view every object of this type in the project.",
+    )
+
+
+class GuestPreviewRequestSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(help_text="The project the guest joins.")
+    grants = GuestGrantSerializer(many=True, help_text="The grants to preview, as a guest invite would send them.")
+
+
+class GuestGrantIncludeSerializer(serializers.Serializer):
+    resource = serializers.CharField(help_text="The type of the included item: insight or session_recording.")
+    id = serializers.CharField(help_text="The included item's ID. For a recording, its session ID.")
+    name = serializers.CharField(allow_null=True, help_text="The included item's name. Null for a recording.")
+
+
+class GuestGrantPreviewSerializer(serializers.Serializer):
+    resource = serializers.ChoiceField(choices=GuestGrantResource.choices, help_text="The granted resource type.")
+    id = serializers.CharField(allow_null=True, help_text="The granted object's ID. Null for every object of the type.")
+    name = serializers.CharField(allow_null=True, help_text="The granted object's name. Null for a whole type.")
+    includes = GuestGrantIncludeSerializer(
+        many=True, help_text="The insights and recordings the guest also sees through this grant."
+    )
+
+
+class GuestPreviewResponseSerializer(serializers.Serializer):
+    results = GuestGrantPreviewSerializer(
+        many=True,
+        help_text="One preview per grant, in grant order. Grants for objects not in the project are left out.",
     )
 
 
@@ -456,7 +484,7 @@ class OrganizationInviteViewSet(
     ordering = "-created_at"
 
     def dangerously_get_permissions(self):
-        if self.action in ["create", "bulk", "delegate", "update", "partial_update"]:
+        if self.action in ["create", "bulk", "delegate", "update", "partial_update", "guest_preview"]:
             write_permissions = [
                 permission()
                 for permission in [
@@ -727,6 +755,25 @@ class OrganizationInviteViewSet(
 
         serializer = OrganizationInviteSerializer(invite, context=self.get_serializer_context())
         return response.Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=GuestPreviewRequestSerializer, responses=GuestPreviewResponseSerializer)
+    @action(methods=["POST"], detail=False, required_scopes=["organization_member:write"])
+    def guest_preview(self, request: request.Request, **kwargs) -> response.Response:
+        serializer = GuestPreviewRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        membership = OrganizationMembership.objects.filter(
+            organization_id=self.organization_id, user=request.user
+        ).first()
+        if membership is None or membership.level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("Only admins can invite guests.")
+        project_id = serializer.validated_data["project_id"]
+        if not Team.objects.filter(organization_id=self.organization_id, pk=project_id).exists():
+            raise exceptions.ValidationError({"project_id": "This project isn't in your organization."})
+        grants = [
+            GuestGrant(resource=grant["resource"], id=grant["id"]) for grant in serializer.validated_data["grants"]
+        ]
+        previews = guest_grants_preview(project_id, grants)
+        return response.Response(GuestPreviewResponseSerializer({"results": previews}).data)
 
     @action(
         methods=["POST"],

@@ -203,3 +203,13 @@ class AuthorizationNotebook:
     created_by_id: int | None
     insight_short_ids: frozenset[str]
     recording_ids: frozenset[str]
+
+
+@dataclass(frozen=True)
+class NotebookEmbeds:
+    """A notebook's title and the items it embeds, for showing what a guest grant includes."""
+
+    id: UUID
+    title: str | None
+    insight_short_ids: frozenset[str]
+    recording_ids: frozenset[str]

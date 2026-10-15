@@ -45,6 +45,8 @@ import type {
     GitHubInstallRequestListResponseApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
+    GuestPreviewRequestApi,
+    GuestPreviewResponseApi,
     IdentityProviderConfigApi,
     IdentityProviderConfigsListParams,
     IdentityProviderConfigsScimLogsRetrieveParams,
@@ -737,6 +739,23 @@ export const invitesDelegateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(organizationInviteDelegateApi),
+    })
+}
+
+export const getInvitesGuestPreviewCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/invites/guest_preview/`
+}
+
+export const invitesGuestPreviewCreate = async (
+    organizationId: string,
+    guestPreviewRequestApi: GuestPreviewRequestApi,
+    options?: RequestInit
+): Promise<GuestPreviewResponseApi> => {
+    return apiMutator<GuestPreviewResponseApi>(getInvitesGuestPreviewCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(guestPreviewRequestApi),
     })
 }
 

@@ -544,6 +544,28 @@ export const InvitesDelegateCreateBody = /* @__PURE__ */ zod.object({
         .describe('Onboarding step key the delegator was on when delegating, for analytics only.'),
 })
 
+export const InvitesGuestPreviewCreateBody = /* @__PURE__ */ zod.object({
+    project_id: zod.number().describe('The project the guest joins.'),
+    grants: zod
+        .array(
+            zod.object({
+                resource: zod
+                    .enum(['dashboard', 'insight', 'notebook'])
+                    .describe('\* `dashboard` - dashboard\n\* `insight` - insight\n\* `notebook` - notebook')
+                    .describe(
+                        'The resource type the guest may view.\n\n\* `dashboard` - dashboard\n\* `insight` - insight\n\* `notebook` - notebook'
+                    ),
+                id: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        'The ID of the object the guest may view. Null lets the guest view every object of this type in the project.'
+                    ),
+            })
+        )
+        .describe('The grants to preview, as a guest invite would send them.'),
+})
+
 /**
  * Lock or unlock notification settings for members of this organization. Each affected member is notified in the app.
  */

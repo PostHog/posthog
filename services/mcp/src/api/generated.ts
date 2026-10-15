@@ -53508,6 +53508,51 @@ export namespace Schemas {
       id?: string | null;
     }
 
+    export interface GuestGrantInclude {
+      /** The type of the included item: insight or session_recording. */
+      resource: string;
+      /** The included item's ID. For a recording, its session ID. */
+      id: string;
+      /**
+         * The included item's name. Null for a recording.
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    export interface GuestGrantPreview {
+      /** The granted resource type.
+       *
+       * * `dashboard` - dashboard
+       * * `insight` - insight
+       * * `notebook` - notebook */
+      resource: GuestGrantResourceEnum;
+      /**
+         * The granted object's ID. Null for every object of the type.
+         * @nullable
+         */
+      id: string | null;
+      /**
+         * The granted object's name. Null for a whole type.
+         * @nullable
+         */
+      name: string | null;
+      /** The insights and recordings the guest also sees through this grant. */
+      includes: GuestGrantInclude[];
+    }
+
+    export interface GuestPreviewRequest {
+      /** The project the guest joins. */
+      project_id: number;
+      /** The grants to preview, as a guest invite would send them. */
+      grants: GuestGrant[];
+    }
+
+    export interface GuestPreviewResponse {
+      /** One preview per grant, in grant order. Grants for objects not in the project are left out. */
+      results: GuestGrantPreview[];
+    }
+
     export interface HandsFreeToken {
       /** Single-use ElevenLabs Scribe realtime token, valid for 15 minutes. */
       token: string;
