@@ -15,18 +15,16 @@ export function missingScope(error: unknown): string | null {
 /** The scopes Views needs on top of the app's others. `file_system_shortcut:write` also grants the read. */
 export const VIEWS_SCOPES = ['dashboard:read', 'insight:read', 'file_system_shortcut:write'] as const
 
-/** The first Views scope a grant lacks, or null for an unknown grant. A `:write` scope covers the matching `:read`. */
+/** True when the scopes include `scope`. A `:write` scope covers the matching `:read`. */
+export function coversScope(scopes: readonly string[], scope: string): boolean {
+    const [object, level] = scope.split(':')
+    return scopes.includes(scope) || (level === 'read' && scopes.includes(`${object}:write`))
+}
+
+/** The first Views scope a grant lacks, or null for an unknown grant. */
 export function missingViewsScope(granted: readonly string[] | null): string | null {
     if (!granted) {
         return null
     }
-    const scopes = new Set(granted)
-    for (const scope of VIEWS_SCOPES) {
-        const [object, level] = scope.split(':')
-        if (scopes.has(scope) || (level === 'read' && scopes.has(`${object}:write`))) {
-            continue
-        }
-        return scope
-    }
-    return null
+    return VIEWS_SCOPES.find((scope) => !coversScope(granted, scope)) ?? null
 }

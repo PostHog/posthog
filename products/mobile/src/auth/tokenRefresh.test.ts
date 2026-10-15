@@ -53,6 +53,7 @@ describe('token refresh through the API client', () => {
             refreshToken: 'old-refresh',
             expiresAt: Date.now() + 60_000,
             grantedScopes: ['user:read', 'dashboard:read'],
+            requestedScopes: ['user:read', 'dashboard:read', 'insight:read'],
         })
     })
 
@@ -82,6 +83,7 @@ describe('token refresh through the API client', () => {
             accessToken: 'new-access',
             refreshToken: 'new-refresh',
             grantedScopes: ['user:read', 'dashboard:read'],
+            requestedScopes: ['user:read', 'dashboard:read', 'insight:read'],
         })
         expect(useAuthStore.getState().status).toBe('signed_in')
     })

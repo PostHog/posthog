@@ -66,12 +66,14 @@ The app requests exactly these scopes (`OAUTH_SCOPES` in `src/auth/oauth.ts`):
 The token response's `scope` is stored with the tokens as `grantedScopes` (`src/auth/tokens.ts`).
 A refresh response without `scope` keeps the previous value, because a refresh never widens a grant.
 Sessions stored before the app recorded scopes, and personal API keys, have `grantedScopes: null`.
+The sign-in also stores the scopes it asked for as `requestedScopes`, and a refresh keeps them.
 
 The Views scopes arrived after the first release, so a user signed in before then has a grant without them.
 Nothing signs that user out: the inbox and chats keep working.
 `useViewsAccess()` in `src/features/views/useViewsAccess.ts` decides what Views shows:
 
 - `reauth` when the OAuth grant lacks a Views scope, or when a Views request answered 403 with "API key missing required scope". Views then asks the user to sign in again once.
+- `unavailable` when the last sign-in asked for that scope and the grant still lacks it. The ceiling below dropped it, so a new sign-in gets the same grant. Views says it isn't available yet and offers no sign-in.
 - `personal-key-missing-scopes` for the same cases with a personal API key, which needs the scopes added to the key.
 - `ok` otherwise. A `:write` scope counts as its `:read`.
 

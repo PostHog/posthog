@@ -12,6 +12,12 @@ export interface SessionTokens {
      * before the app recorded them, where only a 403 tells which scope is missing.
      */
     grantedScopes: string[] | null
+    /**
+     * The scopes the sign-in asked for. A scope asked for but not granted is outside the OAuth application's ceiling,
+     * so signing in again gets the same grant. Null for a personal API key and for a session stored before the app
+     * recorded them.
+     */
+    requestedScopes: string[] | null
 }
 
 const STORAGE_KEY = 'posthog_mobile_session'
@@ -67,7 +73,7 @@ async function deleteItem(key: string): Promise<void> {
     await SecureStore.deleteItemAsync(key)
 }
 
-function grantedScopesOf(value: unknown): string[] | null {
+function scopesOf(value: unknown): string[] | null {
     return Array.isArray(value) && value.every((scope) => typeof scope === 'string') ? value : null
 }
 
@@ -81,8 +87,14 @@ function toSessionTokens(value: unknown): SessionTokens | null {
         typeof record.accessToken === 'string' &&
         (record.refreshToken === null || typeof record.refreshToken === 'string') &&
         (record.expiresAt === null || typeof record.expiresAt === 'number')
-    // Sessions stored before the app recorded scopes have no `grantedScopes`, which reads as unknown.
-    return valid ? ({ ...record, grantedScopes: grantedScopesOf(record.grantedScopes) } as SessionTokens) : null
+    // Sessions stored before the app recorded scopes have no `grantedScopes` or `requestedScopes`, which read as unknown.
+    return valid
+        ? ({
+              ...record,
+              grantedScopes: scopesOf(record.grantedScopes),
+              requestedScopes: scopesOf(record.requestedScopes),
+          } as SessionTokens)
+        : null
 }
 
 export async function loadTokens(): Promise<SessionTokens | null> {

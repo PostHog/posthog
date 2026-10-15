@@ -183,6 +183,9 @@ export function trackChartLegendToggled(props: { action: 'toggle' | 'solo' | 're
     track('mobile_chart_legend_toggled', { action: props.action })
 }
 
-export function trackViewsReauthShown(props: { missingScope: string | null }): void {
-    track('mobile_views_reauth_shown', { missing_scope: props.missingScope })
+export function trackViewsReauthShown(props: {
+    missingScope: string | null
+    state: 'reauth' | 'unavailable' | 'personal-key-missing-scopes'
+}): void {
+    track('mobile_views_reauth_shown', { missing_scope: props.missingScope, state: props.state })
 }

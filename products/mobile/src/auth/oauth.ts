@@ -92,7 +92,7 @@ function scopesOf(response: TokenResponse): string[] | null {
 
 function toSessionTokens(
     response: TokenResponse,
-    previous: { refreshToken: string | null; grantedScopes: string[] | null }
+    previous: { refreshToken: string | null; grantedScopes: string[] | null; requestedScopes: string[] | null }
 ): SessionTokens {
     return {
         kind: 'oauth',
@@ -102,6 +102,7 @@ function toSessionTokens(
         expiresAt: typeof response.expires_in === 'number' ? Date.now() + response.expires_in * 1000 : null,
         // A refresh never widens a grant, so a refresh response without `scope` keeps the scopes of the sign-in.
         grantedScopes: scopesOf(response) ?? previous.grantedScopes,
+        requestedScopes: previous.requestedScopes,
     }
 }
 
@@ -207,7 +208,7 @@ export async function authorize({ host, clientId }: { host: string; clientId: st
     if (!isTokenResponse(body)) {
         throw new OAuthError('rejected', 'The token response had no access token.')
     }
-    return toSessionTokens(body, { refreshToken: null, grantedScopes: null })
+    return toSessionTokens(body, { refreshToken: null, grantedScopes: null, requestedScopes: [...OAUTH_SCOPES] })
 }
 
 // The server rotates the refresh token on every call and revokes the whole family when an old one is reused after a
@@ -217,11 +218,13 @@ export async function refreshTokens({
     clientId,
     refreshToken,
     grantedScopes = null,
+    requestedScopes = null,
 }: {
     host: string
     clientId: string
     refreshToken: string
     grantedScopes?: string[] | null
+    requestedScopes?: string[] | null
 }): Promise<SessionTokens> {
     const response = await postToken(host, {
         grant_type: 'refresh_token',
@@ -242,7 +245,7 @@ export async function refreshTokens({
     if (!isTokenResponse(body)) {
         throw new OAuthError('rejected', 'The token response had no access token.')
     }
-    return toSessionTokens(body, { refreshToken, grantedScopes })
+    return toSessionTokens(body, { refreshToken, grantedScopes, requestedScopes })
 }
 
 // Revocation follows RFC 7009, which takes a form body. Failures are ignored because sign out must work offline.

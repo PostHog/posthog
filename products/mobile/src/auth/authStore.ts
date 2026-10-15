@@ -256,6 +256,7 @@ export const useAuthStore = create<AuthState>()(
                             refreshToken: null,
                             expiresAt: null,
                             grantedScopes: null,
+                            requestedScopes: null,
                         },
                         'personal_api_key'
                     )
@@ -377,6 +378,7 @@ async function refreshOnce(): Promise<string | null> {
             clientId,
             refreshToken: tokens.refreshToken,
             grantedScopes: tokens.grantedScopes,
+            requestedScopes: tokens.requestedScopes,
         })
     } catch (error) {
         if (error instanceof OAuthError && error.kind === 'session_expired') {

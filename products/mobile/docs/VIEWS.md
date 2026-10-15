@@ -69,7 +69,7 @@ It replaced the Products slot, which opened the web app's product library. `mobi
 
 The screen is one `SectionList`: a search field, Pinned, Recent and Browse.
 The header shows the status line and the refresh hint from `useViewsList().refresh`, the refresh button and a More menu with "Edit pins".
-Loading, the pin list error and the sign-in state are separate screens. The sign-in state shows when `useViewsAccess()` is not `ok`, with the copy of the plan's scope section.
+Loading, the pin list error and the sign-in state are separate screens. The sign-in state (`views-reauth`) shows when `useViewsAccess()` is not `ok`. When the last sign-in asked for a Views scope and the server still left it out, it shows "Views isn't available yet" (`views-unavailable`) without a sign-in button, because a new sign-in gets the same grant ([AUTH.md](AUTH.md), "Server-side ceiling").
 
 ### Pins
 
