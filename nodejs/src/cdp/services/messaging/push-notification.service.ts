@@ -669,7 +669,11 @@ export class PushNotificationService {
                 this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKeys, 'apns')
                 addLog('warn', `APNs: ${outcome.message}`)
             } else if (outcome.error) {
-                const keyAccepted = apnsAcceptedKeys.has(keyRef) || (await this.apnsKeyAcceptedRecently(keyFingerprint))
+                // Only a provider-token rejection depends on whether the key works, so skip the shared read otherwise.
+                const keyAccepted =
+                    !!outcome.error.code &&
+                    APNS_REJECTED_TOKEN_CODES.has(outcome.error.code) &&
+                    (apnsAcceptedKeys.has(keyRef) || (await this.apnsKeyAcceptedRecently(keyFingerprint)))
                 const error = keyAccepted ? retriableTokenRejection(outcome.error) : outcome.error
                 if (error instanceof ApnsTokenRejectionError) {
                     apnsAcceptedKeys.add(keyRef)

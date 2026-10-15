@@ -1143,6 +1143,22 @@ describe('PushNotificationService', () => {
                 expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
             })
 
+            it('does not read shared acceptance for a failure a working key cannot explain', async () => {
+                mockTrackedFetch.mockResolvedValue(apnsResponse(429, 'TooManyRequests'))
+
+                await service.executeSendPushNotification(
+                    createSendPushNotificationInvocation({
+                        [deviceSubscriptionKey('com.example.app', 'token-a')]: encryptedFields.encrypt('token-a'),
+                        [deviceSubscriptionKey('com.example.app', 'token-b')]: encryptedFields.encrypt('token-b'),
+                    })
+                )
+
+                expect(mockValkey.useClient).not.toHaveBeenCalledWith(
+                    expect.objectContaining({ name: 'apns-key-accepted-read' }),
+                    expect.anything()
+                )
+            })
+
             it('carries the working key when another device asks for a longer Retry-After', async () => {
                 mockTrackedFetch.mockResolvedValueOnce(apnsResponse(200))
                 await send()
