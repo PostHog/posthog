@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -58,6 +59,7 @@ def _wrapped_hogql_error(cause: Exception, message: str) -> ExposedHogQLError:
 
 class TestMCPToolsAPI(APIBaseTest):
     @parameterized.expand([("session",), ("read_scope",), ("oauth",)])
+    @time_machine.travel("2026-10-15T12:00:00Z", tick=False)
     @patch.object(MCPResultFileThrottle, "rate", "1/hour")
     @patch(
         "products.posthog_ai.backend.mcp_result_files.object_storage.get_presigned_url",
