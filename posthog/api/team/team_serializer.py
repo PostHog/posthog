@@ -831,6 +831,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             throttle_error = retention_update_throttle_error(logs_settings.get("retention_last_updated"))
             if throttle_error:
                 raise exceptions.ValidationError(throttle_error)
+        # The server owns the timestamp, so a client cannot reset the limit by sending an old one.
+        elif logs_settings and "retention_last_updated" in logs_settings:
+            value["retention_last_updated"] = logs_settings["retention_last_updated"]
+        else:
+            value.pop("retention_last_updated", None)
 
         return value
 
