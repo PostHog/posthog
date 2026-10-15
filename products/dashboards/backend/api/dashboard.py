@@ -2170,12 +2170,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if being_undeleted:
             self._undo_delete_related_tiles(instance)
 
-        # Soft-delete transition (false -> true). All channels (web/MCP/API) delete via this PATCH path,
-        # so this is the single place to capture deletes. Snapshot tile counts before _delete_related_tiles
-        # runs below — otherwise get_analytics_metadata()'s item_count would read 0 post-deletion.
         being_deleted = not instance.deleted and validated_data.get("deleted", False)
-        tile_count_at_deletion = instance.tiles.count() if being_deleted else None
-        item_count_at_deletion = instance.tiles.exclude(insight=None).count() if being_deleted else None
 
         initial_data = dict(self.initial_data)
 
@@ -2273,9 +2268,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     user,
                     "dashboard deleted",
                     {
-                        **instance.get_analytics_metadata(),
-                        "item_count": item_count_at_deletion,  # override post-delete 0 with pre-delete snapshot
-                        "tile_count": tile_count_at_deletion,
+                        "dashboard_id": instance.pk,
+                        "pinned": instance.pinned,
+                        "created_at": instance.created_at,
+                        "has_description": instance.description != "",
+                        "creation_mode": instance.creation_mode,
                     },
                     team=instance.team,
                     request=self.context["request"],
@@ -3128,11 +3125,14 @@ class DashboardsViewSet(
         assert self.team.project_id is not None
         queryset = self.queryset.filter(team__project_id=self.team.project_id)
 
+        if self.action == "bulk_delete":
+            return queryset.exclude(deleted=True).select_related("team")
+
         # subscribe_nudge only reads the dashboard's pk and name, so skip the detail prefetch
         # cascade (tiles → insights → their dashboards) and the folder/last-viewed annotations.
         # Team scoping is preserved by the filter above; the CanEditDashboard object permission
         # still gates the write.
-        if self.action in {"subscribe_nudge", "bulk_delete"}:
+        if self.action == "subscribe_nudge":
             return queryset.exclude(deleted=True)
 
         if self.request.user.is_authenticated:
