@@ -145,7 +145,7 @@ diff_shape:
 
 A diff qualifies when every changed file is docs, a test, or a Python file whose only changes are comments or docstrings.
 The engine checks the Python files with a parser, so other languages never qualify.
-Such a PR also needs no independent assurance in risky territory, unless it changes Markdown, which can ship as prompts or templates.
+Such a PR also needs no independent assurance in risky territory, unless it changes Markdown or a docstring, which can ship as prompts, templates or LLM tool descriptions.
 The deny-list, prerequisites and the reviewer's refusal grounds still apply.
 The hosted default leaves the tier off.
 See [the engine's "Diff shape" section](packages/pr-approval-agent/README.md#diff-shape) for the exact rules.

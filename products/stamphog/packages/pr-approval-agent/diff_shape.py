@@ -11,13 +11,14 @@ an encoding cookie, a PEP 723 script metadata block. Any change to such a direct
 to whether it sits inline or on its own line, or to the statement it applies to, makes the file
 `logic`. So does a file mode change.
 
-Markdown counts as `docs` for the size gate, but never waives the assurance rule, because some
-Markdown ships: prompt templates and tool descriptions are read at runtime.
+Markdown and docstrings pass the size gate, but never waive the assurance rule, because both can
+ship: prompt templates, LLM tool descriptions and schema descriptions are read at runtime.
 """
 
 import io
 import re
 import ast
+import bisect
 import tokenize
 from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
@@ -50,6 +51,8 @@ _LAYOUT_TOKENS = frozenset(
 
 _DOCSTRING_OWNERS = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
+_SHAPES_THAT_MAY_SHIP: frozenset[FileShape] = frozenset({"docs", "docstring"})
+
 BlobReader = Callable[[str], bytes | None]
 
 
@@ -63,7 +66,7 @@ class DiffShape:
 
     @property
     def waives_assurance(self) -> bool:
-        return self.approvable and all(shape != "docs" for _, shape in self.file_shapes)
+        return self.approvable and all(shape not in _SHAPES_THAT_MAY_SHIP for _, shape in self.file_shapes)
 
     @property
     def label(self) -> str:
@@ -99,7 +102,7 @@ class _DirectiveAnchor:
     comment: str
     inline: bool
     code_line_index: int | None
-    physical_line: int | None
+    position: tuple[int, int] | None
 
 
 def _directive_anchors(source: bytes) -> tuple[_DirectiveAnchor, ...]:
@@ -109,29 +112,28 @@ def _directive_anchors(source: bytes) -> tuple[_DirectiveAnchor, ...]:
     unchanged, so it identifies the statement even when two statements read the same.
     """
     code_lines: set[int] = set()
-    directives: list[tuple[int, str]] = []
+    directives: list[tuple[tuple[int, int], str]] = []
     in_script_metadata = False
     for token in tokenize.tokenize(io.BytesIO(source).readline):
         if token.type == tokenize.COMMENT:
             text = token.string.strip()
             opens_or_closes_metadata = bool(_SCRIPT_METADATA_RE.match(text))
             if opens_or_closes_metadata or in_script_metadata or _DIRECTIVE_COMMENT_RE.search(text):
-                directives.append((token.start[0], text))
+                directives.append((token.start, text))
             if opens_or_closes_metadata:
                 in_script_metadata = not in_script_metadata
         elif token.type not in _LAYOUT_TOKENS:
             code_lines.add(token.start[0])
     ordered_code_lines = sorted(code_lines)
-    code_line_index = {line: index for index, line in enumerate(ordered_code_lines)}
     anchors: list[_DirectiveAnchor] = []
-    for line, comment in directives:
-        anchor_line = line if line in code_lines else next((n for n in ordered_code_lines if n > line), None)
+    for (line, column), comment in directives:
+        anchor_index = bisect.bisect_left(ordered_code_lines, line)
         anchors.append(
             _DirectiveAnchor(
                 comment=comment,
                 inline=line in code_lines,
-                code_line_index=code_line_index[anchor_line] if anchor_line is not None else None,
-                physical_line=line if _POSITIONAL_DIRECTIVE_RE.search(comment) else None,
+                code_line_index=anchor_index if anchor_index < len(ordered_code_lines) else None,
+                position=(line, column) if _POSITIONAL_DIRECTIVE_RE.search(comment) else None,
             )
         )
     return tuple(anchors)

@@ -333,14 +333,14 @@ A PR has an approvable shape when every changed file is one of the first four sh
 With `diff_shape: {enabled: true}` in `policy.yml`, such a PR:
 
 - passes the size gate whatever its size;
-- approves risky territory without independent assurance in `verdict_rule.py`, unless a changed file is Markdown;
+- approves risky territory without independent assurance in `verdict_rule.py`, unless a changed file is Markdown or has a docstring change;
 - tells the reviewer its shape in the trusted prompt block when that waiver applies.
 
 It changes nothing else.
 The deny-list, prerequisites, refusal grounds and unresolved concerns still refuse.
 A PR whose deny-list match was lifted by an owner-only team or a `deny_exceptions` rule gets no shape.
 Markdown never waives assurance, because some of it ships: prompt templates and tool descriptions are read at runtime.
-Docstring changes can still reach users through `__doc__`, for example in generated API descriptions, which is why docstring-only is its own shape in telemetry (`stamphog_diff_shape`).
+Docstring changes never waive it either, because they reach runtime through `__doc__`: LLM tool descriptions, schema descriptions and generated API descriptions.
 
 The server's gate-only pre-check reads no file contents, so it never treats a size denial as final when the paths alone could have an approvable shape.
 

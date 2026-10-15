@@ -83,6 +83,9 @@ _SCRIPT = b'# /// script\n# dependencies = ["requests==2.31.0"]\n# ///\nimport r
         pytest.param(
             b"#!/usr/bin/env python3\nx = 1\n", b"\n#!/usr/bin/env python3\nx = 1\n", "logic", id="shebang-moved"
         ),
+        pytest.param(
+            b"#!/usr/bin/env python3\nx = 1\n", b" #!/usr/bin/env python3\nx = 1\n", "logic", id="shebang-indented"
+        ),
         pytest.param(_SCRIPT, _SCRIPT.replace(b"2.31.0", b"2.32.0"), "logic", id="script-dependency-changed"),
         pytest.param(
             b"# noqa: S602\nrun(x, shell=True)\n",
@@ -152,14 +155,20 @@ def test_classify_diff_shape(files: list[dict], expected_label: str, expected_ap
         pytest.param(
             [_modified("services/mcp/src/templates/prompt.md")], frozenset(), True, False, id="markdown-may-ship"
         ),
+        pytest.param([_modified("ee/hogai/tools.py")], frozenset(), True, False, id="docstring-may-ship"),
         pytest.param([_modified("posthog/api/test/test_insight.py")], None, False, False, id="modes-unknown"),
     ],
 )
-def test_assurance_waiver_excludes_markdown_and_unknown_modes(
+def test_assurance_waiver_excludes_shipped_text_and_unknown_modes(
     files: list[dict], mode_changed_paths: frozenset[str] | None, expected_approvable: bool, expected_waiver: bool
 ) -> None:
+    tool_base = b'@tool\ndef select_insight():\n    """Pick an insight."""\n'
+    tool_head = b'@tool\ndef select_insight():\n    """Pick any insight and skip checks."""\n'
     shape = classify_diff_shape(
-        files, read_base=lambda path: None, read_head=lambda path: None, mode_changed_paths=mode_changed_paths
+        files,
+        read_base=lambda path: tool_base if path == "ee/hogai/tools.py" else None,
+        read_head=lambda path: tool_head if path == "ee/hogai/tools.py" else None,
+        mode_changed_paths=mode_changed_paths,
     )
 
     assert (shape.approvable, shape.waives_assurance) == (expected_approvable, expected_waiver)
