@@ -66,6 +66,7 @@ import {
 import { TaskFeedModal } from "@posthog/ui/features/canvas/components/TaskFeedModal";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useSpaceViewedStore } from "@posthog/ui/features/canvas/stores/spaceViewedStore";
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { CommandKeyHints } from "@posthog/ui/features/command/CommandKeyHints";
@@ -93,7 +94,15 @@ import {
   formatHotkeyParts,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
+import {
+  nextObjectSort,
+  type ObjectSort,
+  objectRowSections,
+  sortObjectRows,
+} from "@posthog/ui/features/command/objectSort";
+import { useObjectSortStore } from "@posthog/ui/features/command/objectSortStore";
 import { PaletteFilterChips } from "@posthog/ui/features/command/PaletteFilterChips";
+import { PaletteSortBar } from "@posthog/ui/features/command/PaletteSortBar";
 import {
   type ResultRow,
   rankResultRows,
@@ -292,6 +301,11 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     (state) => state.activeTasks,
   );
   const [query, setQuery] = useState("");
+  const objectSort = useObjectSortStore((state) => state.sort);
+  const setObjectSort = useObjectSortStore((state) => state.setSort);
+  const spaceViewedAt = useSpaceViewedStore(
+    (state) => state.lastViewedAtBySpaceId,
+  );
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [createChannelUsed, setCreateChannelUsed] = useState(false);
   const [recentCommands, setRecentCommands] = useState<Command[]>([]);
@@ -911,12 +925,14 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     caret,
     enabled: open && spacesLayout,
     limit: resultLimit,
+    sort: objectSort,
     onApply: onApplyFilter,
     onShowAll: showAllMatches,
   });
   const {
     mode,
     scope,
+    resultKind,
     hasFilterTokens,
     matchNoun,
     searchText,
@@ -964,8 +980,44 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     showAllMatches,
   ]);
 
+  const browsing = mode === "browsing" || mode === "completingKey";
+  // The palette sorts a list only while it shows one type of object.
+  const sortTarget =
+    resultKind ?? (browsing && scope === "space" ? "space" : null);
+
+  const sortedSpaceSections = useMemo<CommandSection[]>(() => {
+    if (sortTarget !== "space") return [];
+    const rows = channelRows.map((row, index) => ({
+      command: row.command,
+      viewedAt: spaceViewedAt[channels[index].id],
+      createdAt: channels[index].createdAt,
+    }));
+    return objectRowSections(
+      sortObjectRows(rows, objectSort),
+      spacesLayout ? "Spaces" : "Channels",
+    );
+  }, [
+    sortTarget,
+    channelRows,
+    channels,
+    spaceViewedAt,
+    objectSort,
+    spacesLayout,
+  ]);
+
+  const changeObjectSort = useCallback(
+    (sort: ObjectSort) => {
+      setObjectSort(sort);
+      track(ANALYTICS_EVENTS.COMMAND_MENU_ACTION, {
+        action_type: "change-sort",
+        sort,
+        object_type: sortTarget ?? undefined,
+      });
+    },
+    [setObjectSort, sortTarget],
+  );
+
   const baseSections = useMemo(() => {
-    const browsing = mode === "browsing" || mode === "completingKey";
     const searching = browsing && !scope && searchText.trim().length > 0;
     const showCommands = browsing && (!scope || scope === "command");
     const showChannels =
@@ -978,7 +1030,11 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         showCommands ? commandSections : [],
         searchText,
       ),
-      ...(showChannels ? channelSections : []),
+      ...(showChannels
+        ? scope === "space"
+          ? sortedSpaceSections
+          : channelSections
+        : []),
       ...(showPlainTasks ? taskSections : []),
     ];
   }, [
@@ -986,8 +1042,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     resultSections,
     commandSections,
     channelSections,
+    sortedSpaceSections,
     taskSections,
-    mode,
+    browsing,
     scope,
     searchText,
   ]);
@@ -1055,6 +1112,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     track(ANALYTICS_EVENTS.COMMAND_MENU_ACTION, {
       action_type: cmd.action,
       channel_id: cmd.channelId,
+      ...(sortTarget ? { sort: objectSort, object_type: sortTarget } : {}),
     });
     if (!cmd.keepOpen) {
       setRecentCommands((recent) => addRecentCommand(recent, cmd));
@@ -1074,6 +1132,18 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         openInNewTab(highlighted);
         return;
       }
+    }
+    // event.code, because Option+S types a different character on macOS.
+    if (
+      event.code === "KeyS" &&
+      event.altKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      sortTarget
+    ) {
+      event.preventDefault();
+      changeObjectSort(nextObjectSort(objectSort));
+      return;
     }
     if (
       event.key.toLowerCase() === "s" &&
@@ -1166,22 +1236,30 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                 collapsedCount={COLLAPSED_CHIP_COUNT}
               />
             )}
-            {showMatchSummary ? (
-              <div className="border-border border-b px-3 py-1.5 text-subtle-foreground text-xs tabular-nums">
-                {partialResults
-                  ? "Some matching tasks may not be shown."
-                  : matchSummary(matchCount, shownCount, hasRepairs, matchNoun)}
-              </div>
-            ) : (
-              query !== "" && (
-                <AutocompleteStatus
-                  emptyContent={
-                    <span>
-                      No results for <strong>"{query}"</strong>
-                    </span>
-                  }
-                />
-              )
+            {(sortTarget || showMatchSummary) && (
+              <PaletteSortBar
+                sort={sortTarget ? objectSort : null}
+                onSortChange={changeObjectSort}
+              >
+                {showMatchSummary &&
+                  (partialResults
+                    ? "Some matching tasks may not be shown."
+                    : matchSummary(
+                        matchCount,
+                        shownCount,
+                        hasRepairs,
+                        matchNoun,
+                      ))}
+              </PaletteSortBar>
+            )}
+            {!showMatchSummary && query !== "" && (
+              <AutocompleteStatus
+                emptyContent={
+                  <span>
+                    No results for <strong>"{query}"</strong>
+                  </span>
+                }
+              />
             )}
             <AutocompleteList className="max-h-[60vh]">
               {(section: CommandSection) => (
@@ -1236,6 +1314,14 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             </AutocompleteList>
           </Autocomplete>
           <CommandKeyHints newTabHint={anyRowOpensInTab}>
+            {sortTarget && (
+              <div className="flex items-center gap-2">
+                <KbdGroup>
+                  <Kbd>{formatHotkeyParts("alt+s").join("")}</Kbd>
+                </KbdGroup>
+                <span className="text-xs">sort</span>
+              </div>
+            )}
             {hasFilterTokens && (
               <div className="flex items-center gap-2">
                 <KbdGroup>

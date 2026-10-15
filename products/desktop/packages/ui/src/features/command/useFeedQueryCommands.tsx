@@ -18,6 +18,7 @@ import { useCanvasQueryResults } from "@posthog/ui/features/canvas/hooks/useCanv
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
+import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
 import type {
   Command,
   CommandSection,
@@ -28,8 +29,15 @@ import {
 } from "@posthog/ui/features/command/commandRowFacts";
 import { canvasHref } from "@posthog/ui/features/command/commandRowHref";
 import { commandRowMeta } from "@posthog/ui/features/command/commandRowMeta";
+import {
+  type ObjectSort,
+  objectRowSections,
+  type SortableObjectRow,
+  sortObjectRows,
+} from "@posthog/ui/features/command/objectSort";
 import { TaskCommandIcon } from "@posthog/ui/features/command/TaskCommandIcon";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
 import {
   navigateToChannelDashboard,
@@ -83,6 +91,8 @@ export interface FeedQueryPalette {
   keyChips: FeedQueryKeyChip[];
   mode: PaletteMode;
   scope: TypeValue | null;
+  /** The object type the results list, while a query lists one. */
+  resultKind: MatchNoun | null;
   hasFilterTokens: boolean;
   matchNoun: MatchNoun;
   matchCount: number | null;
@@ -157,6 +167,7 @@ export function useFeedQueryCommands({
   caret,
   enabled,
   limit,
+  sort,
   onApply,
   onShowAll,
 }: {
@@ -164,6 +175,7 @@ export function useFeedQueryCommands({
   caret: number;
   enabled: boolean;
   limit: number;
+  sort: ObjectSort;
   onApply: (next: string, caret: number) => void;
   onShowAll: () => void;
 }): FeedQueryPalette {
@@ -205,6 +217,10 @@ export function useFeedQueryCommands({
   const resultsComplete = previewKind === "canvas" || results.isComplete;
   const feeds = useProjectTaskFeeds();
   const { channels } = useChannels();
+  const { timestamps: taskTimestamps } = useTaskViewed();
+  const canvasViewedAt = useCanvasViewedStore(
+    (state) => state.lastViewedAtByCanvasId,
+  );
 
   const partialResults = runsQuery && !counting && !resultsComplete;
   const noMatches =
@@ -260,17 +276,27 @@ export function useFeedQueryCommands({
   const resultRows = useMemo(() => {
     if (!runsQuery) return [];
     const keywords = `${query} ${searchText}`;
-    return previewKind === "canvas"
-      ? canvasResults.canvases.map((canvas) =>
-          canvasCommand(canvas, channelNames.get(canvas.channelId), keywords),
-        )
-      : results.tasks.map((task) =>
-          taskCommand(
-            task,
-            task.channel ? channelNames.get(task.channel) : undefined,
-            keywords,
-          ),
-        );
+    const rows: SortableObjectRow[] =
+      previewKind === "canvas"
+        ? canvasResults.canvases.map((canvas) => ({
+            command: canvasCommand(
+              canvas,
+              channelNames.get(canvas.channelId),
+              keywords,
+            ),
+            viewedAt: canvasViewedAt[canvas.id],
+            createdAt: canvas.createdAt,
+          }))
+        : results.tasks.map((task) => ({
+            command: taskCommand(
+              task,
+              task.channel ? channelNames.get(task.channel) : undefined,
+              keywords,
+            ),
+            viewedAt: taskTimestamps[task.id]?.lastViewedAt ?? undefined,
+            createdAt: Date.parse(task.created_at),
+          }));
+    return sortObjectRows(rows, sort);
   }, [
     runsQuery,
     query,
@@ -279,6 +305,9 @@ export function useFeedQueryCommands({
     canvasResults.canvases,
     results.tasks,
     channelNames,
+    canvasViewedAt,
+    taskTimestamps,
+    sort,
   ]);
 
   return useMemo(() => {
@@ -288,6 +317,7 @@ export function useFeedQueryCommands({
         keyChips: [],
         mode,
         scope: null,
+        resultKind: null,
         hasFilterTokens: false,
         matchNoun,
         matchCount: null,
@@ -360,9 +390,12 @@ export function useFeedQueryCommands({
       runsQuery && !counting && resultsComplete ? resultRows.length : null;
     const shown = resultRows.slice(0, limit);
     if (shown.length > 0) {
-      const items = [...shown];
+      const resultSections = objectRowSections(
+        shown,
+        `Matching ${MATCH_NOUN_PLURALS[matchNoun]}`,
+      );
       if (matchCount != null && matchCount > shown.length) {
-        items.push({
+        resultSections[resultSections.length - 1].items.push({
           id: "feed-query-show-all",
           label: `Show all ${matchCount} matches`,
           icon: (
@@ -373,10 +406,7 @@ export function useFeedQueryCommands({
           onRun: onShowAll,
         });
       }
-      sections.push({
-        label: `Matching ${MATCH_NOUN_PLURALS[matchNoun]}`,
-        items,
-      });
+      sections.push(...resultSections);
     }
 
     let hasRepairs = false;
@@ -425,6 +455,7 @@ export function useFeedQueryCommands({
       keyChips,
       mode,
       scope,
+      resultKind: runsQuery ? matchNoun : null,
       hasFilterTokens,
       matchNoun,
       matchCount,

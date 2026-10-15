@@ -10,6 +10,11 @@ let taskResultsComplete = true;
 vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
   useOpenBrowserTab: () => vi.fn(),
 }));
+vi.mock("@posthog/ui/features/sidebar/useTaskViewed", () => ({
+  useTaskViewed: () => ({
+    timestamps: { "task-1": { lastViewedAt: Date.now() } },
+  }),
+}));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => null,
@@ -135,11 +140,13 @@ import {
   useAuthStore,
 } from "@posthog/ui/features/auth/store";
 import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
+import { useObjectSortStore } from "@posthog/ui/features/command/objectSortStore";
 import { CommandMenu } from "./CommandMenu";
 
 describe("CommandMenu feed queries", () => {
   afterEach(() => {
     taskResultsComplete = true;
+    useObjectSortStore.setState({ sort: "recent" });
   });
 
   it("offers Save as feed and the matching tasks for a token query", async () => {
@@ -343,6 +350,16 @@ describe("CommandMenu feed queries", () => {
         { timeout: 2000 },
       ),
     ).toBeTruthy();
+
+    // The default sort is recently opened, under a date separator.
+    expect(screen.getByText("Today")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Name" }));
+    expect(await screen.findByText("Matching tasks")).toBeTruthy();
+    expect(screen.queryByText("Today")).toBeNull();
+    // Option+S cycles back to the first sort without typing into the query.
+    await user.keyboard("{Alt>}s{/Alt}");
+    expect(await screen.findByText("Today")).toBeTruthy();
+    expect(input.value).toBe("type:task billing ");
   });
 
   it("lists canvases instead of tasks with type:canvas", async () => {
