@@ -91,8 +91,8 @@ class FlagEvaluationsTable(Table):
             description="JSON map of the event's properties. Access nested keys with `properties.$lib` etc. "
             "Prefer the `flag_key`, `response`, `session_id`, `request_id` and `$group_0`..`$group_4` columns "
             "where they cover what you need: reading the same value out of this JSON scans far more data. "
-            "A property that holds an empty string or an escaped character, such as a quote, can read differently "
-            "here than on `events`.",
+            "A property that holds an empty string reads as '' here, where `events` can return NULL. A value with "
+            "an escaped character, such as a quote, can also read differently than on `events`.",
         ),
         "timestamp": DateTimeDatabaseField(
             name="timestamp", nullable=False, description="When the flag was evaluated (client timestamp, in UTC)."

@@ -173,7 +173,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert rows == [({"quote": 'a"b', "keep": "yes"}, {"email": "a@example.com"})]
 
-    def test_custom_property_reads_the_property_group_map_like_the_json(self):
+    def test_custom_property_filter_reads_the_property_group_map_for_an_ordinary_value(self):
         where = f" AND properties.probe = '{EVENT_PROBE}'"
         json_read = self._execute(
             "properties.probe", where, modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.DISABLED)
@@ -271,14 +271,18 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert self._select("uuid", where=f" AND {column} != '{stored_value}'") == [(self.row_uuid,)]
         assert self._select("uuid", where=f" AND {column} NOT IN ('{stored_value}')") == [(self.row_uuid,)]
 
-    def test_restricted_property_is_hidden_from_both_read_paths(self):
+    @parameterized.expand([("json", PropertyGroupsMode.DISABLED), ("map", PropertyGroupsMode.OPTIMIZED)])
+    def test_restricted_property_is_hidden_from_both_read_paths(self, _name: str, mode: PropertyGroupsMode):
         # The explicit read lowers to a NULL constant and the blob read is scrubbed by the printer.
         # Both consult the same dispatch, so a table dropped from it leaks through both.
+        # A filter that reads the map would reveal the value through the rows it returns.
         self._restrict("probe", PropertyDefinition.Type.EVENT)
+        modifiers = HogQLQueryModifiers(propertyGroupsMode=mode)
 
-        assert self._select("properties.probe") == [(None,)]
+        assert self._execute("properties.probe", modifiers=modifiers).results == [(None,)]
+        assert self._execute("uuid", f" AND properties.probe = '{EVENT_PROBE}'", modifiers).results == []
 
-        blob = json.loads(self._select("properties")[0][0])
+        blob = json.loads(self._execute("properties", modifiers=modifiers).results[0][0])
 
         assert "probe" not in blob
         assert blob["$feature_flag"] == "probe-flag"
