@@ -39,8 +39,10 @@ from posthog.schema import (
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import CHQueryErrorIllegalTypeOfArgument, ExposedCHQueryError, InternalCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
 from posthog.models import Organization, Team, User
 
 from ee.hogai.context.insight.context import InsightContext
@@ -51,7 +53,7 @@ from ee.hogai.context.insight.query_executor import (
     get_example_prompt,
     is_supported_query,
 )
-from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.query import validate_assistant_query
 
 
@@ -644,6 +646,56 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIs(type(context.exception), Exception)
         self.assertEqual(str(context.exception), "There was an unknown error running this query: Query failed")
 
+    @parameterized.expand(
+        [
+            ("at_capacity", "clickhouse_at_capacity", ClickHouseAtCapacity.default_detail, None, "rate_limited"),
+            ("ran_concurrently", "query_ran_concurrently", QueryRanConcurrently.default_detail, None, "api_5xx"),
+            ("concurrency_limit_without_message", "clickhouse_at_capacity", None, None, "rate_limited"),
+            ("direct_capacity", None, ClickHouseAtCapacity.default_detail, ClickHouseAtCapacity(), "rate_limited"),
+            ("direct_shared_failure", None, QueryRanConcurrently.default_detail, QueryRanConcurrently(), "api_5xx"),
+            (
+                "direct_concurrency_limit",
+                None,
+                str(ConcurrencyLimitExceeded()),
+                ConcurrencyLimitExceeded(),
+                "rate_limited",
+            ),
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    async def test_temporary_query_failures_ask_the_agent_to_wait(
+        self,
+        _name: str,
+        error_code: str | None,
+        error_message: str | None,
+        raised_error: Exception | None,
+        expected_error_type: str,
+        mock_get_query_status: Mock,
+        mock_process_query: Mock,
+    ) -> None:
+        mock_process_query.side_effect = raised_error
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+        mock_get_query_status.return_value = Mock(
+            model_dump=lambda mode: {
+                "id": "test-query-id",
+                "complete": True,
+                "error": True,
+                "error_message": error_message,
+                "error_code": error_code,
+            }
+        )
+
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            with self.assertRaises(MaxToolTransientError) as context:
+                await self.query_runner.arun_and_format_query(AssistantTrendsQuery(series=[]))
+
+        self.assertEqual(context.exception.error_type, expected_error_type)
+        self.assertEqual(context.exception.retry_hint, " You may retry this operation once without changes.")
+        self.assertIn(
+            error_message if raised_error is not None else error_message or "too busy", str(context.exception)
+        )
+
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_execution_mode_in_production(self, mock_process_query):
@@ -990,7 +1042,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         self.assertIn("1_/home|2_/pricing|150|2m 30s", result)
 
 
-class TestValidateAssistantQuery(NonAtomicBaseTest):
+class TestValidateAssistantQuery(SimpleTestCase):
     """Tests for the validate_assistant_query function"""
 
     CLASS_DATA_LEVEL_SETUP = False

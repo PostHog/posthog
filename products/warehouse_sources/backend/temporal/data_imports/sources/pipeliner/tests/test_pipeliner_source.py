@@ -1,6 +1,6 @@
-import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pipeliner import (
     PipelinerSourceConfig,
 )
@@ -64,9 +64,8 @@ class TestPipelinerSource:
 
         assert mock_pipeliner_source.call_args.kwargs["db_incremental_field_last_value"] is None
 
-    def test_source_for_pipeline_rejects_unknown_schema(self):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "unknown"
+    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
+        result = SourceDriver(self.source, self.config).run("unknown", [])
 
-        with pytest.raises(ValueError, match="Unknown Pipeliner schema"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Pipeliner schema" in str(result.raised)

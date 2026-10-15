@@ -430,6 +430,18 @@ def get_kwargs_for_client(
     creds = get_clickhouse_creds(ch_user)
     base_kwargs = {"user": creds.user, "password": creds.password}
 
+    if workload == Workload.NEW_EVENTS_CLUSTER:
+        from posthog.models.event.new_events_schema import get_new_events_cluster_host  # noqa: PLC0415
+
+        host = get_new_events_cluster_host()
+        if not host:
+            raise ValueError("Native events ClickHouse host is not configured")
+        return {
+            **get_kwargs_for_client(Workload.DEFAULT, team_id, readonly, ch_user),
+            "host": host,
+            "verify": settings.CLICKHOUSE_VERIFY,
+        }
+
     if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
         user_settings = settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)]
         return {**base_kwargs, **user_settings}
@@ -523,6 +535,7 @@ def default_client(
     host=settings.CLICKHOUSE_HOST,
     password=None,
     *,
+    user: str | None = None,
     database: str = "system",
     send_receive_timeout: int | None = None,
 ):
@@ -530,7 +543,8 @@ def default_client(
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
     DO NOT USE THIS FOR QUERYING DATA
 
-    password overrides the static CLICKHOUSE_PASSWORD, for example with a resolved file-backed token.
+    user and password override CLICKHOUSE_USER and the static CLICKHOUSE_PASSWORD, for example with a
+    dedicated user's resolved file-backed token.
     send_receive_timeout bounds each socket read and write; None keeps the driver default.
     """
     return ClickHouseClient(
@@ -544,7 +558,7 @@ def default_client(
         # access to various other tables e.g. to handle async migrations.
         database=database,
         secure=settings.CLICKHOUSE_SECURE,
-        user=settings.CLICKHOUSE_USER,
+        user=settings.CLICKHOUSE_USER if user is None else user,
         password=settings.CLICKHOUSE_PASSWORD if password is None else password,
         ca_certs=settings.CLICKHOUSE_CA,
         verify=settings.CLICKHOUSE_VERIFY,

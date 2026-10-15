@@ -19,6 +19,7 @@ export const VIEW_FEED_PAGE_SIZE = 50
 export interface ViewFeedQuery {
     type: ViewTypeFilter
     search: string
+    createdBy?: string | null
 }
 
 export interface ViewSourcePage {
@@ -30,6 +31,7 @@ export interface ViewSourcePage {
 export interface ViewSourceState {
     projectId: string
     search: string
+    createdBy: string | null
     type: ViewType
     items: ViewItem[]
     offset: number
@@ -54,22 +56,25 @@ export function viewFeedTypes(query: ViewFeedQuery): ViewType[] {
     return query.type === 'all' ? VIEW_TYPES.map((info) => info.type) : [query.type]
 }
 
-export function viewSourceKey(projectId: string, search: string, type: ViewType): string {
-    return JSON.stringify([projectId, search.trim(), type])
+export function viewSourceKey(projectId: string, search: string, type: ViewType, createdBy: string | null): string {
+    return JSON.stringify([projectId, search.trim(), type, createdBy])
 }
 
 export async function fetchViewSourcePage(
     projectId: string,
     type: ViewType,
     search: string,
+    createdBy: string | null,
     offset: number
 ): Promise<ViewSourcePage> {
     const limit = VIEW_FEED_PAGE_SIZE
     const query = search.trim() || undefined
+    const created_by = createdBy ?? undefined
     if (type === 'canvas') {
         const page = await canvasesList(projectId, {
             kind: LISTED_CANVAS_KIND,
             search: query,
+            created_by,
             ordering: '-updated_at',
             limit,
             offset,
@@ -82,7 +87,7 @@ export async function fetchViewSourcePage(
     }
     if (type === 'notebook') {
         // The notebooks endpoint filters on `search`, but its schema does not declare the parameter.
-        const params: NotebooksListParams & { search?: string } = { limit, offset, search: query }
+        const params: NotebooksListParams & { search?: string } = { limit, offset, search: query, created_by }
         const page = await notebooksList(projectId, params)
         return {
             items: page.results.filter((notebook) => !notebook.deleted).map(notebookToView),
@@ -90,7 +95,13 @@ export async function fetchViewSourcePage(
             hasMore: !!page.next && page.results.length > 0,
         }
     }
-    const page = await dashboardsList(projectId, { search: query, ordering: '-last_viewed_at', limit, offset })
+    const page = await dashboardsList(projectId, {
+        search: query,
+        created_by,
+        ordering: '-last_viewed_at',
+        limit,
+        offset,
+    })
     return {
         items: page.results.filter((dashboard) => !dashboard.deleted).map(dashboardToView),
         fetched: page.results.length,

@@ -13,6 +13,10 @@ import type {
     AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
+    DataSuggestionBuildRequestApi,
+    DataSuggestionBuildResponseApi,
+    DataSuggestionGenerateRequestApi,
+    DataSuggestionsResponseApi,
     EmailDraftApi,
     EmailDraftRequestApi,
     EmailSendingSuspensionStatusApi,
@@ -62,6 +66,8 @@ import type {
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
     PatchedHogFlowUpdateApi,
+    PeopleImportApi,
+    PeopleImportCreateApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
     WorkflowProposalApi,
@@ -1315,6 +1321,63 @@ export const hogFlowsUserBlastRadiusCreate = async (
     })
 }
 
+export const getWorkflowDataSuggestionsBuildUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/build/`
+}
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsBuild = async (
+    projectId: string,
+    dataSuggestionBuildRequestApi: DataSuggestionBuildRequestApi,
+    options?: RequestInit
+): Promise<DataSuggestionBuildResponseApi> => {
+    return apiMutator<DataSuggestionBuildResponseApi>(getWorkflowDataSuggestionsBuildUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataSuggestionBuildRequestApi),
+    })
+}
+
+export const getWorkflowDataSuggestionsCurrentUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/current/`
+}
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsCurrent = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataSuggestionsResponseApi> => {
+    return apiMutator<DataSuggestionsResponseApi>(getWorkflowDataSuggestionsCurrentUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowDataSuggestionsGenerateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/generate/`
+}
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsGenerate = async (
+    projectId: string,
+    dataSuggestionGenerateRequestApi?: DataSuggestionGenerateRequestApi,
+    options?: RequestInit
+): Promise<DataSuggestionsResponseApi> => {
+    return apiMutator<DataSuggestionsResponseApi>(getWorkflowDataSuggestionsGenerateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataSuggestionGenerateRequestApi),
+    })
+}
+
 export const getWorkflowEmailDraftsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/workflow_email_drafts/`
 }
@@ -1333,6 +1396,26 @@ export const workflowEmailDraftsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emailDraftRequestApi),
+    })
+}
+
+export const getWorkflowPeopleImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_people_imports/`
+}
+
+/**
+ * @summary Create or update people from rows and add them to a new static cohort
+ */
+export const workflowPeopleImportsCreate = async (
+    projectId: string,
+    peopleImportCreateApi: PeopleImportCreateApi,
+    options?: RequestInit
+): Promise<PeopleImportApi> => {
+    return apiMutator<PeopleImportApi>(getWorkflowPeopleImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(peopleImportCreateApi),
     })
 }
 

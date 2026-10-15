@@ -1,8 +1,9 @@
 import time
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
@@ -15,16 +16,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    always,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailgun import (
     MailgunSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun import mailgun as mailgun_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun import (
+    EVENTS_CONSISTENCY_LAG_SECONDS,
+    EVENTS_LOOKBACK_DAYS,
     FORBIDDEN_ERROR,
     INVALID_KEY_ERROR,
+    LOGS_LOOKBACK_DAYS,
     METRICS_PAGE_SIZE,
     UNREACHABLE_ERROR,
+    MailgunAllDomainsSkippedError,
     MailgunResumeConfig,
     MailgunRetryableError,
     _epoch_to_datetime,
@@ -37,7 +44,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.ma
     delete_webhook,
     get_domain_names,
     get_external_webhook_info,
-    get_rows,
     mailgun_source,
     sync_webhook_events,
     validate_credentials,
@@ -60,22 +66,8 @@ def _make_manager(resume_state: MailgunResumeConfig | None = None) -> mock.Magic
     return manager
 
 
-def _response(payload: dict[str, Any], status_code: int = 200) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.json.return_value = payload
-    response.status_code = status_code
-    response.ok = status_code < 400
-    response.headers = {}
-    return response
-
-
-def _error_response(status_code: int, url: str) -> mock.MagicMock:
-    response = _response({}, status_code)
-    response.text = "Bad Request"
-    response.raise_for_status.side_effect = requests.HTTPError(
-        f"{status_code} Client Error: Bad Request for url: {url}", response=response
-    )
-    return response
+def _driver() -> SourceDriver:
+    return SourceDriver(MailgunSource(), MailgunSourceConfig(api_key="key", region="us"))
 
 
 def _paging_page(items: list[dict[str, Any]], next_url: str | None) -> dict[str, Any]:
@@ -83,10 +75,6 @@ def _paging_page(items: list[dict[str, Any]], next_url: str | None) -> dict[str,
     if next_url is not None:
         paging["next"] = next_url
     return {"items": items, "paging": paging}
-
-
-def _query(url: str) -> dict[str, list[str]]:
-    return parse_qs(urlsplit(url).query)
 
 
 class TestHelpers:
@@ -151,6 +139,25 @@ class TestInitialUrl:
         with pytest.raises(ValueError):
             _initial_url(US_BASE, MAILGUN_ENDPOINTS["events"], None)
 
+    @pytest.mark.parametrize(
+        "watermark_seconds_ago, expected_begin_seconds_ago",
+        [
+            (None, EVENTS_LOOKBACK_DAYS * 24 * 60 * 60),
+            (3 * 60 * 60, 3 * 60 * 60),
+        ],
+    )
+    def test_events_query_always_sends_an_ascending_time_range(self, watermark_seconds_ago, expected_begin_seconds_ago):
+        now = 1_800_000_000
+        begin = None if watermark_seconds_ago is None else now - watermark_seconds_ago
+        with mock.patch.object(mailgun_module.time, "time", return_value=now):
+            url = _initial_url(US_BASE, MAILGUN_ENDPOINTS["events"], "example.com", begin)
+
+        assert url is not None
+        query = parse_qs(urlparse(url).query)
+        assert query["ascending"] == ["yes"]
+        assert query["begin"] == [str(now - expected_begin_seconds_ago)]
+        assert query["end"] == [str(now - EVENTS_CONSISTENCY_LAG_SECONDS)]
+
 
 class TestNormalizeRow:
     def test_injects_domain_for_domain_scoped_endpoints(self):
@@ -174,55 +181,47 @@ class TestValidateCredentials:
             (500, (False, UNREACHABLE_ERROR)),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        mock_session.return_value.get.return_value = _response({}, status_code)
+    def test_validate_credentials_status_mapping(self, status_code, expected):
+        response = ScriptedResponse(status=status_code, json={})
+        with scripted_network(always(response) if status_code >= 500 else [response]) as network:
+            assert validate_credentials("key", "us") == expected
+        assert network.requests_log[0].path == "/v4/domains"
+        assert network.requests_log[0].param("limit") == "1"
 
-        assert validate_credentials("key", "us") == expected
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key", "us") == (False, UNREACHABLE_ERROR)
+    def test_validate_credentials_swallows_exceptions(self):
+        with scripted_network([ConnectionError("boom")]):
+            assert validate_credentials("key", "us") == (False, UNREACHABLE_ERROR)
 
 
 class TestGetDomainNames:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_collects_names_across_skip_pages(self, mock_session):
+    def test_collects_names_across_skip_pages(self):
         page_size = MAILGUN_ENDPOINTS["domains"].page_size
         full_page = {"items": [{"name": f"domain-{i}.com"} for i in range(page_size)]}
         partial_page = {"items": [{"name": "last.com"}]}
-        mock_session.return_value.get.side_effect = [_response(full_page), _response(partial_page)]
-
-        names = get_domain_names("key", US_BASE, mock.MagicMock())
+        with scripted_network([ScriptedResponse(json=full_page), ScriptedResponse(json=partial_page)]) as network:
+            names = get_domain_names("key", US_BASE, mock.MagicMock())
 
         assert len(names) == page_size + 1
         assert names[-1] == "last.com"
-        second_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert _query(second_url)["skip"] == [str(page_size)]
+        assert network.requests_log[1].param("skip") == str(page_size)
 
 
 class TestGetRows:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_domains_endpoint_uses_skip_pagination(self, mock_session):
+    def test_domains_endpoint_uses_skip_pagination(self):
         page_size = MAILGUN_ENDPOINTS["domains"].page_size
         full_page = {"items": [{"id": f"id-{i}", "name": f"d{i}.com"} for i in range(page_size)]}
         partial_page = {"items": [{"id": "id-last", "name": "last.com"}]}
-        mock_session.return_value.get.side_effect = [_response(full_page), _response(partial_page)]
+        result = _driver().run("domains", [ScriptedResponse(json=full_page), ScriptedResponse(json=partial_page)])
 
-        manager = _make_manager()
-        batches = list(get_rows("key", "us", "domains", mock.MagicMock(), manager))
-
-        assert sum(len(batch) for batch in batches) == page_size + 1
-        second_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert _query(second_url)["skip"] == [str(page_size)]
+        assert result.raised is None
+        assert len(result.rows) == page_size + 1
+        assert result.params("skip") == ["0", str(page_size)]
 
     @pytest.mark.parametrize(
         "self_referencing, expected_requests, expected_rows",
         [(True, 2, 2), (False, 3, 4)],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_repeating_paging_cursor_terminates(self, mock_session, self_referencing, expected_requests, expected_rows):
+    def test_repeating_paging_cursor_terminates(self, self_referencing, expected_requests, expected_rows):
         # Mailgun's tags endpoint re-serves its terminal page behind a stable `page=next&tag=<last>`
         # cursor instead of returning an empty page. Unguarded, the chain re-yields the same rows
         # until the activity is killed, and every repeat is billed as a synced row. Two shapes: the
@@ -232,167 +231,164 @@ class TestGetRows:
         page_b = f"{page_a}&page=next&tag=t2"
         next_of_a = page_a if self_referencing else page_b
 
-        requests_made: list[str] = []
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v4/domains":
+                return ScriptedResponse(json={"items": [{"name": "a.com"}]})
+            return ScriptedResponse(json=_paging_page(items, next_of_a if request.url == page_a else page_a))
 
-        def fake_get(url, **kwargs):
-            requests_made.append(url)
-            if len(requests_made) > 6:
-                raise AssertionError("pagination did not terminate")
-            if "/v4/domains" in url:
-                return _response({"items": [{"name": "a.com"}]})
-            return _response(_paging_page(items, next_of_a if url == page_a else page_a))
+        result = _driver().run("tags", answer)
 
-        mock_session.return_value.get.side_effect = fake_get
-
-        batches = list(get_rows("key", "us", "tags", mock.MagicMock(), _make_manager()))
-
-        assert len(requests_made) == expected_requests
-        assert sum(len(batch) for batch in batches) == expected_rows
+        assert result.raised is None
+        assert len(result.requests) == expected_requests
+        assert len(result.rows) == expected_rows
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.MAX_PAGES_PER_CHAIN", 3
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_paging_stops_at_the_page_cap(self, mock_session):
+    def test_paging_stops_at_the_page_cap(self):
         # A cursor that mints a fresh URL for every page never repeats, so the seen-URL guard can't
         # see it and only the page cap ends the chain.
         pages_fetched = 0
 
-        def fake_get(url, **kwargs):
+        def answer(request: RecordedRequest) -> ScriptedResponse:
             nonlocal pages_fetched
-            if "/v4/domains" in url:
-                return _response({"items": [{"name": "a.com"}]})
+            if request.path == "/v4/domains":
+                return ScriptedResponse(json={"items": [{"name": "a.com"}]})
             pages_fetched += 1
-            if pages_fetched > 10:
-                raise AssertionError("pagination did not terminate")
-            return _response(
-                _paging_page([{"tag": f"t{pages_fetched}"}], f"{US_BASE}/v3/a.com/tags?page=next&tag=t{pages_fetched}")
+            return ScriptedResponse(
+                json=_paging_page(
+                    [{"tag": f"t{pages_fetched}"}], f"{US_BASE}/v3/a.com/tags?page=next&tag=t{pages_fetched}"
+                )
             )
 
-        mock_session.return_value.get.side_effect = fake_get
         logger = mock.MagicMock()
+        result = _driver().run("tags", answer, logger=logger)
 
-        batches = list(get_rows("key", "us", "tags", logger, _make_manager()))
-
+        assert result.raised is None
         assert pages_fetched == 3
-        assert sum(len(batch) for batch in batches) == 3
+        assert len(result.rows) == 3
         assert "exceeded 3 pages" in logger.warning.call_args.args[0]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_incremental_watermark_inside_lag_window_skips_fetch(self, mock_session):
+    def test_incremental_watermark_inside_lag_window_skips_fetch(self):
         domains_page = {"items": [{"name": "a.com"}, {"name": "b.com"}]}
-        mock_session.return_value.get.side_effect = [_response(domains_page)]
-
-        manager = _make_manager()
-        batches = list(
-            get_rows(
-                "key",
-                "us",
-                "events",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=int(time.time()),
-                incremental_field="timestamp",
-            )
+        result = _driver().run(
+            "events",
+            [ScriptedResponse(json=domains_page)],
+            db_incremental_field_last_value=int(time.time()),
+            incremental_field="timestamp",
         )
 
-        assert batches == []
+        assert result.raised is None
+        assert result.rows == []
         # Only the domain listing was fetched; both domains were skipped.
-        assert mock_session.return_value.get.call_count == 1
+        assert result.paths == ["/v4/domains"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_resume_with_completed_state_yields_nothing(self, mock_session):
-        manager = _make_manager(MailgunResumeConfig(next_url=None, current_domain=None, pending_domains=[]))
+    def test_resume_with_completed_state_yields_nothing(self):
+        result = _driver().run("events", [], resume_state=MailgunResumeConfig())
 
-        batches = list(get_rows("key", "us", "events", mock.MagicMock(), manager))
-
-        assert batches == []
-        mock_session.return_value.get.assert_not_called()
+        assert result.raised is None
+        assert result.rows == []
+        assert result.requests == []
 
     @pytest.mark.parametrize("status_code", [400, 401, 403])
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_domain_scoped_access_error_skips_domain_and_continues_fan_out(self, mock_session, status_code):
+    def test_domain_scoped_access_error_skips_domain_and_continues_fan_out(self, status_code):
         # The account lists a domain that can't be queried (disabled / unverified for 400, or a
         # domain the key has no access to for 401/403). It must skip that domain, not abort the
         # whole fan-out, so b.com still imports. A global credential failure 401s the /v4/domains
         # listing instead, which never reaches the fan-out and stays non-retryable.
         domains_page = {"items": [{"name": "a.com"}, {"name": "b.com"}]}
-        a_bad = _error_response(status_code, f"{US_BASE}/v3/a.com/events")
         b_events = _paging_page([{"id": "e2", "timestamp": 1700000100.5}], None)
-        mock_session.return_value.get.side_effect = [
-            _response(domains_page),
-            a_bad,
-            _response(b_events),
-        ]
+        result = _driver().run(
+            "events",
+            [
+                ScriptedResponse(json=domains_page),
+                ScriptedResponse(status=status_code, json={}),
+                ScriptedResponse(json=b_events),
+            ],
+        )
 
-        manager = _make_manager()
-        batches = list(get_rows("key", "us", "events", mock.MagicMock(), manager))
-
-        rows = [row for batch in batches for row in batch]
-        assert [(row["id"], row["domain"]) for row in rows] == [("e2", "b.com")]
+        assert result.raised is None
+        assert [(row["id"], row["domain"]) for row in result.rows] == [("e2", "b.com")]
         # The skipped domain leaves no in-flight chain behind, and the fan-out completes cleanly.
-        saved_states = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved_states[0].current_domain is None
-        assert saved_states[-1].next_url is None
-        assert saved_states[-1].pending_domains == []
+        assert result.saved_states[0].current_domain is None
+        assert result.saved_states[-1].next_url is None
+        assert result.saved_states[-1].pending_domains == []
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_domain_listing_401_still_raises(self, mock_session):
+    def test_every_domain_skipped_fails_the_sync(self):
+        domains_page = {"items": [{"name": "a.com"}, {"name": "b.com"}, {"name": "c.com"}]}
+        result = _driver().run(
+            "events",
+            [
+                ScriptedResponse(json=domains_page),
+                ScriptedResponse(status=403, json={}),
+                ScriptedResponse(status=400, json={}),
+                ScriptedResponse(status=403, json={}),
+            ],
+        )
+
+        assert isinstance(result.raised, MailgunAllDomainsSkippedError)
+        assert "(400 on 1 domain, 403 on 2 domains)" in str(result.raised)
+
+        # This message must stay a stable, non-sensitive substring of get_non_retryable_errors,
+        # or an account with every domain rejected gets retried instead of surfaced to the user.
+        non_retryable_errors = MailgunSource().get_non_retryable_errors()
+        matches = [message for pattern, message in non_retryable_errors.items() if pattern in str(result.raised)]
+        assert len(matches) == 1
+
+    def test_domain_listing_401_still_raises(self):
         # A 401 on the /v4/domains listing is a global credential failure, not a single bad
         # domain — it must surface (and stay non-retryable) rather than be skipped per-domain.
-        mock_session.return_value.get.return_value = _error_response(401, f"{US_BASE}/v4/domains")
+        result = _driver().run("events", [ScriptedResponse(status=401, json={})])
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "401 Client Error" in str(result.raised)
 
-        manager = _make_manager()
-        with pytest.raises(requests.HTTPError, match="401 Client Error"):
-            list(get_rows("key", "us", "events", mock.MagicMock(), manager))
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_account_level_400_still_raises(self, mock_session):
+    def test_account_level_400_still_raises(self):
         # A 400 on a non-domain-scoped endpoint means our request is wrong, not a bad domain —
         # it must surface rather than be silently skipped.
-        mock_session.return_value.get.return_value = _error_response(400, f"{US_BASE}/v3/lists/pages")
+        result = _driver().run("mailing_lists", [ScriptedResponse(status=400, json={})])
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "400 Client Error" in str(result.raised)
 
-        manager = _make_manager()
-        with pytest.raises(requests.HTTPError, match="400 Client Error"):
-            list(get_rows("key", "us", "mailing_lists", mock.MagicMock(), manager))
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_domain_scoped_500_still_raises(self, mock_session):
+    def test_domain_scoped_500_still_raises(self):
         # Server errors are transient and retryable — they must not be swallowed as a skip.
         domains_page = {"items": [{"name": "a.com"}]}
-        server_error = _response({}, 500)
-        mock_session.return_value.get.side_effect = [_response(domains_page), *([server_error] * 10)]
 
-        manager = _make_manager()
-        with pytest.raises(MailgunRetryableError):
-            with mock.patch("tenacity.nap.time.sleep", return_value=None):
-                list(get_rows("key", "us", "events", mock.MagicMock(), manager))
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v4/domains":
+                return ScriptedResponse(json=domains_page)
+            return ScriptedResponse(status=500, json={})
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_non_ok_response_raises(self, mock_session):
-        response = _response({}, 401)
-        response.raise_for_status.side_effect = Exception("401 Client Error")
-        response.text = "unauthorized"
-        mock_session.return_value.get.return_value = response
+        result = _driver().run("events", answer)
+        assert isinstance(result.raised, MailgunRetryableError)
+        assert set(result.paths) == {"/v4/domains", "/v3/a.com/events"}
 
-        manager = _make_manager()
-        with pytest.raises(Exception, match="401 Client Error"):
-            list(get_rows("key", "us", "mailing_lists", mock.MagicMock(), manager))
+    def test_non_ok_response_raises(self):
+        result = _driver().run("mailing_lists", [ScriptedResponse(status=401, body=b"unauthorized")])
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "401 Client Error" in str(result.raised)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    def test_retries_on_429_then_succeeds(self, _mock_sleep, mock_session):
-        rate_limited = _response({}, 429)
-        rate_limited.headers = {"Retry-After": "1"}
-        ok_page = _response(_paging_page([{"address": "a@x.com"}], None))
-        empty_page = _response(_paging_page([], None))
-        mock_session.return_value.get.side_effect = [rate_limited, ok_page, empty_page]
+    def test_retries_on_429_then_succeeds(self):
+        result = _driver().run(
+            "mailing_lists",
+            [
+                ScriptedResponse(status=429, json={}, headers={"Retry-After": "1"}),
+                ScriptedResponse(json=_paging_page([{"address": "a@x.com"}], None)),
+            ],
+        )
 
-        manager = _make_manager()
-        batches = list(get_rows("key", "us", "mailing_lists", mock.MagicMock(), manager))
+        assert result.raised is None
+        assert [row["address"] for row in result.rows] == ["a@x.com"]
+        assert result.paths == ["/v3/lists/pages", "/v3/lists/pages"]
 
-        assert [row["address"] for batch in batches for row in batch] == ["a@x.com"]
+    @pytest.mark.parametrize(
+        "headers, expected_retry_after",
+        [({"Retry-After": "2"}, 2.0), ({"Retry-After": "999"}, 999.0), ({}, None)],
+    )
+    def test_a_rate_limit_that_persists_raises_the_retryable_error(self, headers, expected_retry_after):
+        result = _driver().run("mailing_lists", always(ScriptedResponse(status=429, json={}, headers=headers)))
+
+        assert isinstance(result.raised, MailgunRetryableError)
+        assert result.raised.retry_after == expected_retry_after
 
 
 def _metrics_item(day: date, tag: str) -> dict[str, Any]:
@@ -509,6 +505,126 @@ class TestMetricsRows:
         assert result.requests[0].json()["pagination"]["skip"] == METRICS_PAGE_SIZE
 
 
+def _log_item(event_id: str) -> dict[str, Any]:
+    return {"id": event_id, "event": "delivered", "@timestamp": "2024-07-08T12:30:00.250Z", "domain": {"name": "a.com"}}
+
+
+class TestLogsRows:
+    def test_follows_page_tokens_until_an_empty_page(self):
+        pages = {
+            None: {"items": [_log_item("e1"), _log_item("e2")], "pagination": {"next": "t1"}},
+            "t1": {"items": [_log_item("e3")], "pagination": {"next": "t2"}},
+            "t2": {"items": [], "pagination": {"next": "t3"}},
+        }
+
+        result = _driver().run(
+            "logs", lambda request: ScriptedResponse(json=pages[request.json()["pagination"].get("token")])
+        )
+
+        assert result.raised is None
+        assert {request.path for request in result.requests} == {"/v1/analytics/logs"}
+        bodies = [request.json() for request in result.requests]
+        assert [body["pagination"].get("token") for body in bodies] == [None, "t1", "t2"]
+        assert {(body["start"], body["end"]) for body in bodies} == {(bodies[0]["start"], bodies[0]["end"])}
+        # Mailgun's Logs API rejects a request missing `duration` with a 400, even though an
+        # empty value has no effect on the explicit `start`/`end` window.
+        assert {body["duration"] for body in bodies} == {""}
+        assert {body["pagination"]["sort"] for body in bodies} == {"timestamp:asc"}
+        assert [row["id"] for row in result.rows] == ["e1", "e2", "e3"]
+        assert "@timestamp" not in result.rows[0]
+        assert result.rows[0]["timestamp"] == datetime(2024, 7, 8, 12, 30, 0, 250000, tzinfo=UTC)
+
+    @pytest.mark.parametrize(
+        "watermark_days_ago, expected_start_days_ago",
+        [
+            (None, LOGS_LOOKBACK_DAYS),
+            (2, 2),
+            # A watermark older than Mailgun's retention starts at the lookback edge instead.
+            (LOGS_LOOKBACK_DAYS + 30, LOGS_LOOKBACK_DAYS),
+        ],
+    )
+    def test_window_starts_at_the_watermark_or_the_lookback(self, watermark_days_ago, expected_start_days_ago):
+        now = datetime.now(UTC)
+        watermark = None if watermark_days_ago is None else now - timedelta(days=watermark_days_ago)
+
+        result = _driver().run(
+            "logs",
+            lambda _request: ScriptedResponse(json={"items": [], "pagination": {}}),
+            incremental_field="timestamp" if watermark else None,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        start = parsedate_to_datetime(result.requests[0].json()["start"])
+        assert abs(start - (now - timedelta(days=expected_start_days_ago))) < timedelta(minutes=1)
+
+    @pytest.mark.parametrize(
+        "resume_token, saved_start, expected_tokens",
+        [
+            ("t5", "2024-07-01T00:00:00+00:00", ["t5"]),
+            # An exhausted window has nothing left to read.
+            (None, "2024-07-08T00:00:00+00:00", []),
+        ],
+    )
+    def test_resume_reuses_the_saved_window_and_token(self, resume_token, saved_start, expected_tokens):
+        resume_state = MailgunResumeConfig(
+            logs_start=saved_start, logs_end="2024-07-08T00:00:00+00:00", logs_token=resume_token
+        )
+
+        result = _driver().run(
+            "logs",
+            lambda _request: ScriptedResponse(json={"items": [], "pagination": {}}),
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        bodies = [request.json() for request in result.requests]
+        assert [body["pagination"].get("token") for body in bodies] == expected_tokens
+        for body in bodies:
+            assert parsedate_to_datetime(body["start"]) == datetime(2024, 7, 1, tzinfo=UTC)
+            assert parsedate_to_datetime(body["end"]) == datetime(2024, 7, 8, tzinfo=UTC)
+
+
+class TestFanOutEndpoints:
+    def test_mailing_list_members_fan_out_over_every_list(self):
+        lists_next = f"{US_BASE}/v3/lists/pages?page=next&address=b%40lists.example.com&limit=100"
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v3/lists/pages":
+                if request.param("page") == "next":
+                    return ScriptedResponse(json=_paging_page([], None))
+                lists = [{"address": "a@lists.example.com"}, {"address": "b@lists.example.com"}]
+                return ScriptedResponse(json=_paging_page(lists, lists_next))
+            if request.path == "/v3/lists/a%40lists.example.com/members/pages" and request.param("page") is None:
+                members = [{"address": "x@example.com", "subscribed": True}]
+                return ScriptedResponse(json=_paging_page(members, f"{request.url}&page=next&address=x%40example.com"))
+            return ScriptedResponse(json=_paging_page([], None))
+
+        result = _driver().run("mailing_list_members", respond)
+
+        assert result.raised is None
+        assert [(row["list_address"], row["address"]) for row in result.rows] == [
+            ("a@lists.example.com", "x@example.com")
+        ]
+        assert "/v3/lists/b%40lists.example.com/members/pages" in result.paths
+
+    def test_subaccounts_read_their_own_response_key_across_skip_pages(self):
+        page_size = MAILGUN_ENDPOINTS["subaccounts"].page_size
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            count = page_size if request.param("skip") == "0" else 1
+            skip = int(request.param("skip") or 0)
+            return ScriptedResponse(
+                json={"subaccounts": [{"id": f"sub-{skip + i}"} for i in range(count)], "total": page_size + 1}
+            )
+
+        result = _driver().run("subaccounts", respond)
+
+        assert result.raised is None
+        assert result.params("skip") == ["0", str(page_size)]
+        assert len(result.rows) == page_size + 1
+
+
 class TestMailgunSourceResponse:
     def test_webhook_endpoint_yields_nothing_until_the_webhook_is_live(self):
         webhook_manager = mock.MagicMock()
@@ -564,165 +680,170 @@ class TestWebhookTableTransformer:
         assert _webhook_table_transformer(table).num_rows == 0
 
 
-def _webhook_list_response(webhooks: dict[str, Any]) -> mock.MagicMock:
-    return _response({"webhooks": webhooks})
+def _webhook_list_response(webhooks: dict[str, Any]) -> ScriptedResponse:
+    return ScriptedResponse(json={"webhooks": webhooks})
 
 
 class TestWebhookManagement:
-    def _session(self, mock_session, list_payloads: list[mock.MagicMock]) -> mock.MagicMock:
-        """Wire a session whose GETs answer the domain listing first, then one webhook listing
-        per domain."""
-        session = mock_session.return_value
-        session.get.side_effect = [
-            _response({"items": [{"name": "mg.example.com"}, {"name": "mg.other.com"}]}),
+    @staticmethod
+    def _script(list_payloads: list[ScriptedResponse]) -> list[ScriptedResponse]:
+        return [
+            ScriptedResponse(json={"items": [{"name": "mg.example.com"}, {"name": "mg.other.com"}]}),
             *list_payloads,
         ]
-        return session
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_create_is_idempotent_for_types_already_pointing_at_us(self, mock_session):
+    def test_create_is_idempotent_for_types_already_pointing_at_us(self):
         already = {webhook_type: {"urls": [POSTHOG_URL]} for webhook_type in WEBHOOK_TYPES}
-        session = self._session(mock_session, [_webhook_list_response(already), _webhook_list_response(already)])
-
-        result = create_webhook("key", "us", POSTHOG_URL)
+        with scripted_network(
+            self._script([_webhook_list_response(already), _webhook_list_response(already)])
+        ) as network:
+            result = create_webhook("key", "us", POSTHOG_URL)
 
         assert result.success is True
-        session.post.assert_not_called()
-        session.put.assert_not_called()
+        assert [request.method for request in network.requests_log] == ["GET", "GET", "GET"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_create_preserves_a_third_partys_url_on_the_same_event_type(self, mock_session):
-        session = self._session(
-            mock_session,
-            [
-                _webhook_list_response({"delivered": {"urls": ["https://other.example/hook"]}}),
-                _webhook_list_response({}),
-            ],
-        )
-        session.post.return_value = _response({})
-        session.put.return_value = _response({})
+    def test_create_preserves_a_third_partys_url_on_the_same_event_type(self):
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v4/domains":
+                return ScriptedResponse(json={"items": [{"name": "mg.example.com"}, {"name": "mg.other.com"}]})
+            if request.method == "GET":
+                return _webhook_list_response(
+                    {"delivered": {"urls": ["https://other.example/hook"]}} if "mg.example.com" in request.path else {}
+                )
+            return ScriptedResponse(json={})
 
-        create_webhook("key", "us", POSTHOG_URL)
+        with scripted_network(answer) as network:
+            result = create_webhook("key", "us", POSTHOG_URL)
 
-        session.put.assert_called_once()
-        assert session.put.call_args.args[0].endswith("/v3/domains/mg.example.com/webhooks/delivered")
-        assert session.put.call_args.kwargs["data"] == [
-            ("url", "https://other.example/hook"),
-            ("url", POSTHOG_URL),
+        assert result.success is True
+        puts = [request for request in network.requests_log if request.method == "PUT"]
+        assert len(puts) == 1
+        assert puts[0].path.endswith("/v3/domains/mg.example.com/webhooks/delivered")
+        assert parse_qs((puts[0].body or b"").decode())["url"] == [
+            "https://other.example/hook",
+            POSTHOG_URL,
         ]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_create_leaves_a_full_event_type_alone_and_carries_on(self, mock_session):
+    def test_create_leaves_a_full_event_type_alone_and_carries_on(self):
         # Mailgun caps a webhook type at three URLs, so this one can't take PostHog as well.
         full = {"delivered": {"urls": ["https://a/1", "https://b/2", "https://c/3"]}}
-        session = self._session(mock_session, [_webhook_list_response(full), _webhook_list_response({})])
-        session.post.return_value = _response({})
 
-        result = create_webhook("key", "us", POSTHOG_URL)
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v4/domains":
+                return ScriptedResponse(json={"items": [{"name": "mg.example.com"}, {"name": "mg.other.com"}]})
+            if request.method == "GET":
+                return _webhook_list_response(full if "mg.example.com" in request.path else {})
+            return ScriptedResponse(json={})
 
-        # Every other type on that domain, and every type on the next one, still registers.
+        with scripted_network(answer) as network:
+            result = create_webhook("key", "us", POSTHOG_URL)
+
         assert result.success is True
-        session.put.assert_not_called()
-        posted = [(call.args[0], call.kwargs["data"]["id"]) for call in session.post.call_args_list]
+        assert all(request.method != "PUT" for request in network.requests_log)
+        posted = [
+            (request.url.split("?", 1)[0], parse_qs((request.body or b"").decode())["id"][0])
+            for request in network.requests_log
+            if request.method == "POST"
+        ]
         assert ("https://api.mailgun.net/v3/domains/mg.example.com/webhooks", "delivered") not in posted
         assert ("https://api.mailgun.net/v3/domains/mg.other.com/webhooks", "delivered") in posted
         assert len(posted) == len(WEBHOOK_TYPES) * 2 - 1
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_create_fails_when_the_account_has_no_sending_domains(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"items": []})
-
-        result = create_webhook("key", "us", POSTHOG_URL)
+    def test_create_fails_when_the_account_has_no_sending_domains(self):
+        with scripted_network([ScriptedResponse(json={"items": []})]):
+            result = create_webhook("key", "us", POSTHOG_URL)
 
         assert result.success is False
         assert "no sending domains" in (result.error or "")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_create_fails_when_every_registration_is_refused(self, mock_session):
-        session = self._session(mock_session, [_webhook_list_response({}), _webhook_list_response({})])
-        session.post.return_value = _error_response(403, f"{US_BASE}/v3/domains/mg.example.com/webhooks")
+    def test_create_fails_when_every_registration_is_refused(self):
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v4/domains":
+                return ScriptedResponse(json={"items": [{"name": "mg.example.com"}, {"name": "mg.other.com"}]})
+            if request.method == "GET":
+                return _webhook_list_response({})
+            return ScriptedResponse(status=403, json={})
 
-        result = create_webhook("key", "us", POSTHOG_URL)
+        with scripted_network(answer):
+            result = create_webhook("key", "us", POSTHOG_URL)
 
         assert result.success is False
         assert "manually" in (result.error or "")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_delete_removes_only_our_url_and_keeps_other_consumers(self, mock_session):
-        session = self._session(
-            mock_session,
-            [
-                _webhook_list_response(
+    def test_delete_removes_only_our_url_and_keeps_other_consumers(self):
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v4/domains":
+                return ScriptedResponse(json={"items": [{"name": "mg.example.com"}, {"name": "mg.other.com"}]})
+            if request.method == "GET":
+                return _webhook_list_response(
                     {
                         "delivered": {"urls": [POSTHOG_URL, "https://other.example/hook"]},
                         "opened": {"urls": [POSTHOG_URL]},
                         "clicked": {"urls": ["https://other.example/hook"]},
                     }
-                ),
-                _webhook_list_response({}),
-            ],
-        )
-        session.put.return_value = _response({})
-        session.delete.return_value = _response({})
+                    if "mg.example.com" in request.path
+                    else {}
+                )
+            return ScriptedResponse(json={})
 
-        result = delete_webhook("key", "us", POSTHOG_URL)
+        with scripted_network(answer) as network:
+            result = delete_webhook("key", "us", POSTHOG_URL)
 
         assert result.success is True
-        assert session.put.call_args.kwargs["data"] == [("url", "https://other.example/hook")]
-        assert session.delete.call_count == 1
-        assert session.delete.call_args.args[0].endswith("/webhooks/opened")
+        puts = [request for request in network.requests_log if request.method == "PUT"]
+        deletes = [request for request in network.requests_log if request.method == "DELETE"]
+        assert parse_qs((puts[0].body or b"").decode())["url"] == ["https://other.example/hook"]
+        assert len(deletes) == 1
+        assert deletes[0].path.endswith("/webhooks/opened")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_delete_surfaces_a_failure_rather_than_reporting_success(self, mock_session):
-        session = self._session(
-            mock_session,
-            [_webhook_list_response({"opened": {"urls": [POSTHOG_URL]}}), _webhook_list_response({})],
-        )
-        session.delete.return_value = _error_response(403, f"{US_BASE}/v3/domains/mg.example.com/webhooks/opened")
+    def test_delete_surfaces_a_failure_rather_than_reporting_success(self):
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v4/domains":
+                return ScriptedResponse(json={"items": [{"name": "mg.example.com"}, {"name": "mg.other.com"}]})
+            if request.method == "GET":
+                return _webhook_list_response(
+                    {"opened": {"urls": [POSTHOG_URL]}} if "mg.example.com" in request.path else {}
+                )
+            return ScriptedResponse(status=403, json={})
 
-        result = delete_webhook("key", "us", POSTHOG_URL)
+        with scripted_network(answer):
+            result = delete_webhook("key", "us", POSTHOG_URL)
 
         assert result.success is False
         assert "403" in (result.error or "")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_info_reports_the_registered_event_types(self, mock_session):
-        self._session(
-            mock_session,
+    def test_info_reports_the_registered_event_types(self):
+        script = self._script(
             [
                 _webhook_list_response(
                     {"delivered": {"urls": [POSTHOG_URL]}, "opened": {"url": "https://other.example/hook"}}
                 ),
                 _webhook_list_response({"clicked": {"urls": [POSTHOG_URL]}}),
-            ],
+            ]
         )
-
-        info = get_external_webhook_info("key", "us", POSTHOG_URL)
+        with scripted_network(script):
+            info = get_external_webhook_info("key", "us", POSTHOG_URL)
 
         assert info.exists is True
         # Must speak Mailgun's webhook type ids so the UI can diff them against
         # `get_desired_webhook_events`.
         assert info.enabled_events == ["clicked", "delivered"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_info_reports_absent_when_no_domain_points_at_us(self, mock_session):
-        self._session(
-            mock_session,
+    def test_info_reports_absent_when_no_domain_points_at_us(self):
+        script = self._script(
             [
                 _webhook_list_response({"delivered": {"urls": ["https://other.example/hook"]}}),
                 _webhook_list_response({}),
-            ],
+            ]
         )
-
-        info = get_external_webhook_info("key", "us", POSTHOG_URL)
+        with scripted_network(script):
+            info = get_external_webhook_info("key", "us", POSTHOG_URL)
 
         assert info.exists is False
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_info_reports_the_error_instead_of_raising(self, mock_session):
-        mock_session.return_value.get.return_value = _error_response(401, f"{US_BASE}/v4/domains")
-
-        info = get_external_webhook_info("key", "us", POSTHOG_URL)
+    def test_info_reports_the_error_instead_of_raising(self):
+        with scripted_network([ScriptedResponse(status=401, json={})]):
+            info = get_external_webhook_info("key", "us", POSTHOG_URL)
 
         assert info.exists is False
         assert "401" in (info.error or "")

@@ -1,8 +1,13 @@
 import pytest
-from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+    source_inputs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.height import HeightSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.source import HeightSource
 
@@ -38,31 +43,23 @@ class TestHeightSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.height.source._height_validate_credentials"
-    )
-    def test_validate_credentials_delegates_to_height(self, mock_validate: mock.MagicMock) -> None:
+    def test_validate_credentials_delegates_to_height(self) -> None:
         # The status/message mapping is owned by height.validate_credentials (covered in test_height.py);
-        # here we only assert the source extracts the api key and returns the delegate's result unchanged.
-        mock_validate.return_value = (False, "Invalid Height API key")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        mock_validate.assert_called_once_with("secret_key")
+        # here we assert the source sends the configured API key and returns the result.
+        with scripted_network([ScriptedResponse(status=401)]) as network:
+            result = self.source.validate_credentials(self.config, self.team_id)
+
+        assert [request.path for request in network.requests_log] == ["/users"]
+        assert network.requests_log[0].headers["authorization"] == "api-key secret_key"
         assert result == (False, "Invalid Height API key")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.height.source.height_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "users"
+    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+        result = SourceDriver(self.source, self.config).run("users", [ScriptedResponse(json={"list": []})])
 
-        self.source.source_for_pipeline(self.config, inputs)
-
-        mock_source.assert_called_once()
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_key"] == "secret_key"
-        assert kwargs["endpoint"] == "users"
+        assert result.raised is None
+        assert result.paths == ["/users"]
+        assert result.requests[0].headers["authorization"] == "api-key secret_key"
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
         with pytest.raises(ValueError, match="Unknown Height schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, inputs)
+            self.source.source_for_pipeline(self.config, source_inputs("not_a_table"))

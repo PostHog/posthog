@@ -1,3 +1,4 @@
+import ssl
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -9,8 +10,18 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wordpress import (
+    WordpressSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress import wordpress as wordpress_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import WORDPRESS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.source import WordpressSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.wordpress import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
@@ -21,10 +32,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.
     _build_initial_url,
     _format_incremental_value,
     _parse_next_url,
-    get_rows,
     normalize_host,
     validate_credentials,
-    wordpress_source,
 )
 
 
@@ -34,45 +43,25 @@ def _response(
     json_data: Any = None,
     link: Optional[str] = None,
     text: str = "",
-    content: Optional[bytes] = None,
-    json_raises: Optional[Exception] = None,
-) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.status_code = status_code
-    response.ok = 200 <= status_code < 400
-    response.is_redirect = status_code in (301, 302, 303, 307, 308)
-    response.is_permanent_redirect = status_code in (301, 308)
-    response.text = text
-    if json_raises is not None:
-        response.json.side_effect = json_raises
-    else:
-        response.json.return_value = json_data
-    if content is not None:
-        response.content = content
-    response.headers = {"Link": link} if link else {}
-    return response
+    body: Optional[bytes] = None,
+) -> ScriptedResponse:
+    headers = {"Link": link} if link else {}
+    if status_code in (301, 302, 303, 307, 308):
+        headers["Location"] = "https://example.com/elsewhere"
+    if body is None and json_data is None:
+        body = text.encode()
+    return ScriptedResponse(status=status_code, json=json_data, headers=headers, body=body)
 
 
-def _json_decode_error() -> requests.exceptions.JSONDecodeError:
-    return requests.exceptions.JSONDecodeError("Expecting value: line 1 column 1 (char 0)", "", 0)
+def _driver(
+    site_url: str = "https://example.com", username: str | None = None, application_password: str | None = None
+) -> SourceDriver:
+    config = WordpressSourceConfig(site_url=site_url, username=username, application_password=application_password)
+    return SourceDriver(WordpressSource(), config)
 
 
-class _FakeBatcher:
-    """Yields whatever is buffered on every ``should_yield`` check, so the per-item save_state path
-    in ``get_rows`` is exercised without needing thousands of rows."""
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self._buf: list[Any] = []
-
-    def batch(self, item: Any) -> None:
-        self._buf.append(item)
-
-    def should_yield(self, include_incomplete_chunk: bool = False) -> bool:
-        return len(self._buf) > 0
-
-    def get_table(self) -> list[Any]:
-        rows, self._buf = self._buf, []
-        return rows
+def _ids(result: Any) -> list[Any]:
+    return [row_id for table in result.rows for row_id in table.column("id").to_pylist()]
 
 
 class TestNormalizeHost:
@@ -167,14 +156,6 @@ class TestParseNextUrl:
 
 
 class TestValidateCredentials:
-    def _patch_session(self, response=None, raises=None):
-        session = mock.MagicMock()
-        if raises is not None:
-            session.get.side_effect = raises
-        else:
-            session.get.return_value = response
-        return mock.patch.object(wordpress_module, "make_tracked_session", return_value=session)
-
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_msg_substr",
         [
@@ -185,7 +166,7 @@ class TestValidateCredentials:
         ],
     )
     def test_status_code_mapping(self, status_code, expected_valid, expected_msg_substr):
-        with self._patch_session(_response(status_code=status_code)):
+        with scripted_network(always(_response(status_code=status_code, json_data=[]))):
             valid, msg = validate_credentials("https://example.com", None, None)
             assert valid is expected_valid
             if expected_msg_substr is None:
@@ -203,7 +184,7 @@ class TestValidateCredentials:
         ],
     )
     def test_unrecognized_status_does_not_leak_raw_body(self, json_data, text, expects_substr, forbidden_substr):
-        with self._patch_session(_response(status_code=400, json_data=json_data, text=text)):
+        with scripted_network(always(_response(status_code=400, json_data=json_data, text=text))):
             valid, msg = validate_credentials("https://example.com", None, None)
             assert valid is False
             assert expects_substr in (msg or "")
@@ -218,44 +199,64 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "exc_factory, expected_msg_substr",
         [
-            (lambda: requests.exceptions.SSLError("certificate verify failed"), "secure connection"),
-            (lambda: requests.exceptions.ConnectionError("boom"), "Couldn't connect"),
-            (lambda: requests.exceptions.Timeout("slow"), "took too long"),
-            (lambda: requests.exceptions.RequestException("weird"), "Couldn't reach"),
+            (lambda: ssl.SSLError("certificate verify failed"), "secure connection"),
+            (lambda: ConnectionResetError("boom"), "Couldn't connect"),
         ],
     )
     def test_request_exception_returns_actionable_message(self, exc_factory, expected_msg_substr):
         # The raw exception string (e.g. an SSL traceback) must never surface to the user.
-        with self._patch_session(raises=exc_factory()):
+        with scripted_network(always(exc_factory())):
             valid, msg = validate_credentials("https://example.com", None, None)
             assert valid is False
             assert expected_msg_substr in (msg or "")
             assert "certificate verify failed" not in (msg or "")
 
-    def test_rejects_redirect_response(self):
-        with self._patch_session(_response(status_code=302)) as patched:
+    @pytest.mark.parametrize(
+        "exc_factory, expected_msg_substr",
+        [
+            (lambda: requests.exceptions.Timeout("slow"), "took too long"),
+            (lambda: requests.exceptions.RequestException("weird"), "Couldn't reach"),
+        ],
+    )
+    def test_request_exception_the_socket_cannot_raise_returns_actionable_message(
+        self, exc_factory, expected_msg_substr
+    ):
+        # The scripted network surfaces every transport failure as a connection error, so these two
+        # exception classes can only be raised by the session itself.
+        session = mock.MagicMock()
+        session.get.side_effect = exc_factory()
+        with mock.patch.object(wordpress_module, "make_tracked_session", return_value=session):
             valid, msg = validate_credentials("https://example.com", None, None)
-            assert valid is False
-            assert msg == HOST_NOT_ALLOWED_ERROR
-            assert patched.return_value.get.call_args.kwargs["allow_redirects"] is False
+        assert valid is False
+        assert expected_msg_substr in (msg or "")
+
+    def test_rejects_redirect_response(self):
+        with scripted_network([_response(status_code=302)]) as network:
+            valid, msg = validate_credentials("https://example.com", None, None)
+
+        assert valid is False
+        assert msg == HOST_NOT_ALLOWED_ERROR
+        assert len(network.requests_log) == 1
 
     def test_rejects_plaintext_http_when_credentials_present(self):
         # Basic-auth credentials must never be sent over plaintext HTTP.
-        with self._patch_session(_response(status_code=200)) as patched:
+        with scripted_network([_response(json_data=[])]) as network:
             valid, msg = validate_credentials("http://example.com", "admin", "app pass word")
-            assert valid is False
-            assert msg == HTTP_NOT_ALLOWED_ERROR
-            patched.return_value.get.assert_not_called()
+
+        assert valid is False
+        assert msg == HTTP_NOT_ALLOWED_ERROR
+        assert network.requests_log == []
 
     def test_blocks_unsafe_host(self):
         with (
             mock.patch.object(wordpress_module, "_is_host_safe", return_value=(False, "internal address")),
-            self._patch_session(_response(status_code=200)) as patched,
+            scripted_network([_response(json_data=[])]) as network,
         ):
             valid, msg = validate_credentials("https://10.0.0.1", None, None, team_id=99)
-            assert valid is False
-            assert msg == "internal address"
-            patched.return_value.get.assert_not_called()
+
+        assert valid is False
+        assert msg == "internal address"
+        assert network.requests_log == []
 
 
 class TestWordpressSourceResponse:
@@ -272,15 +273,10 @@ class TestWordpressSourceResponse:
         ],
     )
     def test_response_shape(self, endpoint, partition_key):
-        response = wordpress_source(
-            site_url="https://example.com",
-            username=None,
-            application_password=None,
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(),
-            team_id=1,
-        )
+        result = _driver().run(endpoint, always(_response(json_data=[])))
+
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         assert response.sort_mode == "asc"
@@ -293,154 +289,120 @@ class TestWordpressSourceResponse:
 
 
 class TestGetRows:
-    def _run(self, manager, responses, endpoint="posts", site_url="https://example.com", **kwargs):
-        session = mock.MagicMock()
-        session.get.side_effect = responses
-        with (
-            mock.patch.object(wordpress_module, "make_tracked_session", return_value=session),
-            mock.patch.object(wordpress_module, "Batcher", _FakeBatcher),
-        ):
-            rows: list[Any] = []
-            for table in get_rows(
-                site_url=site_url,
-                username=None,
-                application_password=None,
-                endpoint=endpoint,
-                logger=mock.MagicMock(),
-                resumable_source_manager=manager,
-                team_id=1,
-                **kwargs,
-            ):
-                rows.extend(table)
-        return rows, session
-
     def test_follows_link_header_across_pages(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
         page1 = _response(
             json_data=[{"id": 1}, {"id": 2}],
             link='<https://example.com/wp-json/wp/v2/posts?page=2>; rel="next"',
         )
         page2 = _response(json_data=[{"id": 3}])
-        rows, session = self._run(manager, [page1, page2])
+        result = _driver().run("posts", [page1, page2])
 
-        assert [r["id"] for r in rows] == [1, 2, 3]
-        second_url = session.get.call_args_list[1].args[0]
-        assert second_url == "https://example.com/wp-json/wp/v2/posts?page=2"
+        assert _ids(result) == [1, 2, 3]
+        assert result.urls[1] == "https://example.com/wp-json/wp/v2/posts?page=2"
 
     def test_resumes_from_saved_state(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = WordpressResumeConfig(
-            next_url="https://example.com/wp-json/wp/v2/posts?page=5"
+        result = _driver().run(
+            "posts",
+            [_response(json_data=[{"id": 9}])],
+            resume_state=WordpressResumeConfig(next_url="https://example.com/wp-json/wp/v2/posts?page=5"),
         )
-        rows, session = self._run(manager, [_response(json_data=[{"id": 9}])])
 
-        first_url = session.get.call_args_list[0].args[0]
-        assert first_url == "https://example.com/wp-json/wp/v2/posts?page=5"
-        assert [r["id"] for r in rows] == [9]
+        assert result.urls[0] == "https://example.com/wp-json/wp/v2/posts?page=5"
+        assert _ids(result) == [9]
+
+    def test_checkpoints_the_current_page_url_when_a_chunk_is_yielded(self):
+        first_url = "https://example.com/wp-json/wp/v2/posts?per_page=100"
+        next_url = "https://example.com/wp-json/wp/v2/posts?page=2"
+        full_chunk = [{"id": i} for i in range(2000)]
+        page1 = _response(json_data=full_chunk, link=f'<{next_url}>; rel="next"')
+        page2 = _response(json_data=[{"id": 2000}])
+
+        result = _driver().run("posts", [page1, page2])
+
+        assert len(_ids(result)) == 2001
+        assert result.saved_states
+        assert result.saved_states[0] == WordpressResumeConfig(next_url=result.urls[0])
+        assert result.urls[0] != next_url
+        assert first_url.split("?")[0] == result.urls[0].split("?")[0]
 
     def test_empty_body_terminates_without_crashing(self):
         # A 2xx with an empty body used to crash get_rows with a raw JSONDecodeError; it must now
         # stop pagination cleanly.
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        empty_body = _response(json_raises=_json_decode_error(), content=b"")
-        rows, session = self._run(manager, [empty_body])
+        result = _driver().run("posts", [_response(body=b"")])
 
-        assert rows == []
-        assert session.get.call_count == 1
+        assert result.raised is None
+        assert result.rows == []
+        assert len(result.requests) == 1
 
     def test_non_json_body_is_non_retryable(self):
         # A 2xx serving an HTML error/login page can't become data by retrying — fail fast and
         # non-retryably, without leaking the query string into the surfaced message.
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        html = _response(json_raises=_json_decode_error(), content=b"<!DOCTYPE html><html><body>Login</body></html>")
-        with pytest.raises(RESTClientNonRetryableError) as exc:
-            self._run(manager, [html])
-        assert str(exc.value).startswith("Non-JSON response from")
-        assert "per_page" not in str(exc.value)
+        html = _response(body=b"<!DOCTYPE html><html><body>Login</body></html>")
+
+        result = _driver().run("posts", [html])
+
+        assert isinstance(result.raised, RESTClientNonRetryableError)
+        assert str(result.raised).startswith("Non-JSON response from")
+        assert "per_page" not in str(result.raised)
 
     def test_truncated_json_body_stays_retryable(self):
         # A body that begins as JSON but fails to parse is a truncated read, not a non-JSON error
         # page, so it must stay retryable rather than being classified non-retryable.
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        truncated = _response(json_raises=_json_decode_error(), content=b'[{"id": 1}')
-        with (
-            mock.patch.object(wordpress_module, "_retry_wait", return_value=0),
-            pytest.raises(WordpressRetryableError),
-        ):
-            self._run(manager, [truncated] * 5)
+        truncated = _response(body=b'[{"id": 1}')
+
+        result = _driver().run("posts", always(truncated))
+
+        assert isinstance(result.raised, WordpressRetryableError)
 
     def test_does_not_follow_next_url_on_foreign_host(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
         page1 = _response(
             json_data=[{"id": 1}],
             link='<http://169.254.169.254/latest/meta-data/>; rel="next"',
         )
-        rows, session = self._run(manager, [page1])
 
-        assert [r["id"] for r in rows] == [1]
-        assert session.get.call_count == 1
+        result = _driver().run("posts", [page1])
+
+        assert _ids(result) == [1]
+        assert len(result.requests) == 1
 
     def test_ignores_resume_url_on_foreign_host(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = WordpressResumeConfig(next_url="http://169.254.169.254/latest/meta-data/")
-        rows, session = self._run(manager, [_response(json_data=[{"id": 1}])])
+        result = _driver().run(
+            "posts",
+            [_response(json_data=[{"id": 1}])],
+            resume_state=WordpressResumeConfig(next_url="http://169.254.169.254/latest/meta-data/"),
+        )
 
-        first_url = session.get.call_args_list[0].args[0]
-        assert first_url.startswith("https://example.com/wp-json/wp/v2/posts")
-        assert [r["id"] for r in rows] == [1]
+        assert result.urls[0].startswith("https://example.com/wp-json/wp/v2/posts")
+        assert _ids(result) == [1]
 
     def test_raises_on_redirect(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        with pytest.raises(WordpressHostNotAllowedError) as exc:
-            self._run(manager, [_response(status_code=302)])
-        assert HOST_NOT_ALLOWED_ERROR in str(exc.value)
+        result = _driver().run("posts", [_response(status_code=302)])
+
+        assert isinstance(result.raised, WordpressHostNotAllowedError)
+        assert HOST_NOT_ALLOWED_ERROR in str(result.raised)
 
     def test_unsafe_host_error_is_marked_non_retryable(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        with (
-            mock.patch.object(wordpress_module, "_is_host_safe", return_value=(False, "internal address")),
-            pytest.raises(WordpressHostNotAllowedError) as exc,
-        ):
-            self._run(manager, [_response(json_data=[{"id": 1}])])
-        assert HOST_NOT_ALLOWED_ERROR in str(exc.value)
+        with mock.patch.object(wordpress_module, "_is_host_safe", return_value=(False, "internal address")):
+            result = _driver().run("posts", [_response(json_data=[{"id": 1}])])
+
+        assert isinstance(result.raised, WordpressHostNotAllowedError)
+        assert HOST_NOT_ALLOWED_ERROR in str(result.raised)
 
     def test_rejects_plaintext_http_with_credentials_before_request(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        session = mock.MagicMock()
-        with (
-            mock.patch.object(wordpress_module, "make_tracked_session", return_value=session),
-            mock.patch.object(wordpress_module, "Batcher", _FakeBatcher),
-            pytest.raises(WordpressHostNotAllowedError) as exc,
-        ):
-            list(
-                get_rows(
-                    site_url="http://example.com",
-                    username="admin",
-                    application_password="app pass word",
-                    endpoint="posts",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                    team_id=1,
-                )
-            )
-        assert HTTP_NOT_ALLOWED_ERROR in str(exc.value)
-        session.get.assert_not_called()
+        result = _driver("http://example.com", "admin", "app pass word").run(
+            "posts", [_response(json_data=[{"id": 1}])]
+        )
+
+        assert isinstance(result.raised, WordpressHostNotAllowedError)
+        assert HTTP_NOT_ALLOWED_ERROR in str(result.raised)
+        assert result.requests == []
 
     def test_passes_allow_redirects_false(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        _rows, session = self._run(manager, [_response(json_data=[{"id": 1}])])
-        assert session.get.call_args.kwargs["allow_redirects"] is False
+        # A redirect is surfaced as an error instead of being followed to the Location target.
+        result = _driver().run("posts", [_response(status_code=302)])
+
+        assert len(result.requests) == 1
+        assert result.requests[0].url.startswith("https://example.com/wp-json/wp/v2/posts")
 
 
 class TestRetryAfter:

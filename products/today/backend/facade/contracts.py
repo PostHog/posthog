@@ -1,5 +1,6 @@
 """Contract types for today: what the product returns to its API, MCP tools and other products."""
 
+from dataclasses import field
 from datetime import date, datetime
 from typing import Any
 
@@ -11,6 +12,11 @@ from .enums import (
     CitedSource,
     FigureSourceKind,
     FigureText,
+    HighlightInterval,
+    HighlightLabel,
+    HighlightPriority,
+    HighlightsStatus,
+    HighlightUnit,
     ImpactNumberKey,
     ItemGroup,
     ItemReason,
@@ -96,6 +102,7 @@ class Briefing:
     open_reports_count: int
     created_at: datetime
     ready_at: datetime | None
+    refresh_at: datetime
 
 
 @dataclass(frozen=True)
@@ -249,3 +256,48 @@ class FigureMark:
 
 class JevTimedOut(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class HighlightValueFormat:
+    format: str | None
+    prefix: str | None
+    postfix: str | None
+    decimal_places: int | None
+
+
+@dataclass(frozen=True)
+class HighlightMetric:
+    key: str
+    name: str
+    value: float
+    unit: HighlightUnit
+    change_pct: float | None
+    series: list[float]
+    interval: HighlightInterval = HighlightInterval.DAY
+    url: str | None = None
+    value_format: HighlightValueFormat | None = None
+    period_starts: list[date] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class HighlightItem:
+    key: str
+    source: str
+    label: HighlightLabel
+    priority: HighlightPriority
+    title: str
+    detail: str
+    url: str | None
+    series: list[float] | None
+    score: float
+
+
+@dataclass(frozen=True)
+class Highlights:
+    status: HighlightsStatus
+    generated_at: datetime | None
+    day: date
+    refresh_at: datetime
+    pulse: list[HighlightMetric]
+    items: list[HighlightItem]

@@ -119,7 +119,7 @@ Request volume and the API's rate-limit headers land on one metric set, whicheve
 
 - **Counter** (for example `github_integration_api_requests_total`): request volume, always recorded, including errors, rate-limited responses, and transport exceptions that raise before a response. Labeled `<scope>, method, endpoint, status_code, source`.
 - **Gauges** (for example `github_integration_api_rate_limit_remaining`): last-observed budget headroom parsed from the API's response headers. Labeled `<scope>, resource`, with no `source`, because the budget is shared across sources. The gauges are optional: a domain declares only the ones its API reports, and parses only headers the API documents.
-- **Decisions** (`outbound_rate_limit_decisions_total`): one sample per limiter admission, labeled `domain, source, priority, granted`.
+- **Decisions** (`outbound_rate_limit_decisions_total`): one sample per limiter admission, labeled `domain, scope, source, priority, granted`. `scope` is the id segment of the limiter key, the same value the domain's request counter records, so a denial joins to the budget owner it hit. A policy opts in with `scope_in_metrics=True`, as the GitHub policies do; any other domain records an empty `scope`, so a key scoped per PostHog team adds no series per team.
 
 Each domain keeps its own metric names, so existing dashboards stay valid.
 The `source` label (e.g. `integration`, `visual_review`, `warehouse`) carries per-subsystem attribution.

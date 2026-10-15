@@ -4,7 +4,7 @@ from unittest import TestCase as UnitTestCase
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
@@ -1332,8 +1332,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert signal_kwargs["artifact_ids"] == []
         assert signal_kwargs["actor_user_id"] == self.user.id
         assert signal_kwargs["message_id"] is not None
-        # The message is queued on the workflow, so the :eyes: reaction stays up — it
-        # is not swapped to :hedgehog: until the task genuinely completes.
+        # The message is queued on the workflow, so the :eyes: reaction stays up.
         mock_slack_instance.client.reactions_add.assert_called_once_with(
             channel="C123", timestamp="1234.5679", name="eyes"
         )
@@ -1564,7 +1563,7 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
 
-class TestEventLevelDedupe(TestCase):
+class TestEventLevelDedupe(SimpleTestCase):
     """Verify that the workflow ID format supports event-level deduplication."""
 
     def test_same_event_id_produces_same_workflow_id(self):

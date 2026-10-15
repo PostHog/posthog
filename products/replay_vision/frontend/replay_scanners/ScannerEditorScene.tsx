@@ -47,6 +47,7 @@ import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackBu
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ExampleObservations } from './components/ExampleObservations'
 import { ScannerBudget } from './components/ScannerBudget'
+import { ScannerDraftStatus } from './components/ScannerDraftStatus'
 import { ScannerGoalDraft } from './components/ScannerGoalDraft'
 import { ScannerGoalFlow } from './components/ScannerGoalFlow'
 import { ScannerGoalOverview } from './components/ScannerGoalOverview'
@@ -113,7 +114,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     // Multivariate flag; a truthy check would turn the goal flow on for control too.
-    const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V2] === 'test'
+    const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V3] === 'test'
     // Read once on mount, because the wizard strips the deep-link params as soon as it consumes them.
     const [experimentDeepLink] = useState(() => parseExperimentScannerParams(router.values.searchParams) !== null)
     // Reached a form step by clicking Edit on the goal overview: the overview is home, not a wizard
@@ -204,8 +205,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                     </div>
                                     <h1 className="text-2xl font-bold m-0">What should the scanner find out?</h1>
                                     <p className="text-base text-secondary max-w-2xl mx-auto m-0">
-                                        Describe the goal, set a monthly budget, and the agent drafts the whole scanner
-                                        for you to review.
+                                        Describe the goal, and the agent drafts the whole scanner for you to review.
                                     </p>
                                 </div>
                                 <ScannerGoalFlow />
@@ -551,6 +551,7 @@ function EditorFooter({
             {step === 'budget' && durationError ? <div className="text-danger text-sm">{durationError}</div> : null}
             {fromOverview ? (
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                    <ScannerDraftStatus scannerId={scannerId} fromOverview />
                     <LemonButton
                         type="tertiary"
                         onClick={handleCancel}
@@ -580,6 +581,7 @@ function EditorFooter({
                         </LemonButton>
                     ) : null}
                     <div className="flex flex-wrap items-center gap-2 ml-auto">
+                        <ScannerDraftStatus scannerId={scannerId} fromOverview={false} />
                         <LemonButton
                             type="tertiary"
                             onClick={handleCancel}

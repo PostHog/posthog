@@ -158,7 +158,6 @@ class DummyExportWorkflow(PostHogWorkflow):
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             # TODO: Remove after updating existing batch exports.
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=None,
             exception_to_raise=inputs.exception_to_raise,

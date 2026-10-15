@@ -2,27 +2,26 @@ import json
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
-import pytest
-from unittest import mock
-
 from parameterized import parameterized
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.veeqo import VeeqoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.settings import VEEQO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.source import VeeqoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.veeqo import (
     VeeqoPaginator,
     VeeqoResumeConfig,
     _build_initial_params,
     _format_incremental_value,
     validate_credentials,
-    veeqo_source,
-)
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the veeqo module.
-VEEQO_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.veeqo.make_tracked_session"
 )
 
 
@@ -34,33 +33,13 @@ def _response(body: Any, status_code: int = 200, headers: dict[str, str] | None 
     return resp
 
 
-def _make_manager(resume_state: VeeqoResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _page(body: Any, status: int = 200, headers: dict[str, str] | None = None) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=body, headers=headers or {})
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    ``request.params`` is mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _run(script: Script, endpoint: str = "orders", api_key: str = "key", **kwargs: Any) -> DriveResult:
+    driver = SourceDriver(VeeqoSource(), VeeqoSourceConfig(api_key=api_key))
+    return driver.run(endpoint, script, **kwargs)
 
 
 def _full_page(page_size: int = 100) -> list[dict[str, Any]]:
@@ -130,135 +109,112 @@ class TestValidateCredentials:
             ("server_error", 500, False),
         ]
     )
-    @mock.patch(VEEQO_SESSION_PATCH)
-    def test_status_mapping(
-        self, _name: str, status_code: int, expected_ok: bool, mock_session: mock.MagicMock
-    ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        ok, error = validate_credentials("key")
+    def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json=[]))):
+            ok, error = validate_credentials("key")
+
         assert ok is expected_ok
         if not expected_ok:
             assert error is not None
 
-    @mock.patch(VEEQO_SESSION_PATCH)
-    def test_network_error_returns_false(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        ok, error = validate_credentials("key")
+    def test_network_error_returns_false(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            ok, error = validate_credentials("key")
+
         assert ok is False
         assert error is not None
 
-    @mock.patch(VEEQO_SESSION_PATCH)
-    def test_key_is_redacted_from_captured_samples(self, mock_session: mock.MagicMock) -> None:
+    def test_key_is_redacted_from_captured_samples(self) -> None:
         # `x-api-key` isn't in the shared auth-header denylist, so the key must be
         # passed as a `redact_values` literal to keep it out of captured HTTP samples.
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("secret-key")
-        assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
+        with scripted_network([ScriptedResponse(json=[])]) as network:
+            validate_credentials("secret-key")
+
+        assert network.session_options[0]["redact_values"] == ("secret-key",)
+        assert network.requests_log[0].headers["x-api-key"] == "secret-key"
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_and_saves_state_after_each_non_terminal_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_paginates_and_saves_state_after_each_non_terminal_page(self) -> None:
+        result = _run(
             [
-                _response(_full_page(), headers={"X-Total-Pages-Count": "2"}),
-                _response([{"id": 900}], headers={"X-Total-Pages-Count": "2"}),
-            ],
+                _page(_full_page(), headers={"X-Total-Pages-Count": "2"}),
+                _page([{"id": 900}], headers={"X-Total-Pages-Count": "2"}),
+            ]
         )
 
-        manager = _make_manager()
-        rows = _rows(veeqo_source("key", "orders", team_id=1, job_id="j", resumable_source_manager=manager))
+        assert len(result.rows) == 101
+        assert result.params("page") == ["1", "2"]
+        assert result.params("page_size")[0] == "100"
+        # State saved once, only while a next page remains to resume from.
+        assert result.saved_states == [VeeqoResumeConfig(endpoint="orders", page=2)]
 
-        assert len(rows) == 101
-        assert [p["page"] for p in params] == [1, 2]
-        assert params[0]["page_size"] == 100
-        # State saved once — only while a next page remains to resume from.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == VeeqoResumeConfig(endpoint="orders", page=2)
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = _run([_page([{"id": 1}])])
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page_when_endpoint_matches(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 1}])])
+        assert result.params("page") == ["1"]
 
-        manager = _make_manager(VeeqoResumeConfig(endpoint="orders", page=7))
-        _rows(veeqo_source("key", "orders", team_id=1, job_id="j", resumable_source_manager=manager))
+    def test_resumes_from_saved_page_when_endpoint_matches(self) -> None:
+        result = _run([_page([{"id": 1}])], resume_state=VeeqoResumeConfig(endpoint="orders", page=7))
 
-        assert params[0]["page"] == 7
+        assert result.params("page") == ["7"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_first_page_sends_min_filter_on_every_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_ignores_saved_page_of_another_endpoint(self) -> None:
+        result = _run([_page([{"id": 1}])], resume_state=VeeqoResumeConfig(endpoint="products", page=7))
+
+        assert result.params("page") == ["1"]
+
+    def test_incremental_first_page_sends_min_filter_on_every_page(self) -> None:
+        result = _run(
             [
-                _response(_full_page(), headers={"X-Total-Pages-Count": "2"}),
-                _response([{"id": 900}]),
+                _page(_full_page(), headers={"X-Total-Pages-Count": "2"}),
+                _page([{"id": 900}]),
             ],
-        )
-
-        _rows(
-            veeqo_source(
-                "key",
-                "orders",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-                incremental_field="updated_at",
-            )
+            incremental_field="updated_at",
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
         # The filter must stay on every page — the paginator only advances `page`.
-        assert all(p["updated_at_min"] == "2026-01-01 00:00:00" for p in params)
+        assert result.params("updated_at_min") == ["2026-01-01 00:00:00"] * 2
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_redirects_are_refused(self, MockSession) -> None:
+    def test_redirects_are_refused(self) -> None:
         # requests preserves the custom x-api-key header across redirects, so a
         # redirect response could replay the full-account key to another host —
         # every sync request must be sent with redirects disabled.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}])])
+        result = _run(
+            [
+                _page([], status=302, headers={"Location": "https://evil.example.com/steal"}),
+                _page([{"id": 1}]),
+            ]
+        )
 
-        _rows(veeqo_source("key", "orders", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+        assert len(result.requests) == 1
+        assert {request.origin for request in result.requests} == {"https://api.veeqo.com"}
 
-        assert session.send.call_args.kwargs["allow_redirects"] is False
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_body_fails_loud(self, MockSession) -> None:
+    def test_non_list_body_fails_loud(self) -> None:
         # Veeqo list responses are documented as bare arrays; a wrapper object on a
         # 200 means the response shape changed and must not sync as a single row.
-        session = MockSession.return_value
-        _wire(session, [_response({"orders": [{"id": 1}]})])
+        result = _run([_page({"orders": [{"id": 1}]})])
 
-        with pytest.raises(ValueError, match="list"):
-            _rows(veeqo_source("key", "orders", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "list" in str(result.raised)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_api_key_is_redacted_from_captured_samples(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}])])
+    def test_api_key_is_redacted_from_captured_samples(self) -> None:
+        result = _run([_page([{"id": 1}])], api_key="secret-key")
 
-        _rows(veeqo_source("secret-key", "orders", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
         # The framework api_key auth exposes the key via secret_values(), which the
         # tracked session receives as redact_values.
-        assert "secret-key" in MockSession.call_args.kwargs["redact_values"]
+        assert any("secret-key" in options.get("redact_values", ()) for options in result.session_options)
+        assert result.requests[0].headers["x-api-key"] == "secret-key"
 
 
 class TestVeeqoSourceResponse:
     @parameterized.expand([(name,) for name in VEEQO_ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = veeqo_source(
-            "key",
-            endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
+        response = _run([_page([])], endpoint=endpoint).response
+
         config = VEEQO_ENDPOINTS[endpoint]
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         # Veeqo documents no list ordering, so the watermark must only commit after

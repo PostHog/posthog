@@ -1,9 +1,14 @@
 from typing import Any
 
+import time_machine
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailersend import (
     MailerSendSourceConfig,
 )
@@ -55,27 +60,23 @@ class TestNonRetryableErrors:
 
 
 class TestResumableWiring:
-    def test_source_for_pipeline_plumbs_arguments(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
+    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+        result = SourceDriver(MailerSendSource(), _config()).run(
+            "activity",
+            [
+                ScriptedResponse(json={"data": [{"id": "d1"}], "links": {"next": None}}),
+                ScriptedResponse(json={"data": [{"id": "a1"}], "links": {"next": None}}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-06-01T00:00:00Z",
+        )
 
-        def fake_source(**kwargs: Any) -> Any:
-            captured.update(kwargs)
-            return MagicMock()
-
-        monkeypatch.setattr(source_module, "mailersend_source", fake_source)
-
-        inputs = MagicMock()
-        inputs.schema_name = "activity"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-06-01T00:00:00Z"
-        manager = MagicMock()
-
-        MailerSendSource().source_for_pipeline(_config(), manager, inputs)
-
-        assert captured["api_token"] == "mlsn.token"
-        assert captured["endpoint"] == "activity"
-        assert captured["should_use_incremental_field"] is True
-        assert captured["db_incremental_field_last_value"] == "2026-06-01T00:00:00Z"
+        assert result.raised is None
+        assert result.paths == ["/v1/domains", "/v1/activity/d1"]
+        assert result.requests[1].headers["authorization"] == "Bearer mlsn.token"
+        assert result.requests[1].param("date_from") == "1780272000"
+        assert result.rows[0]["id"] == "a1"
 
     def test_source_for_pipeline_drops_last_value_when_not_incremental(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}

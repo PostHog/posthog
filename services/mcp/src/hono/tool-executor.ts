@@ -21,6 +21,8 @@ import {
     MCPToolResultError,
     findPostHogPermissionError,
     findRecoverableApiError,
+    hasTimeoutCause,
+    isTimeoutError,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
@@ -34,6 +36,7 @@ import {
     describeInputShape,
     describeValidationError,
     formatInputValidationError,
+    getDeprecatedToolRedirect,
     markNoncanonicalMetricRun,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
@@ -266,7 +269,8 @@ export class ToolExecutor {
 
         if (!state.allTools.some((t) => t.name === toolName)) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
-            return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+            const text = getDeprecatedToolRedirect(toolName, state.allTools) ?? `Tool ${toolName} not found`
+            return { content: [{ type: 'text', text }], isError: true }
         }
 
         const preBuilt = this.catalog.getToolByName(toolName)
@@ -978,7 +982,7 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
     }
-    if (error instanceof Error && error.name === 'TimeoutError') {
+    if (hasTimeoutCause(error)) {
         return { errorType: 'timeout' }
     }
 
@@ -1079,7 +1083,7 @@ function resolveSafeErrorMessage(error: unknown): string | undefined {
     if (error instanceof ExecCommandError) {
         return `Exec command rejected: ${error.reason}`
     }
-    if (error instanceof Error && error.name === 'TimeoutError') {
+    if (isTimeoutError(error)) {
         return 'Tool call timed out'
     }
     const apiError = findRecoverableApiError(error)

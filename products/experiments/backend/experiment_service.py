@@ -65,11 +65,15 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
+from products.experiments.backend.logic.result_stats import MetricTimeseries
+from products.experiments.backend.logic.timeseries_text import ExperimentTimeseriesFormatter
 from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
+    build_primary_calculation_configs,
     saved_metric_calculation_keys,
     stamp_calculation_keys,
 )
+from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
@@ -84,7 +88,6 @@ from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_MARKER,
     Experiment,
     ExperimentHoldout,
-    ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
@@ -2749,34 +2752,28 @@ class ExperimentService:
             completed_metadata["duration"] = int((experiment.end_date - experiment.start_date).total_seconds())
 
         # Look up whether the primary metric reached significance from the
-        # latest cached result in Postgres (ExperimentMetricResult). This is
+        # current stored result in Postgres (ExperimentMetricResult). This is
         # safe to call here because it's a simple indexed lookup — it reads
         # previously cached results, never triggers a ClickHouse query or
         # result computation. Returns None immediately if no results exist yet.
         try:
-            first_metric = experiment.metrics[0] if experiment.metrics else None
-            if first_metric and first_metric.get("uuid"):
-                metric_result = (
-                    ExperimentMetricResult.objects.filter(
-                        experiment=experiment,
-                        metric_uuid=first_metric["uuid"],
-                        status=ExperimentMetricResult.Status.COMPLETED,
-                    )
-                    .order_by("-completed_at")
-                    .first()
-                )
-                if metric_result and metric_result.result:
-                    # Significance lives on each variant. The top-level `significant` is a legacy
-                    # field that stored results leave null. A variant's value is null when
-                    # validation stopped the analysis, so only computed values decide.
-                    variant_results = metric_result.result.get("variant_results") or []
-                    computed = [
-                        variant["significant"]
-                        for variant in variant_results
-                        if isinstance(variant, dict) and isinstance(variant.get("significant"), bool)
-                    ]
-                    if computed:
-                        completed_metadata["significant"] = any(computed)
+            primary_metric = next(iter(build_primary_calculation_configs(experiment)), None)
+            outcome = (
+                MetricResultStore(experiment_id=experiment.id).current_outcome(primary_metric)
+                if primary_metric is not None
+                else None
+            )
+            if outcome is not None:
+                # Significance lives on each variant. The top-level `significant` is a legacy
+                # field that stored results leave null. A variant's value is null when
+                # validation stopped the analysis, so only computed values decide.
+                computed = [
+                    variant["significant"]
+                    for variant in outcome.variant_results
+                    if isinstance(variant.get("significant"), bool)
+                ]
+                if computed:
+                    completed_metadata["significant"] = any(computed)
         except Exception:
             logger.exception(
                 "Failed to look up metric significance",
@@ -4449,9 +4446,9 @@ class ExperimentService:
         for experiment_date in experiment_dates:
             timeseries[experiment_date.isoformat()] = None
 
-        metric_results = ExperimentMetricResult.objects.filter(
-            experiment_id=experiment.id, metric_uuid=metric_uuid, fingerprint=fingerprint
-        ).order_by("query_to")
+        stored = MetricResultStore(experiment_id=experiment.id).timeseries(
+            metric_uuid, fingerprint, timezone=project_tz
+        )
 
         completed_count = 0
         failed_count = 0
@@ -4459,18 +4456,11 @@ class ExperimentService:
         no_record_count = 0
         latest_completed_at = None
 
-        results_by_date: dict[date, ExperimentMetricResult] = {}
-        for result in metric_results:
-            query_to_adjusted = result.query_to - timedelta(microseconds=1)
-            query_to_in_project_tz = query_to_adjusted.astimezone(project_tz)
-            day_in_project_tz = query_to_in_project_tz.date()
-            results_by_date[day_in_project_tz] = result
-
         for experiment_date in experiment_dates:
             date_key = experiment_date.isoformat()
 
-            if experiment_date in results_by_date:
-                metric_result = results_by_date[experiment_date]
+            if experiment_date in stored.by_day:
+                metric_result = stored.by_day[experiment_date]
 
                 if metric_result.status == "completed":
                     timeseries[date_key] = strip_step_sessions(metric_result.result)
@@ -4509,8 +4499,6 @@ class ExperimentService:
             ],
         ).first()
 
-        first_result = metric_results.first()
-        last_result = metric_results.last()
         response = {
             "experiment_id": experiment.id,
             "metric_uuid": metric_uuid,
@@ -4518,16 +4506,16 @@ class ExperimentService:
             "timeseries": timeseries,
             "errors": errors if errors else None,
             "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
-            "created_at": first_result.created_at.isoformat() if first_result else experiment.created_at.isoformat(),
-            "updated_at": last_result.updated_at.isoformat() if last_result else experiment.updated_at.isoformat(),
+            "created_at": stored.earliest.created_at.isoformat()
+            if stored.earliest
+            else experiment.created_at.isoformat(),
+            "updated_at": stored.latest.updated_at.isoformat() if stored.latest else experiment.updated_at.isoformat(),
             "recalculation_status": active_recalculation.status if active_recalculation else None,
             "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
-        from ee.hogai.context.experiment.format import (
-            ExperimentTimeseriesFormatter,  # noqa: PLC0415 — keeps the heavy ee.hogai/langgraph chain off the import path
-        )
-
-        response["formatted_results"] = ExperimentTimeseriesFormatter(response).format()
+        response["formatted_results"] = ExperimentTimeseriesFormatter(
+            MetricTimeseries.from_stored(status=overall_status, timeseries=timeseries)
+        ).format()
         return response
 
     def request_timeseries_recalculation(
@@ -4540,6 +4528,9 @@ class ExperimentService:
         """Create an idempotent recalculation request for experiment timeseries data."""
         if not experiment.is_launched:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
+
+        # The backfill runs this metric without a user, so the caller's warehouse access is checked here.
+        enforce_warehouse_metric_access([metric], team=self.team, user=self.user)
 
         existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
             experiment=experiment,
@@ -4563,11 +4554,7 @@ class ExperimentService:
 
         metric_uuid = metric.get("uuid")
         if metric_uuid:
-            ExperimentMetricResult.objects.filter(
-                experiment_id=experiment.id,
-                metric_uuid=metric_uuid,
-                fingerprint=fingerprint,
-            ).delete()
+            MetricResultStore(experiment_id=experiment.id).delete_daily_points(metric_uuid, fingerprint)
 
         recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
             team=experiment.team,

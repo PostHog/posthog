@@ -104,12 +104,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             if marker in _TERMINAL_STATE_MARKERS:
                 # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
                 task_run.state = TaskRun.update_state_atomic(task_run.id, updates={marker: True})
-            if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
-                task_run.completed_at = timezone.now()
-            elif (
-                input.status == TaskRun.Status.CANCELLED
-                and task_run.environment == TaskRun.Environment.CLOUD
-                and not task_run.completed_at
+            if not task_run.completed_at and (
+                input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]
+                or (input.status == TaskRun.Status.CANCELLED and task_run.environment == TaskRun.Environment.CLOUD)
             ):
                 task_run.completed_at = timezone.now()
             task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
@@ -159,16 +156,6 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             if input.timed_out_inactivity
             else ("released" if input.status == TaskRun.Status.CANCELLED else "other"),
         )
-
-    if input.status in _TERMINAL_STATUSES:
-        from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> process_task -> activities import cycle
-            handle_loop_run_terminal,
-        )
-
-        try:
-            handle_loop_run_terminal(task_run, error_type=input.error_type)
-        except Exception:
-            activity.logger.warning(f"Failed loop terminal bookkeeping for run {task_run.id}", exc_info=True)
 
     log_with_activity_context(
         "Task run status updated",
@@ -265,6 +252,8 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                 {
                     "duration_seconds": task_run._duration_seconds(),
                     "termination_reason": termination_reason,
+                    # A lost sandbox still completes the run, and this message carries its exit reason, e.g. OOM.
+                    "error_message": truncate_error_message(input.error_message),
                     "has_summary": bool((task_run.state or {}).get("task_summary")),
                     **relay_state,
                 },

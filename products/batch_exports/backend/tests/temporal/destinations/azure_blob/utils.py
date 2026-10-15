@@ -140,7 +140,7 @@ def extract_model_configuration(
             schema["values"] if schema else None,
         )
 
-    return "custom", batch_export_model["fields"], None, batch_export_model["values"]
+    return "events", batch_export_model["fields"], None, batch_export_model["values"]
 
 
 async def assert_clickhouse_records_in_azure_blob(
@@ -166,7 +166,7 @@ async def assert_clickhouse_records_in_azure_blob(
     )
     model_name, fields, filters, extra_query_parameters = extract_model_configuration(batch_export_model)
 
-    if model_name == "events":
+    if model_name == "events" and fields is None:
         assert all("azure_blob_ingested_timestamp" in record for record in exported_records), (
             "Export didn't include ingested timestamp when expected"
         )
@@ -236,7 +236,7 @@ async def assert_clickhouse_records_in_azure_blob(
 
 TEST_AZURE_BLOB_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
     BatchExportModel(
-        name="a-custom-model",
+        name="events",
         schema={
             "fields": [
                 {"expression": "uuid", "alias": "uuid"},
@@ -290,7 +290,6 @@ async def run_azure_blob_batch_export_workflow(
     file_format: str = "JSONLines",
     compression: str | None = None,
     batch_export_model: BatchExportModel | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
     legacy_parquet_extension: bool = True,
 ):
     """Run the Azure Blob batch export workflow and return the run result."""
@@ -307,7 +306,6 @@ async def run_azure_blob_batch_export_workflow(
         legacy_parquet_extension=legacy_parquet_extension,
         integration_id=integration_id,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:

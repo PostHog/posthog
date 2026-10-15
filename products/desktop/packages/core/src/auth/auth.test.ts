@@ -6,7 +6,7 @@ import {
   OAUTH_SCOPE_VERSION,
 } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthService } from "./auth";
+import { AuthService, type FetchLike } from "./auth";
 import type {
   AuthOrgProjectPreferenceRecord,
   AuthPreferenceRecord,
@@ -220,7 +220,10 @@ describe("AuthService", () => {
     );
   };
 
-  function createService(extraFetchOrigins: string[] = []): AuthService {
+  function createService(
+    extraFetchOrigins: string[] = [],
+    fetchImpl?: FetchLike,
+  ): AuthService {
     return new AuthService(
       preferencePort,
       sessionPort,
@@ -231,6 +234,7 @@ describe("AuthService", () => {
       mockLogger,
       null,
       extraFetchOrigins,
+      fetchImpl,
     );
   }
 
@@ -2451,6 +2455,25 @@ describe("AuthService", () => {
         status: "error",
         reason: null,
       });
+    });
+
+    it("checks access through the injected fetch when the global fetch fails", async () => {
+      stubAuthFetch();
+      const injectedFetch = globalThis.fetch;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockRejectedValue(new TypeError("fetch failed")),
+      );
+      service = createService([], injectedFetch);
+
+      await service.initialize();
+
+      expect(service.getState().desktopAccess).toEqual({
+        projectId: 42,
+        status: "allowed",
+        reason: null,
+      });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
     it("retries after a technical failure", async () => {

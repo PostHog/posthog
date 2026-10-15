@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "implementation_instructions": {
+            "description": "Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.",
+            "maxLength": 20000,
+            "type": "string"
+        },
+        "research_instructions": {
+            "description": "Project-level instructions for the dedicated signal report research stage. Other agent roles do not receive them. Blank uses project instructions only.",
+            "maxLength": 20000,
+            "type": "string"
+        },
+        "scout_instructions": {
+            "description": "Project-level instructions added to every scout run, alongside project instructions and the scout's own brief. Blank uses project instructions only.",
+            "maxLength": 20000,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

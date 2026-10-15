@@ -72,6 +72,7 @@ from posthog.schema_enums import (
     Breakdown1 as Breakdown1,
     BreakdownAttributionType as BreakdownAttributionType,
     BreakdownType as BreakdownType,
+    Calculation as Calculation,
     CalendarHeatmapMathType as CalendarHeatmapMathType,
     ChartDisplayCategory as ChartDisplayCategory,
     ChartDisplayType as ChartDisplayType,
@@ -95,6 +96,7 @@ from posthog.schema_enums import (
     DataColorToken as DataColorToken,
     DataTableNodeViewPropsContextType as DataTableNodeViewPropsContextType,
     DataWarehouseSavedQueryOrigin as DataWarehouseSavedQueryOrigin,
+    DatePart as DatePart,
     DaysOfWeekEnum as DaysOfWeekEnum,
     DeepResearchType as DeepResearchType,
     DefaultChannelTypes as DefaultChannelTypes,
@@ -120,6 +122,7 @@ from posthog.schema_enums import (
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
     EventMatchScope as EventMatchScope,
+    ExecutionTarget as ExecutionTarget,
     ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
     ExperimentApiPropertyBreakdownType as ExperimentApiPropertyBreakdownType,
     ExperimentExposureHealthFindingActionKind as ExperimentExposureHealthFindingActionKind,
@@ -276,10 +279,12 @@ from posthog.schema_enums import (
     RetentionType as RetentionType,
     RoktAdsDefaultSources as RoktAdsDefaultSources,
     Scale as Scale,
+    Scope as Scope,
     SeriesColorMode as SeriesColorMode,
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
     SessionTableVersion as SessionTableVersion,
+    Shelf as Shelf,
     SidebarDensity as SidebarDensity,
     SlackIntegrationScope as SlackIntegrationScope,
     SlashCommandName as SlashCommandName,
@@ -516,10 +521,7 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
     displayType: DisplayType | None = Field(
         default=None,
         description=(
-            "Override how this individual series is rendered, independent of the"
-            " chart-level `display` type. Use this to mix series types — e.g. plot one"
-            " series as `bar` and overlay another as `line`. `auto` follows the"
-            " chart-level display type."
+            "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type."
         ),
     )
     label: str | None = Field(
@@ -979,6 +981,14 @@ class BIConditionGroup(BaseModel):
     operator: Operator1
 
 
+class Alias(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: str | None = None
+
+
 class BIDataSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -991,13 +1001,23 @@ class BILocalFieldDefinition1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregate: bool
+    expression: str
+    kind: Literal["expression"] = "expression"
+
+
+class BILocalFieldDefinition2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     expression: str
     groups: list[BICategoryGroup]
     kind: Literal["groups"] = "groups"
     other: str
+    preserveUngrouped: bool | None = None
 
 
-class BILocalFieldDefinition2(BaseModel):
+class BILocalFieldDefinition3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1231,6 +1251,14 @@ class DataWarehouseSourceUsage(BaseModel):
 class DataWarehouseSyncWarning(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    data_is_current: bool | None = Field(
+        default=None,
+        description=(
+            "True when the last sync is still within the table's sync interval, so the"
+            " data is current and the warning only says it will stop updating (a sync"
+            " paused recently). False or absent when the data is out of date."
+        ),
     )
     message: str = Field(..., description="Human-readable warning shown to the user")
     schema_name: str = Field(
@@ -1806,10 +1834,18 @@ class GoalLine(BaseModel):
         extra="forbid",
     )
     borderColor: str | None = None
+    calculation: Calculation | None = Field(
+        default=None,
+        description=("Recalculate from returned chart marks. An absent calculation uses the fixed value."),
+    )
     displayIfCrossed: bool | None = None
     displayLabel: bool | None = None
     label: str
     position: Position | None = None
+    scope: Scope | None = Field(
+        default=None,
+        description=("SQL chart calculations use the primary axis, across all series or separately per series."),
+    )
     value: float
 
 
@@ -2705,7 +2741,11 @@ class MetricsQuerySeries(BaseModel):
     points: list[MetricsQueryPoint]
     unit: str | None = Field(
         default=None,
-        description=('UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one.'),
+        description=(
+            'UCUM unit of the returned values, e.g. "By", "ms", "1/s". It is the'
+            " ingested unit, except that a count of series has no unit and a rate is"
+            " per second. Empty when the values have no unit."
+        ),
     )
 
 
@@ -4033,6 +4073,11 @@ class AssistantElementPropertyFilter5(BaseModel):
     )
 
 
+class AssistantEventsQuery(BaseModel):
+    kind: Literal["EventsQuery"] = "EventsQuery"
+    select: list[str] = Field(..., description="Event columns as HogQL expressions.")
+
+
 class AssistantForm(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5110,9 +5155,12 @@ class BIField(BaseModel):
         extra="forbid",
     )
     dateBucket: BIDateBucket | None = None
+    datePart: DatePart | None = None
     expression: str
     id: str
-    localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | None = None
+    label: str | None = None
+    localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | BILocalFieldDefinition3 | None = None
+    localFieldId: str | None = None
     name: str
     source: BIDataSource
     type: DatabaseSerializedFieldType
@@ -5125,10 +5173,20 @@ class BIFilter(BaseModel):
     customExpression: str | None = None
     enabled: bool | None = None
     field: BIField
+    label: str | None = None
     operator: BIFilterOperator
     value: str
     valueTo: str | None = None
     values: list[str] | None = None
+
+
+class BIHierarchy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    levels: list[BIField] = Field(..., description="Ordered from the broadest dimension to the most detailed.")
+    name: str
 
 
 class BIResultFilter(BaseModel):
@@ -5137,6 +5195,7 @@ class BIResultFilter(BaseModel):
     )
     enabled: bool | None = None
     id: str
+    label: str | None = None
     measureIndex: conint(ge=0)
     operator: Operator2
     value: str
@@ -5190,6 +5249,7 @@ class BIValue(BaseModel):
     field: BIField
     formatting: ChartSettingsFormatting | None = None
     label: str | None = None
+    shelf: Shelf | None = Field(default=None, description="Measures in older worksheets belong to rows.")
     tableCalculation: BITableCalculation | None = None
 
 
@@ -5936,6 +5996,10 @@ class FileSystemImport(BaseModel):
         alias="_loading",
         description="Used to indicate pending actions, frontend only",
     )
+    alternativeFlags: list[str] | None = Field(
+        default=None,
+        description=("Other flags that also show the item. The item is shown when `flag` or any of these is on."),
+    )
     category: str | None = Field(default=None, description="Category label to place this under")
     created_at: str | None = Field(
         default=None,
@@ -6184,6 +6248,17 @@ class HogQLQueryModifiers(BaseModel):
             " one UNION ALL join, so their scans overlap"
         ),
     )
+    negatedPersonFiltersNotIn: bool | None = Field(
+        default=None,
+        description=(
+            "Replace negated person-property filters in the WHERE of an `events` query"
+            " (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM"
+            " persons WHERE <the filters fail>)`, so the query no longer joins every"
+            " person. Applies only when every filtered person property has a"
+            " materialized column, nothing else in the query reads that persons join,"
+            " and the join would be a LEFT JOIN."
+        ),
+    )
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     parserMode: ParserMode | None = Field(
@@ -6242,6 +6317,17 @@ class HogQLQueryModifiers(BaseModel):
         ),
     )
     useMaterializedViews: bool | None = None
+    useNewEventsCluster: bool | None = Field(
+        default=None,
+        description=(
+            "Read this query from the native events cluster and native JSON events"
+            " table (`true`), or keep its existing connection (`false` or unset). This"
+            " is an internal rollout switch for eligible projects. PostHog staff manage"
+            " eligibility through instance settings. Each query must opt in; project"
+            " defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons"
+            " are supported."
+        ),
+    )
     useNewEventsSchema: bool | None = Field(
         default=None,
         description=(
@@ -6849,6 +6935,13 @@ class MaxRecordingEventFilter(BaseModel):
     )
     id: str = Field(..., description="Name of the event.")
     name: str | None = Field(default=None, description="Optional display name for this event.")
+    negation: bool | None = Field(
+        default=None,
+        description=(
+            "Set to true to match sessions that did NOT contain this event. Only set it"
+            " when the tool description says excluding sessions by event is supported."
+        ),
+    )
     properties: (
         list[
             AssistantCohortPropertyFilter
@@ -8293,8 +8386,13 @@ class SurveyAppearanceSchema(BaseModel):
     borderColor: str | None = None
     buttonColor: str | None = None
     buttonTextColor: str | None = None
+    displayIntroScreen: bool | None = None
     inputBackground: str | None = None
     inputTextColor: str | None = None
+    introScreenButtonText: str | None = None
+    introScreenDescription: str | None = None
+    introScreenDescriptionContentType: SurveyQuestionDescriptionContentType | None = None
+    introScreenHeader: str | None = None
     maxWidth: str | None = None
     placeholder: str | None = None
     position: SurveyPosition | None = None
@@ -10133,6 +10231,11 @@ class AssistantBehavioralPropertyFilter(BaseModel):
     value: InlineBehavioralType
 
 
+class AssistantDataTableNode(BaseModel):
+    kind: Literal["DataTableNode"] = "DataTableNode"
+    source: AssistantEventsQuery
+
+
 class AssistantDataVisualizationNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10144,18 +10247,13 @@ class AssistantDataVisualizationNode(BaseModel):
     display: AssistantDataVisualizationDisplayType | None = Field(
         default=None,
         description=(
-            "Visualization type. Defaults to `ActionsTable` when"
-            " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
-            " row) → `BoldNumber`.\n- Headline number with its change over time (KPI,"
-            " scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie` or"
-            " `ActionsDonut`.\n- Categorical comparison → `ActionsBar` or"
-            " `ActionsStackedBar`.\n- Ranking of categories by one value (top N,"
-            " horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation →"
-            " `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures,"
-            " one point per row → `ScatterPlot`.\n- Distribution summaries from"
-            " pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n-"
-            " Otherwise → `ActionsTable`."
+            "Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` ="
+            " KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie`"
+            " / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` /"
+            " `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal"
+            " rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two"
+            " measures; `BoxPlot` = distribution summaries with"
+            " `chartSettings.boxPlot`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
@@ -11328,11 +11426,30 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
     )
 
 
+class HierarchyDrillPathItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filterIds: list[str]
+    hierarchyId: str
+    nextField: BIField
+    previousField: BIField
+
+
+class MemberAliase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aliases: list[Alias]
+    field: BIField
+
+
 class BIConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     chartType: ChartDisplayType
+    colorBy: str | None = None
     columns: list[BIField]
     compareFilter: CompareFilter | None = None
     comparisonPeriod: ComparisonPeriod | None = Field(
@@ -11345,10 +11462,16 @@ class BIConfig(BaseModel):
     )
     dateRange: DateRange | None = None
     filters: list[BIFilter]
+    hierarchies: list[BIHierarchy] | None = Field(
+        default=None,
+        description=("Named dimension sequences saved with the worksheet; imports are independent copies."),
+    )
+    hierarchyDrillPath: list[HierarchyDrillPathItem] | None = None
     limit: BIQueryLimit
     localFields: list[BIField] | None = Field(
         default=None, description="Reusable expressions owned by this worksheet only."
     )
+    memberAliases: list[MemberAliase] | None = None
     missingDates: MissingDates | None = Field(
         default=None,
         description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
@@ -18902,10 +19025,22 @@ class InsightActorsQueryBase(BaseModel):
 
 class InsightQuery(
     RootModel[
-        AssistantInsightVizNode | AssistantDataVisualizationNode | AssistantBareInsightQuery | AssistantBareHogQLQuery
+        AssistantDataTableNode
+        | AssistantInsightVizNode
+        | AssistantDataVisualizationNode
+        | AssistantBareInsightQuery
+        | AssistantBareHogQLQuery
+        | AssistantEventsQuery
     ]
 ):
-    root: AssistantInsightVizNode | AssistantDataVisualizationNode | AssistantBareInsightQuery | AssistantBareHogQLQuery
+    root: (
+        AssistantDataTableNode
+        | AssistantInsightVizNode
+        | AssistantDataVisualizationNode
+        | AssistantBareInsightQuery
+        | AssistantBareHogQLQuery
+        | AssistantEventsQuery
+    )
 
 
 class IsolationForestDetectorConfig(BaseModel):
@@ -30684,6 +30819,10 @@ class HogQLQuery(BaseModel):
             " instead of ClickHouse — a pure-direct source, or a synced source with"
             " direct query enabled."
         ),
+    )
+    executionTarget: ExecutionTarget | None = Field(
+        default=None,
+        description="Compile and run this query against the hosted Trino target.",
     )
     explain: bool | None = None
     filters: HogQLFilters | None = Field(

@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     RAILWAY_PROXY_CONNECTION_MESSAGE,
     SYNC_RUN_STALLED_MESSAGE,
     SYNC_RUN_TOO_LONG_MESSAGE,
+    TRANSIENT_CONNECT_DROPPED_MESSAGE,
     TRANSIENT_EGRESS_MESSAGE,
     TRANSIENT_POOLER_MESSAGE,
     TRANSIENT_SOURCE_CONNECTION_MESSAGE,
@@ -355,10 +356,17 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
         # psycopg's connect-time wrapper around a dropped TLS session. The address is a
         # documentation-reserved one, standing in for the host the driver echoes back.
         (
-            "postgres_ssl_drop",
+            "postgres_ssl_drop_at_connect",
             ExternalDataSourceType.POSTGRES,
             'connection failed: connection to server at "198.51.100.7", port 5432 failed: '
             "SSL SYSCALL error: EOF detected",
+            TRANSIENT_CONNECT_DROPPED_MESSAGE,
+        ),
+        # The same drop on an established connection, which keeps the idle-connection copy.
+        (
+            "postgres_server_closed_mid_stream",
+            ExternalDataSourceType.POSTGRES,
+            "consuming input failed: server closed the connection unexpectedly",
             TRANSIENT_SOURCE_CONNECTION_MESSAGE,
         ),
         # A connect-time capacity refusal. The generic map has no entry for it, so the Postgres

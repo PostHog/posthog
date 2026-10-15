@@ -21,21 +21,40 @@ RUNNING_BUT_NO_ROLLOUT = "running_but_no_rollout"
 RUNNING_BUT_SINGLE_VARIANT_SHIPPED = "running_but_single_variant_shipped"
 ENDED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT = "ended_but_multiple_variants_rolled_out"
 NOT_STARTED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT = "not_started_but_multiple_variants_rolled_out"
+# pinned: the page sends it as `finding_variant` on its events, as the keys above. No banner uses it.
+RUNNING_BUT_FLAG_DELETED = "running_but_flag_deleted"
 
 _NOT_RUNNING_BUT_EXPOSED_TITLE = "The experiment is not running, but users are exposed to multiple variants"
 
 
 def flag_state(ctx: HealthContext) -> ExperimentHealthFinding | None:
     flag = ctx.flag
-    # A deleted flag distributes no traffic, so flag-state findings don't apply.
-    if flag is None or flag.deleted:
+    if flag is None:
+        return None
+
+    if flag.deleted:
+        # A deleted flag distributes no traffic, so the other flag-state findings don't apply. This branch
+        # comes before the paused one because a flag is often disabled before it is deleted. The page's own
+        # rule returns nothing here, so this finding has no banner, and the page's events that compare the
+        # two report it as a difference.
+        if ctx.is_running:
+            return _finding(
+                code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
+                subcode=RUNNING_BUT_FLAG_DELETED,
+                title="The experiment is running, but its feature flag is deleted",
+                detail=(
+                    "The linked feature flag is deleted, so no new users are being exposed. Users exposed "
+                    "earlier are still included in the results. Open the feature flag and restore it, or end "
+                    "the experiment with a conclusion."
+                ),
+            )
         return None
 
     zero_rollout = _has_zero_rollout(flag)
     single_variant_shipped = is_single_variant_shipped(flag)
 
     if ctx.is_running:
-        if not flag.active:
+        if ctx.is_paused:
             return _finding(
                 code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
                 subcode=RUNNING_BUT_FLAG_DISABLED,
