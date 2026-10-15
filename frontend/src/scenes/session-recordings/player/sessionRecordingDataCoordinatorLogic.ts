@@ -234,6 +234,24 @@ export interface SessionRecordingDataCoordinatorLogicProps {
 // ~5 minutes but measure from different events, so tune them together, not in isolation.
 export const INGESTION_GRACE_PERIOD_MINUTES = 5
 
+export function recordingDurationMs(
+    start: Dayjs | null,
+    end: Dayjs | null,
+    meta: SessionRecordingType | null,
+    fullyLoaded: boolean,
+    livePolling: boolean
+): number {
+    if (!start || !end) {
+        return 0
+    }
+    const snapshotDuration = end.diff(start)
+    // metadata is not reloaded while live, so its duration falls behind the new snapshots
+    if (fullyLoaded && meta?.recording_duration && !livePolling) {
+        return Math.min(snapshotDuration, meta.recording_duration * 1000)
+    }
+    return snapshotDuration
+}
+
 export function isWithinIngestionGracePeriod(start: Dayjs | null): boolean {
     return start != null && now().diff(start, 'minute') <= INGESTION_GRACE_PERIOD_MINUTES
 }
@@ -273,7 +291,6 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     bufferedToTime: number | null
     createExportJSON: () => ExportedSessionRecordingFileV2
     customRRWebEvents: customEvent[]
-    durationMs: number
     effectiveSourceLoadingStates: SourceLoadingState[]
     end: Dayjs | null
     fullyLoaded: boolean
@@ -488,13 +505,6 @@ export interface sessionRecordingDataCoordinatorLogicMeta {
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
             sessionPlayerMetaData: SessionRecordingType | null
         ) => Dayjs | null
-        durationMs: (
-            start: Dayjs | null,
-            end: Dayjs | null,
-            sessionPlayerMetaData: SessionRecordingType | null,
-            fullyLoaded: boolean,
-            livePolling: boolean
-        ) => number
         segments: (
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
             start: Dayjs | null,
@@ -895,23 +905,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         durationMs: [
             (s) => [s.start, s.end, s.sessionPlayerMetaData, s.fullyLoaded, s.livePolling],
-            (
-                start: Dayjs | null,
-                end: Dayjs | null,
-                meta: SessionRecordingType | null,
-                fullyLoaded: boolean,
-                livePolling: boolean
-            ): number => {
-                if (!start || !end) {
-                    return 0
-                }
-                const snapshotDuration = end.diff(start)
-                // metadata is not reloaded while live, so its duration falls behind the new snapshots
-                if (fullyLoaded && meta?.recording_duration && !livePolling) {
-                    return Math.min(snapshotDuration, meta.recording_duration * 1000)
-                }
-                return snapshotDuration
-            },
+            recordingDurationMs,
         ],
 
         segments: [

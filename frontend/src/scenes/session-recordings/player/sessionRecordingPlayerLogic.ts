@@ -815,6 +815,7 @@ export interface sessionRecordingPlayerLogicValues {
     errorCount: number
     explorerMode: SessionRecordingPlayerExplorerProps | null
     followLive: boolean
+    followLiveRequested: boolean
     forceShowPlayerChrome: boolean
     fromRRWebPlayerTime: (time?: number | undefined) => number | undefined
     hasLateFullSnapshot: boolean
@@ -1317,6 +1318,7 @@ export interface sessionRecordingPlayerLogicActions {
 export interface sessionRecordingPlayerLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        followLive: (followLiveRequested: any, featureFlags: FeatureFlagsSet) => boolean
         playerFrameDocumentFailed: (playerFrameLoadFailures: number, playerFrameLoadStopped: boolean) => boolean
         sessionRecordingId: (sessionRecordingId: string) => string
         logicProps: (arg: any) => SessionRecordingPlayerLogicProps
@@ -1873,7 +1875,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 initializePlayerFromStart: () => null,
             },
         ],
-        followLive: [
+        followLiveRequested: [
             false,
             {
                 setFollowLive: (_, { followLive }) => followLive,
@@ -1886,7 +1888,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setEndReached: (_, { reached }) => reached,
                 setFollowLive: () => false,
                 setPlay: () => false,
-                seekToTimestamp: () => false,
                 openExplorer: () => false,
                 setIsCommenting: (state, { isCommenting }) => (isCommenting ? false : state),
             },
@@ -1948,6 +1949,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     })),
     selectors({
+        followLive: [
+            (s) => [s.followLiveRequested, s.featureFlags],
+            (requested, featureFlags: FeatureFlagsSet): boolean =>
+                requested && !!featureFlags[FEATURE_FLAGS.REPLAY_FOLLOW_LIVE],
+        ],
         // Nothing resets this, because the frame's src stops changing once the retries run out.
         playerFrameDocumentFailed: [
             (s) => [s.playerFrameLoadFailures, s.playerFrameLoadStopped],
@@ -3351,6 +3357,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             values.player?.replayer?.pause()
         },
         setFollowLive: ({ followLive }) => {
+            if (!values.featureFlags[FEATURE_FLAGS.REPLAY_FOLLOW_LIVE]) {
+                return
+            }
             posthog.capture('recording follow live toggled', { follow_live: followLive })
             actions.setLivePolling(followLive)
             const end = values.sessionPlayerData.end?.valueOf()
