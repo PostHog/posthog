@@ -91,7 +91,7 @@ Summary only. Detail in [failure-modes](failure-modes.md).
 
 - Category picked, then a search that finds nothing: ~16% of opens with a
   category pick have an empty result after the pick, vs ~4% of opens
-  without one.
+  without one. The ~4% is too low: Suggested sends no empty-result event.
 - Most empty searches are ordinary words in the wrong scope.
 - Recovery within 30s of an empty result fell from ~46% to ~39%
   (Jul to Oct 2026, health dashboard session tile) while the empty-result

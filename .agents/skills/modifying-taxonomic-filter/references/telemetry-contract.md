@@ -42,8 +42,12 @@ neither.
 ## Search and results
 
 - `taxonomic_filter_search_query`: `searchQuery`, `groupType`,
-  `inputMode`, `pastedFraction`. Legacy only.
+  `inputMode`, `pastedFraction`. Both surfaces send it (the rebuild from
+  `menu/Combobox.tsx`), so filter by `surface`.
 - `taxonomic filter empty result`: `groupType`, `searchQuery`, `surface`.
+  Legacy sends it only from a remote list on the active tab. Suggested is
+  a local list, so its empty state sends nothing. Add coverage there
+  before you measure a change to the Suggested empty state.
 - `taxonomic filter search latency`: `groupType`, `searchQuery`,
   `resultCount`, `time_to_see_data_ms`, `surface`.
 - `taxonomic filter fetch failed`: `groupType`, `searchQuery`, `surface`.

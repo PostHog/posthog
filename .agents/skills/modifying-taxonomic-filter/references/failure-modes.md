@@ -12,6 +12,9 @@ another group, and gets nothing.
   common than the reverse order. ~16% of opens with a category pick have
   an empty result after the pick, vs ~4% of opens without one. Selection
   rate drops ~13 points.
+- **Caveat:** the ~4% is too low. Opens that stay on Suggested send no
+  empty-result event, so their empty states are not counted. The 2.7x
+  order ratio does not depend on Suggested, so lean on it first.
 - **Why:** the active category silently narrows search. Users don't hold
   the category in mind once they start typing.
 - **Fix direction:** search all groups even when a tab is active. Show the

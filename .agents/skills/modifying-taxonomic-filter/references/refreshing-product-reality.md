@@ -147,6 +147,9 @@ ORDER BY share_pct DESC
 Splits sessions into opens at `taxonomic filter add filter clicked`, then
 compares opens with and without a category pick. This is approximate:
 opens that don't emit the click are merged into the previous one.
+Suggested sends no `taxonomic filter empty result`, so the
+without-category empty rate is too low. `category_then_empty_ratio` only
+compares opens with a category pick, so it does not have this bias.
 Drives failure mode 1 in [failure-modes](failure-modes.md).
 
 ```sql
