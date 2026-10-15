@@ -9,12 +9,14 @@ import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { MCP_INSTALL_COMMAND } from 'lib/components/MCPHint/constants'
 import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { getSurfacePrompts, stripDisplayQuotes } from 'lib/components/MCPHint/prompts'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 const SURFACE_KEY = 'ai_observability_evaluations.create'
 
 export function EvaluationAgentCard(): JSX.Element | null {
     const { effectiveOptOut, userRole } = useValues(mcpHintLogic)
     const { reportUseCaseCardShown, reportAgentOpened } = useActions(mcpHintLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
     const visible = !effectiveOptOut
 
     useEffect(() => {
@@ -36,34 +38,39 @@ export function EvaluationAgentCard(): JSX.Element | null {
                     <IconSparkles className="size-4 shrink-0 text-accent" />
                     <span>Find evaluations with your agent</span>
                 </h2>
-                <AgentPromptButton
-                    actions={[
-                        {
-                            key: 'prompt',
-                            label: 'prompt',
-                            buildPrompt: () => stripDisplayQuotes(prompt),
-                        },
-                    ]}
-                    labelMode="destination"
-                    size="sm"
-                    variant="outline"
-                    onRun={({ agentKey }) => reportAgentOpened(SURFACE_KEY, 'card', agentKey)}
-                    data-attr="mcp-hint-card-agent-button"
-                />
+                {/* The PostHog MCP server only serves cloud and dev instances, so a self-hosted user has nothing to connect to. */}
+                {isCloudOrDev && (
+                    <AgentPromptButton
+                        actions={[
+                            {
+                                key: 'prompt',
+                                label: 'prompt',
+                                buildPrompt: () => stripDisplayQuotes(prompt),
+                            },
+                        ]}
+                        labelMode="destination"
+                        size="sm"
+                        variant="outline"
+                        onRun={({ agentKey }) => reportAgentOpened(SURFACE_KEY, 'card', agentKey)}
+                        data-attr="mcp-hint-card-agent-button"
+                    />
+                )}
             </div>
             <CodeSnippet compact wrap thing="prompt" className="w-full">
                 {prompt}
             </CodeSnippet>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-secondary">
-                <span>First time? Connect the PostHog MCP server:</span>
-                <CommandBlock
-                    command={MCP_INSTALL_COMMAND}
-                    copyLabel="MCP install command"
-                    ariaLabel="Copy MCP install command"
-                    size="sm"
-                    className="bg-surface-secondary border border-primary !m-0"
-                />
-            </div>
+            {isCloudOrDev && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-secondary">
+                    <span>First time? Connect the PostHog MCP server:</span>
+                    <CommandBlock
+                        command={MCP_INSTALL_COMMAND}
+                        copyLabel="MCP install command"
+                        ariaLabel="Copy MCP install command"
+                        size="sm"
+                        className="bg-surface-secondary border border-primary !m-0"
+                    />
+                </div>
+            )}
         </div>
     )
 }

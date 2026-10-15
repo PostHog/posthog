@@ -1247,8 +1247,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             properties: [],
                         },
                     ],
-                    target: 'generation' as const,
-                    target_config: {},
+                    target: template?.target ?? 'generation',
+                    target_config: template?.target
+                        ? seedSettleConfig(template.target, defaultStrategyForTarget(template.target))
+                        : {},
                     model_configuration: null,
                     total_runs: 0,
                     created_at: new Date().toISOString(),

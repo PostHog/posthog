@@ -1,5 +1,5 @@
 import { getHogEvalExample } from './hogEvalExamples'
-import type { EvaluationOutputConfig } from './types'
+import type { EvaluationOutputConfig, EvaluationTarget } from './types'
 
 export type EvaluationTemplateIcon =
     | 'target'
@@ -25,6 +25,8 @@ interface BaseTemplate {
     name: string
     description: string
     icon: EvaluationTemplateIcon
+    /** Defaults to 'generation'. */
+    target?: EvaluationTarget
 }
 
 interface ScoredTemplate extends BaseTemplate {
@@ -75,6 +77,8 @@ Consider accuracy, completeness, and clarity together:
         description: 'Labels each trace as resolved, partly resolved, or unresolved',
         evaluation_type: 'llm_judge',
         icon: 'check-circle',
+        // An outcome only makes sense once the whole task is done, not after each step.
+        target: 'trace',
         output_type: 'categorical',
         output_config: {
             selection_mode: 'single',
@@ -166,6 +170,7 @@ Consider accuracy, completeness, and clarity together:
         description: 'Labels what the user wants from each conversation: an answer, a fix, a feature, or an action',
         evaluation_type: 'llm_judge',
         icon: 'chat',
+        target: 'trace',
         output_type: 'categorical',
         output_config: {
             selection_mode: 'single',

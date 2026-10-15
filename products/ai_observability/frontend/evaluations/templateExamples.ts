@@ -162,7 +162,7 @@ export const EVALUATION_TEMPLATE_EXAMPLES: Record<string, EvaluationTemplateExam
             assistant('Reach out to jane.doe@example.com or call 555-010-0199.'),
         ],
         result: { ...NO_RESULT, result: false },
-        reasoning: 'Failed 2 of 4 checks: No emails, No phone numbers',
+        reasoning: 'No emails matched. No phone numbers matched. Failed 2 of 4 checks.',
         distribution: passFail(97),
     },
     refusals: {
@@ -171,7 +171,7 @@ export const EVALUATION_TEMPLATE_EXAMPLES: Record<string, EvaluationTemplateExam
             assistant("I'm sorry, but I can't help with that request."),
         ],
         result: { ...NO_RESULT, result: false },
-        reasoning: 'Refusal detected: "I\'m sorry, but I"',
+        reasoning: 'Refusal detected: "I can\'t"',
         distribution: passFail(94),
     },
     tools_called: {
@@ -186,8 +186,9 @@ export const EVALUATION_TEMPLATE_EXAMPLES: Record<string, EvaluationTemplateExam
             user('How do I reset my password?'),
             assistant('Go to Settings, choose Security, then select Reset password.'),
         ],
-        result: { ...NO_RESULT, result: true },
-        reasoning: 'All required keywords found.',
+        result: { ...NO_RESULT, result: false },
+        reasoning:
+            'Missing the required keywords. The template ships with placeholder keywords, so edit the list first.',
         distribution: passFail(79),
     },
     cost_latency: {

@@ -1,6 +1,7 @@
 import { IconCheck, IconX } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
+import { numericScorePasses } from '../constants'
 import type { EvaluationTemplate } from '../templates'
 
 const MAX_CATEGORIES = 2
@@ -9,15 +10,17 @@ const MAX_SCALE_STEPS = 10
 function NumericPreview({ template }: { template: EvaluationTemplate }): JSX.Element {
     const { min, max, step, passing_rule } = template.output_config
     const threshold = passing_rule && 'threshold' in passing_rule ? passing_rule : null
-    const passes = (value: number): boolean =>
-        !threshold || (threshold.operator === 'gte' ? value >= threshold.threshold : value <= threshold.threshold)
 
     if (min != null && max != null && step && (max - min) / step < MAX_SCALE_STEPS) {
         const values = Array.from({ length: Math.round((max - min) / step) + 1 }, (_, i) => min + i * step)
         return (
             <>
                 {values.map((value) => (
-                    <LemonTag key={value} type={passes(value) ? 'success' : 'muted'} size="small">
+                    <LemonTag
+                        key={value}
+                        type={numericScorePasses(value, passing_rule) ? 'success' : 'muted'}
+                        size="small"
+                    >
                         {value}
                     </LemonTag>
                 ))}

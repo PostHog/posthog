@@ -1235,6 +1235,8 @@ return result`,
                             selection_mode: 'single',
                             passing_rule: { categories: ['resolved'] },
                         }),
+                        target: 'trace',
+                        target_config: expect.objectContaining({ strategy: 'fixed_window' }),
                     },
                 },
                 {
