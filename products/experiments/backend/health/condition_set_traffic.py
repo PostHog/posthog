@@ -23,6 +23,7 @@ load of the experiment page. A failed scan is cached as unknown too.
 
 import json
 import hashlib
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -201,13 +202,7 @@ def _load_condition_set_traffic(experiment: Experiment, ctx: HealthContext) -> C
         return None
     cache.set(
         cache_key,
-        {
-            "since": traffic.since,
-            "team_timezone": traffic.team_timezone,
-            "people_by_set": dict(traffic.people_by_set),
-            "calls": traffic.calls,
-            "remotely_evaluated_calls": traffic.remotely_evaluated_calls,
-        },
+        asdict(traffic),
         _TOO_FEW_PEOPLE_CACHE_SECONDS if has_too_few_people(ctx, traffic) else _ANSWER_CACHE_SECONDS,
     )
     return traffic
