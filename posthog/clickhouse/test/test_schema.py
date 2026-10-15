@@ -251,7 +251,7 @@ def test_flag_evaluations_read_table_declares_every_stored_column():
 _FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT = {"inserted_at", "_offset", "_partition"}
 
 # MATERIALIZED, so no insert can name them, and every shard computes them from the JSON.
-_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMNS = {
+_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMN_NAMES = {
     group_definition.get_column_name(source_column, group_name)
     for source_column, group_name, group_definition in iter_groups(flag_evaluations_property_group_definitions)
 }
@@ -269,7 +269,7 @@ def test_flag_evaluations_backfill_copies_every_stored_column():
         set(_COPIED_COLUMNS)
         | typed
         | _FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT
-        | _FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMNS
+        | _FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMN_NAMES
     )
 
 
@@ -294,7 +294,7 @@ _FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {
     "person_properties",
     "person_created_at",
     "person_mode",
-    *_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMNS,
+    *_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMN_NAMES,
 }
 
 

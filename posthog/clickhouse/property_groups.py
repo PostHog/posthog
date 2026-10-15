@@ -232,13 +232,19 @@ def without_materialization(definitions: PropertyGroupDefinitions) -> PropertyGr
     }
 
 
-# Flag calls carry no $ai_* keys, so the ai groups are left out. No column on this table family carries a CODEC.
+# Flag calls carry no $ai_* keys, so the ai groups are left out. The feature_flags group is left out because a
+# $feature/* map would copy a large share of each flag call's JSON. No column on this table family carries a CODEC.
+# hidden=True stops HogQL from reading the maps, so it reads the JSON until every environment has the columns.
 flag_evaluations_property_group_definitions: PropertyGroupDefinitions = {
     "properties": {
-        "custom": dataclasses.replace(event_property_group_definitions["properties"]["custom"], codec=None),
+        "custom": dataclasses.replace(
+            event_property_group_definitions["properties"]["custom"], codec=None, hidden=True
+        ),
     },
     "person_properties": {
-        "custom": dataclasses.replace(event_property_group_definitions["person_properties"]["custom"], codec=None),
+        "custom": dataclasses.replace(
+            event_property_group_definitions["person_properties"]["custom"], codec=None, hidden=True
+        ),
     },
 }
 
@@ -248,9 +254,8 @@ property_groups = PropertyGroupManager(
         # the events distributed table shares the same property group names and types as the sharded_events table,
         # just without the materialize statements
         "events": without_materialization(event_property_group_definitions),
-        # HogQL looks groups up by the table it prints, which is the Distributed flag_evaluations. Registering only the
-        # sharded table adds the columns without changing any query.
         "sharded_flag_evaluations": flag_evaluations_property_group_definitions,
+        "flag_evaluations": without_materialization(flag_evaluations_property_group_definitions),
         "logs_distributed": {
             "attributes": {
                 "str": PropertyGroupDefinition(
