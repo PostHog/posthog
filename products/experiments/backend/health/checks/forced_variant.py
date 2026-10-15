@@ -20,7 +20,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped, shipped_variant_key
-from products.experiments.backend.health.context import ConditionSetTraffic, HealthContext, ReachableCondition
+from products.experiments.backend.health.context import ConditionSetTraffic, HealthContext, ReachableCondition, Split
 from products.experiments.backend.health.split_changes import format_change_time
 
 # pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
@@ -31,9 +31,10 @@ ALL_CONDITIONS_PINNED = "all_conditions_pinned"
 # assignment, so they bias the comparison unless the analysis excludes them, for example as test users.
 SOME_CONDITIONS_PINNED = "some_conditions_pinned"
 
-# The severity of SOME_CONDITIONS_PINNED follows the share of the experiment's users that the pinned conditions
-# served in this window, or since launch or the flag's last save if later. Below the first share they can't move a
-# variant's results much, so there is no finding. Above the second they are a warning.
+# The severity of SOME_CONDITIONS_PINNED follows the largest share that pinned users make up of one variant's users,
+# in this window, or since launch or the flag's last save if later. The bias is per variant, so a few pinned users
+# weigh more in a small variant. Below the first share they can't move a variant's results much, so there is no
+# finding. Above the second they are a warning.
 TRAFFIC_WINDOW = timedelta(days=7)
 _NO_FINDING_BELOW_SHARE = 0.01
 _WARNING_ABOVE_SHARE = 0.05
@@ -58,6 +59,7 @@ class _Pins:
     pinned: tuple[ReachableCondition, ...]
     all_pinned: bool
     weighted: tuple[ReachableCondition, ...]
+    split: Split
     # The pinned conditions whose variant has 0% in the split. The hash assigns nobody to such a variant, so it
     # holds its users apart, such as internal users or a holdout, and they are not part of the comparison.
     unweighted: tuple[ReachableCondition, ...]
@@ -65,12 +67,19 @@ class _Pins:
 
 @frozen
 class _Measurement:
+    most_pinned_variant: str
     pinned_people: int
+    # The variant's pinned people, and its weight in the split of the people assigned at random.
+    variant_people: float
     # The people that a condition set served, without those pinned to a variant with 0% in the split.
     matched_people: int
     remotely_evaluated_share: float | None
     since: datetime
     team_timezone: str
+
+    @property
+    def share(self) -> float:
+        return self.pinned_people / self.variant_people if self.variant_people else 0.0
 
 
 @frozen
@@ -85,7 +94,9 @@ class _Grade:
         evidence: dict[str, str | int | float | None] = {}
         if self.measurement is not None:
             remotely_evaluated_share = self.measurement.remotely_evaluated_share
+            evidence["most_pinned_variant"] = self.measurement.most_pinned_variant
             evidence["pinned_people"] = self.measurement.pinned_people
+            evidence["variant_people"] = round(self.measurement.variant_people)
             evidence["matched_people"] = self.measurement.matched_people
             evidence["remotely_evaluated_share"] = (
                 None if remotely_evaluated_share is None else round(remotely_evaluated_share, 4)
@@ -101,9 +112,9 @@ class _Grade:
         measurement = self.measurement
         if self.share is not None and measurement is not None:
             return (
-                f" Since {format_change_time(measurement.since, measurement.team_timezone)}, {_percent(self.share)} "
-                f"of the users in the experiment matched {them} "
-                f"({measurement.pinned_people:,} of {measurement.matched_people:,})."
+                f" Since {format_change_time(measurement.since, measurement.team_timezone)}, about "
+                f'{_percent(self.share)} of the users who got "{measurement.most_pinned_variant}" matched {them} '
+                f"({measurement.pinned_people:,} of about {round(measurement.variant_people):,})."
             )
         if self.unknown_reason == PinnedShareUnknownReason.EVALUATED_OUTSIDE_FLAG_SERVICE:
             return (
@@ -164,6 +175,7 @@ def _pins(ctx: HealthContext) -> _Pins | None:
         pinned=pinned,
         all_pinned=len(pinned) == len(flag.reachable_conditions),
         weighted=tuple(condition for condition in pinned if condition.pinned_variant not in unweighted_keys),
+        split=flag.variants,
         unweighted=tuple(condition for condition in pinned if condition.pinned_variant in unweighted_keys),
     )
 
@@ -205,7 +217,7 @@ def _grade(pins: _Pins, traffic: ConditionSetTraffic | None) -> _Grade:
     )
     if measurement.matched_people < _MIN_MATCHED_PEOPLE:
         return _Grade(measurement=measurement, share=None, unknown_reason=unknown_reason)
-    share = measurement.pinned_people / measurement.matched_people
+    share = measurement.share
     clearing_needs_more_calls = (
         remotely_evaluated_share is None or remotely_evaluated_share < _MIN_REMOTELY_EVALUATED_SHARE_TO_CLEAR
     )
@@ -215,13 +227,30 @@ def _grade(pins: _Pins, traffic: ConditionSetTraffic | None) -> _Grade:
 
 
 def _measure(pins: _Pins, traffic: ConditionSetTraffic) -> _Measurement:
-    pinned_numbers = {condition.number for condition in pins.weighted}
     excluded_numbers = {condition.number for condition in pins.unweighted}
+    matched_people = sum(people for number, people in traffic.people_by_set.items() if number not in excluded_numbers)
+    pinned_by_variant = dict.fromkeys(_variant_keys(pins.weighted), 0)
+    for condition in pins.weighted:
+        if condition.pinned_variant is not None:
+            pinned_by_variant[condition.pinned_variant] += traffic.people_by_set.get(condition.number, 0)
+    randomized_people = matched_people - sum(pinned_by_variant.values())
+    weights = {variant.key: variant.rollout_percentage for variant in pins.split}
+
+    def variant_people(key: str) -> float:
+        weight = weights.get(key)
+        # An unreadable weight counts as the whole split, which gives the lowest share the pins can have.
+        return pinned_by_variant[key] + randomized_people * (1.0 if weight is None else weight / 100)
+
+    def share(key: str) -> float:
+        people = variant_people(key)
+        return pinned_by_variant[key] / people if people else 0.0
+
+    most_pinned_variant = max(pinned_by_variant, key=share)
     return _Measurement(
-        pinned_people=sum(people for number, people in traffic.people_by_set.items() if number in pinned_numbers),
-        matched_people=sum(
-            people for number, people in traffic.people_by_set.items() if number not in excluded_numbers
-        ),
+        most_pinned_variant=most_pinned_variant,
+        pinned_people=pinned_by_variant[most_pinned_variant],
+        variant_people=variant_people(most_pinned_variant),
+        matched_people=matched_people,
         remotely_evaluated_share=traffic.remotely_evaluated_calls / traffic.calls if traffic.calls else None,
         since=traffic.since,
         team_timezone=traffic.team_timezone,

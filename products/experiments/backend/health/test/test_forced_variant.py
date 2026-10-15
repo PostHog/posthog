@@ -121,18 +121,35 @@ class TestForcedVariantReleaseCondition(TestCase):
             ),
             (
                 "pinned_share_of_a_few_percent",
-                _context([{**STAFF, "variant": "test"}, EVERYONE], traffic=_traffic({1: 30, 2: 970})),
-                ("some_conditions_pinned", ExperimentHealthFindingSeverity.INFO, "1", "test", 0.03),
+                _context([{**STAFF, "variant": "test"}, EVERYONE], traffic=_traffic({1: 15, 2: 985})),
+                ("some_conditions_pinned", ExperimentHealthFindingSeverity.INFO, "1", "test", 0.0296),
             ),
             (
                 "pinned_share_of_five_percent",
-                _context([{**STAFF, "variant": "test"}, EVERYONE], traffic=_traffic({1: 50, 2: 950})),
+                _context([{**STAFF, "variant": "test"}, EVERYONE], traffic=_traffic({1: 50, 2: 1900})),
                 ("some_conditions_pinned", ExperimentHealthFindingSeverity.INFO, "1", "test", 0.05),
             ),
             (
                 "pinned_share_above_five_percent",
                 _context([{**STAFF, "variant": "test"}, EVERYONE], traffic=_traffic({1: 120, 2: 880})),
-                ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "test", 0.12),
+                ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "test", 0.2143),
+            ),
+            (
+                "pins_to_two_variants_grade_by_the_most_affected",
+                _context(
+                    [{**STAFF, "variant": "control"}, {**IOS, "variant": "test"}, EVERYONE],
+                    traffic=_traffic({1: 10, 2: 30, 3: 960}),
+                ),
+                ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "control, test", 0.0588),
+            ),
+            (
+                "pins_to_a_small_variant",
+                _context(
+                    [{**STAFF, "variant": "test"}, EVERYONE],
+                    variants=[{"key": "control", "rollout_percentage": 90}, {"key": "test", "rollout_percentage": 10}],
+                    traffic=_traffic({1: 20, 2: 980}),
+                ),
+                ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "test", 0.1695),
             ),
             (
                 "too_few_people_to_measure",
@@ -153,7 +170,7 @@ class TestForcedVariantReleaseCondition(TestCase):
                     [{**STAFF, "variant": "test"}, EVERYONE],
                     traffic=_traffic({1: 120, 2: 880}, remotely_evaluated=0.4),
                 ),
-                ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "test", 0.12),
+                ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "test", 0.2143),
             ),
             (
                 "pins_to_a_zero_percent_variant_only",
@@ -167,7 +184,7 @@ class TestForcedVariantReleaseCondition(TestCase):
                     variants=SPLIT_WITH_HOLDOUT,
                     traffic=_traffic({1: 500, 2: 30, 3: 470}),
                 ),
-                ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "2", "test", 0.06),
+                ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "2", "test", 0.1132),
             ),
         ]
     )
@@ -194,7 +211,7 @@ class TestForcedVariantReleaseCondition(TestCase):
             expected,
         )
         self.assertEqual("before launch" in finding.detail, not ctx.is_launched)
-        self.assertEqual("of the users in the experiment" in finding.detail, expected[4] is not None)
+        self.assertEqual("of the users who got" in finding.detail, expected[4] is not None)
 
     @parameterized.expand(
         [

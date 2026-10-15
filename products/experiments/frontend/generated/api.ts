@@ -710,15 +710,15 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * flag and, with an API key, `activity_log:read`) gets that finding for every running
  * experiment, because the changes are not read.
  *
- * The severity of the `some_conditions_pinned` finding follows the share of people that the
- * pinned release conditions served in the last 7 days, or since launch or the flag's last
- * save if later. It reads the flag's calls that name the matched condition: info up to 5%,
- * warning above, and no finding under 1% when at least half of the calls that returned a
- * variant name a condition. The finding is info when the share is unknown, and
- * `evidence.reason` says why: `not_measured` (for example an API key without `query:read`,
- * or a caller denied a flag call property), `too_few_people` (under 100), or
- * `evaluated_outside_flag_service` (most calls come from local evaluation, a bootstrap or
- * the caller's own assignment).
+ * The severity of the `some_conditions_pinned` finding follows the largest share that the
+ * users of the pinned release conditions make up of one variant's users, in the last 7 days,
+ * or since launch or the flag's last save if later. It reads the flag's calls that name the
+ * matched condition: info up to 5%, warning above, and no finding under 1% when at least
+ * half of the calls that returned a variant name a condition. The finding is info when the
+ * share is unknown, and `evidence.reason` says why: `not_measured` (for example an API key
+ * without `query:read`, or a caller denied a flag call property), `too_few_people` (under
+ * 100), or `evaluated_outside_flag_service` (most calls come from local evaluation, a
+ * bootstrap or the caller's own assignment).
  */
 export const experimentsHealthRetrieve = async (
     projectId: string,
