@@ -14,6 +14,7 @@ import {
     type BlockedState,
     blockedState,
     bulkFloorUntil,
+    cacheReadAllowed,
     cacheTargetPassed,
     clearBulkFloors,
     dashboardFloorUntil,
@@ -343,7 +344,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 return
             }
             for (const item of visibleOf(current)) {
-                if (readFloorPassed(item.snapshot()?.readAt)) {
+                if (cacheReadAllowed(item.snapshot()?.readAt, current.bulkFloor)) {
                     send(counters, item.key, item.family, item.windowMode, item.read)
                 }
             }
@@ -387,7 +388,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                     send(counters, item.key, item.family, 'blocking', item.read)
                 } else if (current.container) {
                     rest = true
-                } else if (readFloorPassed(snapshot?.readAt)) {
+                } else if (cacheReadAllowed(snapshot?.readAt, current.bulkFloor)) {
                     send(counters, item.key, item.family, item.windowMode, item.read)
                 }
             }

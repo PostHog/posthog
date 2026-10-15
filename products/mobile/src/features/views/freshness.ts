@@ -73,6 +73,20 @@ export function readFloorPassed(readAt: number | null | undefined, now: number =
     return !readAt || now - readAt >= READ_FLOOR_MS
 }
 
+/**
+ * True when the button or pull may re-read one item from the cache. On a screen with a bulk floor, which is the list,
+ * each item re-reads at most once per 5 minutes. Otherwise a pull every minute re-reads every pin each minute and
+ * empties the insights bucket within the hour, which stops every insight read in the app. A single view re-reads after
+ * a minute.
+ */
+export function cacheReadAllowed(
+    readAt: number | null | undefined,
+    bulkFloor: boolean,
+    now: number = Date.now()
+): boolean {
+    return !readAt || now - readAt >= (bulkFloor ? RECHECK_MS : READ_FLOOR_MS)
+}
+
 export type StatusLine =
     | { kind: 'hidden'; text: null }
     | { kind: 'updating'; text: string }
