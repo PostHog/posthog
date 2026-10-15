@@ -61,7 +61,6 @@ function actionLook(
 }
 
 interface SwipeToReadRowProps {
-    read: boolean
     onMarkRead: () => void
     onMarkUnread: () => void
     /** `pressBlocked` is true while a drag runs and briefly after it, so the row can ignore the press a drag makes. */
@@ -69,19 +68,19 @@ interface SwipeToReadRowProps {
 }
 
 /**
- * A full-swipe commit around an inbox row: swipe right marks an unread report read, swipe left marks a read report
- * unread. The other direction has no action. The children keep their own press and long press, because the pan
- * activates only after 14pt of horizontal travel.
+ * A full-swipe commit around an inbox row: swipe right marks the report read, swipe left marks it unread. Both
+ * directions always play, so a swipe toward the state the row already has still gives the same feedback. The
+ * children keep their own press and long press, because the pan activates only after 14pt of horizontal travel.
  */
-export function SwipeToReadRow({ read, onMarkRead, onMarkUnread, children }: SwipeToReadRowProps): ReactElement {
+export function SwipeToReadRow({ onMarkRead, onMarkUnread, children }: SwipeToReadRowProps): ReactElement {
     const reduceMotion = useReducedMotion()
     const [width, setWidth] = useState(0)
     const offset = useSharedValue(0)
     /** 0 to 1 with spring overshoot: how far the action has moved into its armed look. */
     const armed = useSharedValue(0)
     const isArmed = useSharedValue(false)
-    /** The direction of the drag on screen. It does not follow `read` while the row settles after a commit. */
-    const shownDirection = useSharedValue<SwipeDirection>(read ? -1 : 1)
+    /** The side of the drag on screen. Only a gesture frame sets it, so the return animation never flips it. */
+    const shownDirection = useSharedValue<SwipeDirection>(1)
     const settling = useSharedValue(false)
     const live = useSharedValue(false)
     const startX = useSharedValue(0)
@@ -103,7 +102,6 @@ export function SwipeToReadRow({ read, onMarkRead, onMarkUnread, children }: Swi
     const pressBlocked = useCallback((): boolean => swiping.current, [])
 
     const pan = useMemo(() => {
-        const direction: SwipeDirection = read ? -1 : 1
         const threshold = commitDistance(width)
         const [x1, y1, x2, y2] = motion.emphasizedBezier
         const setArmed = (next: boolean): void => {
@@ -137,7 +135,6 @@ export function SwipeToReadRow({ read, onMarkRead, onMarkUnread, children }: Swi
                 if (!live.value) {
                     return
                 }
-                shownDirection.value = direction
                 startX.value = event.translationX
             })
             .onUpdate((event) => {
@@ -145,8 +142,11 @@ export function SwipeToReadRow({ read, onMarkRead, onMarkUnread, children }: Swi
                 if (!live.value) {
                     return
                 }
-                offset.value = rowOffset(event.translationX - startX.value, direction, width)
-                const next = offset.value * direction >= threshold
+                offset.value = rowOffset(event.translationX - startX.value, width)
+                if (offset.value !== 0) {
+                    shownDirection.value = offset.value > 0 ? 1 : -1
+                }
+                const next = Math.abs(offset.value) >= threshold
                 if (next !== isArmed.value) {
                     setArmed(next)
                     // Arming is the moment the swipe takes effect, so it gets the impact. Leaving the zone only ticks.
@@ -163,6 +163,7 @@ export function SwipeToReadRow({ read, onMarkRead, onMarkUnread, children }: Swi
                     springBack()
                     return
                 }
+                const direction = shownDirection.value
                 scheduleOnRN(haptic, 'light')
                 if (reduceMotion) {
                     setArmed(false)
@@ -191,7 +192,6 @@ export function SwipeToReadRow({ read, onMarkRead, onMarkUnread, children }: Swi
                 }
             })
     }, [
-        read,
         width,
         reduceMotion,
         onMarkRead,

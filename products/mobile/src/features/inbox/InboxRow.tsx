@@ -36,7 +36,9 @@ export const InboxRow = memo(function InboxRow({
     const readAction = item.read ? MARK_UNREAD_ACTION : MARK_READ_ACTION
     const swipe = (read: boolean): void => {
         track('mobile_inbox_report_swiped', { action: read ? 'mark_read' : 'mark_unread', report_id: item.reportId })
-        onSetRead(item.reportId, read)
+        if (read !== item.read) {
+            onSetRead(item.reportId, read)
+        }
     }
     const onAccessibilityAction = (event: AccessibilityActionEvent): void => {
         if (event.nativeEvent.actionName === readAction.name) {
@@ -51,7 +53,7 @@ export const InboxRow = memo(function InboxRow({
     const when =
         item.state === 'snoozed' && item.snoozeLabel ? item.snoozeLabel : formatRelativeAgo(item.updatedAt, now)
     return (
-        <SwipeToReadRow read={item.read} onMarkRead={() => swipe(true)} onMarkUnread={() => swipe(false)}>
+        <SwipeToReadRow onMarkRead={() => swipe(true)} onMarkUnread={() => swipe(false)}>
             {(pressBlocked) => (
                 <Pressable44
                     {...menuTrigger}

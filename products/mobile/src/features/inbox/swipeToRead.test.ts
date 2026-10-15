@@ -9,12 +9,11 @@ describe('swipe to read', () => {
     })
 
     test.each([
-        ['follows the finger toward a rightward action', 150, 1, 150],
-        ['follows the finger toward a leftward action', -150, -1, -150],
-        ['holds the row back on the left when the action is on the right', -300, 1, -11.19],
-        ['holds the row back on the right when the action is on the left', 300, -1, 11.19],
-        ['resists drag past the row width', 400, 1, 342.96],
-    ] as const)('%s', (_name, translationX, direction, expected) => {
-        expect(rowOffset(translationX, direction, 320)).toBeCloseTo(expected, 1)
+        ['follows the finger to the right', 150, 150],
+        ['follows the finger to the left', -150, -150],
+        ['resists drag past the row width to the right', 400, 342.96],
+        ['resists drag past the row width to the left', -400, -342.96],
+    ] as const)('%s', (_name, translationX, expected) => {
+        expect(rowOffset(translationX, 320)).toBeCloseTo(expected, 1)
     })
 })

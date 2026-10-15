@@ -7,8 +7,6 @@ export type SwipeDirection = 1 | -1
  */
 const MIN_COMMIT_DISTANCE = 104
 const COMMIT_FRACTION = 0.3
-/** The direction with no action moves the row this far at most, so the row feels alive but shows nothing. */
-const INERT_LIMIT = 12
 const OVERDRAG_LIMIT = 48
 /** The coefficient iOS scroll views use for their rubber band. */
 const RUBBER_BAND_COEFFICIENT = 0.55
@@ -23,14 +21,12 @@ export function rubberBand(distance: number, limit: number): number {
     return limit * (1 - 1 / ((distance * RUBBER_BAND_COEFFICIENT) / limit + 1))
 }
 
-export function rowOffset(translationX: number, direction: SwipeDirection, width: number): number {
+export function rowOffset(translationX: number, width: number): number {
     'worklet'
-    const travel = translationX * direction
-    if (travel < 0) {
-        return -direction * rubberBand(-travel, INERT_LIMIT)
-    }
+    const travel = Math.abs(translationX)
     if (travel <= width) {
         return translationX
     }
+    const direction: SwipeDirection = translationX > 0 ? 1 : -1
     return direction * (width + rubberBand(travel - width, OVERDRAG_LIMIT))
 }
