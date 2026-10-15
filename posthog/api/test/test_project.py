@@ -35,6 +35,10 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
+STORED_LOGS_SETTINGS = {"retention_days": 30, "retention_last_updated": "2025-01-01T00:00:00+00:00"}
+CHANGED_LOGS_SETTINGS = {"retention_days": 14, "retention_last_updated": "2025-01-03T00:00:01+00:00"}
+RESENT_LOGS_SETTINGS = {**STORED_LOGS_SETTINGS, "json_parse_logs_attribute_key": "changed"}
+
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
     """
@@ -1055,41 +1059,48 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
     @parameterized.expand(
         [
-            ("team", TeamSerializer, {}, False, None),
-            ("project", ProjectBackwardCompatSerializer, {}, False, None),
-            ("team_raced", TeamSerializer, {}, True, None),
-            ("project_raced", ProjectBackwardCompatSerializer, {}, True, None),
-            ("team_raced_with_conversations", TeamSerializer, {"conversations_enabled": True}, True, None),
+            ("team", TeamSerializer, {}, False, STORED_LOGS_SETTINGS, CHANGED_LOGS_SETTINGS),
+            ("project", ProjectBackwardCompatSerializer, {}, False, STORED_LOGS_SETTINGS, CHANGED_LOGS_SETTINGS),
+            ("team_first_settings", TeamSerializer, {}, False, None, CHANGED_LOGS_SETTINGS),
+            ("project_cleared", ProjectBackwardCompatSerializer, {}, False, STORED_LOGS_SETTINGS, None),
+            ("team_raced", TeamSerializer, {}, True, STORED_LOGS_SETTINGS, CHANGED_LOGS_SETTINGS),
+            ("project_raced", ProjectBackwardCompatSerializer, {}, True, STORED_LOGS_SETTINGS, CHANGED_LOGS_SETTINGS),
+            (
+                "team_raced_with_conversations",
+                TeamSerializer,
+                {"conversations_enabled": True},
+                True,
+                STORED_LOGS_SETTINGS,
+                CHANGED_LOGS_SETTINGS,
+            ),
             (
                 "project_raced_with_conversations",
                 ProjectBackwardCompatSerializer,
                 {"conversations_enabled": True},
                 True,
-                None,
+                STORED_LOGS_SETTINGS,
+                CHANGED_LOGS_SETTINGS,
             ),
-            ("project_raced_with_name", ProjectBackwardCompatSerializer, {"name": "New Project Name"}, True, None),
             (
-                "team_raced_resent_period",
-                TeamSerializer,
-                {},
+                "project_raced_with_name",
+                ProjectBackwardCompatSerializer,
+                {"name": "New Project Name"},
                 True,
-                {
-                    "retention_days": 30,
-                    "retention_last_updated": "2025-01-01T00:00:00+00:00",
-                    "json_parse_logs_attribute_key": "changed",
-                },
+                STORED_LOGS_SETTINGS,
+                CHANGED_LOGS_SETTINGS,
             ),
+            ("team_raced_resent_period", TeamSerializer, {}, True, STORED_LOGS_SETTINGS, RESENT_LOGS_SETTINGS),
             (
                 "project_raced_resent_period",
                 ProjectBackwardCompatSerializer,
                 {},
                 True,
-                {
-                    "retention_days": 30,
-                    "retention_last_updated": "2025-01-01T00:00:00+00:00",
-                    "json_parse_logs_attribute_key": "changed",
-                },
+                STORED_LOGS_SETTINGS,
+                RESENT_LOGS_SETTINGS,
             ),
+            ("team_raced_first_settings", TeamSerializer, {}, True, None, CHANGED_LOGS_SETTINGS),
+            ("project_raced_from_empty", ProjectBackwardCompatSerializer, {}, True, {}, CHANGED_LOGS_SETTINGS),
+            ("team_raced_clear", TeamSerializer, {}, True, STORED_LOGS_SETTINGS, None),
         ]
     )
     def test_logs_settings_change_is_refused_when_another_write_landed_first(
@@ -1098,9 +1109,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         serializer_class: type,
         extra_fields: dict[str, Any],
         raced: bool,
-        requested_settings_override: dict[str, Any] | None,
+        stored_settings: dict[str, Any] | None,
+        requested_settings: dict[str, Any] | None,
     ) -> None:
-        self.team.logs_settings = {"retention_days": 30, "retention_last_updated": "2025-01-01T00:00:00+00:00"}
+        self.team.logs_settings = stored_settings
         self.team.save()
         # Validation read this snapshot of the team, and update() must compare against it.
         project = Project.objects.get(pk=self.project.pk)
@@ -1111,10 +1123,6 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         if raced:
             Team.objects.filter(pk=self.team.pk).update(logs_settings=concurrent_settings)
 
-        requested_settings = requested_settings_override or {
-            "retention_days": 14,
-            "retention_last_updated": "2025-01-03T00:00:01+00:00",
-        }
         payload = {"logs_settings": requested_settings, **extra_fields}
         request = APIRequestFactory().patch("/", payload, format="json")
         request.user = self.user

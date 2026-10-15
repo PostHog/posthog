@@ -1404,9 +1404,7 @@ class ProjectBackwardCompatSerializer(
             team.name = validated_data["name"]
             updated_team_fields.append("name")
 
-        with refuse_stale_logs_settings_change(
-            team, team_before_update["logs_settings"], validated_data.get("logs_settings")
-        ):
+        with refuse_stale_logs_settings_change(team, team_before_update["logs_settings"], validated_data):
             # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
             if conversations_lock_applied:
                 locked_conversations = merge_conversations_settings_locked(

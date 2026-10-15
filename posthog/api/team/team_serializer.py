@@ -801,12 +801,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if new_retention is not None and (isinstance(new_retention, bool) or not isinstance(new_retention, int)):
             raise exceptions.ValidationError("retention_days must be an integer")
 
-        # Check if retention_days is being changed
-        retention_is_changing = new_retention is not None and old_retention != new_retention
-
         # Only a changed period is checked against the flag and the entitlement. Unrelated settings
         # updates send the stored period back, and must not fail when the flag is turned off later.
-        if retention_is_changing:
+        if new_retention is not None and old_retention != new_retention:
             # Only evaluate the flag for values outside the base tiers, so the common path makes no flag call.
             custom_enabled = new_retention not in LOGS_RETENTION_BASE_TIERS_DAYS and (
                 settings_validation._custom_logs_retention_enabled(self, team)
@@ -824,7 +821,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     )
 
         # Only validate retention throttling if we have an existing retention setting
-        if self.instance and logs_settings and retention_is_changing:
+        # Check if retention_days is being changed
+        if self.instance and logs_settings and new_retention is not None and old_retention != new_retention:
             value["retention_last_updated"] = timezone.now().isoformat()
             throttle_error = retention_update_throttle_error(logs_settings.get("retention_last_updated"))
             if throttle_error:
@@ -1071,7 +1069,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             setattr(instance, attr, validated_data[attr])
 
         with settings_validation.refuse_stale_logs_settings_change(
-            instance, before_update["logs_settings"], validated_data.get("logs_settings")
+            instance, before_update["logs_settings"], validated_data
         ):
             # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
             if conversations_lock_applied:
