@@ -1,4 +1,5 @@
 import re
+import copy
 import json
 import datetime as dt
 import dataclasses
@@ -15,6 +16,7 @@ from botocore.loaders import Loader
 from botocore.model import OperationModel, ServiceModel
 from botocore.parsers import create_parser
 from botocore.serialize import create_serializer
+from botocore.validate import ParamValidator
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
@@ -63,7 +65,6 @@ THROTTLING_ERROR_CODES = frozenset(
 )
 
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
-_REGION = re.compile(r"^[a-z]{2}(-[a-z]+)+-\d$")
 
 ALARM_TYPES = ["CompositeAlarm", "MetricAlarm"]
 
@@ -78,12 +79,23 @@ class AmazonCloudWatchThrottledError(AmazonCloudWatchError):
     pass
 
 
+METRIC_QUERY_FORBIDDEN = "MetricQueryForbidden"
+METRIC_QUERY_INTERNAL_ERROR = "MetricQueryInternalError"
+INVALID_REQUEST_ERROR_CODES = frozenset(
+    {"InvalidParameterValue", "InvalidParameterCombination", "MissingParameter", "InvalidParameterException"}
+)
+
+
 @dataclasses.dataclass(frozen=True)
 class AmazonCloudWatchResumeConfig:
-    """Where a previous attempt stopped: the slice (a log group, or a window start) and its page token."""
+    """Where a previous attempt stopped: the slice (a log group, or a window start), its page token,
+    and the time range of the run, so a resumed attempt reads the same range rather than one that
+    moved with the clock."""
 
     slice_key: Optional[str] = None
     next_token: Optional[str] = None
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -128,8 +140,20 @@ def coerce_datetime(value: Any) -> Optional[dt.datetime]:
     return None
 
 
+@cache
+def aws_dns_suffix(region: str) -> Optional[str]:
+    """The DNS suffix of the AWS partition a region belongs to, or None for an unknown region.
+
+    China regions live under `amazonaws.com.cn`, so the suffix comes from botocore's partition table.
+    """
+    for partition in Loader().load_data("partitions")["partitions"]:
+        if region in partition.get("regions", {}) or re.match(partition["regionRegex"], region):
+            return partition["outputs"]["dnsSuffix"]
+    return None
+
+
 def is_valid_region(region: str) -> bool:
-    return bool(_REGION.match(region.strip()))
+    return aws_dns_suffix(region.strip()) is not None
 
 
 def parse_log_group_names(raw: Optional[str]) -> list[str]:
@@ -172,28 +196,44 @@ def parse_metric_queries(raw: Optional[str]) -> list[dict[str, Any]]:
         seen.add(query_id)
         query.setdefault("ReturnData", True)
         queries.append(query)
+
+    input_shape = _operation(MONITORING_SERVICE, "GetMetricData").input_shape
+    assert input_shape is not None  # GetMetricData takes a request body
+    report = ParamValidator().validate(
+        {
+            "MetricDataQueries": queries,
+            "StartTime": dt.datetime(2000, 1, 1, tzinfo=dt.UTC),
+            "EndTime": dt.datetime(2000, 1, 2, tzinfo=dt.UTC),
+        },
+        input_shape,
+    )
+    if report.has_errors():
+        raise ValueError(f"Metric queries do not match the CloudWatch API: {report.generate_report()}")
     return queries
+
+
+def _period(value: Any, index: int, default: Optional[int]) -> Optional[int]:
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"Metric query {index} has a period that is not a whole number of seconds.") from error
 
 
 def _metric_query_from_flat(item: dict[str, Any], index: int) -> dict[str, Any]:
     query_id = str(item.get("id") or f"q{index}")
     if "expression" in item:
         query: dict[str, Any] = {"Id": query_id, "Expression": item["expression"]}
-        if item.get("period"):
-            query["Period"] = int(item["period"])
+        expression_period = _period(item.get("period"), index, None)
+        if expression_period:
+            query["Period"] = expression_period
     else:
         namespace = item.get("namespace")
         metric_name = item.get("metric_name") or item.get("metricName")
         if not namespace or not metric_name:
             raise ValueError(f"Metric query {index} needs a namespace and a metric_name (or an expression).")
-        dimensions = item.get("dimensions") or {}
-        if isinstance(dimensions, dict):
-            dimension_list = [{"Name": str(name), "Value": str(value)} for name, value in dimensions.items()]
-        else:
-            dimension_list = [
-                {"Name": str(d.get("name") or d.get("Name")), "Value": str(d.get("value") or d.get("Value"))}
-                for d in dimensions
-            ]
+        dimension_list = _dimensions(item.get("dimensions") or {}, index)
         metric: dict[str, Any] = {"Namespace": namespace, "MetricName": metric_name}
         if dimension_list:
             metric["Dimensions"] = dimension_list
@@ -201,7 +241,7 @@ def _metric_query_from_flat(item: dict[str, Any], index: int) -> dict[str, Any]:
             "Id": query_id,
             "MetricStat": {
                 "Metric": metric,
-                "Period": int(item.get("period") or 300),
+                "Period": _period(item.get("period"), index, 300),
                 "Stat": item.get("stat") or "Average",
             },
         }
@@ -210,6 +250,21 @@ def _metric_query_from_flat(item: dict[str, Any], index: int) -> dict[str, Any]:
     if item.get("label"):
         query["Label"] = item["label"]
     return query
+
+
+def _dimensions(dimensions: Any, index: int) -> list[dict[str, str]]:
+    if isinstance(dimensions, dict):
+        return [{"Name": str(name), "Value": str(value)} for name, value in dimensions.items()]
+    if not isinstance(dimensions, list):
+        raise ValueError(f"Metric query {index} needs dimensions as an object or a list of name and value pairs.")
+    dimension_list: list[dict[str, str]] = []
+    for dimension in dimensions:
+        name = dimension.get("name") or dimension.get("Name") if isinstance(dimension, dict) else None
+        value = dimension.get("value") or dimension.get("Value") if isinstance(dimension, dict) else None
+        if not name or value is None:
+            raise ValueError(f"Metric query {index} has a dimension without a name and a value.")
+        dimension_list.append({"Name": str(name), "Value": str(value)})
+    return dimension_list
 
 
 @cache
@@ -266,7 +321,8 @@ def send_operation(
         body = urlencode(body).encode()
     elif isinstance(body, str):
         body = body.encode()
-    url = f"https://{model.endpoint_prefix}.{region}.amazonaws.com{serialized['url_path']}"
+    suffix = aws_dns_suffix(region) or "amazonaws.com"
+    url = f"https://{model.endpoint_prefix}.{region}.{suffix}{serialized['url_path']}"
 
     aws_request = AWSRequest(method="POST", url=url, data=body, headers=dict(serialized["headers"]))
     SigV4Auth(credentials, model.signing_name, region).add_auth(aws_request)
@@ -364,6 +420,38 @@ def resolve_window(
     return TimeWindow(start=min(start, now), end=now)
 
 
+# CloudWatch keeps datapoints at a coarser resolution as they age: 1-minute data for 15 days,
+# 5-minute data for 63 days and 1-hour data for 455 days. A query asking for a finer period than
+# the data still has returns nothing for that range.
+_RESOLUTION_BY_AGE = (
+    (dt.timedelta(days=63), 3600),
+    (dt.timedelta(days=15), 300),
+    (dt.timedelta(hours=3), 60),
+)
+
+
+def period_for_window(period: int, window_start: dt.datetime, now: dt.datetime) -> int:
+    """The query period to use for a window: the requested one, rounded up to the coarsest
+    resolution CloudWatch still keeps for the oldest data in the window."""
+    age = now - window_start
+    resolution = next((seconds for threshold, seconds in _RESOLUTION_BY_AGE if age > threshold), 1)
+    if period % resolution == 0:
+        return period
+    return (period // resolution + 1) * resolution
+
+
+def queries_for_window(
+    queries: list[dict[str, Any]], window_start: dt.datetime, now: dt.datetime
+) -> list[dict[str, Any]]:
+    adapted = copy.deepcopy(queries)
+    for query in adapted:
+        if isinstance(query.get("MetricStat"), dict) and query["MetricStat"].get("Period"):
+            query["MetricStat"]["Period"] = period_for_window(int(query["MetricStat"]["Period"]), window_start, now)
+        elif query.get("Period"):
+            query["Period"] = period_for_window(int(query["Period"]), window_start, now)
+    return adapted
+
+
 def build_windows(window: TimeWindow, window_days: Optional[int]) -> list[TimeWindow]:
     if window_days is None:
         return [window]
@@ -444,6 +532,23 @@ def alarm_history_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
     return [_snake_keys(item) for item in body.get("AlarmHistoryItems") or []]
 
 
+def check_metric_results(body: dict[str, Any]) -> None:
+    """Raise for a query AWS answered with an error status inside an HTTP 200 response.
+
+    `Forbidden` means the credentials cannot read that metric. `InternalError` is AWS's transient
+    failure, retried with the attempt; the cursor of the page was not staged, so nothing is skipped.
+    """
+    for result in body.get("MetricDataResults") or []:
+        status = result.get("StatusCode")
+        if status not in ("Forbidden", "InternalError"):
+            continue
+        detail = "; ".join(str(message.get("Value") or message.get("Code")) for message in result.get("Messages") or [])
+        code = METRIC_QUERY_FORBIDDEN if status == "Forbidden" else METRIC_QUERY_INTERNAL_ERROR
+        raise AmazonCloudWatchError(
+            f"Amazon CloudWatch request failed: {code} - metric query '{result.get('Id')}': {detail}"[:600], code
+        )
+
+
 def metric_data_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for result in body.get("MetricDataResults") or []:
@@ -453,7 +558,9 @@ def metric_data_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
             rows.append(
                 {
                     "query_id": result.get("Id"),
-                    "label": result.get("Label"),
+                    # One query returns several series for a SEARCH expression or a Metrics Insights
+                    # GROUP BY. The label names the series, so it is part of the row key.
+                    "label": result.get("Label") or result.get("Id"),
                     "timestamp": _as_utc(timestamp),
                     "value": value,
                     "status_code": result.get("StatusCode"),
@@ -518,7 +625,7 @@ def _params(
             window,
         )
         params = {
-            "MetricDataQueries": metric_queries,
+            "MetricDataQueries": queries_for_window(metric_queries, piece.start, window.end),
             "StartTime": piece.start,
             "EndTime": piece.end,
             "ScanBy": "TimestampAscending",
@@ -571,13 +678,21 @@ def get_rows(
         resumable_source_manager.clear_state()
         return
 
-    now = dt.datetime.now(dt.UTC)
-    window = resolve_window(
-        endpoint_config, start_date, should_use_incremental_field, db_incremental_field_last_value, now
-    )
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    saved_start = coerce_datetime(resume.window_start) if resume else None
+    saved_end = coerce_datetime(resume.window_end) if resume else None
+    if saved_start is not None and saved_end is not None:
+        window = TimeWindow(start=saved_start, end=saved_end)
+    else:
+        window = resolve_window(
+            endpoint_config,
+            start_date,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            dt.datetime.now(dt.UTC),
+        )
     slices = _slices(endpoint_config, client, parse_log_group_names(log_group_names), window)
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     index, next_token = 0, None
     if resume is not None:
         # A saved slice that no longer exists (the window moved, a log group went away) restarts the run.
@@ -594,12 +709,19 @@ def get_rows(
                 endpoint_config.operation,
                 _params(endpoint_config, slice_key, log_group, window, queries, next_token),
             )
+            if endpoint_config.operation == "GetMetricData":
+                check_metric_results(body)
             rows = _rows(endpoint_config, log_group, body)
             next_token = _next_token(endpoint_config, body)
 
             # Staged before the batch it covers: a crash after the write resumes at the next page.
             resumable_source_manager.save_state(
-                AmazonCloudWatchResumeConfig(slice_key=slice_key, next_token=next_token)
+                AmazonCloudWatchResumeConfig(
+                    slice_key=slice_key,
+                    next_token=next_token,
+                    window_start=window.start.isoformat(),
+                    window_end=window.end.isoformat(),
+                )
             )
             if rows:
                 yield rows
@@ -649,5 +771,7 @@ def amazon_cloudwatch_source(
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
         partition_mode="datetime" if endpoint_config.partition_key else None,
         partition_format=endpoint_config.partition_format,
-        sort_mode="asc" if endpoint_config.sorted_ascending else None,
+        # `desc` makes the pipeline commit the highest timestamp only when the run completes. Log
+        # events arrive per log group and datapoints per query, so no earlier point is safe.
+        sort_mode="asc" if endpoint_config.sorted_ascending or endpoint_config.lookback_days is None else "desc",
     )

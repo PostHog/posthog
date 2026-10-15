@@ -9,6 +9,9 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_cloudwatch.amazon_cloudwatch import (
+    INVALID_REQUEST_ERROR_CODES,
+    METRIC_QUERY_FORBIDDEN,
+    METRIC_QUERY_INTERNAL_ERROR,
     THROTTLING_ERROR_CODES,
     VALIDATION_ERROR_MESSAGES,
     AmazonCloudWatchResumeConfig,
@@ -66,7 +69,19 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
             "A configured log group does not exist in this region. Check the log group names on the source."
         )
         errors["Metric queries must"] = "The metric queries on the source are not valid. Fix them and retry the sync."
+        errors["Metric queries do not match"] = (
+            "The metric queries on the source are not valid. Fix them and retry the sync."
+        )
         errors["Metric query"] = "The metric queries on the source are not valid. Fix them and retry the sync."
+        for code in INVALID_REQUEST_ERROR_CODES:
+            errors[f"Amazon CloudWatch request failed: {code}"] = (
+                "AWS rejected a request built from the source settings, usually a metric query. "
+                "Check the metric queries and log group names, then retry the sync."
+            )
+        errors[f"Amazon CloudWatch request failed: {METRIC_QUERY_FORBIDDEN}"] = (
+            "These AWS credentials cannot read one of the configured metrics. Grant cloudwatch:GetMetricData "
+            "for it, or remove the query from the source."
+        )
         return errors
 
     def get_retryable_errors(self) -> set[str]:
@@ -76,6 +91,7 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
             "Amazon CloudWatch request failed: InternalFailure",
             "Amazon CloudWatch request failed: ServiceUnavailable",
             "Amazon CloudWatch request failed: HTTP 5",
+            f"Amazon CloudWatch request failed: {METRIC_QUERY_INTERNAL_ERROR}",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -149,7 +165,7 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
 
 Create an IAM user or role with the `logs:DescribeLogGroups`, `logs:FilterLogEvents`, `cloudwatch:DescribeAlarms`, `cloudwatch:DescribeAlarmHistory` and `cloudwatch:GetMetricData` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
 
-Log events sync from the log groups you list, or from every log group in the region (up to 50) when the list is empty. Any log delivered to CloudWatch Logs works, including Bedrock model invocation logs and CloudFront standard logs. Metric datapoints sync for the metric queries you configure as JSON, for example `[{"id": "cpu", "namespace": "AWS/EC2", "metric_name": "CPUUtilization", "dimensions": {"InstanceId": "i-0123456789abcdef0"}, "stat": "Average", "period": 300}]`. S3 Storage Lens metrics live in the `AWS/S3/Storage-Lens` namespace.""",
+Log events sync from the log groups you list, or from every log group in the region (up to 50) when the list is empty. Any log delivered to CloudWatch Logs works, including Bedrock model invocation logs and CloudFront standard logs. Metric datapoints sync for the metric queries you configure as JSON, for example `[{"id": "cpu", "namespace": "AWS/EC2", "metric_name": "CPUUtilization", "dimensions": {"InstanceId": "i-0123456789abcdef0"}, "stat": "Average", "period": 300}]`. S3 Storage Lens metrics live in the `AWS/S3/Storage-Lens` namespace. Older datapoints come back at the resolution CloudWatch keeps for them: 5 minutes after 15 days and 1 hour after 63 days.""",
             iconPath="/static/services/amazon_cloudwatch.png",
             docsUrl="https://posthog.com/docs/cdp/sources/amazon-cloudwatch",
             releaseStatus=ReleaseStatus.ALPHA,

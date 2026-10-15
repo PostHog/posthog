@@ -81,7 +81,7 @@ AMAZON_CLOUDWATCH_ENDPOINTS: dict[str, CloudWatchEndpointConfig] = {
         name="metric_data",
         service=MONITORING_SERVICE,
         operation="GetMetricData",
-        primary_key=["query_id", "timestamp"],
+        primary_key=["query_id", "label", "timestamp"],
         # One-minute datapoints are kept for 15 days; older reads come back at 5-minute resolution.
         lookback_days=14,
         window_days=14,

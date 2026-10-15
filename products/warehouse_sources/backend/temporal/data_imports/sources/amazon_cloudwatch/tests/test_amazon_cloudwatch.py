@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.responders import UnexpectedRequest
@@ -144,10 +145,17 @@ class TestLogEvents:
         assert result.rows[0]["log_group_name"] == "/aws/lambda/one"
         assert result.rows[0]["timestamp"] == dt.datetime(2024, 3, 8, 12, 13, 20, tzinfo=dt.UTC)
         # The cursor staged with the first page points at the second page, and persisted with it.
-        assert result.saved_states[0] == AmazonCloudWatchResumeConfig(slice_key="/aws/lambda/one", next_token="p2")
-        assert result.committed_states[0] == AmazonCloudWatchResumeConfig(slice_key="/aws/lambda/one", next_token="p2")
+        first_cursor = AmazonCloudWatchResumeConfig(
+            slice_key="/aws/lambda/one",
+            next_token="p2",
+            window_start="2024-03-08T00:00:00+00:00",
+            window_end="2024-03-10T12:00:00+00:00",
+        )
+        assert result.saved_states[0] == first_cursor
+        assert result.committed_states[0] == first_cursor
         assert result.final_state is None
-        assert result.response is not None and result.response.sort_mode is None
+        # Events arrive per log group, so the watermark may only move once the whole run completes.
+        assert result.response is not None and result.response.sort_mode == "desc"
 
     def test_resumes_at_the_saved_log_group_and_page(self) -> None:
         result = driver().run(
@@ -231,10 +239,6 @@ class TestLogEvents:
 
         assert result.raised is not None
         assert str(result.raised).startswith("Amazon CloudWatch request failed: ResourceNotFoundException")
-        assert (
-            "Amazon CloudWatch request failed: ResourceNotFoundException"
-            in AmazonCloudWatchSource().get_non_retryable_errors()
-        )
 
 
 class TestLogGroups:
@@ -350,6 +354,17 @@ class TestMetricData:
                 AmazonCloudWatchResumeConfig(slice_key="2024-02-29T00:00:00+00:00", next_token=None),
                 [("2024-02-29T00:00:00Z", "2024-03-10T12:00:00Z")],
             ),
+            # The attempt that saved this cursor started earlier, so its range differs from one
+            # computed now. The resumed attempt keeps the saved range and its windows.
+            (
+                AmazonCloudWatchResumeConfig(
+                    slice_key="2024-02-20T00:00:00+00:00",
+                    next_token="tok7",
+                    window_start="2024-02-06T00:00:00+00:00",
+                    window_end="2024-03-05T00:00:00+00:00",
+                ),
+                [("2024-02-20T00:00:00Z", "2024-03-05T00:00:00Z")],
+            ),
         ],
     )
     def test_a_long_range_is_split_into_windows_and_a_saved_window_resumes_there(
@@ -364,6 +379,51 @@ class TestMetricData:
 
         assert result.raised is None
         assert [(form(r)["StartTime"], form(r)["EndTime"]) for r in result.requests] == expected_windows
+
+    def test_each_window_asks_for_a_period_that_cloudwatch_still_keeps_for_data_that_old(self) -> None:
+        queries = json.dumps([{"id": "cpu", "namespace": "AWS/EC2", "metric_name": "CPUUtilization", "period": 60}])
+        empty = xml_response("GetMetricData", "<MetricDataResults></MetricDataResults>")
+        result = driver(metric_queries=queries, start_date="2023-12-20").run("metric_data", always(empty))
+
+        assert result.raised is None
+        assert [
+            (form(r)["StartTime"][:10], form(r)["MetricDataQueries.member.1.MetricStat.Period"])
+            for r in result.requests
+        ] == [
+            ("2023-12-20", "3600"),
+            ("2024-01-03", "3600"),
+            ("2024-01-17", "300"),
+            ("2024-01-31", "300"),
+            ("2024-02-14", "300"),
+            ("2024-02-28", "60"),
+        ]
+
+    @pytest.mark.parametrize(
+        ("status", "message"),
+        [
+            (
+                "Forbidden",
+                "Amazon CloudWatch request failed: MetricQueryForbidden - metric query 'cpu': Access denied",
+            ),
+            (
+                "InternalError",
+                "Amazon CloudWatch request failed: MetricQueryInternalError - metric query 'cpu': Access denied",
+            ),
+        ],
+    )
+    def test_a_query_failing_inside_a_successful_response_fails_the_run(self, status: str, message: str) -> None:
+        failed = (
+            "<member><Id>cpu</Id><Label>CPUUtilization</Label><Timestamps></Timestamps><Values></Values>"
+            f"<StatusCode>{status}</StatusCode><Messages><member><Code>{status}</Code><Value>Access denied</Value></member></Messages></member>"
+        )
+        result = driver(metric_queries=self.QUERIES).run(
+            "metric_data",
+            by_origin(monitoring=[xml_response("GetMetricData", f"<MetricDataResults>{failed}</MetricDataResults>")]),
+        )
+
+        assert str(result.raised) == message
+        # The failing page's cursor was never staged, so a retry asks for the same page again.
+        assert result.saved_states == []
 
     def test_without_queries_nothing_is_requested(self) -> None:
         result = driver(metric_queries="  ").run("metric_data", by_origin())
@@ -499,6 +559,15 @@ class TestParseMetricQueries:
             ('{"id": "a"}', "Metric query 1 needs a namespace and a metric_name"),
             ('[{"id": "a", "expression": "x"}, {"id": "a", "expression": "y"}]', "Metric query ids must be unique"),
             ("[1]", "Metric queries must be a JSON list"),
+            (
+                '[{"namespace": "AWS/EC2", "metric_name": "CPU", "dimensions": [1]}]',
+                "Metric query 1 has a dimension without a name and a value",
+            ),
+            (
+                '[{"namespace": "AWS/EC2", "metric_name": "CPU", "period": "five"}]',
+                "Metric query 1 has a period that is not a whole number",
+            ),
+            ('[{"Id": "q1", "MetricStat": "invalid"}]', "Metric queries do not match the CloudWatch API"),
         ],
     )
     def test_bad_queries_raise_a_message_for_the_wizard(self, raw: str, message: str) -> None:
@@ -575,6 +644,16 @@ class TestValidateCredentials:
         assert probe.origin == LOGS_ORIGIN
         assert probe.headers["x-amz-target"] == "Logs_20140328.DescribeLogGroups"
         assert probe.json() == {"limit": 1}
+
+    def test_a_china_region_is_reached_through_its_own_partition(self) -> None:
+        c = config(aws_region="cn-north-1")
+
+        with scripted_network([ScriptedResponse(json={"logGroups": []})]) as network:
+            assert validate_credentials(
+                c.aws_access_key_id, c.aws_secret_access_key, c.aws_session_token, c.aws_region, c.metric_queries
+            ) == (True, None)
+
+        assert network.requests_log[0].origin == "https://logs.cn-north-1.amazonaws.com.cn"
 
     def test_a_throttled_probe_asks_the_user_to_retry(self) -> None:
         c = config()
