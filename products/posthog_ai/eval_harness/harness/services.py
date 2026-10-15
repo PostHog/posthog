@@ -30,16 +30,12 @@ LONG_LIVED_SUBPROCESSES = LongLivedSubprocessManager()
 _ZIP_FIXED_TIME = (2020, 1, 1, 0, 0, 0)
 
 
-def start_llm_gateway(live_server_url: str, agent_model: str) -> Callable[[], None]:
+def start_llm_gateway(live_server_url: str) -> Callable[[], None]:
     """Start the LLM gateway as a subprocess.
 
     Mirrors ``bin/start-llm-gateway``: runs uvicorn on a non-default port.
-    The sandbox's agent-server uses this to proxy LLM calls to Anthropic.
-
-    ``agent_model`` is declared free-tier on this gateway, because the gate it would otherwise hit
-    cannot mean anything here: every case runs as a freshly minted team that has never been billed,
-    so ``check_free_tier_model_access`` sees ``code_usage_billed=False`` and rejects the run's model
-    with a 403 before the agent sends its first message.
+    The sandbox's agent-server uses this to proxy LLM calls to Anthropic, through the
+    ``posthog_ai`` product that eval tasks select with their origin.
     """
     gateway_dir = Path(settings.BASE_DIR) / "services" / "llm-gateway"
     venv_dir = gateway_dir / ".venv"
@@ -73,9 +69,6 @@ def start_llm_gateway(live_server_url: str, agent_model: str) -> Callable[[], No
         "LLM_GATEWAY_DATABASE_URL": test_db_url,
         "LLM_GATEWAY_DEBUG": "true",
         "LLM_GATEWAY_POSTHOG_HOST": live_server_url,
-        # Only the model this run uses, so the gate still rejects a typo rather than waving through
-        # anything the agent-server happens to ask for.
-        "LLM_GATEWAY_POSTHOG_CODE_FREE_TIER_MODELS": json.dumps([agent_model]),
     }
 
     logger.info("Starting LLM gateway on port %d", LLM_GATEWAY_PORT)
