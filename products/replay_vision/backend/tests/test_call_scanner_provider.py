@@ -405,14 +405,15 @@ async def test_signal_timestamps_use_recording_duration(
     "jev_answers, placed_t, expected_reasoning, expected_calls",
     [
         pytest.param([0.9, 0.1], 5, "The user compared plans on billing (t 5).", 3, id="flagged citation moves"),
+        pytest.param([0.9, None], 5, "The user compared plans on billing (t 5).", 3, id="recheck unavailable keeps it"),
         pytest.param([0.9, 0.9], 5, "The user compared plans on billing.", 3, id="still contradicted is removed"),
         pytest.param([0.9], None, "The user compared plans on billing.", 3, id="a moment not found is removed"),
-        pytest.param([0.1], 5, "The user compared plans on billing (t 30).", 2, id="clean citation costs no turn"),
-        pytest.param(None, 5, "The user compared plans on billing (t 30).", 2, id="jev unavailable keeps it"),
+        pytest.param([0.1], 5, "The user compared plans on billing (t 29).", 2, id="clean citation costs no turn"),
+        pytest.param(None, 5, "The user compared plans on billing (t 29).", 2, id="jev unavailable keeps it"),
     ],
 )
 async def test_contradicted_citations_get_one_more_turn_to_be_placed(
-    jev_answers: list[float] | None, placed_t: int | None, expected_reasoning: str, expected_calls: int
+    jev_answers: list[float | None] | None, placed_t: int | None, expected_reasoning: str, expected_calls: int
 ) -> None:
     scanner = MonitorScanner(prompt="Did they compare plans?")
     snapshot = ScannerSnapshot(
@@ -424,7 +425,7 @@ async def test_contradicted_citations_get_one_more_turn_to_be_placed(
         emits_signals=False,
         scanner_config={"prompt": scanner.prompt},
     )
-    core = MonitorLlmResponse(verdict="yes", reasoning="The user compared plans on billing (t 30).", confidence=0.9)
+    core = MonitorLlmResponse(verdict="yes", reasoning="The user compared plans on billing (t 29).", confidence=0.9)
     placed = CitationPlacementResponse(citations=[CitationPlacement(n=1, t=placed_t)])
     client = _FakeClient(
         [
@@ -435,12 +436,14 @@ async def test_contradicted_citations_get_one_more_turn_to_be_placed(
     )
     navigation = [
         NavigationChange(video_s=0, session_s=0, window_id="w", window_number=1, url="https://example.com/billing"),
-        NavigationChange(video_s=20, session_s=20, window_id="w", window_number=1, url="https://example.com/flags"),
+        # The timeline shows this change at t 29, so a citation of t 29 is on the flags page.
+        NavigationChange(video_s=29.6, session_s=29.6, window_id="w", window_number=1, url="https://example.com/flags"),
     ]
     decision_api = MagicMock()
     decision_api.decisions_available_here.return_value = jev_answers is not None
     decision_api.decide_when_available.side_effect = [
-        MagicMock(answers={"c1": MagicMock(probability=p)}) for p in jev_answers or []
+        RuntimeError("jev is down") if p is None else MagicMock(answers={"c1": MagicMock(probability=p)})
+        for p in jev_answers or []
     ]
     module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
     with (
@@ -468,7 +471,7 @@ async def test_contradicted_citations_get_one_more_turn_to_be_placed(
         # The turn continues the scan's conversation, and names the page that contradicts the claim.
         review_turn = client.models.calls[2]["contents"]
         assert review_turn[0] is _VIDEO
-        assert "At t 30 the screen shows `https://example.com/flags`" in review_turn[-1].text
+        assert "At t 29 the screen shows `https://example.com/flags`" in review_turn[-1].text
 
 
 @pytest.mark.parametrize(
@@ -489,21 +492,23 @@ def test_key_moment_moves_onto_the_session_clock(
 
 
 @pytest.mark.asyncio
-async def test_a_provider_error_on_a_non_required_step_leaves_the_scan_standing() -> None:
+@pytest.mark.parametrize("fails_in", ["provider", "merge"])
+async def test_a_failure_on_a_non_required_step_leaves_the_scan_standing(fails_in: str) -> None:
     # A provider blip on the last, optional turn used to fail the whole paid-for scan.
+    merge = AsyncMock(side_effect=RuntimeError("merge bug")) if fails_in == "merge" else None
     steps = [
         MissionStep(name="summary", instruction="sum", response_model=_Core),
-        MissionStep(name="media", instruction="pick", response_model=_Side, required=False),
+        MissionStep(name="media", instruction="pick", response_model=_Side, required=False, merge=merge),
     ]
 
     class _ExplodingModels(_FakeModels):
         async def generate_content(self, **kwargs: Any) -> _Resp:
-            if len(self.calls) >= 1:
+            if fails_in == "provider" and len(self.calls) >= 1:
                 raise RuntimeError("provider is down")
             return await super().generate_content(**kwargs)
 
-    client = _FakeClient([_Resp(text='{"verdict":"yes"}')])
-    client.models = _ExplodingModels([_Resp(text='{"verdict":"yes"}')])
+    client = _FakeClient([])
+    client.models = _ExplodingModels([_Resp(text='{"verdict":"yes"}'), _Resp(text='{"note":"ok"}')])
 
     out = await _run(client, steps)
 

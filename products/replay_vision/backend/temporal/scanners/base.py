@@ -287,7 +287,7 @@ class BaseScanner(BaseModel, frozen=True):
 
     A scan is a multi-turn conversation over the cached video: a shared `preamble` (sent/cached once) followed by
     the ordered `mission_steps` — one structured turn each. Every scanner type has a single `core` step; the signals
-    side mission, when enabled, is always the final turn.
+    side mission, when enabled, follows it, and the citation review turn runs last when it has anything to fix.
     """
 
     prompt: str

@@ -97,7 +97,7 @@ REPLAY_VISION_LOOKUP_PLANS = Counter(
 
 REPLAY_VISION_CITATION_REVIEWS = Counter(
     "replay_vision_citation_reviews_total",
-    "Citations checked against the page and events on screen: clean, flagged, kept, moved, removed, or unavailable",
+    "Citations checked against the page and events on screen: clean, flagged, kept, moved, removed, unchecked, or unavailable",
     ["scanner_type", "model", "outcome"],
 )
 

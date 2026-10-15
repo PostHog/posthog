@@ -814,10 +814,15 @@ async def _run_steps(
             if step.required:
                 raise _exhausted_step_error(step, result)
             continue
-        if step.merge is not None:
-            step_outputs = await step.merge(step_outputs, result.output)
-        else:
+        if step.merge is None:
             step_outputs[step.name] = result.output
+            continue
+        try:
+            step_outputs = await step.merge(step_outputs, result.output)
+        except Exception as exc:
+            if step.required:
+                raise
+            logger.warning("replay_vision.call_scanner_provider.optional_merge_failed", step=step.name, error=str(exc))
     return step_outputs
 
 

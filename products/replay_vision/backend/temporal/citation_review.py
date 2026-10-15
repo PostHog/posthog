@@ -132,7 +132,8 @@ class CitationReview:
             self._record("unavailable", len(citations))
             return None
         flagged = [c for c in citations if probabilities.get(c.n, 0.0) >= FLAG_PROBABILITY]
-        self._record("clean", len(citations) - len(flagged))
+        self._record("unchecked", len(citations) - len(probabilities))
+        self._record("clean", len(probabilities) - len(flagged))
         # Flagged citations the turn never answers (it failed) stay as written: flagged minus kept, moved and removed.
         self._record("flagged", len(flagged))
         if not flagged:
@@ -178,13 +179,17 @@ class CitationReview:
             return step_outputs
         return {**step_outputs, STEP_CORE: replace_citations(step_outputs[STEP_CORE], self._fields, moves)}
 
+    def _change_at(self, video_s: int) -> NavigationChange | None:
+        """The last page change shown by `video_s`, on the whole seconds the prompt's timeline gives the model."""
+        index = bisect.bisect_right(self._navigation, video_s, key=lambda change: int(change.video_s)) - 1
+        return self._navigation[index] if index >= 0 else None
+
     def _page_at(self, video_s: int) -> str | None:
         """The URL on screen at `video_s`, when the rendered video recorded one fit for a prompt."""
-        index = bisect.bisect_right(self._navigation, float(video_s), key=lambda change: change.video_s) - 1
-        if index < 0:
+        change = self._change_at(video_s)
+        if change is None or not is_navigable_url(change.url):
             return None
-        url = self._navigation[index].url
-        return clip_url(url) if is_navigable_url(url) else None
+        return clip_url(change.url)
 
     def _contradiction_probabilities(self, citations: Sequence[Citation]) -> dict[int, float] | None:
         entries = self._state_entries(citations)
@@ -217,7 +222,13 @@ class CitationReview:
         return entries
 
     def _events_near(self, video_s: int) -> list[dict[str, Any]]:
-        window = get_events_around(self._events_index, video_s, _EVENTS_WINDOW_S)
+        # A background tab's events would read as the user being somewhere else, so keep the tab on screen.
+        change = self._change_at(video_s)
+        window = [
+            event
+            for event in get_events_around(self._events_index, video_s, _EVENTS_WINDOW_S)
+            if change is None or event.get("$window_id") in (None, change.window_id)
+        ]
         nearest = heapq.nsmallest(_MAX_EVENTS_PER_CITATION, window, key=lambda event: abs(event["vid_t"] - video_s))
         return [
             {"t": event["vid_t"], **{f: _clip_value(str(event[f])) for f in _EVENT_FIELDS if event.get(f)}}
