@@ -880,6 +880,7 @@ class GitHubIntegrationBase:
     def installation_can_access_repository(self, repository: str, *, raise_on_transient: bool = False) -> bool:
         """Whether this installation token can access the repo (``GET /repos/{owner}/{repo}`` returns 200)."""
         url = f"https://api.github.com/repos/{repository}"
+        response: requests.Response | None
         if raise_on_transient:
             response = self.api_request(
                 "GET", url.removeprefix("https://api.github.com"), endpoint="/repos/{owner}/{repo}"

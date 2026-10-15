@@ -115,18 +115,18 @@ def github_for_generated_pull_request(
                 user_id=personal.user_id, organization_id=task.team.organization_id
             ).exists()
         ):
-            github = UserGitHubIntegration(personal, source="signals_inbox_summary", priority=Priority.BATCH)
+            personal_github = UserGitHubIntegration(personal, source="signals_inbox_summary", priority=Priority.BATCH)
             try:
-                if github.installation_can_access_repository(repository, raise_on_transient=True):
-                    return github
+                if personal_github.installation_can_access_repository(repository, raise_on_transient=True):
+                    return personal_github
             except (GitHubEgressBudgetExhausted, GitHubRateLimitError, GitHubIntegrationError) as error:
                 probe_error = probe_error or error
         integration = task.github_integration
         if integration is not None and integration.kind == "github" and integration.team_id == team_id:
-            github = GitHubIntegration(integration, source="signals_inbox_summary", priority=Priority.BATCH)
+            team_github = GitHubIntegration(integration, source="signals_inbox_summary", priority=Priority.BATCH)
             try:
-                if github.installation_can_access_repository(repository, raise_on_transient=True):
-                    return github
+                if team_github.installation_can_access_repository(repository, raise_on_transient=True):
+                    return team_github
             except (GitHubEgressBudgetExhausted, GitHubRateLimitError, GitHubIntegrationError) as error:
                 probe_error = probe_error or error
     fallback = GitHubIntegration.first_for_team_repository(
