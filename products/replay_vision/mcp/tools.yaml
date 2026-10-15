@@ -550,7 +550,7 @@ tools:
             left cannot cover another observation, and resumes when the period resets. To get notified about what the
             scanner finds, add a scout digest or an alert from the scanner's Scouts and Alerts tabs. To scan an
             experiment, create the `experiment` type rather than scoping another type to it: it scans only the
-            experiment's exposed sessions, tells the model each session's variant, samples the variants evenly, and
+            experiment's exposed sessions, records each session's variant, samples the variants evenly, and
             stops when the experiment ends. Leave exposure out of `query`: the API derives the person-scoped exposure
             filter server-side, and rejects an `experiment_exposure` filter set directly in `query`.
             `experiment_targeting` on the other types is legacy; don't set it. Pass the same `experiment_id` and

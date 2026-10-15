@@ -976,7 +976,7 @@ over an unfiltered scanner.
 
 # Experiments
 To watch an A/B test, create an `experiment` scanner with the experiment's `experiment_id`. It scans only
-the experiment's exposed sessions, tells the model which variant each session is in, and samples the
+the experiment's exposed sessions, records each session's variant from the exposure data, and samples the
 variants evenly. Use compare_replay_vision_variants to read its results per variant. Don't scope another
 scanner type to an experiment.
 """
