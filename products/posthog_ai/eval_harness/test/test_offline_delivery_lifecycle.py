@@ -54,7 +54,7 @@ def test_harness_tears_down_infrastructure_before_draining_uploads(
         OfflineEvalSettings(
             host="https://posthog.example.com", project_id=123, api_key=SecretStr("test"), scorer_versions={}
         ),
-        OfflineEvalSuite(key="test/suite", scorer_kinds={}),
+        OfflineEvalSuite(key="test/suite", project_id=123, scorer_kinds={}, scorer_versions={}),
     )
 
     async def respond(request: httpx.Request) -> httpx.Response:

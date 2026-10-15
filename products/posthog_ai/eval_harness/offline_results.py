@@ -32,7 +32,9 @@ from .engines.types import CaseResult, ExperimentResult, ScorerResult
 @frozen
 class OfflineEvalSuite:
     key: str
+    project_id: int
     scorer_kinds: Mapping[str, ScorerKind]
+    scorer_versions: Mapping[str, UUID]
     experiment_options: ExperimentOptions = field(default_factory=lambda: ExperimentOptions())
 
 
@@ -122,24 +124,24 @@ class OfflineEvalSettings(BaseModel):
     @classmethod
     def from_env(cls, suite: OfflineEvalSuite) -> OfflineEvalSettings | None:
         prefix = "POSTHOG_OFFLINE_EVAL_"
-        if not any(os.getenv(prefix + key) for key in ("API_KEY", "PROJECT_ID", "SCORER_VERSIONS", "HOST")):
+        api_key = os.getenv(prefix + "API_KEY")
+        if not api_key:
             return None
         try:
             settings = cls(
                 host=os.getenv(prefix + "HOST", "https://us.posthog.com"),
-                project_id=int(os.environ[prefix + "PROJECT_ID"]),
-                api_key=SecretStr(os.environ[prefix + "API_KEY"]),
-                scorer_versions=json.loads(os.environ[prefix + "SCORER_VERSIONS"]),
+                project_id=suite.project_id,
+                api_key=SecretStr(api_key),
+                scorer_versions=dict(suite.scorer_versions),
             )
-        except (KeyError, ValueError, ValidationError):
+        except ValidationError:
             raise OfflineUploadError(
-                "Set POSTHOG_OFFLINE_EVAL_API_KEY, POSTHOG_OFFLINE_EVAL_PROJECT_ID and "
-                "POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS (a JSON object of metric names to version UUIDs)"
+                "Offline evaluation suite has an invalid project ID or scorer version mapping"
             ) from None
         if not settings.api_key.get_secret_value().strip():
             raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_API_KEY must not be empty")
         if not set(suite.scorer_kinds) <= set(settings.scorer_versions):
-            raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS must map every enrolled metric")
+            raise OfflineUploadError("Offline evaluation suite must map every enrolled metric to a scorer version UUID")
         enrolled_versions = [settings.scorer_versions[metric] for metric in suite.scorer_kinds]
         if len(set(enrolled_versions)) != len(enrolled_versions):
             raise OfflineUploadError("Each offline metric must have a distinct scorer version UUID")

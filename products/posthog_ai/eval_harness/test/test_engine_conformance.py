@@ -251,7 +251,12 @@ def test_judge_failure_preserves_zero_aggregate_and_error_upload(
             api_key=SecretStr("test-only-token"),
             scorer_versions={"judge": UUID("00000000-0000-4000-8000-000000000002")},
         ),
-        OfflineEvalSuite(key="test/judge", scorer_kinds={"judge": "numeric"}),
+        OfflineEvalSuite(
+            key="test/judge",
+            project_id=123,
+            scorer_kinds={"judge": "numeric"},
+            scorer_versions={"judge": UUID("00000000-0000-4000-8000-000000000002")},
+        ),
     )
     upload = publisher.prepare(
         experiment_id="00000000-0000-4000-8000-000000000001",

@@ -14,6 +14,7 @@ from functools import partial
 from pathlib import Path
 from threading import Event, Thread, get_ident
 from typing import Any, Literal
+from uuid import UUID
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
@@ -381,7 +382,7 @@ def test_sandboxed_eval_run_adds_exit_code_scorer(monkeypatch: pytest.MonkeyPatc
     [
         ("sandboxed", True, False, "valid", 200, "ready"),
         ("sandboxed", True, False, "valid", 403, "ready"),
-        ("sandboxed", True, False, "partial", 200, "ready"),
+        ("sandboxed", True, False, "invalid", 200, "ready"),
         ("sandboxed", True, False, "absent", 200, "ready"),
         ("sandboxed", True, True, "valid", 200, "ready"),
         ("sandboxed", False, False, "valid", 200, "ready"),
@@ -398,11 +399,11 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     suite_kind: Literal["sandboxed", "one-shot"],
     enrolled: bool,
     no_send_logs: bool,
-    configuration: Literal["valid", "partial", "absent"],
+    configuration: Literal["valid", "invalid", "absent"],
     http_status: int,
     delivery_state: Literal["ready", "unavailable", "closed"],
 ) -> None:
-    for key in ("API_KEY", "PROJECT_ID", "SCORER_VERSIONS", "HOST"):
+    for key in ("API_KEY", "HOST"):
         monkeypatch.delenv(f"POSTHOG_OFFLINE_EVAL_{key}", raising=False)
     monkeypatch.setenv("EXPORT_EVAL_RESULTS", "1")
     monkeypatch.chdir(tmp_path)
@@ -410,11 +411,9 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     monkeypatch.setattr(log_sink, "INDEX_FILE", tmp_path / "runs.jsonl")
     version_id = "00000000-0000-4000-8000-000000000001"
     if configuration != "absent":
-        monkeypatch.setenv("POSTHOG_OFFLINE_EVAL_API_KEY", "fake-offline-test-key")
+        monkeypatch.setenv("POSTHOG_OFFLINE_EVAL_API_KEY", "fake-offline-test-key" if configuration == "valid" else " ")
     if configuration == "valid":
         monkeypatch.setenv("POSTHOG_OFFLINE_EVAL_HOST", "https://posthog.example.com")
-        monkeypatch.setenv("POSTHOG_OFFLINE_EVAL_PROJECT_ID", "123")
-        monkeypatch.setenv("POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS", json.dumps({"exit_code_zero": version_id}))
 
     requests: list[httpx.Request] = []
     server = OfflineServer()
@@ -475,7 +474,12 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
             ctx=ctx,
             is_public=not no_send_logs,
             no_send_logs=no_send_logs,
-            offline_suite=OfflineEvalSuite(key="example/suite", scorer_kinds={"exit_code_zero": "boolean"})
+            offline_suite=OfflineEvalSuite(
+                key="example/suite",
+                project_id=123,
+                scorer_kinds={"exit_code_zero": "boolean"},
+                scorer_versions={"exit_code_zero": UUID(version_id)},
+            )
             if enrolled
             else None,
         ),

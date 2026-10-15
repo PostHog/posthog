@@ -355,20 +355,21 @@ The `sql/eval_sql::eval_sql` suite can also send its seven scorer results to Pos
 It publishes the same completed case results through the Python SDK and keeps sending to Braintrust and the existing `$ai_evaluation` event path.
 Other suites are unchanged, and `no_send_logs=True` suppresses the new upload too.
 
-Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal or project secret key with `offline_evaluation_ingestion:write`, `POSTHOG_OFFLINE_EVAL_PROJECT_ID` to the destination project/environment, and `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS` to a JSON object mapping all seven SQL metric names to their immutable scorer version UUIDs.
+Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal or project secret key with `offline_evaluation_ingestion:write` and access to project `2`.
+The [SQL suite definition](../evals/sql/eval_sql.py) pins that project ID and all seven immutable scorer version UUIDs in code.
 `POSTHOG_OFFLINE_EVAL_HOST` defaults to `https://us.posthog.com`.
-The [pilot configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#sql-offline-experiment-pilot) lists the metric names, scorer kinds, and a placeholder mapping.
+The [pilot configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#sql-offline-experiment-pilot) lists the metrics and explains local and CI key configuration.
 Delivery runs in a bounded background queue after local results are saved. Prepared uploads stay in memory, with up to two uploads running concurrently, at most 32 queued or active uploads, and a 60-second deadline per active upload.
 Unfinished uploads pause before infrastructure teardown. After teardown, the harness retries the same prepared objects and identities with fresh deadlines, waiting up to 30 seconds for delivery to finish.
 Both sandboxed and one-shot suites can opt in through `offline_suite`. Rich scorer recording runs only when offline publishing is configured and uploads are allowed.
-The [reporting guide](../../../docs/internal/ai-offline-evaluation-reporting.md#enrolling-other-suites-and-richer-results) covers rich scorer outcomes, external dataset references, version fields, and shared scorer mappings. Hosted datasets are not supported by the harness publisher.
+The [reporting guide](../../../docs/internal/ai-offline-evaluation-reporting.md#enrolling-other-suites-and-richer-results) covers rich scorer outcomes, external dataset references, version fields, and suite configuration. Hosted datasets are not supported by the harness publisher.
 
 ```bash
 hogli evals sql/eval_sql::eval_sql
 ```
 
-With no publishing configuration, the SQL run reports that offline uploads are disabled.
-Partial or invalid configuration and upload failures produce warnings while Braintrust and legacy reporting continue.
+With no API key, the SQL run reports that offline uploads are disabled.
+Invalid configuration and upload failures produce warnings while Braintrust and legacy reporting continue.
 Successful uploads use separate items for each case and trial; skipped scores and execution errors remain distinct from scores of zero.
 Raw agent logs stay in the existing local and Braintrust outputs. The SDK validates payloads; invalid or oversized optional fields are omitted as a whole, with their names recorded in metadata.
 

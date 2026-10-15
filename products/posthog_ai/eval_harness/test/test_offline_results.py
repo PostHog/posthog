@@ -30,7 +30,12 @@ SCORER_VERSIONS = {
     "boolean_metric": UUID("00000000-0000-4000-8000-000000000002"),
     "numeric_metric": UUID("00000000-0000-4000-8000-000000000003"),
 }
-SUITE = OfflineEvalSuite(key="sql/test", scorer_kinds={"boolean_metric": "boolean", "numeric_metric": "numeric"})
+SUITE = OfflineEvalSuite(
+    key="sql/test",
+    project_id=123,
+    scorer_kinds={"boolean_metric": "boolean", "numeric_metric": "numeric"},
+    scorer_versions=SCORER_VERSIONS,
+)
 STARTED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -225,7 +230,9 @@ def test_prepare_preserves_rich_results_and_dataset_references(_name: str, link_
     publisher = _publisher(link_traces=link_traces)
     publisher.suite = OfflineEvalSuite(
         key="sql/rich",
+        project_id=123,
         scorer_kinds={"boolean_metric": "categorical", "numeric_metric": "numeric"},
+        scorer_versions=SCORER_VERSIONS,
         experiment_options={
             "prompt_version": "prompt-2",
             "run_source": "scheduled",
@@ -492,11 +499,7 @@ def test_publish_refuses_a_different_destination(_name: str, host: str, project_
 def test_publish_uses_the_same_origin_for_requests_and_result_links(_name: str, host: str, origin: str) -> None:
     environment = {
         "POSTHOG_OFFLINE_EVAL_API_KEY": "test-only-token",
-        "POSTHOG_OFFLINE_EVAL_PROJECT_ID": "123",
         "POSTHOG_OFFLINE_EVAL_HOST": host,
-        "POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS": json.dumps(
-            {metric: str(version) for metric, version in SCORER_VERSIONS.items()}
-        ),
     }
     with patch.dict("os.environ", environment, clear=True):
         settings = OfflineEvalSettings.from_env(SUITE)
@@ -513,55 +516,56 @@ def test_publish_uses_the_same_origin_for_requests_and_result_links(_name: str, 
     assert url == f"{origin}/project/123/ai-evals/evaluations/offline/experiments/{EXPERIMENT_ID}"
 
 
-def test_settings_accept_a_shared_scorer_map_for_multiple_suites() -> None:
-    environment = {
-        "POSTHOG_OFFLINE_EVAL_API_KEY": "test-only-token",
-        "POSTHOG_OFFLINE_EVAL_PROJECT_ID": "123",
-        "POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS": json.dumps(
-            {metric: str(version) for metric, version in SCORER_VERSIONS.items()}
-        ),
-    }
+def test_settings_use_each_suite_destination_with_only_an_api_key() -> None:
+    environment = {"POSTHOG_OFFLINE_EVAL_API_KEY": "test-only-token"}
     with patch.dict("os.environ", environment, clear=True):
-        for metric, version in SCORER_VERSIONS.items():
-            suite = OfflineEvalSuite(key=metric, scorer_kinds={metric: "numeric"})
+        for project_id, (metric, version) in enumerate(SCORER_VERSIONS.items(), start=123):
+            suite = OfflineEvalSuite(
+                key=metric,
+                project_id=project_id,
+                scorer_kinds={metric: "numeric"},
+                scorer_versions={metric: version},
+            )
             settings = OfflineEvalSettings.from_env(suite)
             assert settings is not None
-            assert settings.scorer_versions[metric] == version
+            upload = _prepare(OfflineEvalPublisher(settings, suite), [_case()])
+            assert upload.project_id == project_id
+            assert [result.scorer_version_id for result in upload.results] == [str(version)]
 
 
 @parameterized.expand(
     [
-        ("missing_key", {"POSTHOG_OFFLINE_EVAL_API_KEY": ""}),
-        ("malformed_versions", {"POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS": "not-json"}),
+        ("invalid_project", replace(SUITE, project_id=0)),
         (
             "missing_metric",
-            {
-                "POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS": json.dumps(
-                    {"boolean_metric": str(SCORER_VERSIONS["boolean_metric"])}
-                )
-            },
+            replace(SUITE, scorer_versions={"boolean_metric": SCORER_VERSIONS["boolean_metric"]}),
         ),
         (
             "duplicate_versions",
-            {
-                "POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS": json.dumps(
-                    dict.fromkeys(SCORER_VERSIONS, str(SCORER_VERSIONS["boolean_metric"]))
-                )
-            },
+            replace(SUITE, scorer_versions=dict.fromkeys(SCORER_VERSIONS, SCORER_VERSIONS["boolean_metric"])),
         ),
+    ]
+)
+def test_settings_reject_invalid_suite_configuration(_name: str, suite: OfflineEvalSuite) -> None:
+    with (
+        patch.dict("os.environ", {"POSTHOG_OFFLINE_EVAL_API_KEY": "test-only-token"}, clear=True),
+        pytest.raises(OfflineUploadError),
+    ):
+        OfflineEvalSettings.from_env(suite)
+
+
+@parameterized.expand(
+    [
+        ("blank_key", {"POSTHOG_OFFLINE_EVAL_API_KEY": " "}),
         ("insecure_host", {"POSTHOG_OFFLINE_EVAL_HOST": "http://posthog.example.com"}),
         ("malformed_host", {"POSTHOG_OFFLINE_EVAL_HOST": "https://["}),
         ("invalid_port", {"POSTHOG_OFFLINE_EVAL_HOST": "https://posthog.example.com:invalid"}),
         ("host_credentials", {"POSTHOG_OFFLINE_EVAL_HOST": "https://token@posthog.example.com"}),
     ]
 )
-def test_settings_reject_partial_or_ambiguous_configuration(_name: str, overrides: dict[str, str]) -> None:
+def test_settings_reject_invalid_environment(_name: str, overrides: dict[str, str]) -> None:
     environment = {
         "POSTHOG_OFFLINE_EVAL_API_KEY": "test-only-token",
-        "POSTHOG_OFFLINE_EVAL_PROJECT_ID": "123",
-        "POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS": json.dumps(
-            {metric: str(version) for metric, version in SCORER_VERSIONS.items()}
-        ),
         **overrides,
     }
     with patch.dict("os.environ", environment, clear=True), pytest.raises(OfflineUploadError):

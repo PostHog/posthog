@@ -91,7 +91,7 @@ def _publisher(
             scorer_versions={},
             max_retries=0,
         ),
-        OfflineEvalSuite(key="example/suite", scorer_kinds={}),
+        OfflineEvalSuite(key="example/suite", project_id=123, scorer_kinds={}, scorer_versions={}),
     )
 
 

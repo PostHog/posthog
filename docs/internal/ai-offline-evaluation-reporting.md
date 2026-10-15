@@ -41,19 +41,18 @@ Other suites continue using Braintrust and the existing event reporting path.
 After scoring, the harness prepares the completed results in memory and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
 `no_send_logs=True` suppresses this upload too.
 
-Configure the destination through the environment before running the SQL suite:
+The [SQL suite definition](../../products/posthog_ai/evals/sql/eval_sql.py) pins destination project `2` and the seven immutable scorer version UUIDs.
+Provide the API key through the environment before running the suite:
 
-| Variable                               | Purpose                                                                                                                                             |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POSTHOG_OFFLINE_EVAL_API_KEY`         | Personal or project secret API key with `offline_evaluation_ingestion:write`. A public project token cannot authenticate uploads.                   |
-| `POSTHOG_OFFLINE_EVAL_PROJECT_ID`      | Exact destination project/environment ID.                                                                                                           |
-| `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS` | JSON object mapping each of the seven metric names below to an existing immutable scorer **version UUID**, not a definition UUID or version number. |
-| `POSTHOG_OFFLINE_EVAL_HOST`            | App origin; defaults to `https://us.posthog.com`.                                                                                                   |
+| Variable                       | Purpose                                                                                                                           |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTHOG_OFFLINE_EVAL_API_KEY` | Personal or project secret API key with `offline_evaluation_ingestion:write`. A public project token cannot authenticate uploads. |
+| `POSTHOG_OFFLINE_EVAL_HOST`    | App origin; defaults to `https://us.posthog.com`.                                                                                 |
 
 The publisher normalizes the cloud ingestion hosts (`us.i.posthog.com`, `eu.i.posthog.com`) and the legacy `app.posthog.com` host to their app origins.
 Uploads, result links, and trace-destination checks use that same origin.
 
-Create the scorer definitions in the destination project before configuring their versions:
+The suite uses these existing scorers:
 
 | Metric name                          | Scorer kind                      |
 | ------------------------------------ | -------------------------------- |
@@ -65,23 +64,17 @@ Create the scorer definitions in the destination project before configuring thei
 | `sql_schema_alignment`               | Numeric, minimum 0 and maximum 1 |
 | `sql_result_message_alignment`       | Numeric, minimum 0 and maximum 1 |
 
-For example, the mapping has this shape. Replace every placeholder with the corresponding version UUID returned by the scorer API or MCP:
+The harness loads the repo-root `.env` automatically; shell values take precedence.
+For CI, store the key as the `POSTHOG_OFFLINE_EVAL_API_KEY` GitHub Actions secret and expose it to the eval step under the same environment variable name.
+No project ID or scorer mapping environment variables are required.
 
 ```bash
-export POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS='{
-  "exit_code_zero": "00000000-0000-4000-8000-000000000001",
-  "no_persistent_insight_save": "00000000-0000-4000-8000-000000000002",
-  "execute_sql_called": "00000000-0000-4000-8000-000000000003",
-  "answer_tool_not_typed_query": "00000000-0000-4000-8000-000000000004",
-  "querying_posthog_data_skill_loaded": "00000000-0000-4000-8000-000000000005",
-  "sql_schema_alignment": "00000000-0000-4000-8000-000000000006",
-  "sql_result_message_alignment": "00000000-0000-4000-8000-000000000007"
-}'
+export POSTHOG_OFFLINE_EVAL_API_KEY='your-secret-key'
 hogli evals sql/eval_sql::eval_sql
 ```
 
-Without publishing configuration, the SQL run reports that offline uploads are disabled.
-Partial or invalid configuration produces a warning and skips this destination; Braintrust and legacy event reporting continue.
+Without an API key, the SQL run reports that offline uploads are disabled.
+Invalid configuration produces a warning and skips this destination; Braintrust and legacy event reporting continue.
 An upload failure also warns without changing the evaluation's score gate.
 The final summary retains the legacy PostHog results link alongside the offline upload status until an offline experiment URL is available.
 
@@ -117,7 +110,8 @@ Existing local logs, enabled case exports, and Braintrust results remain availab
 ### Enrolling other suites and richer results
 
 Both `SandboxedEval` and `OneShotEval` accept `offline_suite=OfflineEvalSuite(...)`.
-Each suite selects at least one scorer kind and uses the corresponding entries from `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS`; the shared mapping may include metrics used by other suites.
+Each suite declares its destination `project_id`, selects at least one metric in `scorer_kinds`, and pins the corresponding immutable version UUIDs in `scorer_versions`.
+These fields belong to `OfflineEvalSuite` in code. Scorer version UUIDs must be distinct for the suite's enrolled metrics.
 Numeric scores can use the domain of their configured scorer version. The API validates bounds and steps; the harness does not restrict every numeric metric to `[0, 1]`.
 
 `OfflineEvalSuite.experiment_options` accepts the SDK's `ExperimentOptions` for external dataset identifiers, `prompt_version`, model/application versions, and `run_source`.
