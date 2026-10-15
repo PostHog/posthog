@@ -183,12 +183,18 @@ class TestRunSandboxReview:
 
     @parameterized.expand(
         [
-            ("short_prefix", "review-pr:1:o/r:7:chunking"),
-            ("prefix_longer_than_the_column", "review-pr:1:" + "o" * 200 + "/r:7:chunking"),
+            ("short_prefix", "review-pr:1:o/r:7:chunking", "7"),
+            ("prefix_longer_than_the_column", "review-pr:1:" + "o" * 200 + "/r:7:chunking", "7"),
+            ("max_length_owner_and_repo", "review-pr:1:" + "o" * 39 + "/" + "r" * 100 + ":117301:chunking", "117301"),
+            (
+                "long_owner_and_repo_child_workflow",
+                "review-pr:1:" + "o" * 20 + "/" + "r" * 80 + ":117301/validate:x",
+                "117301/validate",
+            ),
         ]
     )
     @pytest.mark.asyncio
-    async def test_origin_key_is_unique_per_task_and_fits_the_column(self, _name, prefix) -> None:
+    async def test_origin_key_is_unique_per_task_and_fits_the_column(self, _name, prefix, pr_segment) -> None:
         # Task enforces one origin_key per team (max 128 chars), and one review starts many tasks with
         # the same prefix, so the unique part must lead and survive truncation.
         mock_start = AsyncMock(return_value=(AsyncMock(), DummyModel(result="ok")))
@@ -209,6 +215,8 @@ class TestRunSandboxReview:
         first, second = (call.kwargs["origin_key"] for call in mock_start.call_args_list)
         assert first != second
         assert len(first) <= 128 and len(second) <= 128
+        assert first.split(":")[1:5] == second.split(":")[1:5]
+        assert first.split(":")[4] == pr_segment
 
     @parameterized.expand(
         [
