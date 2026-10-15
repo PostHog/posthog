@@ -2302,6 +2302,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 
 /** This const is auto-generated, as is the whole file */
 export type ProductTreePath =
+    | 'Alerts'
     | 'Apps'
     | 'Autoresearch'
     | 'Broadcasts'
@@ -2354,6 +2355,20 @@ export type ProductTreePath =
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
+    {
+        path: 'Alerts',
+        intents: [ProductKey.ALERTS],
+        category: ProductItemCategory.MONITORING,
+        iconType: 'inbox' as FileSystemIconType,
+        href: urls.alerts(),
+        searchKeywords: ['notifications', 'thresholds', 'monitors', 'insight alerts', 'log alerts'],
+        searchTabs: [
+            { name: 'Insight alerts', href: `${urls.alerts()}?alert_type=insights` },
+            { name: 'Log alerts', href: `${urls.alerts()}?alert_type=logs` },
+        ],
+        sceneKey: 'Alerts',
+        sceneKeys: ['Alerts'],
+    },
     {
         path: 'Apps',
         intents: [ProductKey.STREAMLIT_APPS],

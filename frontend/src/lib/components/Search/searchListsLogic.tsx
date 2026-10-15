@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBell, IconClock, IconDownload, IconLeave, IconNotification, IconTerminal } from '@posthog/icons'
+import { IconClock, IconDownload, IconLeave, IconNotification, IconTerminal } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -507,17 +507,6 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     itemType: null,
                     lastViewedAt: sceneLogViewsByRef['Exports'] ?? null,
                     record: { type: 'exports' },
-                },
-                {
-                    id: 'misc-alerts',
-                    name: 'Alerts',
-                    displayName: 'Alerts',
-                    category: 'misc',
-                    href: urls.alerts(),
-                    icon: <IconBell />,
-                    itemType: null,
-                    lastViewedAt: sceneLogViewsByRef['SavedInsights'] ?? null,
-                    record: { type: 'alerts' },
                 },
                 {
                     id: 'misc-subscriptions',
