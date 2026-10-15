@@ -90,6 +90,9 @@ Both modes retain detailed logs in the transcript, including routine service std
 
 The reporter publishes immutable trial updates to the dashboard; the view does not parse log lines to infer case state.
 The dashboard uses a separate thread and a duplicate terminal descriptor, outside stdout/stderr capture.
+State updates request redraws immediately, with a limit of 30 redraws per second.
+An async task reads the selected log in a worker and publishes its text to the view. Rendering does no file reads.
+Mouse controls select trials, scroll details, and use the action bar. Moving the details cursor pauses log following.
 Its event loop uses `SelectSelector` so reopened `/dev/tty` input works on macOS. The eval event loop keeps its default selector.
 The transcript routes console messages to the view while still saving their original text.
 Cancel controls send one SIGINT through the existing cleanup path and keep the view open during teardown.

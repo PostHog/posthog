@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import asyncio
+import threading
 from pathlib import Path
 from textwrap import dedent
 
@@ -33,6 +34,15 @@ def _screen_text(application: Application[None]) -> str:
     return "\n".join("".join(row[x].char for x in sorted(row)) for row in screen.data_buffer.values())
 
 
+def _mouse_sequence(application: Application[None], text: str, *, button: int = 0) -> str:
+    for y, row in enumerate(_screen_text(application).splitlines()):
+        if text in row:
+            x = row.index(text) + 1
+            sequence = f"\x1b[<{button};{x};{y + 1}M"
+            return sequence + (f"\x1b[<0;{x};{y + 1}m" if button == 0 else "")
+    raise AssertionError(f"No visible control: {text}")
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("columns", [60, 120])
 async def test_dashboard_shows_trial_results_and_supports_logs_search_and_safe_cancel(
@@ -50,7 +60,17 @@ async def test_dashboard_shows_trial_results_and_supports_logs_search_and_safe_c
         )
         dashboard.application.after_render += lambda _app: rendered.set()
         dashboard.application.key_processor.after_key_press += lambda _processor: pressed.set()
+        dashboard.application.refresh_interval = None
         task = asyncio.create_task(dashboard.application.run_async(handle_sigint=False))
+
+        async def wait_text(text: str) -> str:
+            async with asyncio.timeout(5):
+                while True:
+                    screen = _screen_text(dashboard.application)
+                    if text in screen:
+                        return screen
+                    rendered.clear()
+                    await rendered.wait()
 
         async def refresh() -> str:
             rendered.clear()
@@ -68,7 +88,7 @@ async def test_dashboard_shows_trial_results_and_supports_logs_search_and_safe_c
             await asyncio.wait_for(rendered.wait(), timeout=5)
             reporter = ProgressReporter(total_suites=1, dashboard=dashboard)
             reporter.setup_started("start example service")
-            assert "start example service" in await refresh()
+            await wait_text("start example service")
             dashboard.setup_finished()
             await reporter.experiment_started("example", 2, tmp_path)
             await reporter.case_started("example", "same-case", "first", 0)
@@ -92,11 +112,17 @@ async def test_dashboard_shows_trial_results_and_supports_logs_search_and_safe_c
             await reporter.case_done(
                 "example", "same-case", duration_seconds=1, trial_id="second", status="error", error_type="RuntimeError"
             )
-            screen = await send("\x1b[B\r")
-            assert "Trial answer" in screen
-            assert "Setup retries: 1" in screen
-            assert "trial log contents" in await send("l")
-            assert "Transient failure recovered" in await send("\x1b[A\r")
+            await send("\x1b[B\r")
+            screen = await wait_text("Trial answer")
+            assert "retry=1" in screen
+            await send(_mouse_sequence(dashboard.application, "#1", button=65))
+            await wait_text("Phase: error")
+            await send(_mouse_sequence(dashboard.application, "#1"))
+            await wait_text("Trial answer")
+            await send("l")
+            await wait_text("trial log contents")
+            await send("\x1b[A\r")
+            await wait_text("Transient failure recovered")
             await send("/failure")
             assert not cancellations
             await send("\x1b\r")
@@ -110,6 +136,81 @@ async def test_dashboard_shows_trial_results_and_supports_logs_search_and_safe_c
             assert "Interrupted" in await refresh()
             keys.send_text("q")
         finally:
+            if dashboard.application.is_running:
+                dashboard.application.exit()
+            await asyncio.wait_for(task, timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_mouse_controls_work_during_slow_log_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reading = threading.Event()
+    release = threading.Event()
+    rendered = asyncio.Event()
+    cancellations: list[bool] = []
+
+    def slow_read(_path: Path) -> str:
+        reading.set()
+        release.wait(timeout=10)
+        return "\n".join([f"Example log line {index}" for index in range(60)] + ["Example log output"])
+
+    monkeypatch.setattr(EvalDashboard, "_tail", staticmethod(slow_read))
+    with create_pipe_input() as keys:
+        dashboard = EvalDashboard(
+            tmp_path / "run.log", input=keys, output=_TerminalOutput(80), cancel=lambda: cancellations.append(True)
+        )
+        dashboard.application.after_render += lambda _app: rendered.set()
+        task = asyncio.create_task(dashboard.application.run_async(handle_sigint=False))
+
+        async def wait_text(text: str) -> str:
+            async with asyncio.timeout(5):
+                while True:
+                    if dashboard.application.renderer.last_rendered_screen is not None:
+                        screen = _screen_text(dashboard.application)
+                        if text in screen:
+                            return screen
+                    rendered.clear()
+                    await rendered.wait()
+
+        def click(text: str) -> None:
+            keys.send_text(_mouse_sequence(dashboard.application, text))
+
+        try:
+            await wait_text("[Logs]")
+            click("[Logs]")
+            await wait_text("Loading logs")
+            assert await asyncio.to_thread(reading.wait, 5)
+            click("[Follow on]")
+            await wait_text("[Follow off]")
+            click("[Search]")
+            await wait_text("I-search")
+            keys.send_text("\x1b\r")
+            await wait_text("[Cancel]")
+            click("[Cancel]")
+            await wait_text("[Continue]")
+            assert not cancellations
+            click("[Continue]")
+            await wait_text("[Cancel]")
+            click("[Cancel]")
+            await wait_text("[Yes, cancel]")
+            click("[Yes, cancel]")
+            await wait_text("Cancel requested")
+            assert cancellations == [True]
+            click("[Follow off]")
+            await wait_text("[Follow on]")
+            release.set()
+            await wait_text("Example log output")
+            click("Example log output")
+            keys.send_text(_mouse_sequence(dashboard.application, "Example log output", button=64))
+            await wait_text("[Follow off]")
+            assert dashboard.application.layout.has_focus(dashboard._details)
+            dashboard.finish(0)
+            await wait_text("[Close]")
+            click("[Close]")
+            await asyncio.wait_for(task, timeout=5)
+        finally:
+            release.set()
             if dashboard.application.is_running:
                 dashboard.application.exit()
             await asyncio.wait_for(task, timeout=5)

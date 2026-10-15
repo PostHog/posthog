@@ -10,15 +10,18 @@ from collections import Counter, deque
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 
-from prompt_toolkit.application import Application
+from prompt_toolkit.application import Application, get_app
 from prompt_toolkit.document import Document
 from prompt_toolkit.filters import is_searching
+from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.input import Input, create_input
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 from prompt_toolkit.layout import HSplit, Layout
+from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
 from prompt_toolkit.output import Output
 from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.search import start_search
@@ -28,6 +31,23 @@ from prompt_toolkit.widgets import Frame, Label, RadioList, SearchToolbar, TextA
 from ..log_sink import _case_log_slug
 from .progress import TERMINAL_PHASES, TrialProgress
 from .terminal import open_terminal
+
+
+class _TrialList(RadioList[str]):
+    def _mouse(self, event: MouseEvent) -> None:
+        if event.event_type == MouseEventType.SCROLL_UP:
+            self._selected_index = max(0, self._selected_index - 1)
+        elif event.event_type == MouseEventType.SCROLL_DOWN:
+            self._selected_index = min(len(self.values) - 1, self._selected_index + 1)
+        elif event.event_type == MouseEventType.MOUSE_UP:
+            self._selected_index = event.position.y
+        else:
+            return
+        self._handle_enter()
+        get_app().layout.focus(self)
+
+    def _get_text_fragments(self) -> StyleAndTextTuples:
+        return [(fragment[0], fragment[1], self._mouse) for fragment in super()._get_text_fragments()]
 
 
 class EvalDashboard:
@@ -49,14 +69,21 @@ class EvalDashboard:
         self._cancel_requested = False
         self._show_logs = False
         self._follow = True
+        self._updating_details = False
+        self._log_path: Path | None = None
+        self._log_text = ""
+        self._log_changed = asyncio.Event()
         self._ready = threading.Event()
         self._run_active = threading.Event()
         self._stopping = threading.Event()
         self._thread_error: BaseException | None = None
         self._thread: threading.Thread | None = None
-        self._choices = RadioList[str]([("", "Run and setup")])
+        self._choices = _TrialList([("", "Run and setup")])
         self._search = SearchToolbar()
-        self._details = TextArea(read_only=True, scrollbar=True, search_field=self._search, wrap_lines=True)
+        self._details = TextArea(
+            read_only=True, scrollbar=True, search_field=self._search, wrap_lines=True, focus_on_click=True
+        )
+        self._details.buffer.on_cursor_position_changed += lambda _buffer: self._pause_follow()
         self._header = Label(text="", style="class:header")
         self._footer = Label(text="")
         self.application: Application[None] = Application(
@@ -67,6 +94,7 @@ class EvalDashboard:
                         Frame(self._choices, title="Trials", height=9),
                         Frame(self._details, title="Details"),
                         self._search,
+                        Label(text=self._toolbar),
                         self._footer,
                     ]
                 ),
@@ -78,6 +106,7 @@ class EvalDashboard:
             full_screen=True,
             mouse_support=True,
             refresh_interval=0.5,
+            min_redraw_interval=1 / 30,
             before_render=lambda _app: self._refresh(),
             after_render=lambda _app: self._ready.set(),
             style=Style.from_dict(
@@ -86,31 +115,38 @@ class EvalDashboard:
                     "frame.label": "#f9bd2b bold",
                     "radio-selected": "#f54e00 bold",
                     "header": "#f9bd2b bold",
+                    "action": "bg:#333333 #ffffff",
                 }
             ),
         )
+        self.application.pre_run_callables.append(self._start_log_reader)
 
     def configure(self, description: str) -> None:
         with self._lock:
             self._description = description
+        self.application.invalidate()
 
     def setup_started(self, phase: str) -> None:
         with self._lock:
             self._setup.append(phase)
             self._stage = phase
+        self.application.invalidate()
 
     def setup_finished(self) -> None:
         with self._lock:
             self._setup_complete = True
             self._stage = "Running trials"
+        self.application.invalidate()
 
     def set_stage(self, stage: str) -> None:
         with self._lock:
             self._stage = stage
+        self.application.invalidate()
 
     def experiment_started(self, name: str, total: int) -> None:
         with self._lock:
             self._experiments[name] = total
+        self.application.invalidate()
 
     def update_trial(self, trial: TrialProgress) -> None:
         with self._lock:
@@ -118,17 +154,20 @@ class EvalDashboard:
             if previous:
                 trial = replace(trial, retries=previous.retries)
             self._trials[trial.trial_id] = trial
+        self.application.invalidate()
 
     def trial_retry(self, trial_id: str, detail: str) -> None:
         with self._lock:
             if trial := self._trials.get(trial_id):
                 self._trials[trial_id] = replace(trial, detail=detail, retries=trial.retries + 1)
+        self.application.invalidate()
 
     def write(self, text: str) -> None:
         with self._lock:
             self._messages.extend(text.splitlines())
             if text.lstrip().startswith(("Sandboxed eval summary", "ERROR:", "error:")):
                 self.result_text = text
+        self.application.invalidate()
 
     @property
     def failure(self) -> BaseException | None:
@@ -144,6 +183,49 @@ class EvalDashboard:
     def end_run(self) -> None:
         self._run_active.clear()
 
+    def _toggle_logs(self) -> None:
+        self._show_logs = not self._show_logs
+
+    def _toggle_follow(self) -> None:
+        self._follow = not self._follow
+        if self._follow:
+            self._details.buffer.cursor_position = len(self._details.text)
+            self._follow = True
+
+    def _pause_follow(self) -> None:
+        if not self._updating_details:
+            self._follow = False
+
+    def _search_details(self) -> None:
+        self.application.layout.focus(self._details)
+        start_search(self._details.control)
+
+    def _quit_or_confirm(self) -> None:
+        if self._exit_code is not None:
+            self.application.exit()
+        elif not self._cancel_requested:
+            self._confirm_cancel = not self._confirm_cancel
+
+    def _dismiss_cancel(self) -> None:
+        self._confirm_cancel = False
+
+    def _mouse_action(self, action: Callable[[], None], event: MouseEvent) -> None:
+        if event.event_type == MouseEventType.MOUSE_UP:
+            action()
+
+    def _toolbar(self) -> StyleAndTextTuples:
+        actions: list[tuple[str, Callable[[], None]]]
+        if self._confirm_cancel:
+            actions = [("Yes, cancel", self.request_cancel), ("Continue", self._dismiss_cancel)]
+        else:
+            actions = [
+                ("Details" if self._show_logs else "Logs", self._toggle_logs),
+                ("Follow on" if self._follow else "Follow off", self._toggle_follow),
+                ("Search", self._search_details),
+                ("Close" if self._exit_code is not None else "Cancel", self._quit_or_confirm),
+            ]
+        return [("class:action", f" [{label}] ", partial(self._mouse_action, action)) for label, action in actions]
+
     def _bindings(self) -> KeyBindings:
         bindings = KeyBindings()
 
@@ -153,23 +235,19 @@ class EvalDashboard:
 
         @bindings.add("l", filter=~is_searching)
         def logs(_event: KeyPressEvent) -> None:
-            self._show_logs = not self._show_logs
+            self._toggle_logs()
 
         @bindings.add("f", filter=~is_searching)
         def follow(_event: KeyPressEvent) -> None:
-            self._follow = not self._follow
+            self._toggle_follow()
 
         @bindings.add("/", filter=~is_searching)
         def search(_event: KeyPressEvent) -> None:
-            self.application.layout.focus(self._details)
-            start_search(self._details.control)
+            self._search_details()
 
         @bindings.add("q", filter=~is_searching)
         def quit_or_confirm(event: KeyPressEvent) -> None:
-            if self._exit_code is not None:
-                event.app.exit()
-            elif not self._cancel_requested:
-                self._confirm_cancel = not self._confirm_cancel
+            self._quit_or_confirm()
 
         @bindings.add("y", filter=~is_searching)
         def confirm(_event: KeyPressEvent) -> None:
@@ -179,7 +257,7 @@ class EvalDashboard:
         @bindings.add("n", filter=~is_searching)
         @bindings.add("escape", filter=~is_searching)
         def dismiss(_event: KeyPressEvent) -> None:
-            self._confirm_cancel = False
+            self._dismiss_cancel()
 
         @bindings.add("c-c", filter=~is_searching)
         def interrupt(event: KeyPressEvent) -> None:
@@ -208,7 +286,31 @@ class EvalDashboard:
                     text = "Showing recent output. Open the log file for earlier lines.\n\n" + text
                 return text
         except OSError:
-            return "Logs are not available yet. They will appear after execution."
+            return "Logs are not available yet. Select Run and setup, then Logs for live output."
+
+    def _start_log_reader(self) -> None:
+        self.application.create_background_task(self._load_logs())
+
+    async def _load_logs(self) -> None:
+        while True:
+            self._log_changed.clear()
+            path = self._log_path
+            if path is not None:
+                text = await asyncio.to_thread(self._tail, path)
+                if path == self._log_path and text != self._log_text:
+                    self._log_text = text
+                    self.application.invalidate()
+            try:
+                await asyncio.wait_for(self._log_changed.wait(), timeout=0.25)
+            except TimeoutError:
+                pass
+
+    def _log_contents(self, path: Path) -> str:
+        if path != self._log_path:
+            self._log_path = path
+            self._log_text = "Loading logs..."
+            self._log_changed.set()
+        return self._log_text
 
     def _refresh(self) -> None:
         with self._lock:
@@ -254,7 +356,9 @@ class EvalDashboard:
             overview = f"Setup\n{setup}\n\nTrials\n{phases}\n\n{diagnostics}"
             if self._exit_code is not None and self.result_text.lstrip().startswith("Sandboxed eval summary"):
                 overview += "\n\n" + self.result_text
-            text = f"{self.transcript}\n\n" + self._tail(self.transcript) if self._show_logs else overview
+            text = f"{self.transcript}\n\n" + self._log_contents(self.transcript) if self._show_logs else overview
+            if not self._show_logs:
+                self._log_path = None
         else:
             heading = (
                 f"{trial.experiment} :: {trial.name} [trial {trial.trial_index + 1}]\n"
@@ -263,14 +367,17 @@ class EvalDashboard:
             if trial.log_dir is not None:
                 suffix = ".jsonl" if self._show_logs else ".summary.txt"
                 path = trial.log_dir / f"{_case_log_slug(trial.name, trial.trial_id)}{suffix}"
-                text = heading + f"\n{path}\n\n" + self._tail(path)
-                if not path.exists():
-                    text += "\nSelect Run and setup, then press l to read live service and agent logs."
+                text = heading + f"\n{path}\n\n" + self._log_contents(path)
             else:
+                self._log_path = None
                 text = heading + "\nSelect Run and setup, then press l to read live service and agent logs."
         if text != self._details.text and not is_searching():
             cursor = len(text) if self._follow else min(self._details.buffer.cursor_position, len(text))
-            self._details.buffer.set_document(Document(text, cursor_position=cursor), bypass_readonly=True)
+            self._updating_details = True
+            try:
+                self._details.buffer.set_document(Document(text, cursor_position=cursor), bypass_readonly=True)
+            finally:
+                self._updating_details = False
         if self._confirm_cancel:
             footer = "Cancel this run and clean up? y yes | n continue"
         elif self._cancel_requested and self._exit_code is None:

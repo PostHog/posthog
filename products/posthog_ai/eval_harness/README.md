@@ -123,6 +123,10 @@ The view shows service setup and one row per trial, with phase, elapsed time, tr
 Use Up/Down and Enter to select a trial. Its details show local results and scores after execution.
 Select **Run and setup** for setup status and run messages. Press `l` to switch to the full run transcript.
 During agent execution, use this transcript for live logs. Per-trial log files become available after execution.
+Click a trial to select it, or use the mouse wheel over the trial list to change the selection.
+The action bar has clickable controls for logs, follow, search, and cancellation. Cancellation asks for confirmation.
+Click the details pane to focus it. Scrolling away from the end pauses log following; click **Follow off** to resume.
+Status updates redraw the view immediately. Log reads run outside the screen thread so slow reads do not block controls.
 
 | Key                  | Action                                                            |
 | -------------------- | ----------------------------------------------------------------- |
