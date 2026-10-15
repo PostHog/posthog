@@ -2,7 +2,9 @@ from datetime import UTC, datetime
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -15,6 +17,7 @@ from products.feature_flags.backend.user_blast_radius import PERSON_BATCH_SIZE, 
 from products.workflows.backend.services.audience_v2 import get_dedupe_audience_count_v2, get_person_audience_count_v2
 from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
 from products.workflows.backend.services.batch_audience_cohorts import lower_realtime_cohorts
+from products.workflows.backend.services.realtime_membership_lag import RealtimeMembershipLagging
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 
@@ -25,6 +28,17 @@ def _uuid(index: int) -> str:
 
 
 class TestBatchAudience(ClickhouseTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        # Realtime membership counts as current unless a test says otherwise.
+        lag_patcher = patch(
+            "products.workflows.backend.services.realtime_membership_lag.measure_realtime_membership_lag_seconds",
+            return_value=0.0,
+        )
+        lag_patcher.start()
+        self.addCleanup(lag_patcher.stop)
+
     def _create_audience(self, emails: list[str | None]) -> list[str]:
         person_ids = []
         for i, email in enumerate(emails, start=1):
@@ -173,3 +187,36 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         filters = {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]}
 
         assert lower_realtime_cohorts(self.team, filters) == filters
+
+    @parameterized.expand(
+        [
+            ("first_page_lagging", None, True, 600.0, True),
+            ("first_page_current", None, True, 10.0, False),
+            ("first_page_unmeasurable", None, True, RuntimeError("broker unreachable"), True),
+            # Later pages trust the check the first page passed.
+            ("later_page", _uuid(1), True, 600.0, False),
+            ("no_realtime_cohort", None, False, 600.0, False),
+        ]
+    )
+    @override_settings(WORKFLOWS_REALTIME_COHORT_MAX_LAG_SECONDS=300)
+    def test_realtime_cohort_audience_waits_for_current_membership(
+        self, _name, cursor, reads_realtime, measured_lag, expect_lagging
+    ):
+        self._create_audience(["a@x.com", "b@x.com"])
+        cohort = self._create_realtime_cohort()
+        self._add_membership(cohort.pk, _uuid(2), "entered", hour=1)
+        filters = (
+            {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]}
+            if reads_realtime
+            else FILTERS
+        )
+
+        with patch(
+            "products.workflows.backend.services.realtime_membership_lag.measure_realtime_membership_lag_seconds",
+            side_effect=[measured_lag],
+        ):
+            if expect_lagging:
+                with pytest.raises(RealtimeMembershipLagging):
+                    get_batch_audience_person_ids(self.team, filters, cursor=cursor)
+            else:
+                get_batch_audience_person_ids(self.team, filters, cursor=cursor)

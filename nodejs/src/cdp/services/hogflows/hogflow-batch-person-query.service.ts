@@ -43,6 +43,45 @@ const histogramAudienceFetchDuration = new Histogram({
 export type AudienceFetchEndpoint = 'user_blast_radius' | 'user_blast_radius_persons' | 'account_audience'
 
 /**
+ * The code Django returns while the ClickHouse copy of realtime cohort membership trails its feed.
+ * Keep it in step with REALTIME_MEMBERSHIP_LAGGING_CODE in
+ * products/workflows/backend/services/realtime_membership_lag.py.
+ */
+export const REALTIME_MEMBERSHIP_LAGGING_CODE = 'realtime_membership_lagging'
+
+/**
+ * The audience reads realtime cohort membership, and that membership is too far behind to send
+ * from, or Django could not measure how far behind it is. Nothing is wrong with the audience, so
+ * the resolver waits instead of spending a retry.
+ */
+export class AudienceMembershipLaggingError extends Error {
+    override name = 'AudienceMembershipLaggingError'
+
+    constructor(public readonly lagSeconds: number | null) {
+        super(
+            lagSeconds === null
+                ? 'Realtime cohort membership lag could not be measured'
+                : `Realtime cohort membership is ${Math.round(lagSeconds)}s behind`
+        )
+    }
+}
+
+function membershipLaggingError(status: number, text: string): AudienceMembershipLaggingError | null {
+    if (status !== 503) {
+        return null
+    }
+    try {
+        const body = parseJSON(text) as { code?: unknown; lag_seconds?: unknown }
+        if (body.code !== REALTIME_MEMBERSHIP_LAGGING_CODE) {
+            return null
+        }
+        return new AudienceMembershipLaggingError(typeof body.lag_seconds === 'number' ? body.lag_seconds : null)
+    } catch {
+        return null
+    }
+}
+
+/**
  * An audience fetch used its full CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS budget.
  * The client aborted the request. The query behind the endpoint keeps running server-side
  * until the HogQL execution cap, so a timeout means the query is too slow, and not that
@@ -134,6 +173,14 @@ export class HogFlowBatchPersonQueryService {
 
         if (fetchResponse.status !== 200) {
             histogramAudienceFetchDuration.labels({ endpoint, outcome: 'error' }).observe(durationMs / 1000)
+            const lagging = membershipLaggingError(fetchResponse.status, text)
+            if (lagging) {
+                logger.warn(`Waiting on realtime cohort membership before fetching ${failureLabel}`, {
+                    urlPath,
+                    lagSeconds: lagging.lagSeconds,
+                })
+                throw lagging
+            }
             logger.error(`Failed to fetch ${failureLabel} from Django`, {
                 status: fetchResponse.status,
                 error: text,

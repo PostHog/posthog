@@ -141,7 +141,9 @@ from products.workflows.backend.facade.batch_jobs import (
     set_batch_job_status,
 )
 from products.workflows.backend.facade.blast_radius import (
+    REALTIME_MEMBERSHIP_LAGGING_CODE,
     SUPPORTED_DEDUPE_KEYS,
+    RealtimeMembershipLagging,
     get_account_audience_ids_page,
     get_account_audience_size,
     get_account_group_type_name,
@@ -6734,6 +6736,12 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             )
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)
+        except RealtimeMembershipLagging as e:
+            # The batch resolver waits and asks again on this code, instead of spending a retry.
+            return Response(
+                {"error": str(e), "code": REALTIME_MEMBERSHIP_LAGGING_CODE, "lag_seconds": e.lag_seconds},
+                status=503,
+            )
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)

@@ -12,6 +12,11 @@ export const HOGFLOW_BATCH_RESOLVE_QUEUE = 'hogflow_batch_resolve' as const
 // fails so the janitor can clean it up.
 export const MAX_RESOLVER_ATTEMPTS = 5
 
+// A run whose audience reads realtime cohort membership waits while that membership lags, asking
+// again at this interval and without spending an attempt. Past the deadline the run fails.
+export const MEMBERSHIP_LAG_RETRY_MS = 60_000
+export const MEMBERSHIP_LAG_DEADLINE_MS = 30 * 60_000
+
 // Zod-validated on every dequeue so a job written by an older deploy fails
 // cleanly at the boundary instead of crashing later in the page logic.
 export const BatchResolverStateSchema = z.object({
@@ -49,6 +54,8 @@ export const BatchResolverStateSchema = z.object({
     // without this field default to 0 via the zod parse.
     attempts: z.number().int().nonnegative().default(0),
     startedAt: z.string(),
+    // When this run first found realtime cohort membership lagging. Cleared by the next page.
+    membershipLagSince: z.string().optional(),
     pendingTerminal: z.enum(['completed', 'failed']).optional(),
 })
 

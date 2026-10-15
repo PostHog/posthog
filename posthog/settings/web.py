@@ -1087,6 +1087,9 @@ WORKFLOWS_PERSON_BATCH_SIZE = int(get_from_env("WORKFLOWS_PERSON_BATCH_SIZE", 50
 if WORKFLOWS_PERSON_BATCH_SIZE < 1:
     # An empty page reports has_more, so the resolver would refetch it forever.
     raise ImproperlyConfigured("WORKFLOWS_PERSON_BATCH_SIZE must be at least 1")
+# A batch send that reads realtime cohort membership waits while the ClickHouse copy trails its
+# Kafka feed by more than this, so it does not send from a stale membership.
+WORKFLOWS_REALTIME_COHORT_MAX_LAG_SECONDS = int(get_from_env("WORKFLOWS_REALTIME_COHORT_MAX_LAG_SECONDS", 300))
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
 HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.

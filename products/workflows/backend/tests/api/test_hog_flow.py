@@ -46,6 +46,7 @@ from products.workflows.backend.presentation.views.hog_flow import (
     _should_validate_strictly,
     mint_audience_confirm_token,
 )
+from products.workflows.backend.services.realtime_membership_lag import RealtimeMembershipLagging
 
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
 _WIDER_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "@", "operator": "icontains"}
@@ -4391,6 +4392,24 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
         mock_get_batch_audience_person_ids.assert_not_called()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_user_blast_radius_persons_reports_lagging_membership_with_its_code(self):
+        # The batch resolver waits on this code instead of spending one of its few retries.
+        with patch(
+            "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids",
+            side_effect=RealtimeMembershipLagging(612.0),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
+                {"filters": {"properties": []}},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 503, response.json()
+        assert response.json()["code"] == "realtime_membership_lagging"
+        assert response.json()["lag_seconds"] == 612.0
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_persons_uses_workflows_query(self):

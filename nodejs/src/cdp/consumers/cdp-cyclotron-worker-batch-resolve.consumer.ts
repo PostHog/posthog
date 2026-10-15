@@ -13,11 +13,14 @@ import type { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Worker } fr
 import {
     BatchResolverState,
     MAX_RESOLVER_ATTEMPTS,
+    MEMBERSHIP_LAG_DEADLINE_MS,
+    MEMBERSHIP_LAG_RETRY_MS,
     deserializeResolverState,
     serializeResolverState,
 } from '../services/hogflows/batch-resolver.types'
 import {
     AudienceFetchTimeoutError,
+    AudienceMembershipLaggingError,
     HogFlowBatchPersonQueryService,
 } from '../services/hogflows/hogflow-batch-person-query.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
@@ -60,7 +63,7 @@ const counterBatchHogFlowAudienceTruncated = new Counter({
 const counterBatchHogFlowResolverPagesProcessed = new Counter({
     name: 'cdp_batch_hog_flow_resolver_pages_processed',
     help: 'Total pages processed by the cyclotron-based batch resolver',
-    labelNames: ['outcome'], // success | fetch_failure | terminal_write_failure | invalid_state
+    labelNames: ['outcome'], // success | fetch_failure | membership_lagging | terminal_write_failure | invalid_state
 })
 
 const counterBatchHogFlowResolverJobs = new Counter({
@@ -255,6 +258,42 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
      * On fetch failure, retries via cyclotron reschedule with backoff — cursor
      * is preserved in state so the page replays cleanly.
      */
+    /**
+     * Nothing is wrong with the audience, so a lagging membership copy does not spend a retry. The
+     * run asks again until the copy catches up, and fails once it has waited past the deadline.
+     */
+    private async waitForRealtimeMembership(
+        job: CyclotronV2DequeuedJob,
+        state: BatchResolverState,
+        err: AudienceMembershipLaggingError
+    ): Promise<void> {
+        counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'membership_lagging' }).inc()
+        const lagSince = state.membershipLagSince ?? new Date().toISOString()
+        if (Date.now() - Date.parse(lagSince) >= MEMBERSHIP_LAG_DEADLINE_MS) {
+            logger.error('🔴', `${this.name} - realtime cohort membership lagged past the deadline`, {
+                batchJobId: state.batchJobId,
+                lagSince,
+                lagSeconds: err.lagSeconds,
+            })
+            await this.transitionToFailedTerminal(
+                job,
+                state,
+                `Realtime cohort membership stayed behind for ${Math.round(MEMBERSHIP_LAG_DEADLINE_MS / 60_000)} ` +
+                    `minutes, so this send did not start. Run the workflow again later.`
+            )
+            return
+        }
+        logger.warn('⚠️', `${this.name} - realtime cohort membership is lagging, will ask again`, {
+            batchJobId: state.batchJobId,
+            lagSince,
+            lagSeconds: err.lagSeconds,
+        })
+        await job.reschedule({
+            scheduledAt: new Date(Date.now() + MEMBERSHIP_LAG_RETRY_MS),
+            state: serializeResolverState({ ...state, membershipLagSince: lagSince }),
+        })
+    }
+
     private async processOnePage(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
         const [team, hogFlow] = await Promise.all([
             this.deps.teamManager.getTeam(state.teamId),
@@ -300,6 +339,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 page = { ids: personsPage.users_affected, cursor: personsPage.cursor, has_more: personsPage.has_more }
             }
         } catch (err) {
+            if (err instanceof AudienceMembershipLaggingError) {
+                await this.waitForRealtimeMembership(job, state, err)
+                return
+            }
             counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'fetch_failure' }).inc()
             const nextAttempts = state.attempts + 1
             if (nextAttempts >= MAX_RESOLVER_ATTEMPTS) {
@@ -385,6 +428,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             totalEnqueued: state.totalEnqueued + eligibleIds.length,
             pagesProcessed: state.pagesProcessed + 1,
             attempts: 0, // reset on successful page commit
+            membershipLagSince: undefined,
         }
         if (!page.has_more || pageTruncated) {
             newState.pendingTerminal = 'completed'

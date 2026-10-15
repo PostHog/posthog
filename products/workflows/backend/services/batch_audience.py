@@ -20,6 +20,7 @@ from products.feature_flags.backend.user_blast_radius import (
     unevaluable_filters_as_validation_errors,
 )
 from products.workflows.backend.services.batch_audience_cohorts import lower_realtime_cohorts
+from products.workflows.backend.services.realtime_membership_lag import ensure_realtime_membership_is_current
 
 EMAIL_DEDUPE_KEY = "email"
 SUPPORTED_DEDUPE_KEYS = (EMAIL_DEDUPE_KEY,)
@@ -60,7 +61,12 @@ def get_batch_audience_person_ids(
         return get_user_blast_radius_persons(team, filters, group_type_index, cursor)
 
     with unevaluable_filters_as_validation_errors():
-        cleaned_filter = replace_proxy_properties(team, lower_realtime_cohorts(team, filters))
+        lowered = lower_realtime_cohorts(team, filters)
+        # The lowering returns the same object when the audience reads no realtime membership.
+        # Later pages of a run trust the check its first page passed.
+        if cursor is None and lowered is not filters:
+            ensure_realtime_membership_is_current()
+        cleaned_filter = replace_proxy_properties(team, lowered)
         select_query = _build_audience_person_query(team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)

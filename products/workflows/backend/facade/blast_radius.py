@@ -9,8 +9,14 @@ from products.workflows.backend.services.blast_radius import (
     get_audience_person_page,
     get_audience_size,
 )
+from products.workflows.backend.services.realtime_membership_lag import (
+    REALTIME_MEMBERSHIP_LAGGING_CODE,
+    RealtimeMembershipLagging,
+)
 
 __all__ = [
+    "REALTIME_MEMBERSHIP_LAGGING_CODE",
+    "RealtimeMembershipLagging",
     "SUPPORTED_DEDUPE_KEYS",
     "get_account_audience_ids_page",
     "get_account_audience_size",

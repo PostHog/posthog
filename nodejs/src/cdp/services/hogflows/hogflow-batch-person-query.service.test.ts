@@ -5,6 +5,7 @@ import { Team } from '~/types'
 import {
     AccountAudienceResponse,
     AudienceFetchTimeoutError,
+    AudienceMembershipLaggingError,
     BlastRadiusPersonsResponse,
     BlastRadiusResponse,
     HogFlowBatchPersonQueryService,
@@ -213,6 +214,32 @@ describe('HogFlowBatchPersonQueryService', () => {
             await expect(service.getBlastRadiusPersons(team, filters)).rejects.toThrow(
                 'Failed to fetch blast radius persons: 403 forbidden'
             )
+        })
+
+        it.each([
+            ['with a measured lag', { error: 'behind', code: 'realtime_membership_lagging', lag_seconds: 612 }, 612],
+            [
+                'without a measured lag',
+                { error: 'unmeasured', code: 'realtime_membership_lagging', lag_seconds: null },
+                null,
+            ],
+        ])('reports lagging realtime membership %s as its own error', async (_label, body, lagSeconds) => {
+            const service = createService()
+            fetchMock.mockResolvedValue({ fetchResponse: createFetchResponse(503, body), fetchError: null })
+
+            const error = await service.getBlastRadiusPersons(team, filters).catch((err: unknown) => err)
+
+            expect(error).toBeInstanceOf(AudienceMembershipLaggingError)
+            expect(error).toMatchObject({ lagSeconds })
+        })
+
+        it('keeps a 503 without the lagging code a plain failure', async () => {
+            const service = createService()
+            fetchMock.mockResolvedValue({ fetchResponse: createFetchResponse(503, 'unavailable'), fetchError: null })
+
+            const error = await service.getBlastRadiusPersons(team, filters).catch((err: unknown) => err)
+
+            expect(error).not.toBeInstanceOf(AudienceMembershipLaggingError)
         })
 
         it('throws fetchError when persons fetch fails', async () => {

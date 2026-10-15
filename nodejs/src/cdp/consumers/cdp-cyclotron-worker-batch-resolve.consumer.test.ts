@@ -11,9 +11,14 @@ import { CdpOutput } from '../cdp-services'
 import {
     BatchResolverState,
     MAX_RESOLVER_ATTEMPTS,
+    MEMBERSHIP_LAG_DEADLINE_MS,
+    deserializeResolverState,
     serializeResolverState,
 } from '../services/hogflows/batch-resolver.types'
-import { AudienceFetchTimeoutError } from '../services/hogflows/hogflow-batch-person-query.service'
+import {
+    AudienceFetchTimeoutError,
+    AudienceMembershipLaggingError,
+} from '../services/hogflows/hogflow-batch-person-query.service'
 import {
     HogInvocationResultRow,
     HogInvocationResultsService,
@@ -447,6 +452,46 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                         message:
                             'Batch resolver failed: Audience query timed out after 30s on the last of ' +
                             `${MAX_RESOLVER_ATTEMPTS} attempts. Use fewer or simpler audience filters, or a smaller audience.`,
+                    }),
+                ],
+                'hog_flow'
+            )
+        })
+
+        it('waits on lagging realtime membership without spending the last attempt', async () => {
+            const queueLogs = jest.fn()
+            const consumer = buildConsumer(
+                jest.fn().mockRejectedValue(new AudienceMembershipLaggingError(612)),
+                queueLogs
+            )
+            const job = buildJob(lastAttemptState())
+
+            await consumer.processResolverJob(job)
+
+            expect(queueLogs).not.toHaveBeenCalled()
+            expect(job.reschedule).toHaveBeenCalledTimes(1)
+            const rescheduled = deserializeResolverState(job.reschedule.mock.calls[0][0].state)
+            expect(rescheduled.attempts).toEqual(MAX_RESOLVER_ATTEMPTS - 1)
+            expect(rescheduled.membershipLagSince).toEqual(expect.any(String))
+        })
+
+        it('fails with a lag reason once realtime membership has lagged past the deadline', async () => {
+            const queueLogs = jest.fn()
+            const consumer = buildConsumer(
+                jest.fn().mockRejectedValue(new AudienceMembershipLaggingError(612)),
+                queueLogs
+            )
+            const lagSince = new Date(Date.now() - MEMBERSHIP_LAG_DEADLINE_MS - 1_000).toISOString()
+            const job = buildJob({ ...lastAttemptState(), attempts: 0, membershipLagSince: lagSince })
+
+            await consumer.processResolverJob(job)
+
+            expect(queueLogs).toHaveBeenCalledWith(
+                [
+                    expect.objectContaining({
+                        message:
+                            'Batch resolver failed: Realtime cohort membership stayed behind for 30 minutes, ' +
+                            'so this send did not start. Run the workflow again later.',
                     }),
                 ],
                 'hog_flow'
