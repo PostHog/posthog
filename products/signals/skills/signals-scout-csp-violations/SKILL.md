@@ -42,14 +42,19 @@ If a history reader is unavailable or access is denied, stop using that reader f
 
 A scheduled run can start with a `<precheck_result>` block. Its row counts the `$csp_violation` events of the last 7 days, so CSP reporting is in use. When the block is present, skip the `not-in-use` close-out. The baseline close-out and the standing enforced / first-party block check still apply.
 
-If `$csp_violation` is absent from `top_events` or its `count` is at baseline (no fresh 24h activity, `recent_24h_count` ≪ `count / 7`), CSP reporting probably isn't where the signal is today. Cheap scratchpad entry + close out:
+`top_events` keeps only the top events by volume, so a quiet `$csp_violation` stream can be missing from it.
+When the row is missing and the surface is in use, read the counts with one 7-day `execute-sql`.
+
+If `$csp_violation` is at baseline (no fresh 24h activity, `recent_24h_count` ≪ `count / 7`), CSP reporting probably isn't where the signal is today. Cheap scratchpad entry + close out:
 
 - key: `pattern:csp_violations:baseline-team{team_id}`
 - content: `"$csp_violation baseline ~{count}/day, no fresh 24h burst at {timestamp}"`
 
 **Before** taking the baseline close-out, run the [standing enforced / first-party block](#standing-enforced--first-party-block-no-freshness-required) check below. "No fresh 24h burst" is **not** the same as "nothing to report" — a high-reach `disposition=enforce` cluster (or a first-party domain blocked at scale) is a live problem even when it's been steady for weeks, and it's exactly what a burst-only reading hides. Only close out as baseline once that check is also clean.
 
-If `$csp_violation` is absent from `top_events` entirely (project doesn't ship a CSP reporting endpoint at all):
+If the profile's `surfaces["signals-scout-csp-violations"]` entry reads `in_use: false`, the project doesn't ship a CSP reporting endpoint at all.
+When the entry reads `in_use: null`, check with a 7-day `execute-sql` count before you decide.
+Do not read absence from `top_events` as "not in use".
 
 - key: `not-in-use:csp_violations:team{team_id}`
 - content: brief note (`"no $csp_violation events in 7d window at {timestamp}"`)
@@ -66,7 +71,7 @@ Four cheap reads cold-start a run:
 
 - `scout-scratchpad-search` (`text=csp` or `text=blocked`) — durable team steering from past CSP runs. Entries with `pattern:`, `noise:`, `addressed:`, `dedupe:`, `allowlist:`, `report:`, or `reviewer:` key prefixes tell you the team's healthy domains, recurring browser-extension noise, clusters already surfaced, which report covers a cluster, who owns a surface, and what to skip.
 - `scout-runs-list` (last 7d) — what prior CSP scouts found and ruled out.
-- `scout-project-profile-get` — the `$csp_violation` row in `top_events` carries `count`, `distinct_users`, `recent_24h_count`, `recent_24h_users`, plus `existing_inbox_reports`. Pattern the count/users ratio against the table below.
+- `scout-project-profile-get` — `surfaces["signals-scout-csp-violations"]` says whether CSP reporting is in use. The `$csp_violation` row in `top_events`, when the event ranks high enough to have one, carries `count`, `distinct_users`, `recent_24h_count`, `recent_24h_users`, plus `existing_inbox_reports`. Pattern the count/users ratio against the table below.
 - `inbox-reports-list` (`ordering=-updated_at`, `search`=the blocked domain / directive) — the reports already in the inbox. **Two source_products matter here:** your own report-channel reports persist under `source_product=signals_scout` (search these for edit-vs-author — don't filter them out), while the companion push path files raw per-fingerprint signals under `source_product=csp_reporting` (check these to stay quiet when the push path already covers a cluster — see Decide). A cluster you've reported before is an edit candidate (see Decide for the material-change bar); pull the closest matches with `inbox-reports-retrieve` before authoring.
 
 ### Profile shape — count vs distinct_users

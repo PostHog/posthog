@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
@@ -43,6 +43,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalSourceConfig,
 )
+from products.signals.backend.scout_harness.lazy_seed import canonical_precheck_queries
 from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, Inventory, build_inventory
 from products.signals.backend.scout_harness.profile.builders import (
     RECENT_ACTIVITY_WINDOW_DAYS,
@@ -71,6 +72,7 @@ from products.signals.backend.scout_harness.profile.builders import (
     _recent_surveys,
     _scout_fleet,
     _signal_source_configs,
+    _surfaces,
     _top_events,
 )
 from products.signals.backend.scout_harness.profile.schema import ScoutFleetEntry
@@ -84,6 +86,8 @@ from products.skills.backend.models.skills import LLMSkill
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.workflows.backend.facade.testing import create_workflow_for_test
+
+BUILDERS = "products.signals.backend.scout_harness.profile.builders"
 
 
 class TestProjectContext(BaseTest):
@@ -1016,6 +1020,64 @@ class TestTopEvents(BaseTest):
         ]
 
 
+class TestSurfaces(ClickhouseTestMixin, BaseTest):
+    def test_every_shipped_default_runs_and_reads_a_quiet_surface_as_not_in_use(self) -> None:
+        # An empty project: a backstop row (surveys) or a bad placeholder binding would read as in use.
+        surfaces = _surfaces(self.team)
+
+        assert set(surfaces) == set(canonical_precheck_queries())
+        assert {name: (entry["source"], entry["in_use"]) for name, entry in surfaces.items()} == dict.fromkeys(surfaces, ("skill_default", False))
+
+    def test_an_event_outside_top_events_still_marks_its_surface_in_use(self) -> None:
+        _create_event(
+            team=self.team, event="$csp_violation", distinct_id="d1", timestamp=timezone.now() - timedelta(days=2)
+        )
+        flush_persons_and_events()
+
+        entry = _surfaces(self.team)["signals-scout-csp-violations"]
+
+        assert (entry["in_use"], entry["source"], entry["row_count"]) == (True, "skill_default", 1)
+        assert entry["evaluated_at"] is not None
+
+    @parameterized.expand(
+        [
+            ("rows", SimpleNamespace(columns=["n"], results=[[3]]), True, "skill_default", 1),
+            ("no_rows", SimpleNamespace(columns=["n"], results=[]), False, "skill_default", 0),
+            ("zero_count", SimpleNamespace(columns=["n"], results=[[0]]), False, "skill_default", 1),
+            ("query_error", RuntimeError("clickhouse down"), None, "query_error", None),
+        ]
+    )
+    def test_reads_rows_as_the_acting_user_and_survives_a_failed_query(
+        self, _name, response, in_use, source, row_count
+    ) -> None:
+        with (
+            patch(f"{BUILDERS}.canonical_precheck_queries", return_value={"signals-scout-x": "SELECT 1"}),
+            patch(
+                "products.signals.backend.scout_harness.precheck.execute_hogql_query", side_effect=[response]
+            ) as query,
+        ):
+            surfaces = _surfaces(self.team)
+
+        assert surfaces["signals-scout-x"]["in_use"] is in_use
+        assert (surfaces["signals-scout-x"]["source"], surfaces["signals-scout-x"]["row_count"]) == (source, row_count)
+        # With no user, every access-scoped `system.*` and warehouse table reads as empty.
+        assert query.call_args.kwargs["user"] == self.user
+
+    def test_withheld_scout_is_absent(self) -> None:
+        queries = {"signals-scout-unreleased": "SELECT 1", "signals-scout-x": "SELECT 1"}
+        with (
+            patch(f"{BUILDERS}.canonical_precheck_queries", return_value=queries),
+            patch(f"{BUILDERS}.withheld_skills_for_team", return_value={"signals-scout-unreleased"}),
+            patch(
+                "products.signals.backend.scout_harness.precheck.execute_hogql_query",
+                return_value=SimpleNamespace(columns=["n"], results=[[1]]),
+            ),
+        ):
+            surfaces = _surfaces(self.team)
+
+        assert list(surfaces) == ["signals-scout-x"]
+
+
 class TestBuildInventory(BaseTest):
     def test_returns_a_validated_inventory_with_all_sections(self) -> None:
         inventory = build_inventory(self.team)
@@ -1044,6 +1106,7 @@ class TestBuildInventory(BaseTest):
             "recent_actions",
             "business_knowledge",
             "top_events",
+            "surfaces",
         }
 
     def test_persisted_payload_revalidates_against_the_schema(self) -> None:

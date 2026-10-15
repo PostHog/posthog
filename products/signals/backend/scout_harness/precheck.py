@@ -318,6 +318,16 @@ def dry_run_scout_precheck(
     )
 
 
+def run_precheck_query(
+    team: Team, user: User, query: str, *, since: datetime, now: datetime, interval_minutes: int
+) -> PrecheckResult:
+    """Run a pre-check query as `user` and classify its rows like a scheduled run does.
+
+    Raises on a query error, so the caller decides what an error means.
+    """
+    return _result_from_rows(_run_query(team, user, query, since=since, now=now, interval_minutes=interval_minutes))
+
+
 def precheck_since(config: SignalScoutConfig) -> datetime:
     """The `{since}` bound: the last run that actually ran, or the config's creation."""
     last_run_at = (
