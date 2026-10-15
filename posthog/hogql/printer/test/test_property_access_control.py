@@ -2,8 +2,6 @@ import uuid
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, cleanup_materialized_columns, materialized
 
-from django.conf import settings
-
 from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
@@ -149,13 +147,34 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "NULL AS secret_field" in sql
         assert "public_field" in sql
         assert "'secret_field'" not in sql
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert "JSONDropKeys" not in sql
-            assert not any("secret_field" in str(v) for v in values.values())
-        else:
-            assert "JSONDropKeys" in sql
-            self._assert_value_present(values, "secret_field")
-            self._assert_value_present(values, "public_field")
+        assert "JSONDropKeys" not in sql
+        assert not any("secret_field" in str(v) for v in values.values())
+
+    @parameterized.expand(
+        [
+            ("blob_select", "SELECT properties FROM events", True),
+            ("blob_passed_to_json_function", "SELECT JSONExtractString(properties, 'public_field') FROM events", True),
+            ("unrestricted_key", "SELECT properties.public_field FROM events", False),
+            ("unrestricted_nested_key", "SELECT properties.public_field.child FROM events", False),
+            ("flag_list", "SELECT properties.$active_feature_flags FROM events", True),
+            ("flag_property", "SELECT properties.`$feature/some-flag` FROM events", True),
+        ]
+    )
+    def test_legacy_blob_is_only_wrapped_in_json_drop_keys_when_a_read_could_expose_a_restricted_key(
+        self, _name: str, query: str, expect_json_drop_keys: bool
+    ) -> None:
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=self.event_prop, access_level=PropertyAccessLevel.NONE.value
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            user=self.user,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
+        )
+        sql, _ = prepare_and_print_ast(parse_select(query), context=context, dialect="clickhouse")
+        assert ("JSONDropKeys" in sql) is expect_json_drop_keys
 
     def test_user_override_allows_access(self):
         # default: none

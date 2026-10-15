@@ -7,7 +7,7 @@ from django.conf import settings as django_settings
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
-from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX, HogQLDialect
+from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX, HogQLDialect, is_virtual_feature_flag_key
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
@@ -664,14 +664,7 @@ class ClickHousePrinter(BasePrinter):
         if resolved_field.name not in RESTRICTABLE_JSON_BLOB_COLUMNS:
             return field_sql
 
-        group_type_index = None
-        group_column_match = re.fullmatch(r"group(\d+)_properties", resolved_field.name)
-        if group_column_match:
-            group_type_index = int(group_column_match.group(1))
-
-        keys_to_drop = restricted_property_keys_for_table_type(
-            type.table_type, self.context, group_type_index=group_type_index
-        )
+        keys_to_drop = self._restricted_keys_of_blob(type, resolved_field)
         if not keys_to_drop:
             return field_sql
 
@@ -1307,6 +1300,52 @@ class ClickHousePrinter(BasePrinter):
 
     def _get_table_name(self, table: ast.TableType) -> str:
         return table.table.to_printed_clickhouse(self.context)
+
+    def _restricted_keys_of_blob(self, type: ast.FieldType, resolved_field: StringJSONDatabaseField) -> set[str]:
+        group_type_index = None
+        group_column_match = re.fullmatch(r"group(\d+)_properties", resolved_field.name)
+        if group_column_match:
+            group_type_index = int(group_column_match.group(1))
+        return restricted_property_keys_for_table_type(type.table_type, self.context, group_type_index=group_type_index)
+
+    def visit_property_access(self, node: ast.PropertyAccess) -> str:
+        blob_type = self._blob_field_type_of_unrestricted_read(node)
+        if blob_type is None:
+            return super().visit_property_access(node)
+        # Skips JSONDropKeys: it parses and re-serializes the whole blob per row to remove keys this read never returns.
+        return self._unsafe_json_extract_trim_quotes(
+            super().visit_field_type(blob_type), self._json_property_args(node.keys)
+        )
+
+    def _blob_field_type_of_unrestricted_read(self, node: ast.PropertyAccess) -> ast.FieldType | None:
+        """The blob field of a read whose result JSONDropKeys cannot change, or None when the blob must stay wrapped.
+
+        A read returns the value under its own key, so removing other restricted keys from the blob does not alter it.
+        The native schema already prints such reads without the wrapper, so this brings the legacy table in line.
+        """
+        if not self.context.restricted_properties or self.context.uses_new_events_schema():
+            return None
+        if not node.keys or not isinstance(node.expr, ast.Field) or not isinstance(node.expr.type, ast.FieldType):
+            return None
+        blob_type = node.expr.type
+        resolved_field = blob_type.resolve_database_field(self.context)
+        if (
+            not isinstance(resolved_field, StringJSONDatabaseField)
+            or resolved_field.name not in RESTRICTABLE_JSON_BLOB_COLUMNS
+        ):
+            return None
+
+        keys_to_drop = self._restricted_keys_of_blob(blob_type, resolved_field)
+
+        read_key = str(node.keys[0])
+        # Flag properties are rebuilt from, or listed alongside, the restricted flags, so they keep the wrapper.
+        if is_virtual_feature_flag_key(read_key):
+            return None
+        if any(
+            read_key == key or key.startswith(f"{read_key}.") or read_key.startswith(f"{key}.") for key in keys_to_drop
+        ):
+            return None
+        return blob_type
 
     def visit_property_type(self, type: ast.PropertyType) -> str:
         # Respect the joined-subquery projection: if the property has already been
