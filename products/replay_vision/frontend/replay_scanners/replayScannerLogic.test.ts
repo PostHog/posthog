@@ -451,6 +451,40 @@ describe('replayScannerLogic', () => {
             }
         )
 
+        it('does not carry an experiment picked in the editor into a later starting point', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [
+                        200,
+                        { id: 7, name: 'Checkout redesign', start_date: '2026-09-20T00:00:00Z' },
+                    ],
+                },
+            })
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'Dead ends',
+                    description: '',
+                    scanner_type: 'monitor',
+                    scanner_config: { prompt: 'Watch for dead ends.' },
+                    rationale: '',
+                    query: { kind: 'RecordingsQuery' },
+                },
+            ])
+            logic.actions.setScannerType('experiment')
+            await expectLogic(logic, () => logic.actions.setScannerExperiment(7)).toFinishAllListeners()
+            expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 } })
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('where do people get stuck')
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({ name: 'Dead ends', scanner_type: 'monitor' })
+            expect(logic.values.experimentContext).toBeNull()
+        })
+
         it('drops a stale draft when the user has left the template step mid-request', async () => {
             draftSpy.mockReturnValue([
                 200,

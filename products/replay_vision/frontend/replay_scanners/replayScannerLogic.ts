@@ -504,6 +504,7 @@ export interface replayScannerLogicValues {
     durationValidationError: string | null
     estimateRequestVersion: number
     experimentContext: ExperimentScannerContext | null
+    experimentContextLinked: boolean
     goalBudgetInput: number | null
     goalDraft: DraftScannerResponseApi | null
     goalDraftInput: string
@@ -791,6 +792,9 @@ export interface replayScannerLogicActions {
     setCreditLimitUnit: (unit: CreditLimitUnit) => {
         unit: CreditLimitUnit
     }
+    linkExperimentContext: (context: ExperimentScannerContext) => {
+        context: ExperimentScannerContext
+    }
     setExperimentContext: (context: ExperimentScannerContext | null) => {
         context: ExperimentScannerContext | null
     }
@@ -1016,6 +1020,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         // originalScanner, and submitIntent, and can refire the observation loads.
         scannerWatermarkRefreshed: (scanner: ReplayScanner) => ({ scanner }),
         setExperimentContext: (context: ExperimentScannerContext | null) => ({ context }),
+        // The context of an experiment the wizard was entered from, as opposed to one picked in the editor.
+        linkExperimentContext: (context: ExperimentScannerContext) => ({ context }),
         setExperimentVariant: (variantKey: string | null) => ({ variantKey }),
         setScannerExperiment: (experimentId: number | null) => ({ experimentId }),
         detachExperimentContext: true,
@@ -1401,8 +1407,19 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as ExperimentScannerContext | null,
             {
                 setExperimentContext: (_, { context }) => context,
+                linkExperimentContext: (_, { context }) => context,
                 setExperimentVariant: (state, { variantKey }) => (state ? { ...state, variantKey } : state),
                 detachExperimentContext: () => null,
+            },
+        ],
+        // Only an experiment the wizard was entered from carries into a new start. One picked in the
+        // editor belongs to that scanner, so a starting point clicked later must not inherit it.
+        experimentContextLinked: [
+            false,
+            {
+                linkExperimentContext: () => true,
+                setExperimentContext: () => false,
+                detachExperimentContext: () => false,
             },
         ],
         originalScanner: [
@@ -2071,7 +2088,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             )
                             // Set the context only after the prefill is built, so a throw inside it
                             // doesn't leave a dangling context that the next startFromTemplate re-applies.
-                            actions.setExperimentContext(context)
+                            actions.linkExperimentContext(context)
                             actions.loadScannerSuccess(prefilled)
                         } catch {
                             // Clear any context a partial run left set before surfacing the failure.
@@ -2292,8 +2309,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 // A draft that named an experiment itself is fresher intent, so it wins.
                 const asExperimentScanner = experimentScannersEnabled()
                 const draftedExperiment = draftExperimentScope(goalDraft)
-                const context = draftedExperiment ? null : values.experimentContext
-                if (draftedExperiment && values.experimentContext) {
+                const linkedContext = values.experimentContextLinked ? values.experimentContext : null
+                const context = draftedExperiment ? null : linkedContext
+                if (values.experimentContext && (draftedExperiment || !linkedContext)) {
                     // rebuildExperimentContext keeps a card whose experiment id already matches, so a
                     // draft that renames the variant would leave the Recordings step showing the old
                     // one while the scanner saves the new one. Drop the card and let it rebuild.
@@ -2433,7 +2451,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 // An experiment prefill (targeted query, scoped name) has to survive the template
                 // reset, so re-apply it when the wizard was entered from an experiment.
                 const base = newScanner(templateKey, teamLogic.values.currentTeam?.name)
-                const context = values.experimentContext
+                const context = values.experimentContextLinked ? values.experimentContext : null
+                if (values.experimentContext && !context) {
+                    actions.setExperimentContext(null)
+                }
                 actions.resetScanner(
                     context ? prefillScannerForExperiment(base, context, experimentScannersEnabled()) : base
                 )
