@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { reportOnboardingStepCompleted } from 'scenes/onboarding/onboardingUsage'
 
 import { OnboardingStepKey } from '~/types'
 
