@@ -1007,14 +1007,6 @@ class InputsSerializer(serializers.DictField):
 
             self.context["schema"] = schema
 
-            if schema.get("templating") is False and isinstance(value, dict):
-                # Liquid would render event data into an input the template keeps literal, such as AI
-                # instructions. Hog is inert here because no bytecode gets built, so it is dropped instead.
-                if value.get("templating") == HogFunctionTemplating.LIQUID:
-                    errors[key] = "This input does not support templating."
-                    continue
-                value = {k: v for k, v in value.items() if k != "templating"}
-
             # Propagate templating from schema to input item, if set
             if "templating" in schema:
                 templating_val = schema["templating"]

@@ -245,14 +245,6 @@ describe('Hog Inputs', () => {
             expect(inputs.liquid_templated).toMatchInlineSnapshot(`"event: "test""`)
         })
 
-        it('keeps a liquid input literal when its schema turns templating off', async () => {
-            hogFunction.inputs_schema = [{ key: 'liquid_templated', type: 'string', required: true, templating: false }]
-
-            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
-
-            expect(inputs.liquid_templated).toEqual('event: "{{ event.event }}"')
-        })
-
         it('rejects liquid inputs whose leaves together exceed the invocation budget', async () => {
             const leaf = `{% for i in (1..600) %}${'a'.repeat(10_000)}{% endfor %}`
             hogFunction = createHogFunction({

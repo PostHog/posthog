@@ -408,28 +408,21 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         # Only A is present, so A=0
         assert validated["A"]["order"] == 0
 
-    @parameterized.expand([("no_templating", {}), ("inert_hog_templating", {"templating": "hog"})])
-    def test_validate_inputs_no_bytcode_if_not_hog(self, _name, caller_templating):
+    def test_validate_inputs_no_bytcode_if_not_hog(self):
+        # A depends on a non-existing input X
+        # This should ignore X since it's not defined.
+        # So no error, but A has no real dependencies that matter.
         inputs_schema = [
             {"key": "A", "type": "string", "required": True, "templating": False},
         ]
         inputs = {
-            "A": {"value": "{inputs.X} + A", **caller_templating},
+            "A": {"value": "{inputs.X} + A"},
         }
 
         validated = validate_inputs(inputs_schema, inputs)
         assert validated["A"].get("bytecode") is None
         assert validated["A"].get("transpiled") is None
-        assert validated["A"].get("templating") is None
         assert validated["A"].get("value") == "{inputs.X} + A"
-
-    def test_input_without_templating_rejects_liquid_from_the_caller(self):
-        inputs_schema = [{"key": "fields", "type": "dictionary", "required": True, "templating": False}]
-        inputs = {"fields": {"value": {"name": "{{ event.properties.prompt }}"}, "templating": "liquid"}}
-
-        with pytest.raises(ValidationError) as ctx:
-            validate_inputs(inputs_schema, inputs)
-        assert ctx.value.detail == {"inputs": {"fields": "This input does not support templating."}}
 
     @parameterized.expand(
         [
