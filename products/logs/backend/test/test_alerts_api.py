@@ -1,7 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import time_machine
@@ -422,6 +422,23 @@ class TestLogsAlertAPI(APIBaseTest):
             ).configurations
         copy = next((view for view in copies if str(view.legacy_configuration_id) == alert_id), None)
         assert (copy.enabled if copy else None) is copy_enabled
+
+    def test_a_copy_an_operator_retired_by_name_stays_off_when_its_alert_comes_back_on(self) -> None:
+        self._create_via_api(name="Already on the platform")
+        retired = self._create_via_api(name="Retired by the rollout")
+        backfill_platform_alert_configurations(team_id=self.team.id)
+        disable_platform_alert_configurations(alert_ids=[UUID(retired["id"])])
+
+        url = f"{self.base_url}{retired['id']}/"
+        with self.captureOnCommitCallbacks(execute=True):
+            assert self.client.patch(url, {"enabled": False}, format="json").status_code == status.HTTP_200_OK
+            assert self.client.patch(url, {"enabled": True}, format="json").status_code == status.HTTP_200_OK
+
+        with team_scope(self.team.id):
+            copies = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+            ).configurations
+        assert {str(view.legacy_configuration_id): view.enabled for view in copies}[retired["id"]] is False
 
     def test_a_copy_that_fails_is_handed_to_celery_to_retry(self) -> None:
         self._create_via_api(name="Already on the platform")

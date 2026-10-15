@@ -70,9 +70,13 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
     return platform_lifecycle.take_ownership(handover)
 
 
-def disable_configurations(source_kind: SourceKind, *, team_id: int | None = None) -> int:
-    """Switch off a source's copies, or one team's. Returns how many it switched off."""
-    return platform_lifecycle.disable_configurations(source_kind.value, team_id=team_id)
+def disable_configurations(
+    source_kind: SourceKind, *, team_id: int | None = None, legacy_configuration_ids: Collection[UUID] | None = None
+) -> int:
+    """Switch off a source's copies, or one team's, or the copies of named source alerts. Returns how many it switched off."""
+    return platform_lifecycle.disable_configurations(
+        source_kind.value, team_id=team_id, legacy_configuration_ids=legacy_configuration_ids
+    )
 
 
 def list_configurations(

@@ -214,6 +214,7 @@ def _event_row(
 ) -> PlatformAlertEventRow:
     return PlatformAlertEventRow(
         team_id=configuration.team_id,
+        source_kind=configuration.source_kind,
         configuration_id=configuration.id,
         alert_id=alert.id,
         grouping_key=alert.grouping_key,
@@ -240,7 +241,8 @@ def _event_row(
 def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
     recorded = insert_events(team_id, rows)
     if recorded < len(rows):
-        safe_record(increment_history_rows_dropped, len(rows) - recorded)
+        # One batch holds one source's checks.
+        safe_record(increment_history_rows_dropped, rows[0].source_kind, len(rows) - recorded)
 
 
 def _shard_offset_seconds(configuration: PlatformAlertConfiguration, outcome: PlatformAlertOutcome) -> int:
@@ -380,6 +382,8 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             "datapoints_to_alarm": upsert.datapoints_to_alarm,
             "cooldown_minutes": upsert.cooldown_minutes,
             "schedule_restriction": upsert.schedule_restriction,
+            # Reached by a backfill run, which re-admits a copy an operator switched off.
+            "switched_off_at": None,
         }
         if (
             existing is None
@@ -418,8 +422,9 @@ def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> N
     """Copies one configuration in when its team already runs that source here.
 
     A team runs a source here while any of its copies of that source is enabled. A team the backfill
-    left out of its sample, or one `disable_configurations` switched off, gets nothing, so a write
-    in the source never widens a sample or undoes an operator's switch-off.
+    left out of its sample, or one `disable_configurations` switched off, gets nothing, and neither
+    does a copy an operator switched off by name, so a write in the source never widens a sample or
+    undoes an operator's switch-off.
     """
     with transaction.atomic():
         _hold_admission(upsert.source_kind.value, exclusive=False)
@@ -428,7 +433,12 @@ def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> N
             .filter(source_kind=upsert.source_kind.value, enabled=True)
             .exists()
         )
-        if running:
+        switched_off = (
+            PlatformAlertConfiguration.objects.for_team(upsert.team_id)
+            .filter(legacy_configuration_id=upsert.legacy_configuration_id, switched_off_at__isnull=False)
+            .exists()
+        )
+        if running and not switched_off:
             upsert_configuration(upsert, revive=revive)
 
 
@@ -502,8 +512,11 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
     return True
 
 
-def disable_configurations(source_kind: str, *, team_id: int | None = None) -> int:
-    """Switches off a source's parallel-run copies, or one team's, and returns how many it switched off.
+def disable_configurations(
+    source_kind: str, *, team_id: int | None = None, legacy_configuration_ids: Collection[UUID] | None = None
+) -> int:
+    """Switches off a source's parallel-run copies, or one team's, or the copies of named source
+    alerts, and returns how many it switched off.
 
     Rows, state and history stay, so a comparison can still read what ran. Discovery and the batch
     read both skip a disabled row, so no new check starts after this. Checks already running finish.
@@ -518,4 +531,6 @@ def disable_configurations(source_kind: str, *, team_id: int | None = None) -> i
         )
         if team_id is not None:
             rows = rows.filter(team_id=team_id)
-        return rows.update(enabled=False)
+        if legacy_configuration_ids is not None:
+            rows = rows.filter(legacy_configuration_id__in=legacy_configuration_ids)
+        return rows.update(enabled=False, switched_off_at=django_timezone.now())

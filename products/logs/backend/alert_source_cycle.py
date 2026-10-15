@@ -61,6 +61,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
 )
 from products.alerts_platform.backend.facade.platform_metrics import (
     increment_checks,
+    increment_checks_deferred,
     increment_checks_skipped,
     increment_deliveries_deferred,
     increment_notifications_muted,
@@ -729,6 +730,7 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     )
     if held_until is None:
         logger.info("Deferred a platform logs batch over the pool limit", team_id=team_id, slot=slot)
+        safe_record(increment_checks_deferred, SourceKind.LOGS.value, len(checks))
         return SourceBatchEvaluation(outcomes=(), deliveries=(), omitted=len(checks))
     try:
         return _evaluate_admitted(team_id, slot, cutoff, checks, started_at=started_at)
