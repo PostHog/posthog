@@ -27,7 +27,7 @@ A run of one-shot suites never pays for — or fails preflight on — the sandbo
 | `env_preflight.py` | Loads the repo-root `.env` (stdlib parser, shell wins) and validates per-kind env vars via pydantic models.                       |
 | `ports.py`         | The seven port constants. Deliberately free of Django imports.                                                                    |
 | `providers.py`     | `SandboxProviderStrategy` and its docker/modal implementations: preflight, settings overrides, sandbox TTL, cleanup.              |
-| `tunnels.py`       | `TailscaleFunnel`. Modal only: enables Tailscale Funnel on the host services and resolves their public URLs.                      |
+| `tunnels.py`       | `TailscaleFunnel`. Modal only: enables Tailscale Funnel on the host services, waits for the public relays, and resolves the URLs. |
 | `requirements.py`  | `SuiteKind`, `Infra`, and the kind → infrastructure mapping (with implication closure).                                           |
 | `django_env.py`    | `setup_django()`, the `NullDbBlocker` shim, and `EvalDatabase` (test database lifecycle).                                         |
 | `live_server.py`   | `EvalLiveServer`, a session-lifetime Uvicorn server for PostHog's full ASGI application.                                          |
@@ -57,7 +57,7 @@ The bootstrap is deliberately synchronous and runs before any event loop exists,
 3. `personhog-replica` (`:15051`) and `personhog-router` (`:15052`) start against the test persons database — before anything can query, so a dead router never poisons the negative group-types cache.
 4. `EvalLiveServer` serves PostHog's ASGI application on `0.0.0.0:18000`, including the sandbox event-ingest route.
 5. The LLM gateway (`:13308`) starts and local skills are built. In bundled mode, the MCP server (`:18787`) starts with exec skill distribution forced off. In exec mode, the skills are packaged, the local archive server (`:18788`) starts, and MCP receives its content-addressed URL with distribution forced on.
-6. Docker only: the `posthog-sandbox-base` image freshness check runs (rebuilding when the Dockerfile or its agent pin changed). Modal only: Tailscale Funnel comes up, exposing the callback services publicly.
+6. Docker only: the `posthog-sandbox-base` image freshness check runs (rebuilding when the Dockerfile or its agent pin changed). Modal only: Tailscale Funnel comes up, exposing the callback services publicly. Setup then waits until every public Funnel relay serves every service, because the relays start serving at different times and can take minutes.
 7. Bundled mode bind-mounts the built skills on Docker and bakes them into the Modal image. Exec mode suppresses those skills and clears native skill directories before every case; `disable_bundled_skills=True` remains available as a per-case override in other modes.
 8. The master Hedgebox team is seeded.
 
