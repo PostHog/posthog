@@ -6,6 +6,7 @@ it is rendered. A source can word parts of it in its own vocabulary through a re
 A provider turns this into its own body shape.
 """
 
+import hashlib
 from typing import Any, Final
 
 from posthog.dataclasses import frozen
@@ -83,6 +84,23 @@ class AlertMessage:
         return (self.data_link, view_alert) if self.data_link is not None else (view_alert,)
 
 
+def transition_delivery_key(message: AlertMessage) -> str:
+    """One key per transition a check recorded, for a provider that refuses a second send under one key.
+
+    A retried delivery builds the same key, so it reaches nobody twice. The email campaign column
+    and the notification idempotency column hold 128 characters, which a long evaluation or group
+    key would exceed, so the key is a digest.
+    """
+    transition = message.transition
+    parts = (
+        message.configuration_id,
+        transition.grouping_key,
+        transition.kind.value,
+        transition.occurred_at.isoformat(),
+    )
+    return f"alert-platform-{hashlib.sha256('|'.join(parts).encode()).hexdigest()[:32]}"
+
+
 def state_symbol(kind: AlertEventKind) -> str:
     """The symbol a message about `kind` leads with, so an edited root matches its own messages."""
     return _SYMBOLS[kind]
@@ -134,6 +152,7 @@ def build_message(
     *,
     team_id: int,
     incident_action: IncidentAction | None = None,
+    source_alert_url: str | None = None,
 ) -> AlertMessage:
     """The message for one transition.
 
@@ -165,7 +184,7 @@ def build_message(
         configuration_id=announcement.configuration_id,
         alert_name=announcement.alert_name,
         source=announcement.source,
-        alert_url=alert_url(project_id, announcement.configuration_id),
+        alert_url=source_alert_url or alert_url(project_id, announcement.configuration_id),
         transition=transition,
         context=description.context,
         data_link=description.data_link,

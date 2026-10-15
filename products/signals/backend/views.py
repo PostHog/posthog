@@ -1370,12 +1370,10 @@ class SignalReportViewSet(
 
     # Deleted reports are terminal, so `deleted` never reaches any endpoint (detail, list,
     # actions) and is never a valid filter target either.
-    # Monitoring has no supported lifecycle yet, so it is excluded from reads too.
     _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {
         SignalReport.Status.DELETED,
         SignalReport.Status.MONITORING,
     }
-    _DEFAULT_STATUSES = _FILTERABLE_STATUSES - {SignalReport.Status.SUPPRESSED}
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
     _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "for_you"})
@@ -1418,17 +1416,13 @@ class SignalReportViewSet(
         SignalReportBulkStateOutcome.NOT_FOUND: "No report with this id is visible to you.",
     }
 
-    _MONITORING_FALLBACK_READ_ACTIONS = frozenset(
-        {"list", "retrieve", "signals", "viewed", "feedback_state", "feedback", "pr_checks", "pr_comments"}
-    )
-
     @cached_property
     def _report_monitoring_enabled(self) -> bool:
         return organization_report_monitoring_enabled(self.organization.id)
 
     def _resolved_read_statuses(self) -> frozenset[str]:
         statuses = frozenset({SignalReport.Status.RESOLVED})
-        if self.action in self._MONITORING_FALLBACK_READ_ACTIONS and not self._report_monitoring_enabled:
+        if not self._report_monitoring_enabled:
             return statuses | {SignalReport.Status.MONITORING}
         return statuses
 
@@ -1442,12 +1436,15 @@ class SignalReportViewSet(
         return queryset.filter(status__in=sorted(statuses))
 
     def _visible_statuses(self) -> frozenset[str]:
+        filterable_statuses = self._FILTERABLE_STATUSES
+        if self._report_monitoring_enabled:
+            filterable_statuses |= {SignalReport.Status.MONITORING}
         status_filter = self.request.query_params.get("status")
         if status_filter:
             statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
-            invalid = [s for s in statuses if s not in self._FILTERABLE_STATUSES]
+            invalid = [s for s in statuses if s not in filterable_statuses]
             if invalid:
-                accepted = ", ".join(sorted(self._FILTERABLE_STATUSES))
+                accepted = ", ".join(sorted(filterable_statuses))
                 raise serializers.ValidationError(
                     {
                         "status": f"Invalid status value(s): {', '.join(sorted(set(invalid)))}. Accepted values: {accepted}."
@@ -1467,8 +1464,8 @@ class SignalReportViewSet(
             or self._include_all_statuses_requested()
             or self.request.query_params.get("view") in {"dismissed", "held_back", "all"}
         ):
-            return self._FILTERABLE_STATUSES
-        return self._DEFAULT_STATUSES
+            return filterable_statuses
+        return filterable_statuses - {SignalReport.Status.SUPPRESSED}
 
     def _include_all_statuses_requested(self) -> bool:
         # List-only: the flag widens the *list* for full-inbox-state scans (agent dedup). By-ID
@@ -1594,7 +1591,7 @@ class SignalReportViewSet(
             return queryset
         has_review_pr = implementation_pr_report_filter(team_id=self.team.id, active_only=True)
         is_unclaimed = (
-            ~Q(status__in=self._resolved_read_statuses())
+            ~Q(status__in={SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING})
             & ~reports_with_active_claim(team_id=self.team_id)
             & ~has_review_pr
         )
@@ -1783,6 +1780,7 @@ class SignalReportViewSet(
         if inbox_view == "needs_decision":
             return queryset.filter(
                 Q(status=SignalReport.Status.FAILED)
+                | Q(status__in=[SignalReport.Status.MONITORING] if self._report_monitoring_enabled else [])
                 | (
                     Q(
                         status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT],
@@ -1826,6 +1824,7 @@ class SignalReportViewSet(
                 When(status=SignalReport.Status.CANDIDATE, then=Value(4)),
                 When(status=SignalReport.Status.POTENTIAL, then=Value(5)),
                 When(status=SignalReport.Status.FAILED, then=Value(6)),
+                When(status=SignalReport.Status.MONITORING, then=Value(6 if self._report_monitoring_enabled else 7)),
                 When(status__in=self._resolved_read_statuses(), then=Value(7)),
                 When(status=SignalReport.Status.SUPPRESSED, then=Value(8)),
                 When(status=SignalReport.Status.DELETED, then=Value(9)),
@@ -2114,11 +2113,7 @@ class SignalReportViewSet(
         return {
             **super().get_serializer_context(),
             "team": self.team,
-            **(
-                {"report_monitoring_enabled_by_team": {self.team_id: self._report_monitoring_enabled}}
-                if self.action in self._MONITORING_FALLBACK_READ_ACTIONS
-                else {}
-            ),
+            "report_monitoring_enabled_by_team": {self.team_id: self._report_monitoring_enabled},
             # For the serializer's refund_ineligibility_reason field — computed once per request,
             # not per report (the bounds are org-level).
             "billing_period_bounds": current_billing_period_bounds(self.organization),
@@ -3434,7 +3429,10 @@ class SignalReportViewSet(
             # suppression — and the PR close it triggers — from being undone.
             if is_refunded and (
                 target_status == SignalReport.Status.POTENTIAL
-                or (report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.RESOLVED)
+                or (
+                    report.status == SignalReport.Status.SUPPRESSED
+                    and target_status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}
+                )
             ):
                 return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be restored."
 
@@ -3443,7 +3441,8 @@ class SignalReportViewSet(
             # and start it collecting again alongside the report it was folded into.
             if (
                 report.status == SignalReport.Status.SUPPRESSED
-                and target_status in {SignalReport.Status.POTENTIAL, SignalReport.Status.RESOLVED}
+                and target_status
+                in {SignalReport.Status.POTENTIAL, SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}
                 and was_merged_away(report)
             ):
                 return (
@@ -3462,7 +3461,8 @@ class SignalReportViewSet(
             if (
                 report.status == SignalReport.Status.SUPPRESSED
                 and target_status == SignalReport.Status.RESOLVED
-                and report.status_before_suppression not in _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION
+                and report.status_before_suppression
+                not in _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION | {SignalReport.Status.MONITORING}
             ):
                 return (
                     SignalReportBulkStateOutcome.SKIPPED,
@@ -3488,9 +3488,10 @@ class SignalReportViewSet(
             # the server once GitHub closes the PR (webhook suppresses the report), and that click
             # still carries feedback for the agent. Skipping the save keeps every receiver quiet, so
             # no second PR close is queued. A repeat restore carries no feedback, so it stays a 409.
-            already_holds_verdict = target_status == report.status and target_status in (
+            already_holds_verdict = target_status == report.effective_status and target_status in (
                 SignalReport.Status.SUPPRESSED,
                 SignalReport.Status.RESOLVED,
+                SignalReport.Status.MONITORING,
             )
 
             writes_dismissal_feedback = target in ("suppressed", "potential", "resolved") and bool(
@@ -3646,7 +3647,9 @@ class SignalReportViewSet(
                     corrected_repository=corrected_repository,
                     snooze_for=snooze_for,
                 )
-                report_status = report.status if outcome == SignalReportBulkStateOutcome.TRANSITIONED else None
+                report_status = (
+                    report.effective_status if outcome == SignalReportBulkStateOutcome.TRANSITIONED else None
+                )
                 if outcome == SignalReportBulkStateOutcome.TRANSITIONED:
                     transitioned.append(report)
                     if getattr(report, "_newly_suppressed", False):
@@ -3819,7 +3822,7 @@ class SignalReportViewSet(
             # leaving it resolved would let the caller keep the implementation work after the refund.
             # Already-suppressed reports need no transition. The dismissal artefact records the
             # rationale; the structured truth lives on the refund row.
-            resolved_via_merged_pr = report.status == SignalReport.Status.RESOLVED and pr_merged
+            resolved_via_merged_pr = report.effective_status == SignalReport.Status.RESOLVED and pr_merged
             if report.status != SignalReport.Status.SUPPRESSED and not resolved_via_merged_pr:
                 updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)
                 report._transition_actor = attribution  # type: ignore[attr-defined]
@@ -4051,7 +4054,7 @@ class SignalReportViewSet(
         report_ids = [
             str(report_id)
             for report_id, report_status in self.get_queryset().filter(id__in=requested_ids).values_list("id", "status")
-            if report_status not in _PR_CI_STATUS_TERMINAL_REPORT_STATUSES
+            if report_status not in _PR_CI_STATUS_TERMINAL_REPORT_STATUSES | self._resolved_read_statuses()
         ]
         if not report_ids:
             return self._pr_ci_statuses_response([])
