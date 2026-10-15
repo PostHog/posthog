@@ -163,6 +163,109 @@ describe('billingProductLogic', () => {
         })
     })
 
+    describe('companions', () => {
+        const replay = productByType('session_replay')
+        const logs: BillingProductV2Type = {
+            ...replay,
+            type: 'logs',
+            name: 'Logs',
+            current_amount_usd: '100.00',
+            projected_amount_usd_with_limit: '200.00',
+        }
+        const companion = (type: string, companionOf: string, held: boolean): BillingProductV2Type => ({
+            ...replay,
+            type,
+            companion_of: companionOf,
+            inclusion_only: true,
+            no_billing_limit: true,
+            addons: [],
+            usage_limit: null,
+            subscribed: held,
+            plans: replay.plans.map((plan) => ({ ...plan, current_plan: false })),
+            current_amount_usd: '10.00',
+            projected_amount_usd: '20.00',
+        })
+
+        const seedProducts = async (products: BillingProductV2Type[], discountPercent?: number): Promise<void> => {
+            useMocks({
+                get: {
+                    '/api/billing': () => [200, { ...billingJson, products, discount_percent: discountPercent }],
+                },
+            })
+            billingLogic.mount()
+            await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        }
+
+        const mountLogs = (product: BillingProductV2Type = logs): ReturnType<typeof billingProductLogic.build> => {
+            const logic = billingProductLogic({ product })
+            logic.mount()
+            mounted.push(logic)
+            return logic
+        }
+
+        it('lists only the held companions of this parent', async () => {
+            await seedProducts([
+                logs,
+                companion('logs_retention_custom', 'logs', true),
+                companion('logs_not_held', 'logs', false),
+                companion('replay_companion', 'session_replay', true),
+            ])
+
+            expect(mountLogs().values.heldCompanions.map((p) => p.type)).toEqual(['logs_retention_custom'])
+        })
+
+        it('lists nothing when the parent holds no companion', async () => {
+            await seedProducts([logs, companion('logs_not_held', 'logs', false)])
+
+            expect(mountLogs().values.heldCompanions).toEqual([])
+        })
+
+        it('totals the header amounts and the held companions after the discount', async () => {
+            await seedProducts([logs, companion('logs_retention_custom', 'logs', true)], 10)
+            const logic = mountLogs()
+
+            expect(logic.values.combinedMonetaryData).toMatchObject({ currentTotal: 90, projectedTotal: 180 })
+            expect(logic.values.totalsIncludingCompanions).toEqual({ currentTotal: 99, projectedTotal: 198 })
+        })
+
+        it('rounds a half-cent header amount the way the card displays it', async () => {
+            const halfCentLogs = { ...logs, current_amount_usd: '2.01', projected_amount_usd_with_limit: '2.01' }
+            await seedProducts(
+                [
+                    halfCentLogs,
+                    {
+                        ...companion('logs_retention_custom', 'logs', true),
+                        current_amount_usd: '1.00',
+                        projected_amount_usd: '1.00',
+                    },
+                ],
+                50
+            )
+            const logic = mountLogs(halfCentLogs)
+
+            // The header shows $1.01 for $1.005, so the total must be $1.01 + $0.50.
+            expect(logic.values.totalsIncludingCompanions).toEqual({ currentTotal: 1.51, projectedTotal: 1.51 })
+        })
+
+        it('leaves a held companion that can have its own billing limit out of the amounts and the total', async () => {
+            await seedProducts([
+                logs,
+                companion('logs_retention_custom', 'logs', true),
+                { ...companion('logs_limited_extra', 'logs', true), no_billing_limit: undefined },
+            ])
+            const logic = mountLogs()
+
+            expect(logic.values.heldCompanions.map((p) => p.type)).toEqual([
+                'logs_retention_custom',
+                'logs_limited_extra',
+            ])
+            expect(logic.values.noLimitCompanionAmounts.map(({ companion }) => companion.type)).toEqual([
+                'logs_retention_custom',
+            ])
+            expect(logic.values.totalsIncludingCompanions).toEqual({ currentTotal: 110, projectedTotal: 220 })
+        })
+    })
+
     describe('unsubscribe survey state', () => {
         it('keeps survey responses isolated per product type', async () => {
             await seedBilling({})

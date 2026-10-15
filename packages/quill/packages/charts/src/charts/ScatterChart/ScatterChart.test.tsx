@@ -64,6 +64,25 @@ async function hoverPoint(wrapper: HTMLElement, x: number, y: number): Promise<H
 }
 
 describe('ScatterChart', () => {
+    it('draws selection highlights without rereading point geometry', () => {
+        let coordinateReads = 0
+        const series: ScatterSeries[] = [{key: 'sample', label: 'Sample', points: [
+            {get x(): number { coordinateReads++; return 25 }, y: 80},
+            {get x(): number { coordinateReads++; return 100 }, y: 0},
+        ]}]
+        const config = {margins: MARGINS}
+        const {chart, rerender} = renderScatter({series, config})
+        const readsBeforeHighlight = coordinateReads
+        const stroke = jest.spyOn(chart.canvas.getContext('2d')!, 'stroke')
+        const strokesBeforeHighlight = stroke.mock.calls.length
+        const highlight = jest.fn((point: {x: number}) => point.x === 25)
+        rerender(<ScatterChart series={series} theme={THEME} config={{...config, isPointHighlighted: highlight}} />)
+        expect(highlight).toHaveBeenCalled()
+        expect(stroke.mock.calls.length).toBeGreaterThan(strokesBeforeHighlight)
+        expect(coordinateReads).toBe(readsBeforeHighlight)
+        stroke.mockRestore()
+    })
+
     it('ticks each axis over its own value range, not once per point', () => {
         const { chart } = renderScatter()
         expect(chart.xTicks()).toContain('100')

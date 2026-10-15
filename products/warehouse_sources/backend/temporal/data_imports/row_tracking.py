@@ -27,7 +27,12 @@ from posthog.settings import EE_AVAILABLE
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.billing import FREE_HISTORICAL_WINDOW, FREE_PERIOD_END, FREE_PERIOD_START
+from products.warehouse_sources.backend.billing import (
+    FREE_HISTORICAL_WINDOW,
+    FREE_PERIOD_END,
+    FREE_PERIOD_START,
+    is_in_free_historical_window,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, billable_destination_multiplier
 
 if TYPE_CHECKING:
@@ -320,7 +325,7 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
         await logger.adebug("Running will_hit_billing_limit")
 
         # Handle free period for newly created data sources
-        if source.created_at >= datetime.now(UTC) - FREE_HISTORICAL_WINDOW:
+        if is_in_free_historical_window(source.created_at):
             await logger.ainfo(
                 f"Skipping billing limits check for newly created data source for 7-days free rows. source.created_at = {source.created_at}"
             )
