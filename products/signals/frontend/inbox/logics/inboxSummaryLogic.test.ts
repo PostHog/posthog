@@ -100,4 +100,20 @@ describe('inboxSummaryLogic', () => {
                 summary: incomplete,
             })
     })
+
+    it('retries on return after a failed refresh', async () => {
+        await expectLogic(logic, mountLogic).toFinishAllListeners().toMatchValues({ summary })
+        readSummary.mockReturnValue([503, { detail: 'Not available' }])
+        await expectLogic(logic, () => logic.actions.refreshSummary(true))
+            .toFinishAllListeners()
+            .toMatchValues({ failed: true, loadedAt: 0 })
+        readSummary.mockReturnValue([200, summary])
+
+        await expectLogic(logic, () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ failed: false, summary })
+        expect(readSummary).toHaveBeenCalledTimes(3)
+    })
 })

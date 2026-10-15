@@ -120,7 +120,13 @@ export const inboxSummaryLogic = kea<inboxSummaryLogicType>([
         dismissedUntil: [0, { persist: true }, { dismissSummary: (_, { until }) => until }],
         now: [Date.now(), { updateClock: (_, { now }) => now }],
         pageVisible: [!document.hidden, { updateClock: (_, { pageVisible }) => pageVisible }],
-        loadedAt: [0, { loadInboxSummarySuccess: () => Date.now() }],
+        loadedAt: [
+            0,
+            {
+                loadInboxSummarySuccess: () => Date.now(),
+                loadInboxSummaryFailure: () => 0,
+            },
+        ],
         failed: [false, { loadInboxSummary: () => false, loadInboxSummaryFailure: () => true }],
         hasBeenViewed: [false, { summaryViewed: () => true }],
     }),
