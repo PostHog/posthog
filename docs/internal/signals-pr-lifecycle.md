@@ -66,8 +66,9 @@ count. Personal inbox filters do not change the totals.
 The people count deduplicates human GitHub IDs across mergers and non-dismissed
 approvals submitted before merge. Approvals can predate the seven-day window.
 Bots do not count. A missing participant snapshot leaves the people count unknown,
-not zero. The response exposes counts, not identities. GitHub reads run in a
-background task; opening the inbox only reads the database.
+not zero. The response includes the merged PR links and the GitHub logins stored in
+the participant snapshot. GitHub reads run in a background task; opening the inbox
+only reads the database.
 
 The panel stays hidden when there are no qualifying merges. Dismissal lasts seven
 days and is stored per user and project in that browser. On return, the client

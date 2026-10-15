@@ -26,8 +26,8 @@ class Command(BaseCommand):
             .filter(
                 Q(merged_at__gte=timezone.now() - INBOX_SUMMARY_PERIOD) | Q(merged_at__isnull=True),
                 state="merged",
-                participants_synced_at__isnull=True,
             )
+            .filter(Q(participants_synced_at__isnull=True) | Q(participant_logins__isnull=True))
             .order_by("id")
         )
         if options["after"]:
