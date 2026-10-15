@@ -266,7 +266,6 @@ def _input_hold_backs(
     found: list[DestinationHoldBack] = []
     for key in _compared_keys(template_id, set(inputs) | set(first_inputs)):
         value, first_value = input_value(inputs, key), input_value(first_inputs, key)
-        # Native delivery sends stored headers as written, so a header's templating mode does not matter.
         same_mode = _is_webhook_headers(template_id, key) or _templating(inputs, key) == _templating(first_inputs, key)
         if value == first_value and same_mode:
             continue
