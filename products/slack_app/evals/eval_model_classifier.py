@@ -216,6 +216,18 @@ SUBJECT_MATTER_CASES = [
         prompt="@PostHog the fable rollout broke the usage dashboard last night, can you find what changed",
         expected=_asks(),
     ),
+    # A bare nickname reads as a model, but here it is what the task is about.
+    BaseEvalCase(
+        name="nickname_as_status_topic",
+        prompt="@PostHog terra has been doing badly on the weekly digests lately, can you put together a short summary",
+        expected=_asks(),
+    ),
+    # An effort word that names a pricing tier, not a setting for this task.
+    BaseEvalCase(
+        name="effort_word_as_plan_tier",
+        prompt="@PostHog how many organizations are on the high usage tier this month, and which of them churned",
+        expected=_asks(),
+    ),
     BaseEvalCase(
         name="effort_as_english",
         prompt="@PostHog reasoning about this caching bug is hard, can you take a look at the invalidation logic",
