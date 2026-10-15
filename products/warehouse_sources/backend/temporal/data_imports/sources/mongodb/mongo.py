@@ -340,15 +340,16 @@ def connection_timeouts(connection_string: str) -> dict[str, int]:
     return {name: value for name, value in _CONNECTION_TIMEOUT_DEFAULTS.items() if name.lower() not in option_keys}
 
 
-# pymongo opens these paths on our host while it parses the string, so a path from the customer's
-# machine fails the connection (AWS's DocumentDB string names `global-bundle.pem`).
-_HOST_FILE_OPTIONS = frozenset({"tlscafile", "tlscertificatekeyfile", "tlscrlfile"})
+# pymongo opens this path on our host while it parses the string, so a path from the customer's
+# machine fails the connection (AWS's DocumentDB string names `global-bundle.pem`). The CA bundle
+# always comes from the `tlsCAFile` keyword instead.
+_CA_FILE_OPTION = "tlscafile"
 
 
-def without_host_file_options(connection_string: str) -> str:
+def without_ca_file_option(connection_string: str) -> str:
     base, _, query = connection_string.partition("?")
     options = re.split(r"[&;]", query)
-    kept = [option for option in options if option.partition("=")[0].lower() not in _HOST_FILE_OPTIONS]
+    kept = [option for option in options if option.partition("=")[0].lower() != _CA_FILE_OPTION]
     if len(kept) == len(options):
         return connection_string
     return f"{base}?{'&'.join(kept)}" if kept else base
@@ -378,7 +379,7 @@ def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None =
         # to None in _process_nested_value so a single bad row doesn't fail the sync.
         "datetime_conversion": DatetimeConversion.DATETIME_AUTO,
     }
-    client: MongoClient = MongoClient(without_host_file_options(connection_string), **kwargs)
+    client: MongoClient = MongoClient(without_ca_file_option(connection_string), **kwargs)
     try:
         yield client
     finally:

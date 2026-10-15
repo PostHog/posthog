@@ -1302,15 +1302,15 @@ class TestConnectionTimeouts(SimpleTestCase):
                 "/srv/bundle.pem",
             ),
             (
-                "only_file_options",
-                "mongodb://user:pw@db.example.com/db?TLSCRLFile=/etc/crl.pem;tlsCertificateKeyFile=/etc/key.pem",
+                "revocation_and_client_cert_options_are_kept",
+                "mongodb://user:pw@db.example.com/db?tls=true&TLSCAFILE=ca.pem&tlsCRLFile=crl.pem",
                 None,
-                "mongodb://user:pw@db.example.com/db",
+                "mongodb://user:pw@db.example.com/db?tls=true&tlsCRLFile=crl.pem",
                 certifi.where(),
             ),
         ]
     )
-    def test_client_trusts_the_source_ca_and_never_reads_a_file_the_string_names(
+    def test_client_trusts_the_source_ca_and_never_reads_the_ca_file_the_string_names(
         self, _name, connection_string, tls_ca_file, expected_string, expected_ca
     ):
         with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
