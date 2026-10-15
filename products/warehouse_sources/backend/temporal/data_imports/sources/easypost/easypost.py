@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -6,6 +5,8 @@ from typing import Any
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -22,7 +23,7 @@ class EasypostRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class EasypostResumeConfig:
     # `before_id` of the page we last yielded. EasyPost paginates newest-first, so advancing the
     # cursor means asking for records created *before* this id. `None` resumes from the first page.

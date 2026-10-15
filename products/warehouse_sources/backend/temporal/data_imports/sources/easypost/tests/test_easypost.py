@@ -257,7 +257,12 @@ class TestGetRowsRedaction:
         # Same secret-leak guard as validate_credentials, on the sync request path.
         result = _driver("secret-key").run("shipments", [ScriptedResponse(json={"shipments": [], "has_more": False})])
         assert result.raised is None
-        assert result.session_options == [{"redact_values": ("secret-key",)}]
+        assert result.session_options == [{"redact_values": ("secret-key",), "capture": True}]
+
+    def test_endpoints_that_strip_fields_are_not_captured(self) -> None:
+        result = _driver().run("reports", [ScriptedResponse(json={"reports": [], "has_more": False}) for _ in range(7)])
+        assert result.raised is None
+        assert all(options["capture"] is False for options in result.session_options)
 
 
 class TestEasypostSource:
