@@ -792,9 +792,10 @@ describe('hogFlowEditorLogic', () => {
             renameWorkflow('First')
             jest.setSystemTime(new Date('2026-01-01T00:00:09.999Z'))
             renameWorkflow('Second')
+            expect(capturedProperties('workflow edited')).toHaveLength(1)
+
             jest.setSystemTime(new Date('2026-01-01T00:00:10Z'))
             renameWorkflow('Third')
-
             expect(capturedProperties('workflow edited')).toHaveLength(2)
         })
 
