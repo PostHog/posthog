@@ -366,7 +366,14 @@ ORDER BY surface
 
 Legacy closes over 90 days, plus the legacy empty-result rate.
 Backs the person properties, standalone Recent and Pinned, docking and empty-result rows in [feature-inventory](feature-inventory.md).
-`groupType` on a close is the tab open at close, so a close counts against the last tab only.
+Two caveats limit what this query can say:
+
+- `groupType` on a close is the tab open at close, and `hadSelection` stays true once any pick happens.
+  A pick on one tab followed by a switch to Person properties counts as a Person properties success, and the reverse is missed.
+  So the per-tab rates are final-tab associations, not exact per-tab conversion.
+- `categoryRailDocked` is the saved preference, not whether a rail showed.
+  It stays on in single-group pickers, where `InfiniteSelectResults` hides the rail.
+  So the docking columns describe the preference, not visible docking.
 
 ```sql
 SELECT

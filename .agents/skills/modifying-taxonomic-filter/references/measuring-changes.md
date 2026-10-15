@@ -14,7 +14,7 @@ Picker changes are easy to ship and hard to judge after the fact.
 | Recovery within 30s of an empty result | Empty-state quality                | Up                       |
 | Select-then-reopen within 60s          | First pick was wrong               | Down, but read with care |
 | Search latency p90 and p99 by group    | Speed                              | Down                     |
-| Fetch failures per search              | Reliability                        | Down                     |
+| Fetch failure events per typed query   | Reliability                        | Down                     |
 | Replay classifier success share        | Observed friction                  | Up                       |
 
 The health dashboard (see [evidence-sources](evidence-sources.md)) has most of these as tiles.

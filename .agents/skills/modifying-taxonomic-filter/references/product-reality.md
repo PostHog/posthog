@@ -96,7 +96,8 @@ Detail in [failure-modes](failure-modes.md).
   One search can send several, so this is not a share of failed searches.
   The health dashboard shows ~2%, but it divides every failure, first loads included, by timed searches, so it overstates the rate.
   Cohorts, events, person properties and flags make up most of the failures.
-- Person properties is the weakest big tab: ~64% of engaged opens on it end in a selection, vs ~86% across all tabs.
+- Person properties is the weakest big tab: ~64% of closes on it end in a selection, vs ~86% across all tabs.
+  This counts the tab open at close, so read it as direction (see query 13).
 
 ## What customers report
 

@@ -75,7 +75,8 @@ Most empty searches are real words that exist somewhere else.
 
 ## 8. The weakest big tab: person properties
 
-- **Signal:** ~64% of engaged opens on it end in a selection (~86% across all tabs), the lowest of the large tabs.
+- **Signal:** ~64% of closes on it end in a selection (~86% across all tabs), the lowest of the large tabs.
+  This counts the tab open at close, so read it as direction (see query 13 in [refreshing-product-reality](refreshing-product-reality.md)).
   Average selected position is far down the list.
   It is also the top scope for empty queries.
 - **Fix direction:** rank properties seen on the chosen event or recently used higher, and separate system from custom properties.

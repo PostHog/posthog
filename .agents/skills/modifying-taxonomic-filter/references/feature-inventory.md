@@ -21,7 +21,7 @@ Status meanings:
 | Search                                                                                    | ~55% of selections involve it                            | Protect                           | See [failure-modes](failure-modes.md) 1 and 2.                                                           |
 | Email and URL promotion                                                                   | Row 0 for the top terms                                  | Protect                           | `PROMOTED_PROPERTIES_BY_SEARCH_TERM`. Human sign-off to change.                                          |
 | Event properties tab                                                                      | Large                                                    | Improve                           | Ranking: selected items sit far down the list.                                                           |
-| Person properties tab                                                                     | Large, ~64% engaged open-to-selection (query 13)         | Improve                           | Weakest big tab.                                                                                         |
+| Person properties tab                                                                     | Large, ~64% of closes on it pick (query 13, final tab)   | Improve                           | Weakest big tab.                                                                                         |
 | Empty-result state                                                                        | ~5 per 100 typed queries (query 13)                      | Fix                               | Should show matches in other groups. Suggested is not counted.                                           |
 | Fetch error handling                                                                      | ~0.2 failure events per 100 typed queries (query 10)     | Fix                               | Legacy shows an error with retry. The rebuild shows an empty list: add an error and retry.               |
 | Persons search latency                                                                    | p90 ~4s                                                  | Fix                               | Slowest group.                                                                                           |
@@ -32,7 +32,7 @@ Status meanings:
 | Pseudo-category tabs (autocapture, pageview, screen, email addresses, elements, metadata) | Tab rarely opened                                        | Candidate for removal as tabs     | Their **items** are picked through Suggested and search (`sourceGroupType`). Keep them as sources.       |
 | Event match suggestion (model call)                                                       | ~5-8% of answers shown (rough); ~7% of sessions pick one | Candidate for removal or redesign | Calls a model only for an uncached empty search. Measure uncached calls before judging cost.             |
 | Search intent switch banner                                                               | ~1 in 6 shown banners lead to a switch                   | Decide from its experiment        | Promotion of the predicted group happens without the banner.                                             |
-| Category rail docking                                                                     | ~1% of closes are docked (query 13)                      | Keep                              | Pick rate ~79% docked vs ~86% undocked.                                                                  |
+| Category rail docking                                                                     | ~1% of closes have docking on (query 13, preference)     | Keep                              | Pick rate ~79% docked vs ~86% undocked.                                                                  |
 | Include stale toggle                                                                      | Small, steady                                            | Keep                              | Cheap.                                                                                                   |
 | Rebuild menu (`TAXONOMIC_FILTER_MENU_REBUILD`)                                            | Some customers still see it                              | Finish or turn off                | Selection rate looks lower than legacy, but the rebuild counts every close and legacy only engaged ones. |
 
@@ -47,3 +47,8 @@ Status meanings:
 4. Check for a running experiment on the feature.
 5. Keep the telemetry event (or retire it on purpose) so dashboards don't silently go flat.
    See [telemetry-contract](telemetry-contract.md).
+6. Follow the low-usage rule in the repo's `AGENTS.md` before you remove a feature for low use.
+   Query its usage over the last 6 months.
+   Trigger the feature locally and confirm its events arrive, because missing events can mean broken tracking.
+   Post the feature and its usage numbers in the platform UX Slack channel, and wait for the keep or remove decision there.
+   Do not remove it before that decision.

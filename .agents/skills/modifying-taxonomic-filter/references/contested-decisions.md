@@ -7,7 +7,8 @@ Bring evidence, not seniority.
 ## Should the picker reopen on the last category used?
 
 - **Current position:** no.
-  The picker reopens on Suggested.
+  For an ordinary selection, the picker reopens on Suggested.
+  Exceptions: with no selection the rebuild opens its top-level menu; HogQL and data warehouse selections reopen in their edit flows (`resolveSelectedOpenState` in `menu/TaxonomicFilterMenu.tsx`); legacy reopens a group in `OPEN_AS_SELF_ON_REOPEN` (`types.ts`) on itself.
 - **For changing:** about 44% of users who switch away from Suggested later pick the same tab again (about 11% of all picker users).
 - **Against changing:** a remembered tab is a hidden mode.
   The biggest measured failure is a category active while searching for something in another group.
@@ -29,7 +30,8 @@ Bring evidence, not seniority.
 
 - **Current position:** hidden behind a category pill, with an optional docked rail.
 - **Evidence:** ~96% of engaged opens never select a real category.
-  About 1% of closes are docked, with a slightly lower pick rate (~79% vs ~86% undocked).
+  About 1% of closes have the docked preference on, with a slightly lower pick rate (~79% vs ~86%).
+  The preference persists, so this includes single-group pickers where no rail shows.
   An earlier experiment saw better retention for new users with hidden categories.
   The effect faded when existing users were included.
 - **Implication:** keep hidden by default and keep the rail for those who want it.
