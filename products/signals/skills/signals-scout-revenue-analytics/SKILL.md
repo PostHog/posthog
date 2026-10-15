@@ -19,7 +19,7 @@ metadata:
 scout-status: deprecated
 scout-deprecation:
   reason: >
-    PostHog is retiring this scout. It rarely found issues worth acting on. Reports it already
+    PostHog is retiring this scout. Reports it already
     filed stay in your inbox.
   sunset_at: 2026-10-22
 scout-precheck-query: |
