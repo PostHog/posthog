@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -44,6 +47,56 @@ Grant the token these read scopes for the tables you want to sync:
 
 @SourceRegistry.register
 class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
+    codebase_detection = detect(
+        env=("^RAYGUN_", "^SS_RAYGUN_APP_KEY$", "^SS_CUSTOM_RAYGUN_APP_KEY$"),
+        script_hosts=("cdn.raygun.io",),
+        npm=(
+            "raygun",
+            "raygun4js",
+            "raygun4reactnative",
+            "raygun-apm",
+            "@raygun.io/aws-lambda",
+            "@raygun.io/webpack-plugin",
+            "@raygun.io/mcp-server-raygun",
+            "ember-cli-raygun",
+            "grunt-raygun-deployment",
+            "gulp-raygun-sourcemaps",
+        ),
+        pypi=("raygun4py",),
+        cocoapods=("raygun4apple", "Raygun4iOS"),
+        composer=(
+            "mindscape/raygun4php",
+            "silverstripe/raygun",
+            "davibennun/laravel-raygun",
+            "magenizr/magento2-raygun",
+        ),
+        go=("github.com/MindscapeHQ/raygun4go",),
+        hex=("raygun",),
+        maven=(
+            "com.raygun:raygun4android",
+            "com.mindscapehq:core",
+            "com.mindscapehq:webprovider",
+            "com.mindscapehq:webproviderjakarta",
+            "com.mindscapehq:raygun4java-play2",
+            "com.mindscapehq.raygun4java:core",
+            "com.mindscapehq.raygun4java:webprovider",
+            "com.mindscapehq.android:raygun4android",
+            "com.midtrans:raygun-spring-boot-starter",
+        ),
+        pub=("raygun4flutter", "raygun_cli"),
+        rubygems=(
+            "raygun4ruby",
+            "raygun-apm",
+            "raygun-apm-rails",
+            "raygun-apm-sidekiq",
+            "capistrano-raygun-deployment",
+            "rake-raygun-deployment",
+            "fluent-plugin-raygun",
+        ),
+        swiftpm=("github.com/mindscapehq/raygun4apple",),
+        alternative_to=(ProductKey.ERROR_TRACKING,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)
     default_version = "v3"

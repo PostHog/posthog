@@ -1,6 +1,7 @@
 import json
 from dataclasses import replace
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -27,12 +28,22 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.facade import api as signals
 from products.signals.backend.models import SignalReport
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger
-from products.today.backend.logic import briefings
+from products.today.backend.logic import briefings, highlights
+from products.today.backend.logic.highlight_types import Found, Source
 from products.today.backend.logic.jev import JevPick
 from products.today.backend.models import DailyBriefing
+from products.today.backend.temporal.inputs import (
+    ComputeHighlightsInputs,
+    FinalizeHighlightsInputs,
+    HighlightSourceInputs,
+)
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
 from products.today.backend.tests.factories import AGREEING, FakeJev, SameAnswerJev, page_source
+from products.today.backend.tests.test_highlights import candidate, metric
 from products.today.backend.tests.test_key_clauses import CART_TEXT, CAUSE, CAUSE_EXPLAINED, SUMMARY
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
 
 REPORT_ID = "01a10212-6f09-0000-0ed6-46b2df6f81ca"
 FIGURE_LEAD = "🚨 The export failed for 212 users."
@@ -125,6 +136,10 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
 
         assert early["local_day"] == "2026-09-29"
         assert today["local_day"] == "2026-09-30"
+        assert [datetime.fromisoformat(briefing["refresh_at"]) for briefing in (early, today)] == [
+            datetime(2026, 9, 30, 6, 0, tzinfo=UTC),
+            datetime(2026, 10, 1, 6, 0, tzinfo=UTC),
+        ]
         assert early["id"] != today["id"]
         assert without_timezone["id"] == early["id"]
         assert sync_connect.return_value.start_workflow.call_count == 2
@@ -372,14 +387,33 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("the page with only today", "get", "page", ["today:read"], status.HTTP_403_FORBIDDEN),
-            ("the page with today and signals", "get", "page", ["today:read", "task:read"], status.HTTP_200_OK),
-            ("key clauses with only today", "get", "key_clauses", ["today:read"], status.HTTP_403_FORBIDDEN),
-            ("figure marks with only today", "get", "figure_marks", ["today:read"], status.HTTP_403_FORBIDDEN),
+            ("the page with only today", "get", f"reports/{REPORT_ID}/page", ["today:read"], status.HTTP_403_FORBIDDEN),
+            (
+                "the page with today and signals",
+                "get",
+                f"reports/{REPORT_ID}/page",
+                ["today:read", "task:read"],
+                status.HTTP_200_OK,
+            ),
+            (
+                "key clauses with only today",
+                "get",
+                f"reports/{REPORT_ID}/key_clauses",
+                ["today:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "figure marks with only today",
+                "get",
+                f"reports/{REPORT_ID}/figure_marks",
+                ["today:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            ("highlights with only today", "get", "highlights", ["today:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_a_scoped_key_reads_report_data_only_with_the_signals_scope(
-        self, _sync_connect: MagicMock, _name: str, method: str, endpoint: str, scopes: list[str], expected: int
+    def test_a_scoped_key_reads_data_only_with_its_underlying_scope(
+        self, _sync_connect: MagicMock, _name: str, method: str, path: str, scopes: list[str], expected: int
     ) -> None:
         raw_key = "today_report_page_key"
         PersonalAPIKey.objects.create(
@@ -391,7 +425,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             patch("products.today.backend.logic.report_page.signals.report_page_source", return_value=page_source()),
         ):
             response = getattr(self.client, method)(
-                f"/api/projects/{self.team.id}/today/reports/{REPORT_ID}/{endpoint}/",
+                f"/api/projects/{self.team.id}/today/{path}/",
                 HTTP_AUTHORIZATION=f"Bearer {raw_key}",
             )
 
@@ -444,3 +478,77 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{report.id}/page/")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def _temporal() -> MagicMock:
+    connect = MagicMock()
+    connect.return_value.start_workflow = AsyncMock()
+    return connect
+
+
+class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
+    def _get(self, connect: MagicMock, flag: bool = True) -> "_MonkeyPatchedResponse":
+        source = Source(
+            name="alerts", find=lambda _c: Found(items=(candidate("alert:1", "alerts", 0.8),), pulse=(metric("k1"),))
+        )
+        with (
+            patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=flag),
+            patch.object(highlights, "load_sources", return_value=(source,)),
+            patch.object(highlights, "sync_connect", connect),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/today/highlights/")
+            if response.status_code == status.HTTP_200_OK and connect.return_value.start_workflow.called:
+                inputs: ComputeHighlightsInputs = connect.return_value.start_workflow.call_args.args[1]
+                results = [
+                    highlights.run_source(
+                        HighlightSourceInputs(
+                            team_id=inputs.team_id,
+                            user_id=inputs.user_id,
+                            local_day=inputs.local_day,
+                            scopes=inputs.scopes,
+                            source_name=name,
+                        )
+                    )
+                    for name in inputs.source_names
+                ]
+                highlights.finalize(
+                    FinalizeHighlightsInputs(
+                        team_id=inputs.team_id, highlights_id=inputs.highlights_id, results=results
+                    )
+                )
+        return response
+
+    @parameterized.expand([("flag on", True, status.HTTP_200_OK), ("flag off", False, status.HTTP_404_NOT_FOUND)])
+    def test_highlights_need_the_flag_but_not_ai(self, _name: str, flag: bool, expected: int) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        cache.clear()
+
+        response = self._get(_temporal(), flag)
+
+        self.assertEqual(response.status_code, expected)
+
+    @time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False)
+    def test_the_first_call_starts_the_computation_and_a_later_call_serves_its_result(self) -> None:
+        cache.clear()
+        connect = _temporal()
+
+        first = self._get(_temporal()).json()
+        second = self._get(connect).json()
+
+        self.assertEqual(
+            (
+                (first["status"], first["generated_at"], first["pulse"], first["items"]),
+                second["status"],
+                [(m["key"], m["interval"], m["value_format"], len(m["period_starts"])) for m in second["pulse"]],
+                [(i["key"], i["source"], i["label"], i["priority"], i["series"]) for i in second["items"]],
+                connect.return_value.start_workflow.called,
+            ),
+            (
+                ("computing", None, [], []),
+                "ready",
+                [("k1", "day", None, 1)],
+                [("alert:1", "alerts", "risk", "P1", None)],
+                False,
+            ),
+        )

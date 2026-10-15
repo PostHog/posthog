@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -27,6 +28,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GoogleWebfontsSource(SimpleSource[GoogleWebfontsSourceConfig]):
+    codebase_detection = detect(
+        env=("^(GOOGLE_WEBFONTS|GOOGLEWEBFONTS)_",),
+        script_hosts=("fonts.googleapis.com", "fonts.gstatic.com"),
+        npm=("@googleapis/webfonts",),
+        maven=("com.google.apis:google-api-services-webfonts",),
+        rubygems=("google-apis-webfonts_v1",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developers.google.com/fonts/docs/developer_api"
 

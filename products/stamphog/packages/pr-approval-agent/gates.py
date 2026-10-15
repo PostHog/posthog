@@ -684,7 +684,12 @@ _SIZE_EXEMPT_PATH_RE = re.compile(
     r"|^services/mcp/src/api/generated\.ts$"
     r"|\.gen\.(ts|tsx|js|jsx)$"
     r"|\.generated\.(ts|tsx|js|jsx)$"
-    r"|^frontend/src/queries/schema/",
+    r"|^frontend/src/queries/schema/"
+    # Drizzle Kit's schema snapshots: written by `drizzle-kit generate` and read only by its
+    # next run, never by the migrator, so a new table adds thousands of lines and no runtime.
+    # The sibling _journal.json is what the migrator reads, so it stays counted. Scoped to a
+    # migrations/ output dir so an unrelated meta/ folder of runtime JSON keeps counting.
+    r"|(?:^|/)migrations/meta/\d{4}_snapshot\.json$",
     re.IGNORECASE,
 )
 
