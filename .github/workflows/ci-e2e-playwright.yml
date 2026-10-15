@@ -312,7 +312,7 @@ jobs:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
                   IS_PR: ${{ github.event_name == 'pull_request' }}
                   # Manual cache-bust knob — keep in sync with SCHEMA_CACHE_EPOCH in
-                  # ci-backend.yml, which saves these caches on master pushes.
+                  # .depot/workflows/ci-backend.yml, whose master pushes produce these caches.
                   SCHEMA_CACHE_EPOCH: v2
               run: |
                   if [ "$IS_PR" != "true" ]; then
@@ -355,7 +355,7 @@ jobs:
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
                   # Shared migration-set key: mirrors the save-side computation in
-                  # ci-backend.yml (same inputs, hash, and prefix) so it hits whenever
+                  # .depot/workflows/ci-backend.yml (same inputs, hash, and prefix) so it hits whenever
                   # the ref's migration files match a saved master schema — far more
                   # stable than the per-SHA key, which needs that exact commit's cache
                   # to still be alive.
