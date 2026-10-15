@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.everflow.s
     BASE_URLS,
     EVERFLOW_ENDPOINTS,
     HISTORY_DAYS,
+    REREAD_DAYS,
     UTC_TIMEZONE_ID,
 )
 
@@ -40,6 +41,10 @@ class EverflowResumeConfig:
     window_start: str | None = None
     # The next day of the daily performance report to request.
     next_day: str | None = None
+
+
+class EverflowReportTruncatedError(Exception):
+    pass
 
 
 class EverflowPaginator(PageNumberPaginator):
@@ -79,10 +84,10 @@ def to_date(value: Any) -> date:
     return date.fromisoformat(str(value)[:10])
 
 
-def window_start(should_use_incremental_field: bool, last_value: Any, today: date) -> date:
+def window_start(should_use_incremental_field: bool, last_value: Any, today: date, reread_days: int = 0) -> date:
     floor = today - timedelta(days=HISTORY_DAYS)
     if should_use_incremental_field and last_value is not None:
-        return max(to_date(last_value), floor)
+        return max(to_date(last_value) - timedelta(days=reread_days), floor)
     return floor
 
 
@@ -104,6 +109,13 @@ def flatten_entity_row(row: dict[str, Any], day: str) -> dict[str, Any]:
     return flat
 
 
+def _without(columns: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def drop(row: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in row.items() if key not in columns}
+
+    return drop
+
+
 def _api_key_auth(api_key: str) -> APIKeyAuth:
     return APIKeyAuth(api_key=api_key, name=API_KEY_HEADER, location="header")
 
@@ -120,9 +132,11 @@ def _daily_performance(
     client = RESTClient(base_url=base_url, auth=_api_key_auth(api_key), request_timeout=REQUEST_TIMEOUT)
     day = start
     while day <= end:
+        next_day = day + timedelta(days=1)
+        # Everflow reads both bounds as midnight, so one day runs up to the next day's midnight.
         body = {
             "from": day.isoformat(),
-            "to": day.isoformat(),
+            "to": next_day.isoformat(),
             "timezone_id": UTC_TIMEZONE_ID,
             "currency_id": currency_code,
             "columns": [{"column": "offer"}, {"column": "affiliate"}],
@@ -133,10 +147,11 @@ def _daily_performance(
         for page in client.paginate(path, method="post", json=body, paginator=SinglePagePaginator()):
             for response_body in page:
                 if response_body.get("incomplete_results"):
-                    logger.warning("Everflow entity report hit its row cap", day=day.isoformat())
+                    raise EverflowReportTruncatedError(
+                        f"Everflow's daily report for {day.isoformat()} hit its 10,000-row limit"
+                    )
                 rows.extend(flatten_entity_row(row, day.isoformat()) for row in response_body.get("table") or [])
 
-        next_day = day + timedelta(days=1)
         if next_day <= end:
             manager.save_state(EverflowResumeConfig(next_day=next_day.isoformat()))
         if rows:
@@ -194,11 +209,12 @@ def everflow_source(
         start_value = (
             resume.window_start
             if resume is not None and resume.window_start
-            else window_start(is_incremental, db_incremental_field_last_value, today).isoformat()
+            else window_start(is_incremental, db_incremental_field_last_value, today, REREAD_DAYS).isoformat()
         )
         body = {
             "from": start_value,
-            "to": today.isoformat(),
+            # Everflow reads `to` as midnight, so tomorrow's date includes today's conversions.
+            "to": (today + timedelta(days=1)).isoformat(),
             "timezone_id": UTC_TIMEZONE_ID,
             "show_conversions": True,
             "show_events": True,
@@ -227,6 +243,7 @@ def everflow_source(
                     "data_selector": config.data_selector,
                 },
                 "table_format": "delta",
+                **({"data_map": _without(config.drop_columns)} if config.drop_columns else {}),
             }
         ],
     }

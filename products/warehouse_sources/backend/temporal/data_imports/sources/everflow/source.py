@@ -54,6 +54,10 @@ class EverflowSource(ResumableSource[EverflowSourceConfig, EverflowResumeConfig]
         return {
             "401 Client Error: Unauthorized for url": "Everflow rejected the API key. Check the key and the region in the source settings.",
             "403 Client Error: Forbidden for url": "This Everflow key cannot read network data. Use a network API key from Security settings in Everflow.",
+            "daily report for": (
+                "One day of Everflow's daily performance report has more than 10,000 offer and partner pairs, "
+                "which Everflow cannot return in one request. Deselect the daily_performance table."
+            ),
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

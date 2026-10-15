@@ -65,6 +65,21 @@ class TestTables:
         assert [row["network_offer_id"] for row in result.rows] == [1, 2]
         assert result.saved_states == [EverflowResumeConfig(next_page=2)]
 
+    def test_advertisers_drop_the_postback_verification_token(self) -> None:
+        result = _run(
+            "advertisers",
+            [
+                _table_page(
+                    "advertisers",
+                    [{"network_advertiser_id": 135, "name": "Brand", "verification_token": "updatedtoken123"}],
+                    total=1,
+                )
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"network_advertiser_id": 135, "name": "Brand"}]
+
     def test_a_rejected_key_fails_the_run_with_the_status_the_error_map_matches(self) -> None:
         result = _run(
             "affiliates", always(ScriptedResponse(status=401, json={"Error": "Unable to authenticate request"}))
@@ -80,7 +95,8 @@ class TestConversions:
         ("incremental_field", "last_value", "expected_from"),
         [
             (None, None, "2025-10-15"),
-            ("conversion_unix_timestamp", int(datetime(2026, 9, 1, 23, tzinfo=UTC).timestamp()), "2026-09-01"),
+            # Statuses and payouts change after the conversion, so the window re-reads 30 days.
+            ("conversion_unix_timestamp", int(datetime(2026, 9, 1, 23, tzinfo=UTC).timestamp()), "2026-08-02"),
             ("conversion_unix_timestamp", int(datetime(2024, 1, 1, tzinfo=UTC).timestamp()), "2025-10-15"),
         ],
     )
@@ -96,7 +112,7 @@ class TestConversions:
         assert result.params("page_size") == ["500"]
         assert result.requests[0].json() == {
             "from": expected_from,
-            "to": "2026-10-15",
+            "to": "2026-10-16",
             "timezone_id": 67,
             "show_conversions": True,
             "show_events": True,
@@ -134,9 +150,9 @@ class TestDailyPerformance:
 
         assert result.raised is None
         assert [(request.json()["from"], request.json()["to"]) for request in result.requests] == [
-            ("2026-10-13", "2026-10-13"),
-            ("2026-10-14", "2026-10-14"),
-            ("2026-10-15", "2026-10-15"),
+            ("2026-10-13", "2026-10-14"),
+            ("2026-10-14", "2026-10-15"),
+            ("2026-10-15", "2026-10-16"),
         ]
         assert result.requests[0].json()["currency_id"] == "USD"
         assert [(row["date"], row["network_affiliate_id"], row["total_click"]) for row in result.rows] == [
@@ -149,6 +165,20 @@ class TestDailyPerformance:
         ]
         # The empty day still commits its cursor through the safe point.
         assert EverflowResumeConfig(next_day="2026-10-15") in result.committed_states
+
+    @time_machine.travel(NOW, tick=False)
+    def test_a_truncated_day_fails_before_its_cursor_moves_past_it(self) -> None:
+        result = _run(
+            "daily_performance",
+            [ScriptedResponse(json={"table": [_entity_row("882", "102", 7)], "incomplete_results": True})],
+            incremental_field="date",
+            db_incremental_field_last_value=date(2026, 10, 14),
+        )
+
+        assert result.raised is not None
+        assert "daily report for 2026-10-14" in str(result.raised)
+        assert result.rows == []
+        assert result.saved_states == []
 
     @time_machine.travel(NOW, tick=False)
     def test_resume_starts_at_the_saved_day(self) -> None:

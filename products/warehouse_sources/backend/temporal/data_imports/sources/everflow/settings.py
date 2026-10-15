@@ -19,8 +19,10 @@ UTC_TIMEZONE_ID = 67
 HISTORY_DAYS = 365
 
 # Conversion statuses and payouts change after the conversion, and daily totals follow them, so each
-# incremental run re-reads the last month.
+# incremental run re-reads the last month. The conversions cursor is an epoch integer, which the
+# pipeline's lookback skips, so the source applies that table's re-read itself.
 LOOKBACK_SECONDS = 30 * 24 * 60 * 60
+REREAD_DAYS = 30
 
 
 @frozen
@@ -33,6 +35,8 @@ class EverflowEndpointConfig:
     incremental_fields: tuple[IncrementalField, ...] = ()
     partition_key: str | None = None
     default_incremental_lookback_seconds: int | None = None
+    # Columns that carry credentials and must never reach the warehouse.
+    drop_columns: tuple[str, ...] = ()
 
 
 EVERFLOW_ENDPOINTS: dict[str, EverflowEndpointConfig] = {
@@ -50,6 +54,8 @@ EVERFLOW_ENDPOINTS: dict[str, EverflowEndpointConfig] = {
         path="/networks/advertiserstable",
         data_selector="advertisers",
         primary_keys=("network_advertiser_id",),
+        # The token that authenticates the advertiser's conversion postbacks.
+        drop_columns=("verification_token",),
     ),
     "conversions": EverflowEndpointConfig(
         name="conversions",
@@ -65,7 +71,6 @@ EVERFLOW_ENDPOINTS: dict[str, EverflowEndpointConfig] = {
                 "field_type": IncrementalFieldType.Integer,
             },
         ),
-        default_incremental_lookback_seconds=LOOKBACK_SECONDS,
     ),
     "daily_performance": EverflowEndpointConfig(
         name="daily_performance",
