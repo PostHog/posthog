@@ -1332,8 +1332,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert signal_kwargs["artifact_ids"] == []
         assert signal_kwargs["actor_user_id"] == self.user.id
         assert signal_kwargs["message_id"] is not None
-        # The message is queued on the workflow, so the :eyes: reaction stays up — it
-        # is not swapped to :hedgehog: until the task genuinely completes.
+        # The message is queued on the workflow, so the :eyes: reaction stays up.
         mock_slack_instance.client.reactions_add.assert_called_once_with(
             channel="C123", timestamp="1234.5679", name="eyes"
         )

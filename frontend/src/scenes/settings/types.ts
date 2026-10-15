@@ -27,7 +27,7 @@ export const SettingLevelNames: Record<SettingLevelId, string> = {
     environment: 'Environment',
     project: 'Project',
     organization: 'Organization',
-    user: 'Account',
+    user: 'User',
 } as const
 
 export type SettingSectionId =
