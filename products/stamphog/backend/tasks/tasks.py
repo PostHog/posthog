@@ -52,6 +52,7 @@ from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger
+from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import (
     PullRequest,
     PullRequestAudience,
@@ -739,7 +740,9 @@ def _reject_label_in_cooldown(repo_config: StamphogRepoConfig, pr: dict[str, Any
         client.upsert_sticky_comment(
             repo_config.repository,
             pr_number,
-            _label_cooldown_message(repo_config.trigger_label, cooldown_ends_at),
+            neutralize_active_markdown(
+                scrub_credentials(_label_cooldown_message(repo_config.trigger_label, cooldown_ends_at))
+            ),
         )
     except Exception:
         logger.warning(
