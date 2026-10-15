@@ -107,7 +107,6 @@ export enum Scene {
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
     Library = 'Library',
-    Analytics = 'Analytics',
     AnalyticsList = 'AnalyticsList',
     AnalyticsSpaces = 'AnalyticsSpaces',
     AnalyticsProductHome = 'AnalyticsProductHome',

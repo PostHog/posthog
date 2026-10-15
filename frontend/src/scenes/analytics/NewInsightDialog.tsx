@@ -1,9 +1,27 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import {
+    Dialog,
+    DialogBody,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    Item,
+    ItemContent,
+    ItemDescription,
+    ItemGroup,
+    ItemMedia,
+    ItemTitle,
+} from '@posthog/quill'
 
-import { NewInsightMenuContent } from 'products/product_analytics/frontend/insights/newInsightMenu/NewInsightMenu'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+
+import {
+    NewInsightCardSpec,
+    QuestionSection,
+    useQuestionSections,
+} from 'products/product_analytics/frontend/insights/newInsightMenu/NewInsightMenu'
 
 import { withBackLink } from './analyticsBackLink'
 import { newAnalyticsLogic } from './newAnalyticsLogic'
@@ -12,31 +30,68 @@ import { newAnalyticsLogic } from './newAnalyticsLogic'
 export function NewInsightDialog(): JSX.Element {
     const { newInsightDialogOpen } = useValues(newAnalyticsLogic)
     const { setNewInsightDialogOpen } = useActions(newAnalyticsLogic)
-
-    // The picker's cards are plain links to the editor. Catching the click here adds the way back to
-    // Analytics, which the editor then carries on to the saved insight.
-    const onClickCapture = (event: React.MouseEvent<HTMLDivElement>): void => {
-        const anchor = (event.target as HTMLElement).closest('a[href]')
-        if (!anchor || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
-            return
-        }
-        event.preventDefault()
-        event.stopPropagation()
-        const href = anchor.getAttribute('href') ?? ''
-        router.actions.push(withBackLink(href))
-    }
+    const sections = useQuestionSections()
 
     return (
-        <LemonModal
-            isOpen={newInsightDialogOpen}
-            onClose={() => setNewInsightDialogOpen(false)}
-            title="New insight"
-            width="min(60rem, calc(100vw - 2rem))"
-            data-attr="analytics-new-insight-dialog"
-        >
-            <div onClickCapture={onClickCapture}>
-                <NewInsightMenuContent />
+        <Dialog open={newInsightDialogOpen} onOpenChange={(open: boolean) => !open && setNewInsightDialogOpen(false)}>
+            <DialogContent size="wide" data-attr="analytics-new-insight-dialog">
+                <DialogHeader>
+                    <DialogTitle>New insight</DialogTitle>
+                    <DialogDescription>Start from the question you want answered.</DialogDescription>
+                </DialogHeader>
+                <DialogBody className="flex flex-col gap-5">
+                    {sections.map((section) => (
+                        <InsightSection key={section.title} section={section} />
+                    ))}
+                </DialogBody>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
+function InsightSection({ section }: { section: QuestionSection }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-col">
+                <ItemTitle>{section.title}</ItemTitle>
+                <ItemDescription>{section.description}</ItemDescription>
             </div>
-        </LemonModal>
+            <ItemGroup className="grid grid-cols-2 gap-2 @3xl:grid-cols-4">
+                {section.cards.map((spec) => (
+                    <InsightCard key={spec.key} spec={spec} />
+                ))}
+            </ItemGroup>
+        </div>
+    )
+}
+
+function InsightCard({ spec }: { spec: NewInsightCardSpec }): JSX.Element {
+    const { setNewInsightDialogOpen } = useActions(newAnalyticsLogic)
+    const Icon = spec.icon
+    return (
+        <Item
+            variant="outline"
+            size="sm"
+            className="text-foreground hover:bg-fill-button-tertiary-hover hover:text-foreground"
+            render={
+                // The editor carries the way back to Analytics on to the saved insight.
+                <LinkPrimitive
+                    to={withBackLink(spec.to)}
+                    data-attr={spec.dataAttr}
+                    onClick={() => {
+                        spec.onClick?.()
+                        setNewInsightDialogOpen(false)
+                    }}
+                />
+            }
+        >
+            <ItemMedia variant="icon" aria-hidden>
+                <Icon className={spec.iconClassName} />
+            </ItemMedia>
+            <ItemContent className="min-w-0">
+                <ItemTitle className="truncate">{spec.name}</ItemTitle>
+                <ItemDescription className="line-clamp-2">{spec.description}</ItemDescription>
+            </ItemContent>
+        </Item>
     )
 }

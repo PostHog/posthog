@@ -139,7 +139,7 @@ describe('analyticsFeedLogic', () => {
     it('narrows rows to a creator on the client, since the file system cannot', async () => {
         const logic = analyticsFeedLogic()
         logic.mount()
-        const byAda: AnalyticsFeedQuery = { ...ALL, createdBy: { uuid: 'u-ada', id: 1 } }
+        const byAda: AnalyticsFeedQuery = { ...ALL, createdBy: 'u-ada' }
 
         await expectLogic(logic, () => logic.actions.ensureFeed(byAda, 100)).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.ensureFeed(byAda, 100)).toFinishAllListeners()

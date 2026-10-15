@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -176,6 +177,12 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
                 )
                 actions.itemSpaceLoaded(shareTargetKey(target), space ? space.name : null)
                 actions.loadSpaces()
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('analytics item moved', {
+                    type: target.type,
+                    from: wasShared ? 'space' : 'personal',
+                    to: space ? 'space' : 'personal',
+                })
             } catch (error) {
                 lemonToast.error(error instanceof Error ? error.message : 'Could not move this item.')
             }

@@ -36,7 +36,7 @@ export function TodayProductsAnalyticsHint({ analyticsTypes }: { analyticsTypes:
                 <Button
                     size="sm"
                     variant="outline"
-                    render={<LinkPrimitive to={urls.analytics()} />}
+                    render={<LinkPrimitive to={urls.analyticsList()} />}
                     data-attr="today-products-analytics-hint-open"
                 >
                     Open Analytics

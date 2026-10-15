@@ -12,21 +12,14 @@ import {
 
 export const ANALYTICS_FEED_PAGE_SIZE = 50
 
-/** A creator, by both identifiers: some product APIs filter on `id`, the file system rows carry `uuid`. */
-export interface AnalyticsCreator {
-    uuid: string
-    /** Null until the member list resolves it; the rows are then narrowed on the client instead. */
-    id: number | null
-}
-
 export interface AnalyticsFeedQuery {
     type: AnalyticsTypeFilter
     search: string
-    createdBy: AnalyticsCreator | null
-    tags: string[]
+    /** A creator's uuid. The file system cannot filter on it, so the rows are narrowed on the client. */
+    createdBy: string | null
 }
 
-export const EMPTY_ANALYTICS_FEED_QUERY: AnalyticsFeedQuery = { type: 'all', search: '', createdBy: null, tags: [] }
+export const EMPTY_ANALYTICS_FEED_QUERY: AnalyticsFeedQuery = { type: 'all', search: '', createdBy: null }
 
 export interface AnalyticsSourcePage {
     items: AnalyticsItem[]
@@ -63,15 +56,12 @@ export function analyticsFeedTypes(query: AnalyticsFeedQuery): AnalyticsType[] {
 }
 
 export function analyticsSourceKey(projectId: string, query: AnalyticsFeedQuery, type: AnalyticsType): string {
-    return JSON.stringify([projectId, query.search.trim(), query.createdBy?.uuid ?? null, [...query.tags].sort(), type])
+    return JSON.stringify([projectId, query.search.trim(), query.createdBy, type])
 }
 
 /** Keeps the rows a source's API could not filter itself. */
 export function matchesAnalyticsQuery(item: AnalyticsItem, query: AnalyticsFeedQuery): boolean {
-    return (
-        (!query.createdBy || item.createdBy?.uuid === query.createdBy.uuid) &&
-        query.tags.every((tag) => item.tags.includes(tag))
-    )
+    return !query.createdBy || item.createdBy?.uuid === query.createdBy
 }
 
 // Insights file as `insight` or under a subtype such as `insight/trends`, so they match on the prefix.

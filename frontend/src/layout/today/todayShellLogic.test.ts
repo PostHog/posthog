@@ -89,7 +89,7 @@ describe('todayShellLogic', () => {
     test.each([
         ['home', '/home'],
         ['spaces', '/spaces/new'],
-        ['analytics', '/analytics'],
+        ['analytics', '/analytics/all'],
         ['products', '/airplane'],
     ] as const)('opens the %s section when its rail item is picked', (pane, pathname) => {
         const logic = todayShellLogic()

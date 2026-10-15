@@ -2,7 +2,6 @@ import {
     MakeLogicType,
     actions,
     afterMount,
-    beforeUnmount,
     connect,
     getContext,
     kea,
@@ -210,13 +209,6 @@ export interface canvasSceneLogicActions {
         canvasId: string
         tab: import('../sidePanel/canvasPanelTabs').CanvasPanelTab
     } // canvasSidePanelLogic
-    setOpenCanvasBuilding: (
-        canvasId: string,
-        building: boolean | null
-    ) => {
-        building: boolean | null
-        canvasId: string
-    } // todayAnalyticsLogic
     buildAction: (
         action: CanvasBuildActionActionEnumApi,
         buildId: string
@@ -428,7 +420,8 @@ export interface canvasSceneLogicMeta {
             canvas: CanvasApi | null,
             space: CanvasSpace | null,
             arg: string,
-            searchParams: Record<string, any>
+            searchParams: Record<string, any>,
+            featureFlags: FeatureFlagsSet
         ) => Breadcrumb[]
     }
 }
@@ -459,14 +452,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             ['user'],
         ],
         // Connecting keeps the Views sidebar's logic mounted, so it knows this canvas's state when it opens.
-        actions: [
-            canvasNewLogic,
-            ['clearStartHandoff'],
-            canvasSidePanelLogic,
-            ['openTab'],
-            todayAnalyticsLogic,
-            ['setOpenCanvasBuilding'],
-        ],
+        actions: [canvasNewLogic, ['clearStartHandoff'], canvasSidePanelLogic, ['openTab']],
     })),
     actions({
         renameCanvas: (name: string) => ({ name }),
@@ -844,7 +830,6 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         reportBusy: () => {
             if (cache.reportedBusy !== values.busy) {
                 cache.reportedBusy = values.busy
-                actions.setOpenCanvasBuilding(props.id, values.busy)
             }
         },
         loadViewSuccess: ({ view }) => {
@@ -1227,8 +1212,5 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         actions.loadView()
         actions.loadBuilds()
         actions.syncSidePanel()
-    }),
-    beforeUnmount(({ actions, props }) => {
-        actions.setOpenCanvasBuilding(props.id, null)
     }),
 ])

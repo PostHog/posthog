@@ -30,7 +30,7 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
         label: 'Analytics',
         title: 'Analytics',
         icon: <IconTrends />,
-        home: () => urls.analytics(),
+        home: () => urls.analyticsList(),
         action: TodayNewAnalyticsButton,
     },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },

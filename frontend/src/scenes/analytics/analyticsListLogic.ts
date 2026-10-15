@@ -7,7 +7,6 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { AnalyticsListUrlParams, urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -15,15 +14,9 @@ import { userLogic } from 'scenes/userLogic'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
-import type { OrganizationMemberType, UserBasicType, UserType } from '~/types'
+import type { UserBasicType, UserType } from '~/types'
 
-import {
-    ANALYTICS_FEED_PAGE_SIZE,
-    AnalyticsCreator,
-    AnalyticsFeed,
-    AnalyticsFeedQuery,
-    AnalyticsSourceState,
-} from './analyticsFeed'
+import { ANALYTICS_FEED_PAGE_SIZE, AnalyticsFeed, AnalyticsFeedQuery, AnalyticsSourceState } from './analyticsFeed'
 import { analyticsFeedLogic, selectAnalyticsFeed } from './analyticsFeedLogic'
 import { analyticsShareLogic } from './analyticsShareLogic'
 import {
@@ -34,6 +27,7 @@ import {
     fileSystemEntryName,
     fileSystemEntryToAnalytics,
     isAnalyticsType,
+    isPersonalAnalytics,
 } from './analyticsUtils'
 
 export const ANALYTICS_PREFETCH_COUNT = ANALYTICS_FEED_PAGE_SIZE
@@ -47,7 +41,6 @@ export interface AnalyticsListFilters {
     search: string
     /** `me`, a user uuid, or null for anyone. */
     createdBy: string | null
-    tags: string[]
     /** A file system folder path to browse, '' for the project root, or null for the whole project. */
     folder: string | null
 }
@@ -56,7 +49,6 @@ export const DEFAULT_ANALYTICS_LIST_FILTERS: AnalyticsListFilters = {
     type: 'all',
     search: '',
     createdBy: null,
-    tags: [],
     folder: null,
 }
 
@@ -81,12 +73,10 @@ export type AnalyticsListState = 'loading' | 'error' | 'empty' | 'no-matches' | 
 
 export function analyticsListFiltersFromUrl(params: Record<string, any>): AnalyticsListFilters {
     const type = typeof params.type === 'string' && isAnalyticsType(params.type) ? params.type : 'all'
-    const tags = Array.isArray(params.tags) ? params.tags.filter((tag: unknown) => typeof tag === 'string') : []
     return {
         type,
         search: typeof params.search === 'string' ? params.search : '',
         createdBy: typeof params.createdBy === 'string' && params.createdBy ? params.createdBy : null,
-        tags,
         folder: typeof params.folder === 'string' ? params.folder : null,
     }
 }
@@ -96,19 +86,12 @@ export function analyticsListUrlParams(filters: AnalyticsListFilters): Analytics
         type: filters.type === 'all' ? undefined : filters.type,
         search: filters.search.trim() || undefined,
         createdBy: filters.createdBy ?? undefined,
-        tags: filters.tags.length ? filters.tags : undefined,
         folder: filters.folder ?? undefined,
     }
 }
 
 export function analyticsListFiltersActive(filters: AnalyticsListFilters): boolean {
-    return (
-        filters.type !== 'all' ||
-        !!filters.search.trim() ||
-        !!filters.createdBy ||
-        filters.tags.length > 0 ||
-        filters.folder !== null
-    )
+    return filters.type !== 'all' || !!filters.search.trim() || !!filters.createdBy || filters.folder !== null
 }
 
 /** Narrows rows the server did not filter: folder contents come back whole. */
@@ -123,8 +106,7 @@ export function filterAnalytics(
         (item) =>
             (filters.type === 'all' || item.type === filters.type) &&
             (!needle || item.name.toLowerCase().includes(needle)) &&
-            (!createdBy || item.createdBy?.uuid === createdBy) &&
-            filters.tags.every((tag) => item.tags.includes(tag))
+            (!createdBy || item.createdBy?.uuid === createdBy)
     )
 }
 
@@ -133,10 +115,9 @@ export interface analyticsListLogicValues {
     sources: Record<string, AnalyticsSourceState> // analyticsFeedLogic
     spaceNames: Record<string, string> // analyticsFeedLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
-    meFirstMembers: OrganizationMemberType[] // membersLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
-    creator: AnalyticsCreator | null
+    creator: string | null
     currentFeed: AnalyticsFeed
     failedTypes: AnalyticsFeed['failedTypes']
     feed: AnalyticsFeed
@@ -187,9 +168,6 @@ export interface analyticsListLogicActions {
     shareToSpaceDone: () => {
         value: true
     } // analyticsShareLogic
-    ensureAllMembersLoaded: () => {
-        value: true
-    } // membersLogic
     folderCreated: () => {
         value: true
     } // todayAnalyticsLogic
@@ -271,17 +249,8 @@ export interface analyticsListLogicMeta {
         mode: (filters: AnalyticsListFilters) => AnalyticsListMode
         filtersActive: (filters: AnalyticsListFilters) => boolean
         narrowingFiltersActive: (filters: AnalyticsListFilters) => boolean
-        creator: (
-            filters: AnalyticsListFilters,
-            user: UserType | null,
-            meFirstMembers: OrganizationMemberType[],
-            scope: AnalyticsListScope
-        ) => AnalyticsCreator | null
-        feedQuery: (
-            filters: AnalyticsListFilters,
-            feedSearch: string,
-            creator: AnalyticsCreator | null
-        ) => AnalyticsFeedQuery
+        creator: (filters: AnalyticsListFilters, user: UserType | null, scope: AnalyticsListScope) => string | null
+        feedQuery: (filters: AnalyticsListFilters, feedSearch: string, creator: string | null) => AnalyticsFeedQuery
         currentFeed: (
             sources: Record<string, AnalyticsSourceState>,
             spaceNames: Record<string, string>,
@@ -350,16 +319,12 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             ['currentTeamId'],
             userLogic,
             ['user'],
-            membersLogic,
-            ['meFirstMembers'],
             analyticsFeedLogic,
             ['sources', 'spaceNames'],
         ],
         actions: [
             analyticsFeedLogic,
             ['ensureFeed', 'refreshFeed', 'sourceRefreshed'],
-            membersLogic,
-            ['ensureAllMembersLoaded'],
             analyticsShareLogic,
             ['shareToSpaceDone'],
             todayAnalyticsLogic,
@@ -426,7 +391,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
     })),
     reducers({
         scope: ['all' as AnalyticsListScope, { setScope: (_, { scope }) => scope }],
-        // Unfiled rows are personal. The person's own show by default; the toggle hides them. Nobody sees another person's.
+        // Personal rows (unfiled, or in a home folder) show by default; the toggle hides them.
         showPersonal: [true, { setShowPersonal: (_, { show }) => show, setScope: () => true }],
         filters: [
             DEFAULT_ANALYTICS_LIST_FILTERS,
@@ -470,37 +435,20 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             (filters: AnalyticsListFilters): boolean => analyticsListFiltersActive({ ...filters, folder: null }),
         ],
         creator: [
-            (s) => [s.filters, s.user, s.meFirstMembers, s.scope],
-            (
-                filters: AnalyticsListFilters,
-                user: UserType | null,
-                meFirstMembers: OrganizationMemberType[],
-                scope: AnalyticsListScope
-            ): AnalyticsCreator | null => {
-                if (scope === 'mine') {
-                    return user ? { uuid: user.uuid, id: user.id } : null
+            (s) => [s.filters, s.user, s.scope],
+            (filters: AnalyticsListFilters, user: UserType | null, scope: AnalyticsListScope): string | null => {
+                if (scope === 'mine' || filters.createdBy === CREATED_BY_ME) {
+                    return user?.uuid ?? null
                 }
-                if (!filters.createdBy) {
-                    return null
-                }
-                if (filters.createdBy === CREATED_BY_ME) {
-                    return user ? { uuid: user.uuid, id: user.id } : null
-                }
-                const member = meFirstMembers.find((candidate) => candidate.user.uuid === filters.createdBy)
-                return { uuid: filters.createdBy, id: member?.user.id ?? null }
+                return filters.createdBy
             },
         ],
         feedQuery: [
             (s) => [s.filters, s.feedSearch, s.creator],
-            (
-                filters: AnalyticsListFilters,
-                feedSearch: string,
-                creator: AnalyticsCreator | null
-            ): AnalyticsFeedQuery => ({
+            (filters: AnalyticsListFilters, feedSearch: string, creator: string | null): AnalyticsFeedQuery => ({
                 type: filters.type,
                 search: feedSearch.trim(),
                 createdBy: creator,
-                tags: filters.tags,
             }),
         ],
         currentFeed: [
@@ -545,12 +493,10 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 showPersonal: boolean
             ): AnalyticsItem[] => {
                 if (mode === 'feed') {
-                    // An unfiled row belongs to its creator alone; other people's never show, and the toggle hides your own.
-                    return feed.items.filter(
-                        (item) =>
-                            item.spaceName !== null ||
-                            (item.createdBy?.uuid === user?.uuid && (scope === 'mine' || showPersonal))
-                    )
+                    // Everything shows until the person hides what sits outside the team spaces.
+                    return scope === 'mine' || showPersonal
+                        ? feed.items
+                        : feed.items.filter((item) => !isPersonalAnalytics(item))
                 }
                 const entries = folderContents?.folder === filters.folder ? folderContents.entries : []
                 const items = entries.flatMap((entry) => {
@@ -658,29 +604,30 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => {
+        // Once per visit, however many pages the visit reads.
+        const reportListLoaded = (viewCount: number, hasMore: boolean): void => {
+            if (cache.visitStartedAt === undefined) {
+                return
+            }
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('views list loaded', {
+                duration_ms: Math.round(performance.now() - cache.visitStartedAt),
+                cached: cache.visitCached,
+                view_count: viewCount,
+                has_more: hasMore,
+                mode: values.mode,
+            })
+            cache.visitStartedAt = undefined
+        }
         const syncShownQuery = (): void => {
             if (values.currentFeed.initialized) {
                 if (values.shownQuery !== values.feedQuery) {
                     actions.setShownQuery(values.feedQuery)
                 }
-                if (cache.visitStartedAt !== undefined) {
-                    // pinned: analytics event name and properties. Renaming them breaks dashboards.
-                    posthog.capture('views list loaded', {
-                        duration_ms: Math.round(performance.now() - cache.visitStartedAt),
-                        cached: cache.visitCached,
-                        view_count: values.currentFeed.items.length,
-                        has_more: values.currentFeed.hasMore,
-                        mode: values.mode,
-                    })
-                    cache.visitStartedAt = undefined
-                }
+                reportListLoaded(values.currentFeed.items.length, values.currentFeed.hasMore)
             }
         }
         const loadCurrentMode = (): void => {
-            // A creator picked by uuid needs the member list for the id the insights API filters on.
-            if (values.filters.createdBy && values.filters.createdBy !== CREATED_BY_ME) {
-                actions.ensureAllMembersLoaded()
-            }
             if (values.mode === 'feed') {
                 actions.ensureFeed(values.feedQuery, ANALYTICS_PREFETCH_COUNT)
                 syncShownQuery()
@@ -704,7 +651,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             },
             loadList: () => {
                 cache.visitStartedAt = performance.now()
-                cache.visitCached = values.currentFeed.initialized
+                cache.visitCached = values.mode === 'feed' ? values.currentFeed.initialized : !!values.folderContents
                 if (values.mode === 'feed') {
                     actions.refreshFeed(values.feedQuery)
                     syncShownQuery()
@@ -743,7 +690,6 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                                 ? 'me'
                                 : 'other'
                             : 'anyone',
-                        tag_count: values.filters.tags.length,
                         folder: values.filters.folder !== null,
                     })
                 }
@@ -762,6 +708,20 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 // Unfiled rows stay hidden, so a page can add nothing visible; keep reading until the list fills.
                 if (values.mode === 'feed' && values.hasMore && values.items.length < ANALYTICS_PREFETCH_COUNT) {
                     actions.loadMore()
+                }
+            },
+            loadFolderContentsSuccess: ({ folderContents }) => {
+                if (!folderContents) {
+                    return
+                }
+                reportListLoaded(folderContents.entries.length, folderContents.hasMore)
+                if (cache.openedFolder !== folderContents.folder) {
+                    cache.openedFolder = folderContents.folder
+                    // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                    posthog.capture('analytics space opened', {
+                        nested: splitPath(folderContents.folder).length > 1,
+                        item_count: folderContents.entries.length,
+                    })
                 }
             },
             // A move or a new folder changes what this list holds, so it reads again.

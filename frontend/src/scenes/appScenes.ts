@@ -79,7 +79,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),
     [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
     [Scene.Library]: () => import('./library/Library'),
-    [Scene.Analytics]: () => import('./analytics/Analytics'),
     [Scene.AnalyticsList]: () => import('./analytics/AnalyticsList'),
     [Scene.AnalyticsSpaces]: () => import('./analytics/AnalyticsSpaces'),
     [Scene.AnalyticsProductHome]: () => import('./analytics/AnalyticsProductHome'),

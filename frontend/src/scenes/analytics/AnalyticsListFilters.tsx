@@ -125,7 +125,7 @@ export function AnalyticsListFilters(): JSX.Element {
                     data-attr="analytics-list-toggle-personal"
                 >
                     {showPersonal ? <IconHide /> : <IconEye />}
-                    {showPersonal ? 'Hide unfiled' : 'Show unfiled'}
+                    {showPersonal ? 'Hide personal' : 'Show personal'}
                 </Button>
             )}
             {filtersActive && (

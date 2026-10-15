@@ -14,7 +14,6 @@ import {
     EmptyHeader,
     EmptyTitle,
     Skeleton,
-    Text,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
@@ -178,11 +177,6 @@ function AnalyticsSpacesContent(): JSX.Element {
                             <SpaceCard key={space.path} space={space} />
                         ))}
                     </div>
-                )}
-                {spaces.length > 0 && (
-                    <Text size="xs" variant="muted">
-                        Counts come from each space’s newest rows.
-                    </Text>
                 )}
             </div>
             <TodayAnalyticsNewFolderDialog />

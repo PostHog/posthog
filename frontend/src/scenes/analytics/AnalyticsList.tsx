@@ -2,10 +2,22 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
 
-import { IconFolder, IconFolderPlus, IconPlus, IconSearch, IconTrends } from '@posthog/icons'
+import {
+    IconChevronDown,
+    IconFolder,
+    IconFolderPlus,
+    IconPlus,
+    IconSearch,
+    IconTrash,
+    IconTrends,
+} from '@posthog/icons'
 import {
     Button,
     DataTable,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
     Empty,
     EmptyContent,
     EmptyDescription,
@@ -39,9 +51,11 @@ import { analyticsListColumns } from './AnalyticsListColumns'
 import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
-import { ANALYTICS_TYPE_INFO } from './analyticsUtils'
+import { analyticsSpacesLogic } from './analyticsSpacesLogic'
+import { ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
+import { DeleteSpaceDialog } from './DeleteSpaceDialog'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
-import { ShareToSpaceModal } from './ShareToSpaceModal'
+import { ShareToSpaceDialog } from './ShareToSpaceDialog'
 
 const SCROLL_PREFETCH_MARGIN = '1200px 0px'
 
@@ -83,6 +97,7 @@ function AnalyticsListContent(): JSX.Element {
     } = useValues(analyticsListLogic)
     const { clearFilters, loadList, loadMore } = useActions(analyticsListLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
+    const { openDeleteSpace } = useActions(analyticsSpacesLogic)
     const { ref: endRef, inView: endInView } = useInView({
         root: document.getElementById('main-content'),
         rootMargin: SCROLL_PREFETCH_MARGIN,
@@ -94,6 +109,9 @@ function AnalyticsListContent(): JSX.Element {
             : urls.analyticsList(analyticsListUrlParams(filters))
     const columns = analyticsListColumns({ backUrl, showSpace: mode === 'feed' })
     const spaceName = mode === 'folder' ? folderBreadcrumbs[folderBreadcrumbs.length - 1]?.name || 'Project root' : null
+    // Only the space itself can be deleted from here; a folder inside it is managed from the project tree.
+    const topLevelSpace = mode === 'folder' && filters.folder ? analyticsSpaceOfPath(filters.folder) : null
+    const isSpaceRoot = !!topLevelSpace && topLevelSpace !== USERS_FOLDER && folderBreadcrumbs.length === 1
 
     useEffect(() => {
         if (endInView && hasMore) {
@@ -277,6 +295,26 @@ function AnalyticsListContent(): JSX.Element {
                                 New folder
                             </Button>
                         )}
+                        {isSpaceRoot && topLevelSpace && (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger
+                                    render={<Button variant="outline" size="sm" data-attr="analytics-space-manage" />}
+                                >
+                                    Manage
+                                    <IconChevronDown />
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="min-w-48">
+                                    <DropdownMenuItem
+                                        variant="destructive"
+                                        onClick={() => openDeleteSpace({ path: filters.folder!, name: topLevelSpace })}
+                                        data-attr="analytics-space-delete"
+                                    >
+                                        <IconTrash />
+                                        Delete space…
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )}
                         {newButton}
                     </div>
                 }
@@ -287,9 +325,9 @@ function AnalyticsListContent(): JSX.Element {
                 {listState === 'ready' && failedTypes.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2" role="alert">
                         <Text size="sm" variant="destructive">
-                            {`${failedTypes
-                                .map((type) => ANALYTICS_TYPE_INFO[type].pluralLabel)
-                                .join(' and ')} didn’t load, so this list may be incomplete.`}
+                            {`${new Intl.ListFormat('en', { type: 'conjunction' }).format(
+                                failedTypes.map((type) => ANALYTICS_TYPE_INFO[type].pluralLabel)
+                            )} didn’t load, so this list may be incomplete.`}
                         </Text>
                         <Button
                             variant="outline"
@@ -306,7 +344,8 @@ function AnalyticsListContent(): JSX.Element {
                 <div ref={endRef} aria-hidden />
             </div>
             <AnalyticsCreateModals />
-            <ShareToSpaceModal />
+            <ShareToSpaceDialog />
+            <DeleteSpaceDialog />
             <TodayAnalyticsNewFolderDialog />
         </SceneContent>
     )

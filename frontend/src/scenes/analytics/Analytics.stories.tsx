@@ -216,7 +216,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-09-28 18:30:00',
-        pageUrl: urls.analytics(),
+        pageUrl: urls.analyticsList(),
         featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
         testOptions: { waitForLoadersToDisappear: true },
     },
@@ -224,19 +224,6 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
-
-export const Home: Story = {}
-
-export const HomeEmpty: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/environments/:team_id/file_system/': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/file_system/': EMPTY_PAGINATED_RESPONSE,
-            },
-        }),
-    ],
-}
 
 export const List: Story = {
     parameters: { pageUrl: urls.analyticsList() },

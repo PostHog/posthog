@@ -18,7 +18,6 @@ import { todaySessionSelectionLogic } from '~/layout/today/todaySessionSelection
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
-import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { reportMetricQueryHandler } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
@@ -1135,30 +1134,5 @@ export const ListItemAppearanceDialog: Story = {
         todayListAppearanceLogic.actions.openAppearanceDialog()
         // The dialog opens in a portal outside the story's canvas.
         await within(document.body).findByText('Edit list item appearance')
-    },
-}
-
-export const ViewsAll: Story = {
-    parameters: { pageUrl: urls.analyticsList() },
-}
-
-export const ViewsEmpty: Story = {
-    parameters: { pageUrl: urls.analyticsList() },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/canvases/': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/notebooks/': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
-            },
-        }),
-    ],
-}
-
-export const ViewsNewMenu: Story = {
-    parameters: { pageUrl: urls.analyticsList() },
-    play: async ({ canvasElement }) => {
-        const [newView] = await within(canvasElement).findAllByText('New view')
-        await userEvent.click(newView)
     },
 }

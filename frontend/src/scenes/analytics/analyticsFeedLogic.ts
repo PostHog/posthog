@@ -43,7 +43,7 @@ function settledSources(sources: Record<string, AnalyticsSourceState>): Record<s
 }
 
 function isFiltered(query: AnalyticsFeedQuery): boolean {
-    return !!query.search.trim() || !!query.createdBy || query.tags.length > 0
+    return !!query.search.trim() || !!query.createdBy
 }
 
 // Every search or filter combination is its own set of sources, so old ones are dropped to bound memory.

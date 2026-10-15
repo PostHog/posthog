@@ -211,10 +211,18 @@ export function fileSystemBaseType(type: string | undefined): string {
 /** The file system folder every product files new objects under until someone moves them. */
 export const UNFILED_FOLDER = 'Unfiled'
 
+/** The folder that holds every person's own home folder. Its contents are personal, not a team space. */
+export const USERS_FOLDER = 'Users'
+
 /** The space an entry sits in: its top-level folder, or null when it is still unfiled (personal). */
 export function analyticsSpaceOfPath(path: string): string | null {
     const [top] = splitPath(path)
     return top && top !== UNFILED_FOLDER ? top : null
+}
+
+/** Whether a row sits outside every team space: unfiled, or inside someone's home folder. */
+export function isPersonalAnalytics(item: Pick<AnalyticsItem, 'spaceName'>): boolean {
+    return item.spaceName === null || item.spaceName === USERS_FOLDER
 }
 
 const SPACE_COLORS = [

@@ -340,10 +340,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Library',
     },
-    [Scene.Analytics]: {
-        projectBased: true,
-        name: 'Analytics',
-    },
     [Scene.AnalyticsList]: {
         projectBased: true,
         name: 'Analytics',
@@ -637,7 +633,9 @@ export const redirects: Record<
     '/action': urls.createAction(),
     // The Views pane became Analytics; these keep old links in the Today navigation working.
     '/views': urls.analyticsList(),
-    '/views/new': urls.analytics(),
+    '/views/new': urls.analyticsList(),
+    // Analytics opens on View all; the bare path stays as the pane's prefix.
+    [urls.analytics()]: urls.analyticsList(),
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
@@ -859,7 +857,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.todayReport(':reportId')]: [Scene.ProjectHomepage, 'todayReport'],
     [urls.library()]: [Scene.Library, 'library'],
     [urls.library(':objectType')]: [Scene.Library, 'libraryObjectType'],
-    [urls.analytics()]: [Scene.Analytics, 'analytics'],
     [urls.analyticsList()]: [Scene.AnalyticsList, 'analyticsList'],
     [urls.analyticsMine()]: [Scene.AnalyticsList, 'analyticsMine'],
     [urls.analyticsSpaces()]: [Scene.AnalyticsSpaces, 'analyticsSpaces'],

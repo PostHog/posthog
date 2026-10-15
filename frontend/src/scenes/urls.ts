@@ -33,11 +33,10 @@ import type { SettingId, SettingLevelId, SettingSectionId } from './settings/typ
  * Sync the paths with AutoProjectMiddleware!
  */
 
-/** The filters the analytics list reads from its URL. `tags` is a JSON array, as the saved insights page encodes it. */
+/** The filters the analytics list reads from its URL. */
 export interface AnalyticsListUrlParams {
     type?: string
     createdBy?: string
-    tags?: string[]
     folder?: string
     search?: string
 }
