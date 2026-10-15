@@ -1,4 +1,4 @@
-import { describeStorageProviderMismatch } from './storageProvider'
+import { describeStorageProviderMismatch, selfManagedFormProvider } from './storageProvider'
 
 describe('describeStorageProviderMismatch', () => {
     it.each([
@@ -60,5 +60,39 @@ describe('describeStorageProviderMismatch', () => {
         { provider: 'aws', url: 'not a url', case: 'an unparsable URL' },
     ] as const)('stays quiet for $case', ({ provider, url }) => {
         expect(describeStorageProviderMismatch(url, provider)).toBeNull()
+    })
+})
+
+describe('selfManagedFormProvider', () => {
+    const azureUrl = 'https://yourstorageaccount.blob.core.windows.net/your-container/*.pqt'
+
+    // Editing a saved table must not fall back to S3, or an Azure table shows S3 labels and a warning
+    // that the URL does not match the provider "you chose".
+    it.each([
+        { wizardProvider: null, case: 'with no wizard pick' },
+        { wizardProvider: 'aws', case: 'with a leftover wizard pick' },
+    ] as const)('reads a saved table provider from its URL $case', ({ wizardProvider }) => {
+        const table = { id: 'table-id', url_pattern: azureUrl }
+
+        expect(selfManagedFormProvider(table, wizardProvider)).toEqual('azure')
+        expect(describeStorageProviderMismatch(table.url_pattern, selfManagedFormProvider(table, wizardProvider))).toBe(
+            null
+        )
+    })
+
+    it('treats a saved table on an S3-compatible host as S3', () => {
+        expect(
+            selfManagedFormProvider(
+                { id: 'table-id', url_pattern: 'https://s3.us-west-1.wasabisys.com/your-org/*.pqt' },
+                'azure'
+            )
+        ).toEqual('aws')
+    })
+
+    it.each([
+        { wizardProvider: 'google-cloud', expected: 'google-cloud' },
+        { wizardProvider: null, expected: 'aws' },
+    ] as const)('uses the wizard pick for a new table: $wizardProvider', ({ wizardProvider, expected }) => {
+        expect(selfManagedFormProvider({ id: '', url_pattern: azureUrl }, wizardProvider)).toEqual(expected)
     })
 })
