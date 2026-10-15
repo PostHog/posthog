@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { SqlScatterGraphProps } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
@@ -54,15 +54,16 @@ const props = {
 }
 const area = { x: [0, 100] as [number, number], y: [0, 100] as [number, number] }
 beforeEach(() => initKeaTests())
+afterEach(cleanup)
 
 it('selects only visible points after legend toggles and resets zoom when axes change', () => {
     const onKeepOnly = jest.fn()
     const view = render(<BIScatterGraph {...props} onKeepOnly={onKeepOnly} />)
     act(() => mockChartProps.onAreaSelect!(area))
-    expect(screen.getByText('2 selected')).toBeInTheDocument()
+    expect(screen.getByTestId('bi-scatter-selection-count')).toHaveTextContent('2 selected')
     const hidden = mockChartProps.series!.find(({ label }) => label === 'B')!.key
     act(() => mockChartProps.legendVisibility!.onSetHiddenSeries!([hidden]))
-    expect(screen.getByText('1 selected')).toBeInTheDocument()
+    expect(screen.getByTestId('bi-scatter-selection-count')).toHaveTextContent('1 selected')
     act(() => mockChartProps.onAreaSelect!(area))
     fireEvent.click(screen.getByText('Keep only'))
     expect(onKeepOnly).toHaveBeenCalledWith([{ category: 'A', x: 10, y: 20 }])
@@ -81,26 +82,39 @@ it('selects only visible points after legend toggles and resets zoom when axes c
     expect(mockChartProps.viewport).toBeNull()
 })
 
-it('rejects excessive color cardinality before mounting the chart adapter', () => {
-    const rows = Array.from({ length: 10000 }, (_, index) => [`Category ${index}`, index, index])
+it.each([
+    { count: 10000, measures: 1, colorBy: 'category' },
+    { count: 500, measures: 50, colorBy: null },
+])('rejects $count rows with $measures measures before allocating point labels', ({ count, measures, colorBy }) => {
+    let memberReads = 0
+    const rows = Array.from({ length: count }, (_, index) =>
+        Object.defineProperty([`Category ${index}`, index, index], 0, {
+            get: () => {
+                memberReads++
+                return `Category ${index}`
+            },
+        })
+    )
     render(
         <BIScatterGraph
             {...props}
+            query={{ ...query, config: { ...config, colorBy } }}
             rows={rows}
             xData={axis(
                 'x',
                 rows.map((_, i) => String(i))
             )}
-            yData={[
+            yData={Array.from({ length: measures }, (_, index) =>
                 axis(
-                    'y',
+                    `y-${index}`,
                     rows.map((_, i) => i)
-                ),
-            ]}
+                )
+            )}
         />
     )
     expect(screen.queryByTestId('scatter')).not.toBeInTheDocument()
     expect(screen.getByText(/Too many color groups/)).toBeInTheDocument()
+    expect(memberReads).toBeLessThan(1000)
 })
 
 it('handles a large selection without truncating the selected count', () => {
@@ -124,6 +138,6 @@ it('handles a large selection without truncating the selected count', () => {
         />
     )
     act(() => mockChartProps.onAreaSelect!({ x: [0, 5000], y: [0, 5000] }))
-    expect(screen.getByText('5000 selected')).toBeInTheDocument()
+    expect(screen.getByTestId('bi-scatter-selection-count')).toHaveTextContent('5000 selected')
     expect(mockChartProps.series![0].points.every(({ radius }) => radius === 7)).toBe(true)
 })

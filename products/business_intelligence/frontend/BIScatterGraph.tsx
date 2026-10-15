@@ -40,10 +40,10 @@ export function BIScatterGraph({
     })
     const { selected, mode, viewport, hiddenSeries } = useValues(logic)
     const { toggle, select, clear, setMode, setViewport, setHiddenSeries, toggleSeries } = useActions(logic)
-    const series = useMemo(
-        () => buildBIScatterSeries(query, columns, rows, chartProps.xData, chartProps.yData),
-        [query, columns, rows, chartProps.xData, chartProps.yData]
-    )
+    const { series, overBudget } = useMemo(() => {
+        const series = buildBIScatterSeries(query, columns, rows, chartProps.xData, chartProps.yData)
+        return { series: series ?? [], overBudget: series === null }
+    }, [query, columns, rows, chartProps.xData, chartProps.yData])
     const selectedKeys = useMemo(() => new Set(selected), [selected])
     const hiddenKeys = useMemo(() => new Set(hiddenSeries), [hiddenSeries])
     const visibleSeries = useMemo(() => series.filter(({ key }) => !hiddenKeys.has(key)), [series, hiddenKeys])
@@ -57,6 +57,9 @@ export function BIScatterGraph({
         [visibleSeries]
     )
     const selectedRecords = useMemo(() => {
+        if (overBudget || selectedKeys.size === 0) {
+            return []
+        }
         const rowKey = createBIScatterRowKey(query.config, columns)
         return rows
             .filter((row) => {
@@ -64,7 +67,7 @@ export function BIScatterGraph({
                 return selectedKeys.has(key) && visibleKeys.has(key)
             })
             .map((row) => Object.fromEntries(columns.map((column, index) => [column, row[index]])))
-    }, [query.config, columns, rows, selectedKeys, visibleKeys])
+    }, [query.config, columns, rows, selectedKeys, visibleKeys, overBudget])
     const selectionConfig = keepBIScatterRows(query.config, selectedRecords)
     const highlighted = useMemo(
         () =>
@@ -79,10 +82,7 @@ export function BIScatterGraph({
                 : series,
         [series, selectedKeys, selected.length]
     )
-    if (
-        series.length > 100 ||
-        series.length * series.reduce((sum, series) => sum + series.points.length, 0) > 1_000_000
-    ) {
+    if (overBudget) {
         return (
             <LemonBanner type="warning">
                 Too many color groups to plot safely. Choose Single color, use a field with fewer distinct values, or
@@ -103,7 +103,9 @@ export function BIScatterGraph({
                             { value: 'zoom', label: 'Zoom area' },
                         ]}
                     />
-                    <span>{selectedRecords.length} selected</span>
+                    <span data-attr="bi-scatter-selection-count">
+                        <span translate="no">{selectedRecords.length}</span> selected
+                    </span>
                     <LemonButton
                         size="xsmall"
                         onClick={() => {
