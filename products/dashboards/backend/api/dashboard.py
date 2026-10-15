@@ -1565,11 +1565,7 @@ def _tile_type_and_widget_type(tile: DashboardTile) -> tuple[str, str | None]:
 def _copy_text_if_shared(tile: DashboardTile) -> Text:
     # Locks the tile against a concurrent `copy_to_dashboard` adding a second reference to this
     # text, so the sharing check below can't race a duplication that hasn't committed yet.
-    tile = (
-        DashboardTile.objects.select_for_update(of=("self",))
-        .select_related("text")
-        .get(pk=tile.pk, dashboard_id=tile.dashboard_id)
-    )
+    tile = DashboardTile.objects.select_for_update(of=("self",)).get(pk=tile.pk, dashboard_id=tile.dashboard_id)
     text = cast(Text, tile.text)
     is_shared = DashboardTile.objects_including_soft_deleted.filter(text_id=text.id).exclude(id=tile.id).exists()
     # A tile moved to another team's dashboard (`move_tile`) keeps its text reference, so a
@@ -1591,11 +1587,7 @@ def _copy_text_if_shared(tile: DashboardTile) -> Text:
 
 
 def _copy_button_if_shared(tile: DashboardTile) -> ButtonTile:
-    tile = (
-        DashboardTile.objects.select_for_update(of=("self",))
-        .select_related("button_tile")
-        .get(pk=tile.pk, dashboard_id=tile.dashboard_id)
-    )
+    tile = DashboardTile.objects.select_for_update(of=("self",)).get(pk=tile.pk, dashboard_id=tile.dashboard_id)
     button = cast(ButtonTile, tile.button_tile)
     is_shared = (
         DashboardTile.objects_including_soft_deleted.filter(button_tile_id=button.id).exclude(id=tile.id).exists()
@@ -1944,7 +1936,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     if duplicate_tiles or existing_tile.widget_id is not None:
                         self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
                     else:
-                        existing_tile.copy_to_dashboard(dashboard)
+                        try:
+                            existing_tile.copy_to_dashboard(dashboard)
+                        except DjangoValidationError:
+                            raise serializers.ValidationError("Unable to copy tile due to invalid data.")
 
             # Manual tag creation since this create method doesn't call super()
             self._attempt_set_tags(tags, dashboard)
@@ -2198,6 +2193,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # original text_id can no longer find the tile.
         tile_results: list[tuple[DashboardTile | None, bool]] = []
         with transaction.atomic():
+            tile_ids = [tile["id"] for tile in tiles if tile.get("id") is not None]
+            list(
+                DashboardTile.objects_including_soft_deleted.select_for_update(of=("self",))
+                .filter(dashboard=instance, id__in=tile_ids)
+                .order_by("id")
+                .values_list("id", flat=True)
+            )
             for tile_data in tiles:
                 tile_results.append(self._update_tiles(instance, tile_data, user, request=self.context.get("request")))
 

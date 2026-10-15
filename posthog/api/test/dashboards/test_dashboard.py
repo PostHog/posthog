@@ -3182,8 +3182,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         other_tile.refresh_from_db()
         assert other_tile.dashboard_id == other_dashboard.id
 
-    @parameterized.expand([("text", "patch"), ("text", "update_text_tile"), ("button_tile", "patch")])
-    def test_update_tile_rejects_move_before_lock(self, content_field: str, endpoint: str) -> None:
+    @parameterized.expand(
+        [
+            ("text", "patch"),
+            ("text", "update_text_tile"),
+            ("button_tile", "patch"),
+            ("text", "copy_tile"),
+            ("text", "duplicate"),
+        ]
+    )
+    def test_tile_mutation_rejects_move_before_lock(self, content_field: str, endpoint: str) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Source")
         destination = Dashboard.objects.create(team=self.team, name="Destination")
         if content_field == "text":
@@ -3193,6 +3201,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             content = ButtonTile.objects.create(team=self.team, url="https://example.com/original", text="Original")
             content_data = {"id": str(content.id), "url": "https://example.com/updated", "text": "Updated"}
         tile = DashboardTile.objects.create(dashboard=dashboard, **{content_field: content})
+        copy_destination = Dashboard.objects.create(team=self.team, name="Copy destination")
+        private_text = Text.objects.create(team=self.team, body="Private content")
+        dashboard_count = Dashboard.objects.count()
         moved = False
 
         def move_before_lock(
@@ -3201,7 +3212,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             nonlocal moved
             if not moved and "FOR UPDATE" in sql and DashboardTile._meta.db_table in sql:
                 moved = True
-                DashboardTile.objects.filter(pk=tile.pk).update(dashboard=destination)
+                updates: dict[str, object] = {"dashboard": destination}
+                if endpoint in ("copy_tile", "duplicate"):
+                    updates["text"] = private_text
+                DashboardTile.objects.filter(pk=tile.pk).update(**updates)
             return execute(sql, params, many, context)
 
         with connection.execute_wrapper(move_before_lock):
@@ -3213,13 +3227,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 )
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
                 self.assertEqual(response.json()["attr"], content_field)
-            else:
+            elif endpoint == "update_text_tile":
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/update_text_tile/",
                     {"tile_id": tile.id, "body": "Updated"},
                     format="json",
                 )
                 self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+            elif endpoint == "copy_tile":
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/dashboards/{copy_destination.id}/copy_tile/",
+                    {"fromDashboardId": dashboard.id, "tileId": tile.id},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertFalse(DashboardTile.objects.filter(dashboard=copy_destination).exists())
+            else:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/dashboards/",
+                    {"name": "Copy", "use_dashboard": dashboard.id},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(Dashboard.objects.count(), dashboard_count)
 
         self.assertTrue(moved)
         content.refresh_from_db()
