@@ -18357,8 +18357,9 @@ export namespace Schemas {
     /**
      * * `claude` - claude
      * * `codex` - codex
+     * * `fx` - fx
      */
-    export type RuntimeAdapterEnum = "claude" | "codex";
+    export type RuntimeAdapterEnum = "claude" | "codex" | "fx";
     /**
      * * `anthropic` - anthropic
      * * `openai` - openai
