@@ -27,6 +27,7 @@ export type CommandKRow =
     | { kind: 'filter-key'; key: string; filter: FilterDefinition; negated: boolean }
     | { kind: 'filter-value'; key: string; filter: FilterDefinition; option: ValueOption; negated: boolean }
     | { kind: 'message'; key: string; text: string }
+    | { kind: 'skeleton'; key: string }
     | { kind: 'item'; key: string; item: SearchItem; section: CommandKSectionKey }
     | { kind: 'ask-ai'; key: string; question: string }
 
@@ -36,7 +37,11 @@ export interface CommandKSection {
     rows: CommandKRow[]
     /** `stale` keeps the previous query's rows on screen until the new ones land. */
     state: 'ready' | 'loading' | 'stale'
-    skeletonCount: number
+}
+
+export interface ViewAll {
+    item: SearchItem
+    placement: 'lead' | 'trail'
 }
 
 /** What a remote section can render. Which request is in flight lives elsewhere, so starting one never re-renders. */
@@ -73,7 +78,7 @@ const SECTION_LABELS: Record<CommandKSectionKey, string> = {
     'ask-ai': 'PostHog AI',
 }
 
-export const isSelectable = (row: CommandKRow): boolean => row.kind !== 'message'
+export const isSelectable = (row: CommandKRow): boolean => row.kind !== 'message' && row.kind !== 'skeleton'
 
 const itemIdentity = (item: SearchItem): string => {
     const type = item.record?.type
@@ -107,13 +112,14 @@ const readySection = (key: CommandKSectionKey, rows: CommandKRow[]): CommandKSec
     label: SECTION_LABELS[key],
     rows,
     state: 'ready',
-    skeletonCount: 0,
 })
 
+const skeletonRows = (key: CommandKSectionKey): CommandKRow[] =>
+    Array.from({ length: DEFAULT_SKELETON_ROWS }, (_, index) => ({ kind: 'skeleton', key: `${key}/skeleton-${index}` }))
+
 const loadingSection = (key: CommandKSectionKey): CommandKSection => ({
-    ...readySection(key, []),
+    ...readySection(key, skeletonRows(key)),
     state: 'loading',
-    skeletonCount: DEFAULT_SKELETON_ROWS,
 })
 
 /**
@@ -194,21 +200,23 @@ export interface SectionsInput {
     localQuery: string
     /** Leads the Settings section when the query asks about the theme. */
     themeItem: SearchItem | null
-    askAiQuestion: string
-    /** Opens the list page of the type an `is:` filter names. Leads the Results section. */
-    viewAll?: SearchItem | null
+    askAiQuestion: string | null
+    viewAll: ViewAll | null
 }
 
 const filterLocal = (source: LocalSource, items: SearchItem[], query: string): SearchItem[] =>
     source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
 
-/** The "View all" row always leads Results, so it stays put while results load and swap. */
-function withViewAll(results: CommandKSection | null, item: SearchItem | null | undefined): CommandKSection | null {
-    if (!item) {
+function withViewAll(results: CommandKSection | null, viewAll: ViewAll | null): CommandKSection | null {
+    if (!viewAll) {
         return results
     }
-    const row: CommandKRow = { kind: 'item', key: `results/${item.id}`, item, section: 'results' }
-    return results ? { ...results, rows: [row, ...results.rows] } : readySection('results', [row])
+    const row: CommandKRow = { kind: 'item', key: `results/${viewAll.item.id}`, item: viewAll.item, section: 'results' }
+    const rows = results?.rows ?? []
+    return {
+        ...(results ?? readySection('results', [])),
+        rows: viewAll.placement === 'lead' ? [row, ...rows] : [...rows, row],
+    }
 }
 
 export function buildSections(input: SectionsInput): CommandKSection[] {
