@@ -2,6 +2,10 @@ import { BIConfig, BIField, BITableCalculation, BIValue } from '~/queries/schema
 import { escapeHogQLString, escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { biComparisonSeries } from './biComparison'
+import { limitBIComparisonQuery } from './biComparisonLimit'
+import { buildBIFilledPeriod, getBIMissingDatesDisabledReason } from './biTimeSeries'
+
 export const BI_TABLE_CALCULATIONS: { value: BITableCalculation['type']; label: string }[] = [
     { value: 'percent_of_total', label: 'Percent of total' },
     { value: 'running_total', label: 'Running total' },
@@ -19,6 +23,7 @@ export function isBITableCalculation(value: unknown): value is BITableCalculatio
     return (
         BI_TABLE_CALCULATIONS.some(({ value }) => value === candidate.type) &&
         (candidate.computeUsing === undefined || typeof candidate.computeUsing === 'string') &&
+        (candidate.requireFullWindow === undefined || typeof candidate.requireFullWindow === 'boolean') &&
         (candidate.window === undefined ||
             (Number.isInteger(candidate.window) && candidate.window >= 1 && candidate.window <= 1000))
     )
@@ -28,6 +33,7 @@ export function isBIAnalysisConfig(config: Partial<BIConfig>): boolean {
     const top = config.topN
     const totals = config.totals
     return (
+        (config.missingDates === undefined || ['gap', 'zero'].includes(config.missingDates)) &&
         (top === undefined ||
             (!!top &&
                 typeof top === 'object' &&
@@ -67,13 +73,17 @@ export interface BIAnalysisInput {
     where: string
     orderBy: string | null
     resultLimit?: number
+    resultWhere?: string | null
     previousWhere?: string
     previousDimensions?: string[]
 }
 
 export function hasBIAnalysis(config: BIConfig): boolean {
     return (
+        config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
+        (!!config.missingDates && !getBIMissingDatesDisabledReason(config)) ||
         !!config.topN ||
+        !!config.resultFilters?.length ||
         config.values.some((value) => !!value.tableCalculation) ||
         !!(config.totals?.rows || config.totals?.columns || config.totals?.subtotals)
     )
@@ -111,8 +121,12 @@ function calculationExpression(
             return `${column} - ${previous}`
         case 'percent_change':
             return `(${column} - ${previous}) * 1.0 / nullIf(abs(${previous}), 0)`
-        case 'moving_average':
-            return `avg(${column}) OVER (${window} ROWS BETWEEN ${Math.max(1, Math.min(1000, Math.trunc(calc.window ?? 3))) - 1} PRECEDING AND CURRENT ROW)`
+        case 'moving_average': {
+            const size = Math.max(1, Math.min(1000, Math.trunc(calc.window ?? 3)))
+            const frame = `${window} ROWS BETWEEN ${size - 1} PRECEDING AND CURRENT ROW`
+            const average = `avg(${column}) OVER (${frame})`
+            return `if(count(${column}) OVER (${frame}) ${calc.requireFullWindow ? `= ${size}` : '> 0'}, ${average}, NULL)`
+        }
         case 'rank':
             return `rank() OVER (${partitionBy}ORDER BY ${column} DESC)`
     }
@@ -143,11 +157,28 @@ function groupingSets(config: BIConfig, input: BIAnalysisInput): string[][] {
             sets.push([...rows, ...columns.slice(0, length)])
         }
     }
+    if (pivot) {
+        // Reaggregate every hierarchy intersection: averages and distinct counts cannot be summed from leaves.
+        for (let rowDepth = 1; rowDepth <= rows.length; rowDepth++) {
+            for (let columnDepth = 1; columnDepth <= columns.length; columnDepth++) {
+                sets.push([...rows.slice(0, rowDepth), ...columns.slice(0, columnDepth)])
+            }
+            if (config.totals?.rows) {
+                sets.push(rows.slice(0, rowDepth))
+            }
+        }
+        if (config.totals?.columns) {
+            for (let depth = 1; depth <= columns.length; depth++) {
+                sets.push(columns.slice(0, depth))
+            }
+        }
+    }
     return [...new Map(sets.map((set) => [JSON.stringify(set), set])).values()]
 }
 
 export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): string {
     const dimensions = [...input.rows, ...input.columns]
+    const pivot = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
     const ctes: string[] = []
     const topMeasure = config.values.length
         ? input.measures.find((measure) => measure.value === config.values[config.topN?.measureIndex ?? 0])
@@ -167,31 +198,35 @@ export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): 
         ? `(${topDimension.expression} IN (SELECT bi_key FROM bi_top) OR (${topDimension.expression} IS NULL AND (SELECT count(*) FROM bi_top WHERE bi_key IS NULL) > 0))`
         : ''
     for (const previous of periods) {
-        const projection = dimensions.map((dimension, index) => {
+        const expressions = dimensions.map((dimension, index) => {
             let expression = previous ? input.previousDimensions![index] : dimension.expression
             if (config.topN && dimension === topDimension && config.topN.includeOther) {
                 // A tagged array keeps an actual category named "Other" distinct from the remainder.
                 expression = `if(${topMember}, ['0', toString(${expression})], ['1', 'Other'])`
             }
-            return `${expression} AS ${dimension.alias}`
+            return expression
         })
         const where = previous ? input.previousWhere! : input.where
         const topFilter = config.topN && topDimension && !config.topN.includeOther ? ` AND ${topMember}` : ''
         const select = [
-            ...projection,
+            ...expressions.map((expression, index) => `${expression} AS ${aliases[index]}`),
             ...input.measures.map(
                 (measure) => `${measure.expression} AS ${escapeRawPropertyAsHogQLIdentifier(measure.alias)}`
             ),
             ...(totals
                 ? [
-                      `grouping(${aliases.join(', ')}) AS bi_grouping`,
-                      ...aliases.map((alias, index) => `grouping(${alias}) AS ${groupingFlags[index]}`),
+                      `grouping(${expressions.join(', ')}) AS bi_grouping`,
+                      ...expressions.map((expression, index) => `grouping(${expression}) AS ${groupingFlags[index]}`),
                   ]
                 : []),
         ]
         ctes.push(
             `bi_${previous ? 'previous' : 'current'} AS (SELECT ${select.join(', ')} FROM ${input.from} WHERE ${where}${topFilter}${dimensions.length ? ` GROUP BY ${totals ? `GROUPING SETS (${sets.map((set) => `(${set.join(', ')})`).join(', ')})` : aliases.join(', ')}` : ''})`
         )
+        const filled = buildBIFilledPeriod(config, input, previous, totals)
+        if (filled) {
+            ctes.push(filled)
+        }
     }
     const calculations = input.measures.map((measure) => {
         const expression = calculationExpression(measure, dimensions, totals ? ['bi_grouping'] : [])
@@ -199,19 +234,26 @@ export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): 
     })
     const comparisonLabel = config.compareFilter?.compare_to ? 'Comparison period' : 'Previous period'
     const periodQuery = (previous: boolean): string =>
-        `SELECT ${[...aliases, ...calculations, ...(totals ? ['bi_grouping', ...groupingFlags] : []), ...(input.previousWhere ? [`${escapeHogQLString(previous ? comparisonLabel : 'Current period')} AS bi_period`] : [])].join(', ')} FROM bi_${previous ? 'previous' : 'current'}`
+        `SELECT ${[...aliases, ...calculations, ...(totals ? ['bi_grouping', ...groupingFlags] : []), ...(input.previousWhere ? [`${escapeHogQLString(previous ? comparisonLabel : 'Current period')} AS bi_period`] : [])].join(', ')} FROM bi_${previous ? 'previous' : 'current'}${config.missingDates && !getBIMissingDatesDisabledReason(config) ? '_filled' : ''}`
     ctes.push(`bi_calculated AS (${periods.map(periodQuery).join(' UNION ALL ')})`)
+    const results = input.resultWhere ? 'bi_filtered' : 'bi_calculated'
+    if (input.resultWhere) {
+        ctes.push(
+            `bi_filtered AS (SELECT * FROM bi_calculated WHERE ${totals ? 'bi_grouping != 0 OR ' : ''}(${input.resultWhere}))`
+        )
+    }
     const displayedDimension = (dimension: BIAnalysisDimension, index: number): string => {
         let expression = dimension.alias
         if (dimension === topDimension && config.topN?.includeOther) {
             expression = `if(${expression}[1] = '1', 'Other', if(startsWith(${expression}[2], 'Other'), concat(${expression}[2], ' (category)'), ${expression}[2]))`
         }
-        return totals
-            ? `if(${groupingFlags[index]} != 0, 'Total', if(startsWith(toString(${expression}), 'Total'), concat(toString(${expression}), ' (category)'), toString(${expression})))`
-            : expression
+        const label =
+            totals || pivot || config.totals?.subtotals
+                ? `if(startsWith(toString(${expression}), 'Total'), concat(toString(${expression}), ' (category)'), toString(${expression}))`
+                : expression
+        return totals ? `if(${groupingFlags[index]} != 0, 'Total', ${label})` : label
     }
     const displayed = dimensions.map(displayedDimension)
-    const pivot = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
     const axis = (side: 'rows' | 'columns'): string[] => {
         const fields = input[side]
         if (!fields.length) {
@@ -233,9 +275,13 @@ export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): 
             dimensions.find((dimension) => ['date', 'datetime'].includes(dimension.field.type)) ??
             input.columns[0] ??
             input.rows[0]
-        const breakdown = dimensions.find((dimension) => dimension !== xDimension)
         select.push(
-            `${breakdown ? `concat(bi_period, ' · ', toString(${displayed[dimensions.indexOf(breakdown)]}))` : 'bi_period'} AS bi_comparison`
+            `${biComparisonSeries(
+                'bi_period',
+                dimensions
+                    .filter((dimension) => dimension !== xDimension)
+                    .map((dimension) => displayed[dimensions.indexOf(dimension)])
+            )} AS bi_comparison`
         )
     }
     let order = input.orderBy
@@ -244,10 +290,22 @@ export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): 
             order = `${dimension.alias} ${order.endsWith(' ASC') ? 'ASC' : 'DESC'}`
         }
     }
+    if (input.previousWhere) {
+        const query = `WITH ${ctes.join(',\n')} SELECT ${[...select, ...(totals ? ['bi_grouping AS bi_comparison_grouping'] : [])].join(', ')} FROM ${results}`
+        return limitBIComparisonQuery({
+            query,
+            config,
+            columns: [...aliases, ...input.measures.map(({ alias }) => alias), 'bi_comparison'],
+            dimensions: aliases,
+            order,
+            probe: (input.resultLimit ?? config.limit) > config.limit,
+            grouping: totals ? 'bi_comparison_grouping' : undefined,
+        })
+    }
     if (totals) {
         // Reserve at least half the result budget for detail cells when summaries alone exceed it.
         ctes.push(
-            `bi_ranked AS (SELECT *, row_number() OVER (PARTITION BY bi_grouping = 0 ORDER BY bi_grouping DESC${order ? `, ${order}` : ''}) AS bi_rank FROM bi_calculated)`
+            `bi_ranked AS (SELECT *, row_number() OVER (PARTITION BY bi_grouping = 0 ORDER BY bi_grouping DESC${order ? `, ${order}` : ''}) AS bi_rank FROM ${results})`
         )
     }
     for (const { alias } of dimensions) {
@@ -256,5 +314,5 @@ export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): 
             break
         }
     }
-    return `WITH ${ctes.join(',\n')}\nSELECT ${select.join(', ')} FROM ${totals ? 'bi_ranked' : 'bi_calculated'} AS bi_result${totals ? ` WHERE bi_grouping = 0 OR bi_rank <= ${Math.floor(config.limit / 2)}` : ''}${totals || order ? ` ORDER BY ${[...(totals ? ['bi_grouping DESC'] : []), ...(order ? [order] : [])].join(', ')}` : ''} LIMIT ${input.resultLimit ?? config.limit}`
+    return `WITH ${ctes.join(',\n')}\nSELECT ${select.join(', ')} FROM ${totals ? 'bi_ranked' : results} AS bi_result${totals ? ` WHERE bi_grouping = 0 OR bi_rank <= ${Math.floor(config.limit / 2)}` : ''}${totals || order ? ` ORDER BY ${[...(totals ? ['bi_grouping DESC'] : []), ...(order ? [order] : [])].join(', ')}` : ''} LIMIT ${input.resultLimit ?? config.limit}`
 }

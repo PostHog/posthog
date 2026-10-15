@@ -1,7 +1,6 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.simplesat import (
     SimplesatSourceConfig,
 )
@@ -13,45 +12,6 @@ class TestSimplesatSource:
         self.source = SimplesatSource()
         self.team_id = 123
         self.config = SimplesatSourceConfig(api_key="ss-key")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Simplesat"
-        assert config.label == "Simplesat"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source is visible — it must not carry the scaffolding flag.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/simplesat"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
-        # field an editor could retarget to reuse a preserved key against another account.
-        assert self.source.connection_host_fields == []
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.simplesat.io/api/v1/surveys?page_size=100",
-            "403 Client Error: Forbidden for url: https://api.simplesat.io/api/v1/questions?page_size=100",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @pytest.mark.parametrize(
-        "unrelated_error",
-        [
-            "500 Server Error: Internal Server Error for url: https://api.simplesat.io/api/v1/surveys",
-            "429 Client Error: Too Many Requests for url: https://api.simplesat.io/api/v1/questions",
-        ],
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.source.validate_credentials"

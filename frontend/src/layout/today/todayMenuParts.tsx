@@ -137,10 +137,9 @@ export const SHEET_PARTS: TodayMenuParts = {
 
 /**
  * The parts for a hover card's action list. The card is not a menu, so its rows are plain buttons.
- * `onAction` closes the card after a choice. `onSubmenuOpenChange` reports "File to…", whose menu opens
- * outside the card, so the card stays open while the pointer is in it. Desktop drops the separators here.
+ * `onAction` closes the card after a choice. Desktop drops the separators here.
  */
-export function cardMenuParts(onAction: () => void, onSubmenuOpenChange: (open: boolean) => void): TodayMenuParts {
+export function cardMenuParts(onAction: () => void): TodayMenuParts {
     return {
         Item: ({ children, dataAttr, onClick, to, disabled, variant }) => (
             <Button
@@ -163,7 +162,6 @@ export function cardMenuParts(onAction: () => void, onSubmenuOpenChange: (open: 
         Sub: ({ label, dataAttr, children }) => (
             <DropdownMenu
                 onOpenChange={(open, details) => {
-                    onSubmenuOpenChange(open)
                     if (!open && details.reason === 'item-press') {
                         onAction()
                     }

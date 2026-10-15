@@ -6,6 +6,7 @@ import requests
 from parameterized import parameterized
 
 from products.mcp_store.backend.oauth import (
+    OAuthMetadataValidationError,
     SSRFBlockedError,
     _resolve_issuer,
     _validate_endpoints_bound_to_issuer,
@@ -349,6 +350,14 @@ class TestValidateEndpointsBoundToIssuer(SimpleTestCase):
                 },
             ),
             (
+                "google_token_endpoint_on_googleapis",
+                {
+                    "issuer": "https://accounts.google.com",
+                    "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+                    "token_endpoint": "https://oauth2.googleapis.com/token",
+                },
+            ),
+            (
                 "non_standard_port_in_issuer_does_not_break_registrable_domain_extraction",
                 {
                     "issuer": "https://auth.example.com:8443",
@@ -401,6 +410,24 @@ class TestValidateEndpointsBoundToIssuer(SimpleTestCase):
                 "token_endpoint",
             ),
             (
+                "googleapis_endpoint_under_non_google_issuer",
+                {
+                    "issuer": "https://auth.example.com",
+                    "authorization_endpoint": "https://auth.example.com/authorize",
+                    "token_endpoint": "https://oauth2.googleapis.com/token",
+                },
+                "token_endpoint",
+            ),
+            (
+                "unrelated_domain_under_google_issuer",
+                {
+                    "issuer": "https://accounts.google.com",
+                    "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+                    "token_endpoint": "https://attacker.com/token",
+                },
+                "token_endpoint",
+            ),
+            (
                 "unrelated_registrable_domain_co_uk_lookalike",
                 {
                     "issuer": "https://auth.example.com",
@@ -412,7 +439,7 @@ class TestValidateEndpointsBoundToIssuer(SimpleTestCase):
         ]
     )
     def test_rejects_mismatched_endpoints(self, _name, metadata, offending_field):
-        with self.assertRaises(ValueError) as ctx:
+        with self.assertRaises(OAuthMetadataValidationError) as ctx:
             _validate_endpoints_bound_to_issuer(metadata)
         self.assertIn(offending_field, str(ctx.exception))
 

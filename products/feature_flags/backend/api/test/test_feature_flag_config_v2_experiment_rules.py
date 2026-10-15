@@ -1,4 +1,4 @@
-"""Config version 2 experiment rules without an experiment: identity, admission and warnings through the API.
+"""Config version 2 experiment rules: identity, admission and warnings through the API.
 
 These flags are invented test rows.
 """
@@ -29,8 +29,8 @@ from products.feature_flags.backend.flags_cache import _get_feature_flags_for_se
 from products.feature_flags.backend.models import FeatureFlag
 
 
-class TestStandaloneExperimentRules(AdmittedV2TestCase):
-    """Experiment rules without an experiment: no Experiment row, server-owned seeds, the shared validator's limits."""
+class TestExperimentRules(AdmittedV2TestCase):
+    """Experiment rules create no Experiment row, keep server-owned seeds and follow the shared validator's limits."""
 
     def test_create_assigns_the_rule_and_holdout_seeds(self) -> None:
         submitted = config(
@@ -43,7 +43,7 @@ class TestStandaloneExperimentRules(AdmittedV2TestCase):
         rule = flag.filters["rules"][1]
         assert rule["id"] and rule["seed"] and rule["holdout"]["seed"]
         assert len({rule["seed"], rule["holdout"]["seed"]}) == 2
-        assert (rule["experiment_id"], rule["holdout"]["id"]) == (None, None)
+        assert "experiment_id" not in rule and set(rule["holdout"]) == {"seed", "exclusion_percentage"}
         assert not Experiment.objects.filter(feature_flag=flag).exists()
         assert response.json()["filters"] == flag.filters
 
@@ -81,15 +81,14 @@ class TestStandaloneExperimentRules(AdmittedV2TestCase):
             (
                 "changed_holdout_seed",
                 config(experiment(holdout=local_holdout(seed="chosen-by-client"))),
-                "filters.rules[0].holdout.seed",
+                "filters__rules__0__holdout__seed",
             ),
-            ("chosen_seed", config(experiment(rule_id=None, seed="chosen-by-client")), "filters.rules[0].seed"),
+            ("chosen_seed", config(experiment(rule_id=None, seed="chosen-by-client")), "filters__rules__0__seed"),
             (
                 "chosen_holdout_seed",
                 config(experiment(rule_id=None, seed=None, holdout=local_holdout(seed="chosen"))),
-                "filters.rules[0].holdout.seed",
+                "filters__rules__0__holdout__seed",
             ),
-            ("shared_holdout", config(experiment(holdout={**local_holdout(), "id": 7})), "filters.rules[0].holdout.id"),
         ]
     )
     def test_invalid_rules_are_rejected(self, _name: str, filters: dict, attr: str) -> None:
@@ -97,9 +96,39 @@ class TestStandaloneExperimentRules(AdmittedV2TestCase):
         stored = copy.deepcopy(flag.filters)
         response = self.patch_flag(flag, {"version": 3, "filters": filters})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"].startswith(f"{attr}: "), response.json()
+        assert response.json()["attr"] == attr, response.json()
         flag.refresh_from_db()
         assert (flag.filters, flag.version) == (stored, 3)
+
+    @parameterized.expand(
+        [
+            ("experiment_id", experiment(experiment_id=42), "filters.rules[0].experiment_id"),
+            ("null_experiment_id", experiment(experiment_id=None), "filters.rules[0].experiment_id"),
+            ("holdout_id", experiment(holdout={**local_holdout(), "id": 7}), "filters.rules[0].holdout.id"),
+            ("null_holdout_id", experiment(holdout={**local_holdout(), "id": None}), "filters.rules[0].holdout.id"),
+        ]
+    )
+    def test_experiment_and_holdout_ids_are_unknown_fields(self, _name: str, rule: dict, path: str) -> None:
+        flag = self.flag(config(experiment(holdout=local_holdout())))
+        stored = copy.deepcopy(flag.filters)
+        response = self.patch_flag(flag, {"version": 3, "filters": config(rule)})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "unknown_field",
+            "detail": f"{path}: Unknown field.",
+            "attr": "filters",
+        }
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (stored, 3)
+
+    def test_create_rejects_a_null_experiment_id(self) -> None:
+        submitted = config(experiment(rule_id=None, seed=None, experiment_id=None))
+        with admit_v2(self.team.id, creation=True):
+            response = self.post_flag({"key": "split-v2", "filters": submitted})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "filters.rules[0].experiment_id: Unknown field.", response.json()
+        assert not FeatureFlag.objects.filter(team=self.team, key="split-v2").exists()
 
     def test_reserved_strings_are_rejected_as_variant_values(self) -> None:
         def string_split(first: str) -> dict:
@@ -109,7 +138,7 @@ class TestStandaloneExperimentRules(AdmittedV2TestCase):
         flag = self.flag(string_split("off"))
         response = self.patch_flag(flag, {"version": 3, "filters": string_split("$false")})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"].startswith("filters.rules[0].variants[0].value: "), response.json()
+        assert response.json()["attr"] == "filters__rules__0__variants__0__value", response.json()
 
     def test_a_split_above_a_lower_rule_reports_warnings_and_is_cached(self) -> None:
         flag = self.flag(config(experiment()), active=True)

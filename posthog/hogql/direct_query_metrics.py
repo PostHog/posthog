@@ -28,6 +28,7 @@ DirectQueryDialect = Literal[
     "duckgres",
     "motherduck",
     "trino",
+    "bigquery",
 ]
 DirectQueryStatus = Literal["success", "error"]
 

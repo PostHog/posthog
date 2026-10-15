@@ -22,15 +22,26 @@ Wiring that up here is follow-up work.
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 from typing import Any, ClassVar, cast
 
 import pyarrow as pa
 from psycopg import sql
+from psycopg.errors import InsufficientPrivilege
 
 from posthog.models.integration import Integration, RedshiftIntegration
 
 from products.batch_exports.backend.facade.destinations.postgres import Fields, PostgreSQLClient
 from products.batch_exports.backend.facade.destinations.redshift import RedshiftClient
+from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
+    BatchWriteOutcome,
+    DestinationBatchContext,
+    DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DestinationConfigurationError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.postgres import (
     PostgresDestinationWriter,
 )
@@ -42,6 +53,18 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 # truncate, so a longer value fails the statement instead of being cut short: batch exports
 # reports the same overflow as `StringLimitExceededError` and never retries it.
 VARCHAR_MAX = "VARCHAR(MAX)"
+
+PERMISSIONS_DETAIL = (
+    "The Redshift user lacks permissions. Grant the user USAGE and CREATE on the schema. "
+    "Grant rights on the tables it syncs, then run the sync again."
+)
+
+
+def _configuration_error_detail(err: Exception) -> str | None:
+    if isinstance(err, InsufficientPrivilege):
+        return PERMISSIONS_DETAIL
+    return None
+
 
 _REDSHIFT_BY_ARROW = {
     pa.bool_(): "BOOLEAN",
@@ -87,6 +110,30 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
     runs_post_load: ClassVar[bool] = False
 
     integration_kind: ClassVar[str] = RedshiftIntegration.integration_kind
+
+    @contextmanager
+    def _configuration_errors(self) -> Iterator[None]:
+        try:
+            yield
+        except Exception as err:
+            detail = _configuration_error_detail(err)
+            if detail is not None:
+                raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
+            raise
+
+    async def write_batch(
+        self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
+    ) -> BatchWriteOutcome:
+        with self._configuration_errors():
+            return await super().write_batch(batches, ctx)
+
+    async def finalize_run(self, ctx: DestinationRunContext) -> None:
+        with self._configuration_errors():
+            await super().finalize_run(ctx)
+
+    async def abort_run(self, ctx: DestinationRunContext) -> None:
+        with self._configuration_errors():
+            await super().abort_run(ctx)
 
     def _client_from_integration(self, integration: Integration) -> PostgreSQLClient:
         return RedshiftClient.from_inputs(RedshiftIntegration(integration), database=self._database)

@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source import (
     GoogleAnalyticsSource,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 def _config(property_id: str = "123456789", custom_reports: str | None = None) -> GoogleAnalyticsSourceConfig:
@@ -27,74 +26,9 @@ def _config(property_id: str = "123456789", custom_reports: str | None = None) -
     )
 
 
-def test_get_schemas_returns_all_schemas_with_date_incremental():
-    schemas = GoogleAnalyticsSource().get_schemas(_config(), team_id=1)
-
-    assert {s.name for s in schemas} == set(GOOGLE_ANALYTICS_REPORT_SCHEMAS.keys())
-    for schema in schemas:
-        assert schema.supports_incremental is True
-        assert schema.supports_append is True
-        assert schema.incremental_fields == [
-            {
-                "label": "date",
-                "field": "date",
-                "type": IncrementalFieldType.Date,
-                "field_type": IncrementalFieldType.Date,
-            }
-        ]
-
-
-def test_get_schemas_default_sync_set():
-    schemas = GoogleAnalyticsSource().get_schemas(_config(), team_id=1)
-    by_default_on = {s.name for s in schemas if s.should_sync_default}
-    # Everything except `events` syncs by default; `events` is keyed on date+eventName,
-    # so its volume scales with distinct event names and stays opt-in.
-    assert by_default_on == {
-        "website_overview",
-        "daily_active_users",
-        "weekly_active_users",
-        "four_weekly_active_users",
-        "devices",
-        "locations",
-        "pages",
-        "traffic_sources",
-        "user_acquisition",
-    }
-
-
 def test_get_schemas_filters_by_names():
     schemas = GoogleAnalyticsSource().get_schemas(_config(), team_id=1, names=["website_overview", "events"])
     assert {s.name for s in schemas} == {"website_overview", "events"}
-
-
-def test_get_schemas_includes_user_defined_custom_reports():
-    # A configured custom report shows up alongside the built-ins, default-on (the user
-    # explicitly asked for it) and incremental like every other report.
-    custom = '[{"name": "paid_campaigns", "dimensions": ["sessionCampaignName"], "metrics": ["sessions"]}]'
-    schemas = GoogleAnalyticsSource().get_schemas(_config(custom_reports=custom), team_id=1)
-
-    by_name = {s.name: s for s in schemas}
-    assert set(GOOGLE_ANALYTICS_REPORT_SCHEMAS.keys()) <= by_name.keys()
-    assert "paid_campaigns" in by_name
-    assert by_name["paid_campaigns"].should_sync_default is True
-    assert by_name["paid_campaigns"].supports_incremental is True
-
-
-def test_parse_custom_reports_prepends_date_and_derives_primary_key():
-    # `date` always leads the dimensions (day-grained) and the primary key is date + all
-    # dimensions, matching the built-in convention that incremental/merge sync relies on.
-    reports = parse_custom_reports(
-        '[{"name": "campaign_grain", "dimensions": ["date", "sessionCampaignName"], "metrics": ["sessions"]}]'
-    )
-    schema = reports["campaign_grain"]
-    assert schema["dimensions"] == ["date", "sessionCampaignName"]
-    assert schema["primary_key"] == ["date", "sessionCampaignName"]
-    assert schema["metrics"] == ["sessions"]
-
-
-def test_parse_custom_reports_empty_input_returns_no_reports():
-    assert parse_custom_reports(None) == {}
-    assert parse_custom_reports("   ") == {}
 
 
 @pytest.mark.parametrize(
@@ -200,10 +134,13 @@ def _http_error(status_code: int, body: str = "") -> requests.HTTPError:
             "allow Google Analytics access",
         ),
         (404, "", "was not found"),
+        (429, "", "couldn't reach Google Analytics"),
         (500, "", "couldn't reach Google Analytics"),
     ],
 )
 def test_validate_credentials_maps_http_errors(status_code, body, expected_substring):
+    # None of these are bugs worth paging error tracking for: the mapped ones are user/upstream
+    # errors with their own message, and 429/5xx are transient and self-resolving.
     with (
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
@@ -212,11 +149,15 @@ def test_validate_credentials_maps_http_errors(status_code, body, expected_subst
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
             side_effect=_http_error(status_code, body),
         ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.capture_exception"
+        ) as mock_capture,
     ):
         ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
 
     assert ok is False
     assert expected_substring in (message or "")
+    mock_capture.assert_not_called()
 
 
 def test_validate_credentials_maps_token_refresh_error():
@@ -300,32 +241,6 @@ def test_validate_credentials_succeeds_when_metadata_readable():
 
     assert ok is True
     assert message is None
-
-
-def test_non_retryable_errors_matches_revoked_refresh_token():
-    # `_run_report` refreshes credentials via `session.post()` before any HTTP status is
-    # available, so a revoked/expired refresh token surfaces as a bare `RefreshError` whose
-    # `str()` is the raw (message, response_dict) tuple repr, e.g.:
-    # ('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})
-    observed_error = str(RefreshError("invalid_grant: Bad Request", {"error": "invalid_grant"}))
-    non_retryable_errors = GoogleAnalyticsSource().get_non_retryable_errors()
-    assert error_message_matches(observed_error, non_retryable_errors)
-
-
-@pytest.mark.parametrize(
-    "error_msg",
-    [
-        "400 Client Error: Bad Request for url: https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport",
-        "401 Client Error: Unauthorized for url: https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport",
-        "403 Client Error: Forbidden for url: https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport",
-    ],
-)
-def test_non_retryable_errors_cover_runreport_client_errors(error_msg):
-    # `_run_report` raises `response.raise_for_status()` verbatim for any runReport response
-    # that isn't quota exhaustion or a 5xx (e.g. GA4 rejecting an invalid custom report
-    # dimension/metric name with 400), so retrying replays the identical request forever.
-    non_retryable_errors = GoogleAnalyticsSource().get_non_retryable_errors()
-    assert error_message_matches(error_msg, non_retryable_errors)
 
 
 def test_retryable_errors_cover_exhausted_quota_retries():

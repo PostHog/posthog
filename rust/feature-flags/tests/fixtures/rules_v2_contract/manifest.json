@@ -1,0 +1,512 @@
+{
+  "contract": {
+    "name": "feature_flag_rules_v2",
+    "version": "3.0.0",
+    "config_version": 2
+  },
+  "artifacts": [
+    {
+      "path": "README.md",
+      "kind": "documentation"
+    },
+    {
+      "path": "registries/literals.json",
+      "kind": "registry"
+    },
+    {
+      "path": "schemas/config.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "fixtures/config/valid/boolean_all_rule_types.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.boolean_all_rule_types",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/valid/string_group_assignment.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.string_group_assignment",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/valid/reserved_number_value.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.reserved_number_value",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/valid/reserved_object_value.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.reserved_object_value",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/valid/version_float_literal.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.version_float_literal",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_config_version.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_config_version",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "const",
+        "instance_path": "/version",
+        "message_contains": "2 was expected"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/version_string.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.version_string",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "const",
+        "instance_path": "/version"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/version_boolean.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.version_boolean",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "const",
+        "instance_path": "/version"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_config_field.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_config_field",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "additionalProperties",
+        "instance_path": "",
+        "message_contains": "groups"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_rule_field.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_rule_field",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "additionalProperties",
+        "instance_path": "/rules/0",
+        "message_contains": "implicit_default"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/missing_on_rollout_miss.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.missing_on_rollout_miss",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "required",
+        "instance_path": "/rules/0",
+        "message_contains": "on_rollout_miss"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/missing_rollout_seed.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.missing_rollout_seed",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "required",
+        "instance_path": "/rules/0",
+        "message_contains": "seed"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/missing_experiment_paused.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.missing_experiment_paused",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "required",
+        "instance_path": "/rules/0",
+        "message_contains": "paused"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/non_uuid_rule_id.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.non_uuid_rule_id",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "pattern",
+        "instance_path": "/rules/0/id"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/empty_seed.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.empty_seed",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "minLength",
+        "instance_path": "/rules/0/seed"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/empty_string_value.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.empty_string_value",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "minLength",
+        "instance_path": "/rules/0/value"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/return_value_type_mismatch.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.return_value_type_mismatch",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "type",
+        "instance_path": "/rules/0/value"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/variant_value_type_mismatch.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.variant_value_type_mismatch",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "type",
+        "instance_path": "/rules/0/variants/0/value"
+      }
+    },
+    {
+      "path": "fixtures/config/valid/object_value_max_depth.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.object_value_max_depth",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/invalid/object_value_too_deep.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.object_value_too_deep",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "oneOf",
+        "instance_path": "/rules/0/value/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/rollout_percentage_above_maximum.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.rollout_percentage_above_maximum",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "maximum",
+        "instance_path": "/rules/0/rollout_percentage"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/variant_key_invalid_characters.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.variant_key_invalid_characters",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "pattern",
+        "instance_path": "/rules/0/variants/0/key"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/too_few_variants.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.too_few_variants",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "minItems",
+        "instance_path": "/rules/0/variants"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/too_many_variants.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.too_many_variants",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "maxItems",
+        "instance_path": "/rules/0/variants"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/seed_too_long.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.seed_too_long",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "maxLength",
+        "instance_path": "/rules/0/seed"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/group_percentage_rollout_with_assign_by.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.group_percentage_rollout_with_assign_by",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "not",
+        "instance_path": "/rules/0"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/group_experiment_with_assign_by.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.group_experiment_with_assign_by",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "not",
+        "instance_path": "/rules/0"
+      }
+    },
+    {
+      "path": "fixtures/config/valid/group_all_rule_types.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.group_all_rule_types",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/valid/boolean_targeted_and_percentage_rollout.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.boolean_targeted_and_percentage_rollout",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/invalid/targeted_release_with_rollout_fields.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.targeted_release_with_rollout_fields",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "additionalProperties",
+        "instance_path": "/rules/0",
+        "message_contains": "rollout_percentage"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/rollout_percentage_below_minimum.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.rollout_percentage_below_minimum",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "minimum",
+        "instance_path": "/rules/0/rollout_percentage"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_rollout_miss_policy.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_rollout_miss_policy",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "enum",
+        "instance_path": "/rules/0/on_rollout_miss"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_assignment_algorithm.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_assignment_algorithm",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "const",
+        "instance_path": "/rules/0/assignment_algorithm"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/assign_by_not_person.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.assign_by_not_person",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "const",
+        "instance_path": "/rules/0/assign_by"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/null_rule_value.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.null_rule_value",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "type",
+        "instance_path": "/rules/0/value",
+        "message_contains": "boolean"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/default_value_type_mismatch.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.default_value_type_mismatch",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "type",
+        "instance_path": "/default_value"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_property_field.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_property_field",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "additionalProperties",
+        "instance_path": "/rules/0/targeting/properties/0",
+        "message_contains": "implicit_default"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_property_operator.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_property_operator",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "enum",
+        "instance_path": "/rules/0/targeting/properties/0/operator"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_property_type.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_property_type",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "enum",
+        "instance_path": "/rules/0/targeting/properties/0/type"
+      }
+    },
+    {
+      "path": "fixtures/config/valid/experiment_rule_local_holdout.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.experiment_rule_local_holdout",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/invalid/experiment_rule_with_experiment_id.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.experiment_rule_with_experiment_id",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "additionalProperties",
+        "instance_path": "/rules/0",
+        "message_contains": "experiment_id"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/holdout_with_id.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.holdout_with_id",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "additionalProperties",
+        "instance_path": "/rules/0/holdout",
+        "message_contains": "'id'"
+      }
+    },
+    {
+      "path": "schemas/hash_sha1_60_v1.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "schemas/v1_evaluation.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "schemas/legacy_projection.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "corpus/hash_sha1_60_v1.json",
+      "kind": "corpus"
+    },
+    {
+      "path": "corpus/v1_evaluation.json",
+      "kind": "corpus"
+    },
+    {
+      "path": "corpus/legacy_projection.json",
+      "kind": "corpus"
+    },
+    {
+      "path": "schemas/definitions_entry.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "schemas/definitions_v2.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "schemas/flags_response_v3.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "schemas/flags_response_v3_presence.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "schemas/management_warning.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "schemas/management_error.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "schemas/feature_flag_called_context.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "schemas/experiment_exposure_properties.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "rules/response_presence.json",
+      "kind": "presence_matrix"
+    },
+    {
+      "path": "fixtures/wire/definitions.json",
+      "kind": "fixture_set"
+    },
+    {
+      "path": "fixtures/wire/responses.json",
+      "kind": "fixture_set"
+    },
+    {
+      "path": "fixtures/wire/readers.json",
+      "kind": "fixture_set"
+    },
+    {
+      "path": "schemas/v2_boolean_evaluation.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "corpus/v2_boolean_evaluation.json",
+      "kind": "boolean_evaluation_corpus"
+    },
+    {
+      "path": "schemas/v2_value_evaluation.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "corpus/v2_value_evaluation.json",
+      "kind": "value_evaluation_corpus"
+    },
+    {
+      "path": "schemas/v2_experiment_evaluation.schema.json",
+      "kind": "schema"
+    },
+    {
+      "path": "corpus/v2_experiment_evaluation.json",
+      "kind": "experiment_evaluation_corpus"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "context": {
+            "default": "",
+            "description": "Optional priorities for this generation. Suggestions still cover the scout's full job.",
+            "maxLength": 2000,
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this Signal scout config.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

@@ -19,6 +19,12 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: mcp_analytics
+scout-precheck-query: |
+  SELECT event, count() AS events, max(timestamp) AS last_seen
+  FROM events
+  WHERE event = '$mcp_tool_call'
+    AND timestamp > {now} - INTERVAL 7 DAY
+  GROUP BY event
 ---
 
 # Signals scout: MCP tool calls
@@ -71,6 +77,8 @@ Two consequences to remember, both verified against real data:
 The full SQL cookbook is in [`references/queries.md`](references/queries.md) — read it rather than reinventing the queries. Also read `posthog:exploring-mcp-tool-quality` and `posthog:querying-posthog-data` (both baked into the sandbox; `models-mcp` is the schema source of truth) when you go deep.
 
 ## Quick close-out: is MCP even in use?
+
+A scheduled run can start with a `<precheck_result>` block. Its row counts the `$mcp_tool_call` events of the last 7 days, so MCP is in use. When the block is present, skip this check.
 
 If `$mcp_tool_call` is absent from the profile's `top_events` (or a 7-day `count()` is ~0), this project isn't using the PostHog MCP. Write one scratchpad entry and stop:
 

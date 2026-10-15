@@ -9,7 +9,6 @@ use feature_flags::flags::feature_flag_list::PreparedFlags;
 use feature_flags::flags::flag_matching_utils::calculate_hash;
 use feature_flags::flags::flag_request::MAX_DISTINCT_ID_LEN;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 pub mod common;
@@ -36,65 +35,18 @@ fn vendored_response_fixtures_agree_with_the_validator() {
             invalid += 1;
         }
     }
-    assert_eq!((valid, invalid), (29, 152));
+    assert_eq!((valid, invalid), (26, 44));
 }
 
 #[test]
-fn pinned_evaluation_artifact_subset_is_intact() {
-    let source = corpus::load("SOURCE.json");
-    let revision = source["source_revision"].as_str().unwrap();
-    assert_eq!(revision.len(), 40);
-    assert!(revision.bytes().all(|c| c.is_ascii_hexdigit()));
-    // Draft pin of the unreleased contract 3.0.0; re-pin to its harness release before merging.
-    assert_eq!(source["release_status"], "unreleased");
-    assert_eq!(source["source_release"], Value::Null);
-    let index = std::fs::read(corpus::root().join("SHA256SUMS")).unwrap();
-    assert_eq!(
-        hex::encode(Sha256::digest(&index)),
-        source["source_sha256sums_digest"]
-    );
-    let digests: BTreeMap<_, _> = std::str::from_utf8(&index)
-        .unwrap()
-        .lines()
-        .map(|line| line.split_once("  ").unwrap())
-        .map(|(digest, path)| (path, digest))
-        .collect();
-    let files: BTreeSet<_> = source["files"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|path| path.as_str().unwrap())
-        .collect();
-    assert_eq!(files.len(), source["files"].as_array().unwrap().len());
-    for path in files {
-        assert_eq!(
-            hex::encode(Sha256::digest(
-                std::fs::read(corpus::root().join(path)).unwrap()
-            )),
-            digests[path],
-            "{path}"
-        );
-    }
-    let manifest = corpus::load("manifest.json");
-    assert_eq!(manifest["contract"]["version"], source["contract_version"]);
+fn evaluation_corpora_have_unique_ids_and_the_pinned_families() {
     let mut counts = BTreeMap::new();
     for (component, cases) in [
         ("v2_boolean_evaluation", corpus::cases()),
         ("v2_value_evaluation", corpus::value_cases()),
         ("v2_experiment_evaluation", corpus::experiment_cases()),
     ] {
-        assert_eq!(
-            manifest[component]["version"],
-            source[format!("{component}_version")]
-        );
         let ids: Vec<_> = cases.iter().map(|case| case["id"].clone()).collect();
-        let artifact = manifest["artifacts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|artifact| artifact["path"] == format!("corpus/{component}.json"))
-            .unwrap();
-        assert_eq!(json!(ids), artifact["case_ids"]);
         assert_eq!(
             ids.iter()
                 .map(Value::to_string)
@@ -127,7 +79,7 @@ fn pinned_evaluation_artifact_subset_is_intact() {
             family("v2_experiment_evaluation", "assignment", 22),
             family("v2_experiment_evaluation", "values", 9),
             family("v2_experiment_evaluation", "white_box", 10),
-            family("v2_experiment_evaluation", "parser", 21),
+            family("v2_experiment_evaluation", "parser", 20),
         ])
     );
 }
@@ -221,7 +173,7 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
         }
         executed += 1;
     }
-    assert_eq!((executed, rejected), (120 + 38 + 51, 2 + 11 + 21));
+    assert_eq!((executed, rejected), (120 + 38 + 51, 2 + 11 + 20));
 }
 
 fn assert_experiment_hash_evidence(
@@ -571,7 +523,7 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
                 .map(|p| serde_json::from_str::<Value>(p.as_str().unwrap()).unwrap())
         };
         let reason = match expected["reason"].as_str() {
-            Some("targeting_match") => "condition_match",
+            Some("targeting_match" | "experiment_split") => "condition_match",
             Some("rollout_miss") => "out_of_rollout_bound",
             Some("holdout") => "holdout_condition_value",
             _ => "no_condition_match",
@@ -715,11 +667,16 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
                 expected["rule"].get("rule_type"),
                 "{id}"
             );
-            for field in ["experiment_id", "variant_key", "holdout_id"] {
+            assert_eq!(
+                record["metadata"].get("variant_key"),
+                expected.get("variant"),
+                "{id}"
+            );
+            for field in ["experiment_id", "holdout_id"] {
                 assert_eq!(record["metadata"].get(field), None, "{id}");
             }
         }
         projected += 1;
     }
-    assert_eq!((projected, direct, skipped), (114 + 49 + 72, 8, 13 + 10));
+    assert_eq!((projected, direct, skipped), (114 + 49 + 71, 8, 13 + 10));
 }

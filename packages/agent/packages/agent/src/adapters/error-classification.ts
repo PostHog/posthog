@@ -1,4 +1,7 @@
-import { getErrorMessage } from "@posthog/agent-contracts";
+import {
+  getErrorMessage,
+  isUpstreamRequestRejected,
+} from "@posthog/agent-contracts";
 
 export type AgentErrorClassification =
   | "upstream_stream_terminated"
@@ -9,6 +12,7 @@ export type AgentErrorClassification =
   | "turn_ended_without_response"
   | "subscription_usage_limit"
   | "task_spend_limit"
+  | "upstream_request_rejected"
   | "agent_error";
 
 const RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS =
@@ -96,6 +100,9 @@ export function classifyAgentError(
   if (SUBSCRIPTION_USAGE_LIMIT_PATTERN.test(text)) {
     return "subscription_usage_limit";
   }
+  if (isUpstreamRequestRejected(text)) {
+    return "upstream_request_rejected";
+  }
   return "agent_error";
 }
 
@@ -120,7 +127,22 @@ export function sanitizeAgentErrorCause(
   ) {
     return classification;
   }
+  if (classification === "upstream_request_rejected") {
+    if (!text.startsWith("{")) {
+      return text.slice(0, 200);
+    }
+    return (rejectedRequestMessage(text) ?? classification).slice(0, 200);
+  }
   return text.slice(0, 400);
+}
+
+function rejectedRequestMessage(body: string): string | undefined {
+  try {
+    const message = JSON.parse(body)?.error?.message;
+    return typeof message === "string" ? message : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

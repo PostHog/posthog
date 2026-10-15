@@ -74,7 +74,22 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         base_run_id = f"{base_run_id}_{inputs.job_id}"
     clustering_run_id = f"{base_run_id}_{inputs.run_label}" if inputs.run_label else base_run_id
 
-    team = Team.objects.get(id=inputs.team_id)
+    # The coordinator can run a team after it is deleted, so skip the run instead of failing it.
+    try:
+        team = Team.objects.get(id=inputs.team_id)
+    except Team.DoesNotExist:
+        logger.info("Team not found, skipping clustering run", team_id=inputs.team_id)
+        return ClusteringComputeResult(
+            clustering_run_id=clustering_run_id,
+            items=[],
+            labels=[],
+            centroids=[],
+            distances=[],
+            coords_2d=[],
+            centroid_coords_2d=[],
+            probabilities=[],
+            analysis_level=inputs.analysis_level,
+        )
 
     item_ids, embeddings_map, batch_run_ids_map = fetch_item_embeddings_for_clustering(
         team=team,

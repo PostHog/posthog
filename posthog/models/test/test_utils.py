@@ -2,9 +2,8 @@ import math
 from random import Random
 from uuid import UUID
 
-from posthog.test.base import BaseTest
-
 from django.core.exceptions import ValidationError
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -26,7 +25,7 @@ from posthog.models.utils import (
 )
 
 
-class TestUUIDv7(BaseTest):
+class TestUUIDv7(SimpleTestCase):
     def test_has_version_of_7(self):
         self.assertEqual(uuid7().version, 7)
 
@@ -43,7 +42,7 @@ class TestUUIDv7(BaseTest):
         self.assertEqual(uuid, UUID("019030b3-ef68-7a3b-8006-671a1c80317f"))
 
 
-class TestValidateRateLimit(BaseTest):
+class TestValidateRateLimit(SimpleTestCase):
     def test_rate_limit(self):
         with self.assertRaises(ValidationError):
             validate_rate_limit("1/week")

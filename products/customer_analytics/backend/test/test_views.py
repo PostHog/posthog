@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -486,18 +487,20 @@ class TestAccountViewSet(APIBaseTest):
         self.assertIsNone(data["churned_at"])
         self.assertIsNone(data["ignored_at"])
 
-    def test_create_with_churned_at(self):
+    @parameterized.expand([("churned_at",), ("ignored_at",)])
+    def test_create_with_status_date(self, field: str) -> None:
         response = self.client.post(
             self.endpoint_base,
-            {"name": "Former customer", "churned_at": "2026-08-01T12:30:00Z"},
+            {"name": "Former customer", field: "2026-08-01T12:30:00Z"},
             format="json",
         )
 
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
-        self.assertEqual(response.json()["churned_at"], "2026-08-01T12:30:00Z")
+        self.assertEqual(response.json()[field], "2026-08-01T12:30:00Z")
         account = Account.objects.unscoped().get(id=response.json()["id"])  # nosemgrep: idor-lookup-without-team
-        assert account.churned_at is not None
-        self.assertEqual(account.churned_at.isoformat(), "2026-08-01T12:30:00+00:00")
+        status_date = getattr(account, field)
+        assert status_date is not None
+        self.assertEqual(status_date.isoformat(), "2026-08-01T12:30:00+00:00")
 
     def test_list(self):
         a1 = self._create_account(name="Account 1")
@@ -543,6 +546,23 @@ class TestAccountViewSet(APIBaseTest):
 
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         self.assertEqual({account["name"] for account in response.json()["results"]}, expected_names)
+
+    def test_list_inactive_last_puts_churned_and_ignored_accounts_after_active_ones(self) -> None:
+        self._create_account(name="A churned", churned_at=timezone.now())
+        self._create_account(name="B ignored", ignored_at=timezone.now())
+        self._create_account(name="C active")
+        self._create_account(name="D active")
+
+        response = self.client.get(
+            self.endpoint_base,
+            data={"include_churned": "true", "include_ignored": "true", "inactive_last": "true", "ordering": "name"},
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(
+            [account["name"] for account in response.json()["results"]],
+            ["C active", "D active", "A churned", "B ignored"],
+        )
 
     def test_retrieve(self):
         ignored_at = timezone.now()
@@ -760,33 +780,24 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(account.properties.sfdc_id, "001xx")
         self.assertEqual(account.properties.website_domain, "acme.example")
 
-    def test_update_does_not_accept_ignored_at(self):
-        ignored_at = timezone.now()
-        account = self._create_account(ignored_at=ignored_at)
-
-        response = self.client.patch(f"{self.endpoint_base}{account.id}/", {"ignored_at": None}, format="json")
-
-        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        account.refresh_from_db()
-        self.assertEqual(account.ignored_at, ignored_at)
-
-    def test_update_and_clear_churned_at(self):
+    @parameterized.expand([("churned_at",), ("ignored_at",)])
+    def test_update_and_clear_status_date(self, field: str) -> None:
         account = self._create_account()
         url = f"{self.endpoint_base}{account.id}/"
 
-        response = self.client.patch(url, {"churned_at": "2026-08-02T09:00:00Z"}, format="json")
+        response = self.client.patch(url, {field: "2026-08-02T09:00:00Z"}, format="json")
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        self.assertEqual(response.json()["churned_at"], "2026-08-02T09:00:00Z")
+        self.assertEqual(response.json()[field], "2026-08-02T09:00:00Z")
         account.refresh_from_db()
-        self.assertEqual(account.churned_at.isoformat(), "2026-08-02T09:00:00+00:00")
+        self.assertEqual(getattr(account, field).isoformat(), "2026-08-02T09:00:00+00:00")
 
-        response = self.client.patch(url, {"churned_at": None}, format="json")
+        response = self.client.patch(url, {field: None}, format="json")
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        self.assertIsNone(response.json()["churned_at"])
+        self.assertIsNone(response.json()[field])
         account.refresh_from_db()
-        self.assertIsNone(account.churned_at)
+        self.assertIsNone(getattr(account, field))
 
     @parameterized.expand(
         [
@@ -2546,9 +2557,12 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         return created.json()["id"]
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
+    @override_settings(WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED=False)
     def test_person_source_actions_are_flag_gated(self, _flag):
         # Regression: sync/backfill must 400 when WAREHOUSE_PERSON_PROPERTIES is off. The gate lives in
         # the facade; a viewset refactor that dropped it would ship an ungated (billable) trigger.
+        # Both the Cloud rollout flag (mocked False above) and its self-hosted kill-switch equivalent
+        # are turned off here so this holds regardless of which code path the test runs under.
         source_id = self._create_person_source()
         for action in ("sync", "backfill"):
             response = self.client.post(f"{self.endpoint}{source_id}/{action}/")

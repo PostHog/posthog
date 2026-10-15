@@ -10,7 +10,8 @@
     </p>
     <p>
         <strong>This makes a real control-plane call.</strong> In environments where
-        <code>DUCKGRES_API_URL</code> is unset, it returns "not configured" and persists nothing.
+        neither <code>HOGTOWER_API_URL</code> nor <code>DUCKGRES_API_URL</code> is set, it returns "not configured"
+        and persists nothing.
     </p>
     <form method="post">
         {% csrf_token %}

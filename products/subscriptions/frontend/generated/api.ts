@@ -11,12 +11,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     PaginatedSubscriptionDeliveryListApi,
     PaginatedSubscriptionListApi,
+    PaginatedSubscriptionSummaryListApi,
     PatchedSubscriptionWriteApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
     SubscriptionWriteApi,
     SubscriptionsDeliveriesListParams,
     SubscriptionsListParams,
+    SubscriptionsSummariesListParams,
     SubscriptionsSummaryQuotaRetrieve200,
 } from './api.schemas'
 
@@ -215,6 +217,37 @@ export const subscriptionsDeliveriesRetrieve = async (
     options?: RequestInit
 ): Promise<SubscriptionDeliveryApi> => {
     return apiMutator<SubscriptionDeliveryApi>(getSubscriptionsDeliveriesRetrieveUrl(projectId, subscriptionId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSubscriptionsSummariesListUrl = (projectId: string, params?: SubscriptionsSummariesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/subscriptions/summaries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/subscriptions/summaries/`
+}
+
+/**
+ * Completed deliveries that include an AI summary, across every active subscription on one insight or dashboard, newest first. Requires viewer access to the insight or dashboard.
+ * @summary List AI summaries for an insight or dashboard
+ */
+export const subscriptionsSummariesList = async (
+    projectId: string,
+    params?: SubscriptionsSummariesListParams,
+    options?: RequestInit
+): Promise<PaginatedSubscriptionSummaryListApi> => {
+    return apiMutator<PaginatedSubscriptionSummaryListApi>(getSubscriptionsSummariesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

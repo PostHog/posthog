@@ -323,3 +323,43 @@ class TestPlaygroundModelEnforcement(APIBaseTest):
         assert response.status_code == 200
         returned_ids = {m["id"] for m in response.json()}
         assert returned_ids == PLAYGROUND_MODEL_IDS
+
+    @parameterized.expand([(True,), (False,)])
+    def test_openrouter_decision_models_use_the_existing_key(self, flag: bool) -> None:
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openrouter",
+            name="OpenRouter",
+            encrypted_config={"api_key": "example-openrouter-token"},
+            created_by=self.user,
+        )
+        with (
+            patch(
+                "products.ai_observability.backend.api.proxy.Client.list_models",
+                return_value=["typesafe/jev-router", "example/dual-model"],
+            ),
+            patch("products.ai_observability.backend.api.proxy.decision_evaluations_enabled", return_value=flag),
+            patch(
+                "products.ai_observability.backend.api.proxy.decision_model_ids",
+                return_value=frozenset({"typesafe/jev-1.13", "example/dual-model"}),
+            ),
+            patch(
+                "products.ai_observability.backend.api.proxy.non_chat_model_ids",
+                return_value=frozenset({"typesafe/jev-1.13"}),
+            ) as non_chat_models,
+        ):
+            response = self.client.get("/api/llm_proxy/models/", {"provider_key_id": str(key.id)})
+
+        assert response.status_code == 200
+        models = {model["id"]: model for model in response.json()}
+        assert models["typesafe/jev-router"]["supports_decisions"] is False
+        assert models["typesafe/jev-router"]["supports_chat"] is True
+        assert models["example/dual-model"]["supports_chat"] is True
+        assert models["example/dual-model"]["supports_decisions"] is flag
+        assert ("typesafe/jev-1.13" in models) is flag
+        if flag:
+            assert models["typesafe/jev-1.13"]["provider"] == "OpenRouter"
+            assert models["typesafe/jev-1.13"]["supports_decisions"] is True
+            assert models["typesafe/jev-1.13"]["supports_chat"] is False
+        else:
+            non_chat_models.assert_not_called()

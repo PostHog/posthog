@@ -2,12 +2,16 @@ import os
 import glob
 import json
 import math
+import shutil
 import asyncio
 import decimal
 import datetime
 import itertools
+import collections
+from collections.abc import Callable
+from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -22,7 +26,10 @@ import pyarrow.parquet as pq
 from deltalake.transaction import AddAction
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition as repartition_module
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import (
+    repartition as repartition_module,
+    repartition_swap as swap_module,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (
     _PURGE_S3_PREFIX_MAX_ATTEMPTS,
@@ -37,7 +44,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     RepartitionTarget,
     RepartitionTooLargeForBudgetError,
     _rewrite_into_temp,
+    is_temp_uri_of,
     measure_partition_bytes,
+    purge_abandoned_rewrite_temp,
     repartition_table_in_place,
     select_coarsen_target,
     select_repartition_target,
@@ -50,12 +59,19 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     TempTableCommitter,
     copied_source_files,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_swap import (
+    SWAP_PHASE_CLEANUP,
+    SWAP_PHASE_SWITCH_LOG,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import (
     _redis_client,
     run_key,
     workload_reporting,
 )
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 logger = structlog.get_logger(__name__)
 
@@ -1994,26 +2010,199 @@ class TestPurgeStaleTempTables:
         )
 
 
+class _LocalS3:
+    """The object-store calls the purge and the swap use, served from local files.
+
+    With a `root`, that directory stands in for all buckets. Without one, a URI is a local path.
+    """
+
+    def __init__(self, root: Path | None = None) -> None:
+        self._root = root
+        self.copies: list[str] = []
+        self.max_copies_in_flight = 0
+        self.before_copy: Callable[[str], None] | None = None
+        self.before_rm: Callable[[list[str]], None] | None = None
+        self._copies_in_flight = 0
+
+    def _local(self, uri: str) -> Path:
+        if self._root is None:
+            return Path(uri)
+        return self._root / uri.split("://", 1)[-1].strip("/")
+
+    def _key(self, file: Path) -> str:
+        return str(file) if self._root is None else str(file.relative_to(self._root))
+
+    def invalidate_cache(self) -> None:
+        pass
+
+    async def _exists(self, uri: str) -> bool:
+        return self._local(uri).exists()
+
+    async def _find(self, uri: str, prefix: str = "", detail: bool = False) -> Any:
+        base = self._local(uri)
+        files = sorted(f for f in base.rglob("*") if f.is_file() and str(f.relative_to(base)).startswith(prefix))
+        if not detail:
+            return [self._key(f) for f in files]
+        return {self._key(f): {"Key": self._key(f), "size": f.stat().st_size, "type": "file"} for f in files}
+
+    async def _rm(self, target: str | list[str], recursive: bool = False) -> None:
+        targets = [target] if isinstance(target, str) else target
+        if self.before_rm is not None:
+            self.before_rm(targets)
+        for uri in targets:
+            local = self._local(uri)
+            if local.is_dir():
+                shutil.rmtree(local)
+            elif local.exists():
+                local.unlink()
+
+    async def _copy_basic(self, source: str, destination: str) -> None:
+        self._copies_in_flight += 1
+        self.max_copies_in_flight = max(self.max_copies_in_flight, self._copies_in_flight)
+        try:
+            await asyncio.sleep(0)
+            if self.before_copy is not None:
+                self.before_copy(destination)
+            target = self._local(destination)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(self._local(source), target)
+            self.copies.append(destination)
+        finally:
+            self._copies_in_flight -= 1
+
+
+LIVE_URI = "s3://bucket/team/source/contacts"
+OWN_TEMP_URI = f"{LIVE_URI}__repartitioned_1a2b3c4d"
+
+
+class TestPurgeAbandonedRewriteTemp:
+    @pytest.mark.parametrize(
+        "temp_uri, expected",
+        [
+            (OWN_TEMP_URI, True),
+            (f"{LIVE_URI}__repartitioned", True),
+            (LIVE_URI, False),
+            (f"{LIVE_URI}/", False),
+            (f"{LIVE_URI}/_delta_log", False),
+            (f"{LIVE_URI}__repartitioned_1a2b3c4d/../contacts", False),
+            (f"{LIVE_URI}__repartitioned_1a2b3c4d/part-0.parquet", False),
+            (f"{LIVE_URI}__repartitioned_1a2b3c4d5", False),
+            (f"{LIVE_URI}__repartitioned_other", False),
+            (f"{LIVE_URI}_v2__repartitioned_1a2b3c4d", False),
+            ("s3://bucket/team/source/accounts__repartitioned_1a2b3c4d", False),
+            ("s3://bucket/team/source", False),
+            ("s3://bucket/team", False),
+            ("s3://other/team/source/contacts__repartitioned_1a2b3c4d", False),
+            ("", False),
+        ],
+    )
+    def test_only_a_temp_table_of_the_same_table_qualifies(self, temp_uri: str, expected: bool) -> None:
+        assert is_temp_uri_of(LIVE_URI, temp_uri) is expected
+
+    @pytest.mark.parametrize("live_uri", ["s3://bucket", "s3://bucket/", "s3://", ""])
+    def test_a_live_uri_that_is_not_a_table_directory_has_no_temp_tables(self, live_uri: str) -> None:
+        assert is_temp_uri_of(live_uri, f"{live_uri}__repartitioned_1a2b3c4d") is False
+
+    def _write_tree(self, root: Path) -> dict[str, Path]:
+        files = {
+            "live": root / "bucket/team/source/contacts/part-0.parquet",
+            "live_log": root / "bucket/team/source/contacts/_delta_log/0.json",
+            "own_temp": root / "bucket/team/source/contacts__repartitioned_1a2b3c4d/k=1/part-0.parquet",
+            "own_temp_log": root / "bucket/team/source/contacts__repartitioned_1a2b3c4d/_delta_log/0.json",
+            "newer_temp": root / "bucket/team/source/contacts__repartitioned_5e6f7a8b/part-0.parquet",
+            "sibling_table": root / "bucket/team/source/contacts_v2/part-0.parquet",
+            "sibling_temp": root / "bucket/team/source/accounts__repartitioned_1a2b3c4d/part-0.parquet",
+        }
+        for path in files.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"x")
+        return files
+
+    def _purge(self, root: Path, temp_uri: str, *, swap: dict | None = None) -> bool:
+        table_ref = _make_table_ref(get_table_uri=AsyncMock(return_value=LIVE_URI))
+        schema = _schema(id="schema-1", repartition_swap=swap)
+        with patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_LocalS3(root))):
+            return asyncio.run(
+                purge_abandoned_rewrite_temp(
+                    cast("DeltaTableRef", table_ref), schema, temp_uri, logger, claim_token=None
+                )
+            )
+
+    def test_deletes_the_named_temp_table_and_nothing_else(self, tmp_path: Path) -> None:
+        files = self._write_tree(tmp_path)
+
+        assert self._purge(tmp_path, OWN_TEMP_URI) is True
+
+        remaining = {name for name, path in files.items() if path.exists()}
+        assert remaining == {"live", "live_log", "newer_temp", "sibling_table", "sibling_temp"}
+
+    @pytest.mark.parametrize(
+        "temp_uri, swap",
+        [
+            (LIVE_URI, None),
+            ("s3://bucket/team/source", None),
+            ("s3://bucket/team/source/accounts__repartitioned_1a2b3c4d", None),
+            (f"{LIVE_URI}__repartitioned_1a2b3c4d/../contacts", None),
+            (OWN_TEMP_URI, {"state": "ready", "temp_uri": OWN_TEMP_URI}),
+        ],
+        ids=["live_table", "parent_directory", "temp_of_another_table", "path_traversal", "temp_of_a_staged_swap"],
+    )
+    def test_refuses_a_path_it_must_not_delete(self, tmp_path: Path, temp_uri: str, swap: dict | None) -> None:
+        files = self._write_tree(tmp_path)
+
+        assert self._purge(tmp_path, temp_uri, swap=swap) is False
+
+        assert all(path.exists() for path in files.values())
+
+    def test_a_lost_claim_deletes_nothing(self, tmp_path: Path) -> None:
+        files = self._write_tree(tmp_path)
+        table_ref = _make_table_ref(get_table_uri=AsyncMock(return_value=LIVE_URI))
+        schema = _schema(id="schema-1", repartition_swap=None)
+
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_LocalS3(tmp_path))),
+            patch.object(repartition_module, "_current_claim_token", return_value="newer-token"),
+            pytest.raises(RepartitionSupersededError),
+        ):
+            asyncio.run(
+                purge_abandoned_rewrite_temp(
+                    cast("DeltaTableRef", table_ref), schema, OWN_TEMP_URI, logger, claim_token="older-token"
+                )
+            )
+
+        assert all(path.exists() for path in files.values())
+
+
 class TestSwapTempIntoLiveGuard:
-    def test_refuses_incomplete_temp_without_deleting_live(self):
-        # The core safety invariant: a temp that doesn't hold every expected row must never trigger the
-        # destructive delete-of-live. The guard raises before any S3 op, so live stays intact and the
-        # caller rebuilds fresh on the next run instead of copying a broken table over live.
-        s3 = _fake_s3()
+    @pytest.mark.parametrize(
+        "temp_uri, match",
+        [
+            # A temp that does not hold every expected row must never replace live.
+            pytest.param("s3://b/live__repartitioned", "temp is incomplete", id="incomplete_temp"),
+            # The swap deletes temp at the end, so a marker that names any other path is refused.
+            pytest.param("s3://b/live", "not a temp table", id="temp_is_live"),
+            pytest.param("s3://b/other__repartitioned", "not a temp table", id="temp_of_another_table"),
+            pytest.param("s3://b/live__repartitioned/_delta_log", "not a temp table", id="path_inside_temp"),
+        ],
+    )
+    def test_refuses_before_any_object_store_write(self, temp_uri, match):
+        s3 = _fake_s3(_copy_basic=AsyncMock())
         with (
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=5)),
             patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
         ):
-            with pytest.raises(ValueError, match="temp is incomplete"):
+            with pytest.raises(ValueError, match=match):
                 asyncio.run(
                     repartition_module._swap_temp_into_live(
-                        temp_uri="s3://b/live__repartitioned",
+                        temp_uri=temp_uri,
                         live_uri="s3://b/live",
                         storage_options={},
                         expected_rows=10,
+                        logger=logger,
                     )
                 )
         s3._rm.assert_not_called()
+        s3._copy_basic.assert_not_called()
 
 
 class TestMissingLiveObjectPath:
@@ -2182,43 +2371,6 @@ class TestReviveScheduling:
     def test_unverified_missing_file_propagates_without_marking(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             self._run(tmp_path, verified_uri=None)
-
-
-class TestSwapCopyOrder:
-    def test_delta_log_copied_after_every_data_file(self):
-        # Crash-safety ordering: a death mid-copy must leave live without a readable log (the
-        # corrupted-log revive heals that) — never a valid log referencing data files that never
-        # arrived, which is stable, undetectable corruption.
-        copied: list[str] = []
-        s3 = _fake_s3(
-            _find=AsyncMock(
-                return_value=[
-                    "bucket/live__repartitioned/_delta_log/00000000000000000000.json",
-                    "bucket/live__repartitioned/_ph_partition_key=a/part-1.parquet",
-                    "bucket/live__repartitioned/_delta_log/00000000000000000001.json",
-                    "bucket/live__repartitioned/_ph_partition_key=b/part-2.parquet",
-                ]
-            ),
-            _copy=AsyncMock(side_effect=lambda src, dst: copied.append(dst)),
-        )
-        with (
-            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
-            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=4)),
-            patch.object(repartition_module.deltalake, "DeltaTable", return_value=Mock()),
-            patch.object(repartition_module, "_table_row_count", return_value=4),
-        ):
-            asyncio.run(
-                repartition_module._swap_temp_into_live(
-                    temp_uri="s3://bucket/live__repartitioned",
-                    live_uri="s3://bucket/live",
-                    storage_options={},
-                    expected_rows=4,
-                )
-            )
-        log_positions = [i for i, dst in enumerate(copied) if "/_delta_log/" in dst]
-        data_positions = [i for i, dst in enumerate(copied) if "/_delta_log/" not in dst]
-        assert log_positions and data_positions
-        assert min(log_positions) > max(data_positions)
 
 
 class TestResumeWithInvalidTemp:
@@ -3150,6 +3302,299 @@ class TestDeferToFullRefresh:
             "claim_token": None,
         }
         assert result["outcome"] == "deferred"
+
+
+SWAP_ROWS = [(i, datetime.datetime(2024, 1 + i % 3, 1 + i % 5)) for i in range(30)]
+SWAP_TARGET = RepartitionTarget(
+    partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+)
+SWAP_DATA_FILES = 15
+
+
+class _StagedSwap(NamedTuple):
+    live_uri: str
+    temp_uri: str
+
+
+def _stage_swap(folder: Path) -> _StagedSwap:
+    live_uri = str(folder / "live")
+    temp_uri = f"{live_uri}__repartitioned_1a2b3c4d"
+    live = _write_month_partitioned(live_uri, SWAP_ROWS)
+    asyncio.run(
+        _rewrite_into_temp(
+            old_delta=live, temp_uri=temp_uri, storage_options={}, target=SWAP_TARGET, budget=_budget(), logger=logger
+        )
+    )
+    return _StagedSwap(live_uri, temp_uri)
+
+
+def _swap_schema(live_uri: str, temp_uri: str) -> SimpleNamespace:
+    schema = _schema(
+        id="s1",
+        repartition_swap={
+            "state": "ready",
+            "temp_uri": temp_uri,
+            "live_uri": live_uri,
+            "target": SWAP_TARGET.to_dict(),
+        },
+        clear_repartition_swap=Mock(),
+        clear_repartition_pending=Mock(),
+    )
+    schema.set_repartition_swap = lambda marker: setattr(schema, "repartition_swap", marker)
+    return schema
+
+
+def _run_staged_swap(
+    live_uri: str, schema: SimpleNamespace, s3: "_LocalS3", should_stop: Callable[[], bool] | None = None
+) -> dict:
+    async def get_delta_table() -> deltalake.DeltaTable | None:
+        if not deltalake.DeltaTable.is_deltatable(live_uri):
+            return None
+        return deltalake.DeltaTable(live_uri)
+
+    table_ref = _make_table_ref(get_table_uri=AsyncMock(return_value=live_uri), get_delta_table=get_delta_table)
+    with patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(s3)), _patch_finalize():
+        return asyncio.run(
+            repartition_table_in_place(
+                table_ref=cast("DeltaTableRef", table_ref),
+                schema=cast("repartition_module.ExternalDataSchema", schema),
+                target=SWAP_TARGET,
+                logger=logger,
+                should_stop=should_stop,
+            )
+        )
+
+
+def _table_state(live_uri: str) -> dict:
+    table = deltalake.DeltaTable(live_uri).to_pyarrow_table().sort_by("id")
+    return {
+        "ids": table.column("id").to_pylist(),
+        "schema": table.schema,
+        "partitions": sorted(set(table.column(PARTITION_KEY).to_pylist())),
+        "files": sorted(str(f.relative_to(live_uri)) for f in Path(live_uri).rglob("*") if f.is_file()),
+    }
+
+
+def _data_copies(s3: "_LocalS3") -> list[str]:
+    return [destination for destination in s3.copies if "/_delta_log/" not in destination]
+
+
+def _stop_after_first_copy(s3: "_LocalS3", live_uri: str) -> Callable[[], bool]:
+    return lambda: len(s3.copies) >= 1
+
+
+def _die_during_data_copy(s3: "_LocalS3", live_uri: str) -> None:
+    def before_copy(destination: str) -> None:
+        if len(s3.copies) >= 5:
+            raise RuntimeError("worker died")
+
+    s3.before_copy = before_copy
+
+
+def _die_during_log_switch(s3: "_LocalS3", live_uri: str) -> None:
+    def before_copy(destination: str) -> None:
+        if "/_delta_log/" in destination and any("/_delta_log/" in copied for copied in s3.copies):
+            raise RuntimeError("worker died")
+
+    s3.before_copy = before_copy
+
+
+def _die_during_cleanup(s3: "_LocalS3", live_uri: str) -> None:
+    def before_rm(targets: list[str]) -> None:
+        if any(target.startswith(f"{live_uri}/") and target.endswith(".parquet") for target in targets):
+            raise RuntimeError("worker died")
+
+    s3.before_rm = before_rm
+
+
+class TestSwapTempIntoLive:
+    @pytest.fixture(autouse=True)
+    def small_groups(self):
+        with patch.object(swap_module, "SWAP_GROUP_FILES", 2):
+            yield
+
+    @pytest.mark.parametrize(
+        "interrupt, error, phase_after, live_readable_after",
+        [
+            pytest.param(_stop_after_first_copy, RepartitionStoppedError, None, True, id="worker_shutdown"),
+            pytest.param(_die_during_data_copy, RuntimeError, None, True, id="death_during_data_copy"),
+            pytest.param(
+                _die_during_log_switch, RuntimeError, SWAP_PHASE_SWITCH_LOG, False, id="death_during_log_switch"
+            ),
+            pytest.param(_die_during_cleanup, RuntimeError, SWAP_PHASE_CLEANUP, True, id="death_during_cleanup"),
+        ],
+    )
+    def test_an_interrupted_swap_resumes_to_the_same_table_without_copying_a_data_file_twice(
+        self, interrupt, error, phase_after, live_readable_after, tmp_path
+    ):
+        _stage_swap(tmp_path / "base")
+        shutil.copytree(tmp_path / "base", tmp_path / "whole")
+        shutil.copytree(tmp_path / "base", tmp_path / "cut")
+        whole_live, whole_temp = (
+            str(tmp_path / "whole" / "live"),
+            f"{tmp_path / 'whole' / 'live'}__repartitioned_1a2b3c4d",
+        )
+        live_uri, temp_uri = str(tmp_path / "cut" / "live"), f"{tmp_path / 'cut' / 'live'}__repartitioned_1a2b3c4d"
+        before = _table_state(live_uri)
+        _run_staged_swap(whole_live, _swap_schema(whole_live, whole_temp), _LocalS3())
+
+        s3 = _LocalS3()
+        schema = _swap_schema(live_uri, temp_uri)
+        should_stop = interrupt(s3, live_uri)
+        with pytest.raises(error):
+            _run_staged_swap(live_uri, schema, s3, should_stop)
+
+        assert schema.repartition_swap.get("phase") == phase_after
+        assert Path(temp_uri).exists()
+        if phase_after is None:
+            # The old table stays in place and readable while the data files arrive beside it.
+            assert {key: before[key] for key in ("ids", "partitions")} == {
+                key: _table_state(live_uri)[key] for key in ("ids", "partitions")
+            }
+        assert deltalake.DeltaTable.is_deltatable(live_uri) or not live_readable_after
+
+        s3.before_copy = s3.before_rm = None
+        result = _run_staged_swap(live_uri, schema, s3)
+
+        assert result["outcome"] == "completed"
+        assert _table_state(live_uri) == _table_state(whole_live)
+        assert _table_state(live_uri)["ids"] == before["ids"]
+        assert collections.Counter(_data_copies(s3)) == collections.Counter(
+            f"{live_uri}/{path}" for path in _table_state(live_uri)["files"] if not path.startswith("_delta_log/")
+        )
+        assert not Path(temp_uri).exists()
+
+    def test_a_worker_shutdown_stops_the_copy_within_one_group(self, tmp_path):
+        live_uri, temp_uri = _stage_swap(tmp_path)
+        s3 = _LocalS3()
+
+        with pytest.raises(RepartitionStoppedError, match=f"2 of {SWAP_DATA_FILES} data files"):
+            _run_staged_swap(live_uri, _swap_schema(live_uri, temp_uri), s3, _stop_after_first_copy(s3, live_uri))
+
+        assert len(s3.copies) == 2
+
+    def test_a_swap_whose_older_version_deleted_live_resumes_from_temp(self, tmp_path):
+        # The swap used to delete live before it copied. A worker that died there left no live log
+        # and a part of temp's data files, and the marker carries no phase.
+        live_uri, temp_uri = _stage_swap(tmp_path)
+        expected_ids = _table_state(live_uri)["ids"]
+        shutil.rmtree(live_uri)
+        already_copied = sorted(f for f in Path(temp_uri).rglob("*.parquet") if "_delta_log" not in f.parts)[:4]
+        for file in already_copied:
+            target = Path(live_uri) / file.relative_to(temp_uri)
+            target.parent.mkdir(parents=True)
+            shutil.copyfile(file, target)
+        s3 = _LocalS3()
+
+        with structlog.testing.capture_logs() as logs:
+            result = _run_staged_swap(live_uri, _swap_schema(live_uri, temp_uri), s3)
+
+        assert result == {"outcome": "completed", "row_count": len(SWAP_ROWS), "recovered": True}
+        assert any("live missing mid-swap, resuming from temp" in entry["event"] for entry in logs)
+        assert _table_state(live_uri)["ids"] == expected_ids
+        assert len(_data_copies(s3)) == SWAP_DATA_FILES - len(already_copied)
+        assert not Path(temp_uri).exists()
+
+    def test_reports_progress_and_each_phase_boundary(self, tmp_path):
+        live_uri, temp_uri = _stage_swap(tmp_path)
+        copied_before = swap_module.DELTA_REPARTITION_SWAP_FILES_TOTAL.labels(action="copied")._value.get()
+
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_LocalS3())),
+            structlog.testing.capture_logs() as logs,
+        ):
+            asyncio.run(
+                repartition_module._swap_temp_into_live(
+                    temp_uri=temp_uri,
+                    live_uri=live_uri,
+                    storage_options={},
+                    expected_rows=len(SWAP_ROWS),
+                    logger=logger,
+                    progress_interval_seconds=0,
+                )
+            )
+
+        events = [entry["event"] for entry in logs if entry["event"].startswith("repartition: swap ")]
+        boundaries = [event for event in events if not event.startswith("repartition: swap progress")]
+        expected = ["starting", "data files in place", "log switched", "old files deleted", "complete"]
+        assert len(boundaries) == len(expected)
+        assert all(event.startswith(f"repartition: swap {name} ") for event, name in zip(boundaries, expected))
+        progress = [entry for entry in logs if entry["event"].startswith("repartition: swap progress")]
+        # One line per group of two files, the last group included.
+        assert [entry["files_done"] for entry in progress] == [2, 4, 6, 8, 10, 12, 14, 15]
+        assert {entry["files_total"] for entry in progress} == {SWAP_DATA_FILES}
+        assert progress[-1]["bytes_done"] == progress[-1]["bytes_total"] > 0
+        assert all(entry["eta_seconds"] is not None and entry["files_per_second"] > 0 for entry in progress)
+        copied = swap_module.DELTA_REPARTITION_SWAP_FILES_TOTAL.labels(action="copied")._value.get() - copied_before
+        assert copied >= SWAP_DATA_FILES
+
+    @pytest.mark.parametrize("concurrency", [1, 3])
+    def test_copies_run_with_the_bound(self, concurrency, tmp_path):
+        live_uri, temp_uri = _stage_swap(tmp_path)
+        s3 = _LocalS3()
+
+        with (
+            patch.object(swap_module, "SWAP_COPY_CONCURRENCY", concurrency),
+            patch.object(swap_module, "SWAP_GROUP_FILES", 100),
+        ):
+            _run_staged_swap(live_uri, _swap_schema(live_uri, temp_uri), s3)
+
+        assert s3.max_copies_in_flight == concurrency
+
+    def test_a_data_file_that_did_not_arrive_fails_the_swap_before_any_delete(self, tmp_path):
+        live_uri, temp_uri = _stage_swap(tmp_path)
+        old_files = _table_state(live_uri)["files"]
+
+        class _LosesOneFile(_LocalS3):
+            async def _copy_basic(self, source: str, destination: str) -> None:
+                if "/_delta_log/" in destination or self.copies:
+                    await super()._copy_basic(source, destination)
+                else:
+                    self.copies.append(destination)
+
+        schema = _swap_schema(live_uri, temp_uri)
+        with pytest.raises(ValueError, match="1 of 15 data files that the live log names are not in place"):
+            _run_staged_swap(live_uri, schema, _LosesOneFile())
+
+        assert schema.repartition_swap["phase"] == SWAP_PHASE_SWITCH_LOG
+        assert deltalake.DeltaTable(temp_uri).to_pyarrow_table().num_rows == len(SWAP_ROWS)
+        assert all((Path(live_uri) / path).exists() for path in old_files if not path.startswith("_delta_log/"))
+
+        assert _run_staged_swap(live_uri, schema, _LocalS3())["outcome"] == "completed"
+        assert _table_state(live_uri)["ids"] == [row[0] for row in SWAP_ROWS]
+
+    def test_a_part_of_the_new_log_on_live_is_not_taken_for_a_finished_swap(self, tmp_path):
+        # A swap with no phase on its marker died while it copied the log. A part of a log is a valid
+        # table with fewer rows, on the new layout, so only the row counts tell it from a finished swap.
+        live = _write_datetime_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))], "day"
+        )
+        live_uri = str(tmp_path / "live")
+        table_ref = _make_table_ref(
+            get_table_uri=AsyncMock(return_value=live_uri), get_delta_table=AsyncMock(return_value=live)
+        )
+        schema = _swap_schema(live_uri, f"{live_uri}__repartitioned_1a2b3c4d")
+        resumed = {"outcome": "completed", "row_count": 5, "recovered": True}
+
+        with (
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=5)),
+            patch.object(
+                repartition_module, "_resume_swap_with_missing_live", new=AsyncMock(return_value=resumed)
+            ) as resume,
+            _patch_finalize() as finalize,
+        ):
+            result = asyncio.run(
+                repartition_table_in_place(
+                    table_ref=table_ref,
+                    schema=cast("repartition_module.ExternalDataSchema", schema),
+                    target=SWAP_TARGET,
+                    logger=logger,
+                )
+            )
+
+        assert result == resumed
+        resume.assert_awaited_once()
+        finalize.assert_not_called()
 
 
 @pytest.mark.parametrize(

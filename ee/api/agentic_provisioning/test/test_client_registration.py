@@ -11,7 +11,7 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import CIMDFetchError, apply_provisioning_defaults
+from posthog.api.oauth.cimd import apply_provisioning_defaults
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER, ClientAssertionError
 from posthog.models.oauth import OAuthApplication
 
@@ -116,8 +116,8 @@ class TestClientRegistration(ProvisioningTestBase):
             "_provisioning_config": provisioning_config(
                 active=True,
                 can_create_accounts=True,
-                can_use_github_grants=False,
-                can_start_wizard_runs=False,
+                can_issue_deep_links=False,
+                issues_personal_api_key=False,
             ),
         }
         return OAuthApplication.objects.create(**{**defaults, **overrides})
@@ -157,10 +157,7 @@ class TestClientRegistration(ProvisioningTestBase):
         assert body["registered"] is True
         assert body["client_id"] == CIMD_URL
         assert body["token_endpoint_auth_method"] == "private_key_jwt"
-        # Signing assertions with a key it published itself proves only that it controls its
-        # own metadata document, which anyone can do, so it is not yet a partner PostHog
-        # vouched for.
-        assert body["capabilities"]["github_grants"] is False
+        assert body["capabilities"] == {"account_requests": True}
         checks = {check["name"]: check for check in body["checks"]}
         assert checks["jwks"]["ok"] is True
         assert KID in checks["jwks"]["detail"]
@@ -216,27 +213,6 @@ class TestClientRegistration(ProvisioningTestBase):
         app = OAuthApplication.objects.get(client_id=CIMD_URL)
         assert app.client_type == OAuthApplication.CLIENT_PUBLIC
         assert app.is_provisioning_partner is False
-
-    def test_partner_registered_by_an_admin_can_use_github_grants(self):
-        self._make_partner(_provisioning_config=provisioning_config(can_use_github_grants=True))
-
-        res = self._register({"client_id": CIMD_URL})
-
-        assert res.status_code == 200, res.json()
-        assert res.json()["capabilities"]["github_grants"] is True
-
-    def test_public_client_is_told_it_cannot_use_github_grants(self):
-        self._make_partner(client_type=OAuthApplication.CLIENT_PUBLIC, jwks_uri=None)
-
-        # A document declaring no auth method keeps the refresh from re-promoting it.
-        res = self._register({"client_id": CIMD_URL}, metadata_error=CIMDFetchError("offline"))
-
-        assert res.status_code == 200, res.json()
-        body = res.json()
-        assert body["token_endpoint_auth_method"] == "none"
-        # The reason a public client gets 403 on the grant endpoints is not derivable from its
-        # own metadata document, so the diagnostics have to state it.
-        assert body["capabilities"]["github_grants"] is False
 
     def test_opts_an_existing_cimd_oauth_app_into_provisioning(self):
         # A CIMD app registered through the ordinary OAuth flow carries no provisioning
@@ -382,14 +358,8 @@ class TestUnregisteredClientsFailClosed(ProvisioningTestBase):
     endpoint, instead of the old behavior where an unknown CIMD client_id silently kicked off
     a background registration and answered "retry shortly"."""
 
-    @parameterized.expand(
-        [
-            ("account_requests", ACCOUNT_REQUESTS_URL, {"id": "r1", "email": "nobody@example.com"}),
-            ("github_grants", "/api/agentic/provisioning/github/grants", {"code": "gh-code"}),
-        ]
-    )
-    def test_unknown_client_id_is_pointed_at_the_registration_endpoint(self, _name, url, body):
-        res = self._post_api(url, {**body, "client_id": CIMD_URL})
+    def test_unknown_client_id_is_pointed_at_the_registration_endpoint(self):
+        res = self._post_api(ACCOUNT_REQUESTS_URL, {"id": "r1", "email": "nobody@example.com", "client_id": CIMD_URL})
 
         assert res.status_code == 401
         message = res.json()["error"]["message"]

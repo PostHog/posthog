@@ -1,8 +1,12 @@
+import { PropertyFilterType } from '~/types'
+
 import { AttributeColumnConfig } from 'products/logs/frontend/types'
 
 import {
+    attributeLookupExpression,
     columnLabel,
     columnsToCustomColumns,
+    customColumnFilterType,
     LogsColumnConfig,
     migrateAttributeColumns,
     normalizeColumns,
@@ -86,6 +90,66 @@ describe('logs column config', () => {
         it('escapes quotes and backslashes so keys cannot break out of the expression string', () => {
             const [migrated] = migrateAttributeColumns({ "we'ird\\key": { order: 0 } })
             expect(migrated.expression).toContain("we\\'ird\\\\key")
+        })
+    })
+
+    describe('customColumnFilterType', () => {
+        const key = 'k8s.pod'
+        it.each<
+            [
+                string,
+                string,
+                string,
+                Record<string, unknown> | undefined,
+                Record<string, unknown> | undefined,
+                PropertyFilterType,
+            ]
+        >([
+            [
+                'fallback, resource only',
+                key,
+                attributeLookupExpression(key),
+                {},
+                { [key]: 'r' },
+                PropertyFilterType.LogResourceAttribute,
+            ],
+            [
+                'fallback, empty value in attributes',
+                key,
+                attributeLookupExpression(key),
+                { [key]: '' },
+                { [key]: 'r' },
+                PropertyFilterType.LogAttribute,
+            ],
+            [
+                'fallback, inherited key in neither map',
+                'constructor',
+                attributeLookupExpression('constructor'),
+                undefined,
+                {},
+                PropertyFilterType.LogAttribute,
+            ],
+            ['attributes shorthand', key, `attributes.${key}`, {}, { [key]: 'r' }, PropertyFilterType.LogAttribute],
+            [
+                'resource_attributes shorthand with trailing space',
+                key,
+                `resource_attributes.${key} `,
+                { [key]: 'a' },
+                { [key]: 'r' },
+                PropertyFilterType.LogResourceAttribute,
+            ],
+            [
+                'other HogQL',
+                key,
+                `upper(resource_attributes['${key}'])`,
+                {},
+                { [key]: 'r' },
+                PropertyFilterType.LogAttribute,
+            ],
+        ])('%s', (_, name, expression, attributes, resourceAttributes, expected) => {
+            expect(
+                customColumnFilterType({ id: 'c', type: 'custom', name, expression }, attributes, resourceAttributes)
+            ).toEqual(expected)
         })
     })
 

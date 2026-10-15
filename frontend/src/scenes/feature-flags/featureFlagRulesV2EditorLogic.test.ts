@@ -270,86 +270,110 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 'There is already a feature flag with this key.',
             ],
             [
-                { detail: 'filters.rules[1].rollout_percentage: Must be at most 100.' },
+                { attr: 'filters__rules__1__rollout_percentage', detail: 'Must be at most 100.' },
                 'filters.rules[1].rollout_percentage',
                 'Must be at most 100.',
             ],
             [
-                { detail: 'filters.rules[0].targeting.properties[0].value: Must be a string.' },
+                { attr: 'filters__rules__0__targeting__properties__0__value', detail: 'Must be a string.' },
                 'filters.rules[0].targeting',
                 'filters.rules[0].targeting.properties[0].value: Must be a string.',
             ],
             [
-                { detail: 'filters.rules[2].id: Rule ids are server-assigned.' },
+                { attr: 'filters__rules__2__id', detail: 'Rule ids are server-assigned.' },
                 'filters.rules[2]',
                 'filters.rules[2].id: Rule ids are server-assigned.',
             ],
             [
-                { detail: 'filters.rules[1].variants[2].weight: Must have at most 2 decimal places.' },
+                { attr: 'filters__rules__1__variants__2__weight', detail: 'Must have at most 2 decimal places.' },
                 'filters.rules[1].variants[2].weight',
                 'Must have at most 2 decimal places.',
             ],
             [
-                { detail: 'filters.rules[1].variants[0].key: Variant keys must be unique.' },
+                { attr: 'filters__rules__1__variants__0__key', detail: 'Variant keys must be unique.' },
                 'filters.rules[1].variants[0].key',
                 'Variant keys must be unique.',
             ],
             [
                 {
-                    detail: 'filters.rules[0].variants[1].value: Must be a non-empty string other than $false or $true.',
+                    attr: 'filters__rules__0__variants__1__value',
+                    detail: 'Must be a non-empty string other than $false or $true.',
                 },
                 'filters.rules[0].variants[1].value',
                 'Must be a non-empty string other than $false or $true.',
             ],
             [
-                { detail: 'filters.rules[0].variants[1].label: Unknown field.' },
+                { attr: 'filters', code: 'unknown_field', detail: 'filters.rules[0].variants[1].label: Unknown field.' },
                 'filters.rules[0].variants[1]',
                 'filters.rules[0].variants[1].label: Unknown field.',
             ],
             [
-                { detail: 'filters.rules[0].variants: Variant weights must total exactly 100.' },
+                { attr: 'filters__rules__0__variants', detail: 'Variant weights must total exactly 100.' },
                 'filters.rules[0].variants',
                 'Variant weights must total exactly 100.',
             ],
             [
-                { detail: 'filters.rules[3].holdout.exclusion_percentage: Must be between 0 and 100.' },
+                { attr: 'filters__rules__3__holdout__exclusion_percentage', detail: 'Must be between 0 and 100.' },
                 'filters.rules[3].holdout.exclusion_percentage',
                 'Must be between 0 and 100.',
             ],
             [
-                { detail: 'filters.rules[3].holdout.id: Must be null.' },
+                { attr: 'filters', code: 'unknown_field', detail: 'filters.rules[3].holdout.label: Unknown field.' },
                 'filters.rules[3].holdout',
-                'filters.rules[3].holdout.id: Must be null.',
+                'filters.rules[3].holdout.label: Unknown field.',
             ],
             [
-                { detail: 'filters.rules[3].holdout.seed: Assignment seeds are server-assigned.' },
+                { attr: 'filters__rules__3__holdout__seed', detail: 'Assignment seeds are server-assigned.' },
                 'filters.rules[3].holdout.seed',
                 'Assignment seeds are server-assigned.',
             ],
             [
-                { detail: 'filters.rules[2].seed: Cannot be changed; resetting assignment is a separate operation.' },
+                {
+                    attr: 'filters__rules__2__seed',
+                    detail: 'Cannot be changed; resetting assignment is a separate operation.',
+                },
                 'filters.rules[2].seed',
                 'Cannot be changed; resetting assignment is a separate operation.',
             ],
             [
-                { detail: 'filters.rules[2].paused: Must be true or false.' },
+                { attr: 'filters__rules__2__paused', detail: 'Must be true or false.' },
                 'filters.rules[2].paused',
                 'Must be true or false.',
             ],
             [
-                { detail: 'filters.rules[2].experiment_id: Linking an experiment is not available yet.' },
-                'filters.rules[2]',
-                'filters.rules[2].experiment_id: Linking an experiment is not available yet.',
-            ],
-            [
-                { detail: 'filters.return_type: Cannot be changed after the flag is created.' },
+                { attr: 'filters__return_type', detail: 'Cannot be changed after the flag is created.' },
                 'filters.return_type',
                 'Cannot be changed after the flag is created.',
             ],
             [
-                { detail: 'filters: This flag cannot be updated through this API.' },
+                { attr: 'filters', code: 'unsupported', detail: 'This flag cannot be updated through this API.' },
                 null,
-                'filters: This flag cannot be updated through this API.',
+                'This flag cannot be updated through this API.',
+            ],
+            [
+                { attr: 'filters__default_value', detail: 'Must be true or false.' },
+                'filters.default_value',
+                'Must be true or false.',
+            ],
+            [
+                { attr: 'filters__rules', detail: 'At most 100 rules are allowed.' },
+                null,
+                'filters.rules: At most 100 rules are allowed.',
+            ],
+            [
+                { attr: 'filters__version', detail: 'This field is required.' },
+                null,
+                'filters.version: This field is required.',
+            ],
+            [
+                { attr: 'filters', code: 'unknown_field', detail: 'filters.rules__0__value: Unknown field.' },
+                null,
+                'filters.rules__0__value: Unknown field.',
+            ],
+            [
+                { attr: 'filters', code: 'unknown_field', detail: 'filters.rules[2].foo: Unknown field.' },
+                'filters.rules[2]',
+                'filters.rules[2].foo: Unknown field.',
             ],
             [
                 { attr: 'tags', detail: 'Add at least one tag. This project requires new feature flags to be tagged.' },
@@ -630,7 +654,8 @@ describe('featureFlagRulesV2EditorLogic', () => {
             const toastError = jest.spyOn(lemonToast, 'error')
             jest.spyOn(api, 'update').mockRejectedValue({
                 status: 400,
-                detail: 'filters.rules[1].rollout_percentage: Must be at most 100.',
+                attr: 'filters__rules__1__rollout_percentage',
+                detail: 'Must be at most 100.',
             })
 
             await expectLogic(logic, () => logic.actions.saveRulesV2Flag())

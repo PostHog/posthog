@@ -38,11 +38,9 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
 )
-from products.experiments.backend.hogql_queries.experiment_query_runner import (
-    PRECOMPUTE_MAX_WINDOW_DAYS,
-    ExperimentQueryRunner,
-)
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
+from products.experiments.backend.hogql_queries.precompute_policy import PRECOMPUTE_MAX_WINDOW_DAYS
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
 

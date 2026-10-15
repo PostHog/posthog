@@ -65,7 +65,6 @@ async def _run_activity(
     dataset_id: str,
     use_json_type: bool = False,
     batch_export_model: BatchExportModel | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     sort_key: str = "event",
@@ -85,7 +84,6 @@ async def _run_activity(
         exclude_events=exclude_events,
         include_events=include_events,
         use_json_type=use_json_type,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         batch_export_id=str(uuid.uuid4()),
         integration_id=integration.id if integration is not None else None,
@@ -106,7 +104,6 @@ async def _run_activity(
             run_id=None,
             backfill_details=None,
             batch_export_model=insert_inputs.batch_export_model,
-            batch_export_schema=insert_inputs.batch_export_schema,
             destination_default_fields=bigquery_default_fields(),
         ),
     )
@@ -123,7 +120,7 @@ async def _run_activity(
         date_ranges=[(data_interval_start, data_interval_end)],
         exclude_events=exclude_events,
         include_events=include_events,
-        batch_export_model=batch_export_model or batch_export_schema,
+        batch_export_model=batch_export_model,
         use_json_type=use_json_type,
         min_ingested_timestamp=min_ingested_timestamp,
         sort_key=sort_key,
@@ -199,12 +196,11 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     sort_key = "event"
     if batch_export_model is not None:
@@ -224,7 +220,6 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
         use_json_type=use_json_type,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         bigquery_config=bigquery_config,
         sort_key=sort_key,
@@ -357,12 +352,11 @@ async def test_insert_into_bigquery_activity_from_stage_inserts_data_into_bigque
     if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     await _run_activity(
         activity_environment,
@@ -377,7 +371,6 @@ async def test_insert_into_bigquery_activity_from_stage_inserts_data_into_bigque
         include_events=None,
         use_json_type=use_json_type,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
         bigquery_config=bigquery_config,
         sort_key="event",
     )
@@ -407,12 +400,11 @@ async def test_insert_into_bigquery_activity_from_stage_inserts_data_into_bigque
     if isinstance(model, BatchExportModel) and model.name == "persons":
         pytest.skip("Unnecessary test case as person batch export requires query permissions")
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     with (
         unittest.mock.patch(
@@ -433,7 +425,6 @@ async def test_insert_into_bigquery_activity_from_stage_inserts_data_into_bigque
             include_events=None,
             use_json_type=use_json_type,
             batch_export_model=batch_export_model,
-            batch_export_schema=batch_export_schema,
             bigquery_config=bigquery_config,
             sort_key="event",
         )

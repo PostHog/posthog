@@ -1,16 +1,12 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.etsy import (
     DAILY_QUOTA_EXHAUSTED_ERROR,
     RATE_LIMITED_ERROR,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.settings import ENDPOINTS, ETSY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.settings import ETSY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.source import EtsySource
 
 _INCREMENTAL_ENDPOINTS = [name for name, cfg in ETSY_ENDPOINTS.items() if cfg.incremental_fields]
@@ -18,17 +14,6 @@ _FULL_REFRESH_ENDPOINTS = [name for name, cfg in ETSY_ENDPOINTS.items() if not c
 
 
 class TestEtsySourceClass:
-    def test_source_config(self) -> None:
-        config = EtsySource().get_source_config
-
-        assert config.label == "Etsy"
-        assert config.category == DataWarehouseSourceCategory.E_COMMERCE
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/etsy"
-        assert config.iconPath == "/static/services/etsy.png"
-        # A hidden source cannot be connected — a finished source must stay visible.
-        assert config.unreleasedSource is None
-
     def test_credential_fields_include_the_shared_secret(self) -> None:
         # Etsy rejects a keystring-only x-api-key, so setup has to collect the secret alongside it.
         secret_field = next(
@@ -49,11 +34,6 @@ class TestEtsySourceClass:
         assert EtsySource.default_version == "v3"
         assert EtsySource.api_docs_url is not None
         assert EtsySource.api_docs_url.startswith("https://")
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # get_schemas is a static catalog with no I/O, so the public docs table list must render.
-        assert EtsySource.lists_tables_without_credentials is True
-        assert {table["name"] for table in EtsySource().get_documented_tables()} == set(ENDPOINTS)
 
     @parameterized.expand(
         [

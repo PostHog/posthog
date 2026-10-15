@@ -251,7 +251,8 @@ history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 
 A PR can route its backend tests to Depot CI.
 Then the GitHub Actions run holds only the relay: `Django Tests Pass` fails with "Backend tests on Depot CI concluded failure", and the GitHub run logs show nothing more.
-A re-run of that job is not read-only: it retries the failed Depot jobs and reports the new verdict, so the rule against re-running CI applies to it.
+A re-run of that job is not read-only: it retries the failed and cancelled Depot jobs and reports the new verdict, so the rule against re-running CI applies to it.
+A run that Depot still shows as running past its job timeouts is stuck. A re-run waits on it, so cancel it with `depot ci cancel` first.
 The log of the `Relay the Depot verdict` step prints the Depot run URL, each failed step with its log lines, and the label that sends the PR back to GitHub Actions.
 
 Read more of the failure from Depot with the `depot` CLI, which the flox environment installs.

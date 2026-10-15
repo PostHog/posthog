@@ -17,10 +17,10 @@ guess about how two different predicates overlap. Within a population, randomize
 partition people by their hashes: the same seed reuses the same hash, and each distinct
 hash (a rollout, variant or holdout hash of a seed) is an independent dimension. A rollout
 of ``p`` percent includes the hash interval ``(0, p/100]``; 0 percent includes nobody, 100
-percent everybody. An experiment rule without an experiment returns the default while
-paused, then to its holdout share, then splits its enrolled share across its variants by
-cumulative weight. This is decision-level reasoning about who can reach which rule, not a
-second evaluator, and it never claims an exact affected percentage.
+percent everybody. An experiment rule returns the default while paused, then to its
+holdout share, then splits its enrolled share across its variants by cumulative weight.
+This is decision-level reasoning about who can reach which rule, not a second evaluator,
+and it never claims an exact affected percentage.
 """
 
 from collections.abc import Iterator

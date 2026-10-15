@@ -1,10 +1,15 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
+from posthog.enums import LabeledStrEnum
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.comparison.platform_history import (
@@ -23,6 +28,10 @@ WINDOW = (OCCURRED_AT - timedelta(hours=1), OCCURRED_AT + timedelta(hours=1))
 
 def _key(window_end: str) -> str:
     return f"slot:{OCCURRED_AT.isoformat()}|window:{window_end}"
+
+
+class _LogsOnlySourceKind(LabeledStrEnum):
+    LOGS = "logs", "Logs"
 
 
 class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
@@ -44,6 +53,7 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
     ) -> PlatformAlertEventRow:
         return PlatformAlertEventRow(
             team_id=self.team.id,
+            source_kind="logs",
             configuration_id=configuration.id,
             alert_id=overrides.pop("alert_id", uuid4()),
             grouping_key="",
@@ -119,7 +129,12 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
         # the first insight comparison concludes the parallel run is quiet.
         since, until = WINDOW
 
-        with pytest.raises(UnregisteredSource):
+        # Every contract kind is registered today, so the model is narrowed to logs to stand in for
+        # the next source whose contract member lands before its model choice.
+        with (
+            patch.object(PlatformAlertConfiguration, "SourceKind", _LogsOnlySourceKind),
+            pytest.raises(UnregisteredSource),
+        ):
             read_platform_checks(team_id=self.team.id, source=SourceKind.INSIGHT, since=since, until=until)
 
     def test_only_teams_holding_a_configuration_for_the_source_are_worth_sweeping(self) -> None:
@@ -129,9 +144,17 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
 
         assert teams_with_configurations(SourceKind.LOGS) == [self.team.id]
 
-    def test_another_source_is_not_in_a_logs_comparison(self) -> None:
+    @parameterized.expand(
+        [
+            ("another_source", {"source_kind": "insight"}),
+            ("a_grouped_configuration", {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}),
+        ]
+    )
+    def test_a_check_with_no_comparable_verdict_is_not_in_a_logs_comparison(
+        self, _name: str, overrides: dict[str, Any]
+    ) -> None:
         self._record(
-            self._configuration(source_kind="insight", legacy_configuration_id=uuid4()),
+            self._configuration(legacy_configuration_id=uuid4(), **overrides),
             evaluation_key="run:2026-09-30T11:59:00+00:00",
         )
 

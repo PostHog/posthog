@@ -111,6 +111,14 @@ const meta: Meta = {
                         detail: 'Not found.',
                     },
                 ],
+                '/api/projects/:team_id/feature_flags/2222222222222/': [
+                    500,
+                    {
+                        type: 'server_error',
+                        code: 'error',
+                        detail: 'Something went wrong.',
+                    },
+                ],
                 '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
                     if (Number(params['flagId']) === RULES_V2_SPLIT_FLAG.id) {
                         return [200, RULES_V2_SPLIT_FLAG]
@@ -230,6 +238,12 @@ export const EditMultiVariateFeatureFlag: Story = {
     },
 }
 
+export const EditExperimentFeatureFlag: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlag(1801)}?edit=true`,
+    },
+}
+
 export const EditRemoteConfigFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlag(1738),
@@ -325,6 +339,12 @@ export const DeletedFeatureFlag: Story = {
 export const FeatureFlagNotFound: Story = {
     parameters: {
         pageUrl: urls.featureFlag(1111111111111),
+    },
+}
+
+export const FeatureFlagLoadFailed: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(2222222222222),
     },
 }
 

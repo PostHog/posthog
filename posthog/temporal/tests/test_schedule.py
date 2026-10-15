@@ -18,9 +18,65 @@ from posthog.temporal.schedule import (
     create_batch_trace_summarization_schedule,
     create_evaluation_sampler_schedule,
     create_replay_count_metrics_schedule,
+    create_run_quota_limiting_schedule,
     create_wa_digest_notification_schedule,
     create_wa_weekly_digest_schedule,
 )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cloud_deployment,debug", [(None, False), (None, True), ("LOCAL", True), ("E2E", False)])
+@pytest.mark.parametrize("schedule_exists", [False, True])
+async def test_quota_limiting_schedule_is_removed_outside_cloud(cloud_deployment, debug, schedule_exists) -> None:
+    client = mock.MagicMock(spec=Client)
+    handle = client.get_schedule_handle.return_value
+    handle.describe = mock.AsyncMock(
+        side_effect=None if schedule_exists else RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
+    )
+    handle.delete = mock.AsyncMock()
+    handle.update = mock.AsyncMock()
+
+    with override_settings(CLOUD_DEPLOYMENT=cloud_deployment, DEBUG=debug):
+        await create_run_quota_limiting_schedule(client)
+
+    client.get_schedule_handle.assert_called_with("run-quota-limiting-schedule")
+    assert handle.delete.await_count == int(schedule_exists)
+    handle.update.assert_not_awaited()
+    client.create_schedule.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cloud_deployment", ["US", "EU", "DEV"])
+@pytest.mark.parametrize("schedule_exists", [False, True])
+@override_settings(BILLING_TASK_QUEUE="billing-task-queue-under-test")
+async def test_quota_limiting_schedule_is_registered_in_cloud(cloud_deployment, schedule_exists) -> None:
+    client = mock.MagicMock(spec=Client)
+    handle = client.get_schedule_handle.return_value
+    handle.describe = mock.AsyncMock(
+        side_effect=None if schedule_exists else RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
+    )
+    handle.delete = mock.AsyncMock()
+    handle.update = mock.AsyncMock()
+
+    with override_settings(CLOUD_DEPLOYMENT=cloud_deployment):
+        await create_run_quota_limiting_schedule(client)
+
+    handle.delete.assert_not_awaited()
+    if schedule_exists:
+        handle.update.assert_awaited_once()
+        client.create_schedule.assert_not_awaited()
+        schedule = (await handle.update.call_args.kwargs["updater"](mock.MagicMock())).schedule
+    else:
+        client.create_schedule.assert_awaited_once()
+        handle.update.assert_not_awaited()
+        assert client.create_schedule.call_args.kwargs["id"] == "run-quota-limiting-schedule"
+        assert client.create_schedule.call_args.kwargs["trigger_immediately"] is False
+        schedule = client.create_schedule.call_args.kwargs["schedule"]
+
+    assert isinstance(schedule.action, ScheduleActionStartWorkflow)
+    assert schedule.action.workflow == "run-quota-limiting"
+    assert schedule.action.task_queue == settings.BILLING_TASK_QUEUE
+    assert schedule.spec.cron_expressions == ["10,25,40,55 * * * *"]
 
 
 # Both WA digest schedules pin their task queue, and the worker registers those workflows on

@@ -36,6 +36,37 @@ describe('FeatureFlagRulesV2Readonly', () => {
         cleanup()
     })
 
+    it('shows a holdout by its exclusion percentage but never its seed', () => {
+        const config: FeatureFlagRulesV2Config = {
+            ...CONFIG,
+            rules: [
+                {
+                    id: 'rule-3',
+                    rule_type: 'experiment',
+                    targeting: { properties: [] },
+                    rollout_percentage: 100,
+                    on_rollout_miss: 'continue',
+                    assignment_algorithm: 'sha1_60_v1',
+                    seed: 'seed-must-not-render',
+                    paused: false,
+                    variants: [
+                        { key: 'control', weight: 50, value: false },
+                        { key: 'test', weight: 50, value: true },
+                    ],
+                    holdout: { seed: 'holdout-seed-must-not-render', exclusion_percentage: 10 },
+                },
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <FeatureFlagRulesV2Readonly config={config} />
+            </Provider>
+        )
+
+        expect(container).toHaveTextContent('Holdout excludes 10%')
+        expect(container).not.toHaveTextContent('seed-must-not-render')
+    })
+
     it('shows the rule but never its seed', () => {
         const { container } = render(
             <Provider>
@@ -48,7 +79,7 @@ describe('FeatureFlagRulesV2Readonly', () => {
         expect(container).not.toHaveTextContent('seed-must-not-render')
     })
 
-    it('shows a variant split with its variants, pause and holdout, but never a seed', () => {
+    it('labels every experiment rule a variant split and shows its variants, pause and holdout', () => {
         const split = {
             rule_type: 'experiment' as const,
             targeting: { properties: [] },
@@ -72,34 +103,27 @@ describe('FeatureFlagRulesV2Readonly', () => {
                         rules: [
                             {
                                 ...split,
-                                id: 'rule-split',
-                                experiment_id: null,
-                                holdout: { id: null, seed: 'holdout-seed-must-not-render', exclusion_percentage: 5 },
+                                id: 'rule-paused',
+                                holdout: { seed: 'holdout-seed-must-not-render', exclusion_percentage: 5 },
                             },
-                            {
-                                ...split,
-                                id: 'rule-linked',
-                                paused: false,
-                                experiment_id: 12,
-                                holdout: { id: 3, seed: 'holdout-seed-must-not-render', exclusion_percentage: 10 },
-                            },
+                            { ...split, id: 'rule-running', paused: false },
                         ],
                     }}
                 />
             </Provider>
         )
 
-        const [splitRow, linkedRow] = Array.from(container.querySelectorAll('tbody tr'))
-        expect(splitRow).toHaveTextContent('Variant split')
-        expect(splitRow).toHaveTextContent('Paused')
-        expect(splitRow).toHaveTextContent('control33.34%"standard"')
-        expect(splitRow).toHaveTextContent('compact66.66%"compact-layout"')
-        expect(splitRow).toHaveTextContent('50%Miss: next rule')
-        expect(splitRow).toHaveTextContent('Holds out 5%')
-        expect(splitRow).not.toHaveTextContent('Experiment')
-        expect(linkedRow).toHaveTextContent('Experiment #12')
-        expect(linkedRow).toHaveTextContent('Holdout #3 excludes 10%')
-        expect(linkedRow).not.toHaveTextContent('Paused')
+        const [pausedRow, runningRow] = Array.from(container.querySelectorAll('tbody tr'))
+        expect(pausedRow).toHaveTextContent('Variant split')
+        expect(pausedRow).toHaveTextContent('Paused')
+        expect(pausedRow).toHaveTextContent('control33.34%"standard"')
+        expect(pausedRow).toHaveTextContent('compact66.66%"compact-layout"')
+        expect(pausedRow).toHaveTextContent('50%Miss: next rule')
+        expect(pausedRow).toHaveTextContent('Holdout excludes 5%')
+        expect(runningRow).toHaveTextContent('Variant split')
+        expect(runningRow).not.toHaveTextContent('Paused')
+        expect(runningRow).not.toHaveTextContent('Holdout')
+        expect(container).not.toHaveTextContent('Experiment')
         expect(container).not.toHaveTextContent('must-not-render')
     })
 })

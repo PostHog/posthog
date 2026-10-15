@@ -1,38 +1,49 @@
-from collections.abc import Iterable
-from typing import Any, cast
-
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter import (
     BuildBetterResumeConfig,
-    _make_paginated_request,
-    buildbetter_source,
+    validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.settings import BUILDBETTER_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.settings import (
+    BUILDBETTER_API_URL,
+    BUILDBETTER_ENDPOINTS,
+    BUILDBETTER_REST_API_URL,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.source import BuildBetterSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
-
-def _make_response(json_data: dict, status_code: int = 200) -> MagicMock:
-    response = MagicMock()
-    response.status_code = status_code
-    response.ok = 200 <= status_code < 300
-    response.json.return_value = json_data
-    return response
-
-
-def _make_manager(can_resume: bool = False, state: BuildBetterResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = can_resume
-    manager.load_state.return_value = state
-    return manager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildbetter import (
+    BuildBetterSourceConfig,
+)
 
 
 def _interview_payload(ids: list[str]) -> dict:
     return {"data": {"interview": [{"id": i} for i in ids]}}
+
+
+def _recording(recording_id: str) -> dict:
+    return {
+        "id": recording_id,
+        "display_name": "Renewal discussion",
+        "source": "upload",
+        "recorded_at": "2026-07-28T15:00:00.000Z",
+        "created_at": "2026-07-28T15:05:00.000Z",
+        "updated_at": "2026-07-28T15:12:00.000Z",
+        "metadata": [],
+    }
+
+
+def _recordings_page(ids: list[str], has_more: bool = False) -> dict:
+    return {"recordings": [_recording(i) for i in ids], "page": 1, "limit": 100, "has_more": has_more}
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(BuildBetterSource(), BuildBetterSourceConfig(api_key="key"))
 
 
 class TestMakePaginatedRequest:
@@ -55,59 +66,17 @@ class TestMakePaginatedRequest:
         # Single short page terminates the loop without saving further state
         resumed_page = _interview_payload(["x"])
 
-        state = BuildBetterResumeConfig(offset=saved_offset) if saved_offset is not None else None
-        manager = _make_manager(can_resume=can_resume, state=state)
-        logger = MagicMock()
+        state = BuildBetterResumeConfig(offset=saved_offset) if can_resume and saved_offset is not None else None
+        result = _driver().run(
+            "interviews", [ScriptedResponse(json=resumed_page)], resume_state=state, api_version="v1"
+        )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
-        ) as session_cls:
-            session = session_cls.return_value
-            session.post.return_value = _make_response(resumed_page)
-
-            batches = list(
-                _make_paginated_request(
-                    api_key="key",
-                    endpoint_name="interviews",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert batches == [[{"id": "x"}]]
-        assert session.post.call_count == 1
-        call = session.post.call_args_list[0]
-        assert call.kwargs["json"]["variables"]["offset"] == expected_first_offset
-
-        manager.can_resume.assert_called_once()
-        if can_resume:
-            manager.load_state.assert_called_once()
-        else:
-            manager.load_state.assert_not_called()
+        assert result.raised is None
+        assert result.items == [[{"id": "x"}]]
+        assert len(result.requests) == 1
+        assert result.requests[0].json()["variables"]["offset"] == expected_first_offset
         # Short page terminates the loop; save_state is not invoked
-        manager.save_state.assert_not_called()
-
-    def test_empty_first_page_does_not_save_state(self) -> None:
-        manager = _make_manager(can_resume=False)
-        logger = MagicMock()
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
-        ) as session_cls:
-            session = session_cls.return_value
-            session.post.return_value = _make_response({"data": {"interview": []}})
-
-            batches = list(
-                _make_paginated_request(
-                    api_key="key",
-                    endpoint_name="interviews",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert batches == []
-        manager.save_state.assert_not_called()
+        assert result.saved_states == []
 
     def test_save_state_called_for_each_full_page(self) -> None:
         page_size = BUILDBETTER_ENDPOINTS["interviews"].page_size
@@ -115,83 +84,42 @@ class TestMakePaginatedRequest:
         full_page_b = _interview_payload([f"b{i}" for i in range(page_size)])
         tail_page = _interview_payload(["c0"])
 
-        manager = _make_manager(can_resume=False)
-        logger = MagicMock()
+        result = _driver().run(
+            "interviews",
+            [ScriptedResponse(json=page) for page in (full_page_a, full_page_b, tail_page)],
+            api_version="v1",
+        )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
-        ) as session_cls:
-            session = session_cls.return_value
-            session.post.side_effect = [
-                _make_response(full_page_a),
-                _make_response(full_page_b),
-                _make_response(tail_page),
-            ]
-
-            list(
-                _make_paginated_request(
-                    api_key="key",
-                    endpoint_name="interviews",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        saved_offsets = [call.args[0].offset for call in manager.save_state.call_args_list]
-        assert saved_offsets == [page_size, page_size * 2]
+        assert result.raised is None
+        assert result.saved_states == [
+            BuildBetterResumeConfig(offset=page_size),
+            BuildBetterResumeConfig(offset=page_size * 2),
+        ]
 
     def test_drops_optional_field_when_schema_rejects_it(self) -> None:
-        manager = _make_manager(can_resume=False)
-        logger = MagicMock()
         schema_error = {"errors": [{"message": "field 'monologues' not found in type: 'interview'"}]}
+        result = _driver().run(
+            "interviews",
+            [ScriptedResponse(json=schema_error), ScriptedResponse(json=_interview_payload(["i1"]))],
+            api_version="v1",
+        )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
-        ) as session_cls:
-            session = session_cls.return_value
-            session.post.side_effect = [
-                _make_response(schema_error),
-                _make_response(_interview_payload(["i1"])),
-            ]
-
-            batches = list(
-                _make_paginated_request(
-                    api_key="key",
-                    endpoint_name="interviews",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert batches == [[{"id": "i1"}]]
-        assert session.post.call_count == 2
-        first_query = session.post.call_args_list[0].kwargs["json"]["query"]
-        retried_query = session.post.call_args_list[1].kwargs["json"]["query"]
+        assert result.raised is None
+        assert result.items == [[{"id": "i1"}]]
+        assert len(result.requests) == 2
+        first_query = result.requests[0].json()["query"]
+        retried_query = result.requests[1].json()["query"]
         assert "monologues" in first_query
         assert "monologues" not in retried_query
         # Same page is retried after dropping the field, not skipped
-        assert session.post.call_args_list[1].kwargs["json"]["variables"]["offset"] == 0
+        assert result.requests[1].json()["variables"]["offset"] == 0
 
     def test_non_droppable_schema_error_still_raises(self) -> None:
-        manager = _make_manager(can_resume=False)
-        logger = MagicMock()
         schema_error = {"errors": [{"message": "field 'id' not found in type: 'interview'"}]}
+        result = _driver().run("interviews", [ScriptedResponse(json=schema_error)], api_version="v1")
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
-        ) as session_cls:
-            session = session_cls.return_value
-            session.post.return_value = _make_response(schema_error)
-
-            with pytest.raises(Exception, match="BuildBetter GraphQL error"):
-                list(
-                    _make_paginated_request(
-                        api_key="key",
-                        endpoint_name="interviews",
-                        logger=logger,
-                        resumable_source_manager=manager,
-                    )
-                )
+        assert isinstance(result.raised, Exception)
+        assert "BuildBetter GraphQL error" in str(result.raised)
 
     @parameterized.expand(
         [
@@ -205,29 +133,17 @@ class TestMakePaginatedRequest:
     def test_incremental_filter_passes_where_clause(
         self, _name: str, endpoint_name: str, incremental_field: str, expected_filter_field: str
     ) -> None:
-        manager = _make_manager(can_resume=False)
-        logger = MagicMock()
         query_name = BUILDBETTER_ENDPOINTS[endpoint_name].graphql_query_name
+        result = _driver().run(
+            endpoint_name,
+            [ScriptedResponse(json={"data": {query_name: []}})],
+            api_version="v1",
+            incremental_field=incremental_field,
+            db_incremental_field_last_value="2026-01-01",
+        )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
-        ) as session_cls:
-            session = session_cls.return_value
-            session.post.return_value = _make_response({"data": {query_name: []}})
-
-            list(
-                _make_paginated_request(
-                    api_key="key",
-                    endpoint_name=endpoint_name,
-                    logger=logger,
-                    resumable_source_manager=manager,
-                    incremental_field=incremental_field,
-                    incremental_field_last_value="2026-01-01",
-                )
-            )
-
-        call = session.post.call_args_list[0]
-        assert call.kwargs["json"]["variables"]["where"] == {expected_filter_field: {"_gt": "2026-01-01"}}
+        assert result.raised is None
+        assert result.requests[0].json()["variables"]["where"] == {expected_filter_field: {"_gt": "2026-01-01"}}
 
 
 class TestNestedEndpoints:
@@ -419,25 +335,10 @@ class TestNestedEndpoints:
     def test_flattens_nested_rows_with_parent_columns(
         self, _name: str, endpoint_name: str, payload: dict, expected_rows: list[dict]
     ) -> None:
-        manager = _make_manager(can_resume=False)
-        logger = MagicMock()
+        result = _driver().run(endpoint_name, [ScriptedResponse(json={"data": payload})], api_version="v1")
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
-        ) as session_cls:
-            session = session_cls.return_value
-            session.post.return_value = _make_response({"data": payload})
-
-            batches = list(
-                _make_paginated_request(
-                    api_key="key",
-                    endpoint_name=endpoint_name,
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert batches == [expected_rows]
+        assert result.raised is None
+        assert result.items == [expected_rows]
         # Every row has to carry its whole primary key, otherwise merges collapse or duplicate rows
         for row in expected_rows:
             assert all(key in row for key in BUILDBETTER_ENDPOINTS[endpoint_name].primary_keys)
@@ -464,27 +365,16 @@ class TestNestedEndpoints:
             }
         }
 
-        manager = _make_manager(can_resume=False)
-        logger = MagicMock()
+        result = _driver().run(
+            "interview_sentences",
+            [ScriptedResponse(json=empty_page), ScriptedResponse(json=tail_page)],
+            api_version="v1",
+        )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
-        ) as session_cls:
-            session = session_cls.return_value
-            session.post.side_effect = [_make_response(empty_page), _make_response(tail_page)]
-
-            batches = list(
-                _make_paginated_request(
-                    api_key="key",
-                    endpoint_name="interview_sentences",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert session.post.call_count == 2
-        assert session.post.call_args_list[1].kwargs["json"]["variables"]["offset"] == page_size
-        assert batches == [
+        assert result.raised is None
+        assert len(result.requests) == 2
+        assert result.requests[1].json()["variables"]["offset"] == page_size
+        assert result.items == [
             [
                 {
                     "interview_id": 99,
@@ -500,28 +390,163 @@ class TestNestedEndpoints:
         ]
 
 
+class TestRestEndpoints:
+    @parameterized.expand(
+        [
+            (
+                "interview_attendees",
+                "interview_attendees",
+                {
+                    "id": "rec-1",
+                    "participants": [
+                        {"speaker": 0, "person": {"id": "per-1", "firstName": "Pat", "email": "pat@example.com"}},
+                        {"speaker": 1, "person": {"id": "per-2", "firstName": "Alex", "email": "alex@example.com"}},
+                    ],
+                },
+                [
+                    {"speaker": 0, "person": {"id": "per-1", "firstName": "Pat", "email": "pat@example.com"}},
+                    {"speaker": 1, "person": {"id": "per-2", "firstName": "Alex", "email": "alex@example.com"}},
+                ],
+            ),
+            (
+                "interview_sentences",
+                "interview_sentences",
+                {
+                    "type": "utterance",
+                    "recordingId": "rec-1",
+                    "utterances": [
+                        {"recordingId": "rec-1", "startSec": 0, "endSec": 2.5, "speaker": 0, "text": "First"},
+                        {"recordingId": "rec-1", "startSec": 2.5, "endSec": 4, "speaker": 1, "text": "Second"},
+                    ],
+                },
+                [
+                    {"text": "First", "speaker": 0, "start_sec": 0, "end_sec": 2.5, "sentence_index": 0},
+                    {"text": "Second", "speaker": 1, "start_sec": 2.5, "end_sec": 4, "sentence_index": 1},
+                ],
+            ),
+        ]
+    )
+    def test_flattens_recording_children_with_parent_columns(
+        self, _name: str, endpoint_name: str, child_payload: dict, expected_child_rows: list[dict]
+    ) -> None:
+        result = _driver().run(
+            endpoint_name,
+            [
+                ScriptedResponse(json=_recordings_page(["rec-1", "rec-gone"])),
+                ScriptedResponse(json=child_payload),
+                # A recording deleted after the list read is skipped rather than failing the sync
+                ScriptedResponse(status=404, json={"message": "Not Found"}),
+            ],
+            api_version="v3",
+        )
+
+        parent_columns = {
+            "interview_id": "rec-1",
+            "interview_created_at": "2026-07-28T15:05:00.000Z",
+            "interview_updated_at": "2026-07-28T15:12:00.000Z",
+        }
+        assert result.raised is None
+        assert result.items == [[parent_columns | row for row in expected_child_rows]]
+        assert result.response is not None
+        primary_keys = result.response.primary_keys
+        assert primary_keys
+        for row in result.rows:
+            assert all(row.get(key) is not None for key in primary_keys)
+
+    @parameterized.expand(
+        [
+            ("fresh_run", False, None, 1),
+            ("resume", True, BuildBetterResumeConfig(page=3), 3),
+            # A checkpoint written by the GraphQL path carries no page, so REST starts over
+            ("graphql_checkpoint", True, BuildBetterResumeConfig(offset=200), 1),
+        ]
+    )
+    def test_pages_recordings_and_checkpoints_the_next_page(
+        self, _name: str, can_resume: bool, state: BuildBetterResumeConfig | None, first_page: int
+    ) -> None:
+        result = _driver().run(
+            "interviews",
+            [
+                ScriptedResponse(json=_recordings_page(["a"], has_more=True)),
+                ScriptedResponse(json=_recordings_page(["b"], has_more=False)),
+            ],
+            resume_state=state if can_resume else None,
+            api_version="v3",
+        )
+
+        assert result.raised is None
+        assert result.items == [[_recording("a")], [_recording("b")]]
+        assert result.params("page") == [str(first_page), str(first_page + 1)]
+        assert [saved.page for saved in result.saved_states] == [first_page + 1]
+        assert result.completed_state is None
+
+
 class TestBuildbetterSource:
-    def test_source_threads_resumable_manager_through(self) -> None:
-        manager = _make_manager(can_resume=False)
-        logger = MagicMock()
+    @parameterized.expand(
+        [
+            ("v1_interviews", "v1", "interviews", BUILDBETTER_API_URL, ["id"]),
+            ("v1_attendees", "v1", "interview_attendees", BUILDBETTER_API_URL, ["interview_id", "id"]),
+            ("v3_interviews", "v3", "interviews", f"{BUILDBETTER_REST_API_URL}/recordings", ["id"]),
+            (
+                "v3_attendees",
+                "v3",
+                "interview_attendees",
+                f"{BUILDBETTER_REST_API_URL}/recordings",
+                ["interview_id", "speaker"],
+            ),
+            # REST serves no signals, so v3 keeps them on GraphQL
+            ("v3_extractions", "v3", "extractions", BUILDBETTER_API_URL, ["id"]),
+        ]
+    )
+    def test_routes_each_version_to_its_api(
+        self, _name: str, api_version: str, endpoint_name: str, expected_url: str, expected_primary_keys: list[str]
+    ) -> None:
+        query_name = BUILDBETTER_ENDPOINTS[endpoint_name].graphql_query_name
+        response = (
+            ScriptedResponse(json=_recordings_page([]))
+            if api_version == "v3" and endpoint_name != "extractions"
+            else ScriptedResponse(json={"data": {query_name: []}})
+        )
+        result = _driver().run(endpoint_name, [response], api_version=api_version)
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
-        ) as session_cls:
-            session = session_cls.return_value
-            session.post.return_value = _make_response(_interview_payload(["x"]))
+        assert result.raised is None
+        assert [request.origin + request.path for request in result.requests] == [expected_url]
+        assert result.response is not None
+        assert result.response.primary_keys == expected_primary_keys
 
-            response = buildbetter_source(
-                api_key="key",
-                endpoint_name="interviews",
-                logger=logger,
-                resumable_source_manager=manager,
-            )
-            batches = list(cast(Iterable[Any], response.items()))
+    def test_unknown_version_is_rejected(self) -> None:
+        result = _driver().run("interviews", [], api_version="v2")
 
-        assert batches == [[{"id": "x"}]]
-        assert response.primary_keys == ["id"]
-        manager.can_resume.assert_called_once()
+        assert isinstance(result.raised, ValueError)
+        assert "Unsupported BuildBetter API version" in str(result.raised)
+
+    @parameterized.expand(
+        [
+            ("v1", "v1", {"interviews", "interview_attendees", "interview_sentences", "extractions"}),
+            ("v3", "v3", {"extractions"}),
+        ]
+    )
+    def test_incremental_tables_per_version(self, _name: str, api_version: str, expected_incremental: set[str]) -> None:
+        schemas = BuildBetterSource().get_schemas(MagicMock(), team_id=1, api_version=api_version)
+        checked = {"interviews", "interview_attendees", "interview_sentences", "extractions"}
+
+        assert {schema.name for schema in schemas if schema.supports_incremental} & checked == expected_incremental
+
+    @parameterized.expand(
+        [
+            ("v1", "v1", "post", BUILDBETTER_API_URL, {"data": {"interview": [{"id": 1}]}}),
+            ("v3", "v3", "get", f"{BUILDBETTER_REST_API_URL}/recordings", _recordings_page(["rec-1"])),
+        ]
+    )
+    def test_validate_credentials_probes_the_pinned_api(
+        self, _name: str, api_version: str, method: str, expected_url: str, payload: dict
+    ) -> None:
+        with scripted_network([ScriptedResponse(json=payload)]) as network:
+            assert validate_credentials("key", api_version) == (True, None)
+
+        assert [(request.method, request.origin + request.path) for request in network.requests_log] == [
+            (method.upper(), expected_url)
+        ]
 
 
 class TestBuildBetterSourceNonRetryableErrors:

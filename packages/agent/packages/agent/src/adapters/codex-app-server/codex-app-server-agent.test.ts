@@ -9,7 +9,7 @@ import type {
   PromptRequest,
 } from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AppServerClientHandlers,
   AppServerRpc,
@@ -20,6 +20,11 @@ import {
   shouldAutoAcceptLocalApproval,
 } from "./codex-app-server-agent";
 import { sandboxPolicyFor } from "./session-config";
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof fs>();
+  return { ...actual, existsSync: vi.fn(actual.existsSync) };
+});
 
 // Required-field invariants the native codex app-server enforces on each request.
 const REQUIRED_FIELDS: Record<string, string[]> = {
@@ -39,6 +44,11 @@ function requiredFieldMissing(
     (f) => p[f] === undefined || p[f] === null || p[f] === "",
   );
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.mocked(fs.existsSync).mockReset();
+});
 
 function makeStubRpc(responses: Record<string, unknown>) {
   let handlers: AppServerClientHandlers | undefined;
@@ -1641,47 +1651,74 @@ describe("CodexAppServerAgent", () => {
     expect((tc.content as Array<{ type?: string }>)[0]?.type).toBe("diff");
   });
 
-  it("passes outputSchema to turn/start and fires onStructuredOutput", async () => {
-    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
-    const { client } = makeFakeClient();
-    const outputs: Array<Record<string, unknown>> = [];
-    const schema = {
-      type: "object",
-      properties: { repo: { type: "string" } },
-      required: ["repo"],
-    };
-    const agent = new CodexAppServerAgent(client, {
-      processOptions: { binaryPath: "/x/codex" },
-      rpcFactory: stub.factory,
-      onStructuredOutput: async (o) => {
-        outputs.push(o);
+  it.each([
+    [
+      "passes outputSchema to turn/start",
+      {
+        type: "object",
+        properties: { repo: { type: "string" }, note: { type: "string" } },
+        required: ["repo"],
       },
-    });
-
-    await agent.newSession({
-      cwd: "/r",
-      _meta: { jsonSchema: schema },
-    } as unknown as NewSessionRequest);
-    const done = agent.prompt({
-      sessionId: "t",
-      prompt: [{ type: "text", text: "pick a repo" }],
-    } as unknown as PromptRequest);
-
-    // The schema-constrained final message is pure JSON.
-    stub.emit("item/completed", {
-      item: {
-        type: "agentMessage",
-        id: "a1",
-        text: '{"repo":"posthog/posthog"}',
+      true,
+    ],
+    [
+      "omits outputSchema for a dictionary schema",
+      {
+        type: "object",
+        properties: {
+          repo: { type: "string" },
+          note: { type: "string" },
+          labels: { type: "object", additionalProperties: { type: "string" } },
+        },
+        required: ["repo"],
       },
-    });
-    stub.emit("turn/completed", { turn: { status: "completed" } });
-    await done;
+      false,
+    ],
+  ])(
+    "%s and fires onStructuredOutput without synthetic nulls",
+    async (_, schema, sendsOutputSchema) => {
+      const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+      const { client } = makeFakeClient();
+      const outputs: Array<Record<string, unknown>> = [];
+      const agent = new CodexAppServerAgent(client, {
+        processOptions: { binaryPath: "/x/codex" },
+        rpcFactory: stub.factory,
+        onStructuredOutput: async (o) => {
+          outputs.push(o);
+        },
+      });
 
-    const turnStart = stub.requests.find((r) => r.method === "turn/start");
-    expect(turnStart?.params).toMatchObject({ outputSchema: schema });
-    expect(outputs).toEqual([{ repo: "posthog/posthog" }]);
-  });
+      await agent.newSession({
+        cwd: "/r",
+        _meta: { jsonSchema: schema },
+      } as unknown as NewSessionRequest);
+      const done = agent.prompt({
+        sessionId: "t",
+        prompt: [{ type: "text", text: "pick a repo" }],
+      } as unknown as PromptRequest);
+
+      // The schema-constrained final message is pure JSON.
+      stub.emit("item/completed", {
+        item: {
+          type: "agentMessage",
+          id: "a1",
+          text: '{"repo":"posthog/posthog","note":null}',
+        },
+      });
+      stub.emit("turn/completed", { turn: { status: "completed" } });
+      await done;
+
+      const turnStart = stub.requests.find((r) => r.method === "turn/start");
+      if (sendsOutputSchema) {
+        expect(turnStart?.params).toMatchObject({
+          outputSchema: { required: ["repo", "note"] },
+        });
+      } else {
+        expect(turnStart?.params).not.toHaveProperty("outputSchema");
+      }
+      expect(outputs).toEqual([{ repo: "posthog/posthog" }]);
+    },
+  );
 
   it("injects task instructions and mcp_servers into thread/start", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
@@ -5338,7 +5375,33 @@ describe("CodexAppServerAgent", () => {
   });
 
   it("refresh_session rebinds mcp_servers on the live thread, keeping local tools", async () => {
+    vi.stubEnv("POSTHOG_TASK_RUN_ID", "run-1");
+    const actualFs = await vi.importActual<typeof fs>("node:fs");
+    vi.mocked(fs.existsSync).mockImplementation(
+      (path) =>
+        String(path).endsWith(
+          "/adapters/codex-app-server/local-tools-mcp-server.js",
+        ) || actualFs.existsSync(path),
+    );
     const stub = makeStubRpc({
+      "hooks/list": {
+        data: [
+          {
+            hooks: [
+              {
+                key: "session:pre_tool_use:0:0",
+                currentHash: "memory-hash",
+                source: "sessionFlags",
+                eventName: "preToolUse",
+                matcher: "Bash|Agent",
+                handlerType: "mcpTool",
+                server: "posthog-code-tools",
+                tool: "sandbox_memory_hook",
+              },
+            ],
+          },
+        ],
+      },
       "thread/start": { thread: { id: "t" } },
       "thread/resume": { thread: { id: "t" } },
     });
@@ -5378,6 +5441,17 @@ describe("CodexAppServerAgent", () => {
       )?.config?.mcp_servers ?? {};
     const resume = stub.requests.find((r) => r.method === "thread/resume");
     expect(resume?.params).toMatchObject({ threadId: "t" });
+    for (const method of ["thread/start", "thread/resume"]) {
+      expect(
+        stub.requests.find((r) => r.method === method)?.params,
+      ).toMatchObject({
+        config: {
+          "hooks.state": {
+            "session:pre_tool_use:0:0": { trusted_hash: "memory-hash" },
+          },
+        },
+      });
+    }
     expect(mcpServersFor("thread/resume").posthog).toMatchObject({
       http_headers: { Authorization: "Bearer fresh" },
     });

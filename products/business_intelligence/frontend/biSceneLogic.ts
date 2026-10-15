@@ -15,11 +15,12 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { accessLevelSatisfied, toAccessControlLevel } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -27,20 +28,25 @@ import { urls } from 'scenes/urls'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
-import { HogQLFilters, NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
+import { ChartSettings, HogQLFilters, NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
 import { isBIVisualizationNode } from '~/queries/utils'
-import { AccessControlLevel, AccessControlResourceType, InsightShortId } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
 import { warehouseSavedQueriesCreate } from 'products/data_warehouse/frontend/generated/api'
 import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
 import { connectionSelectorLogic } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
-import { insightsCreate, insightsList, insightsPartialUpdate } from 'products/product_analytics/frontend/generated/api'
+import {
+    insightsCreate,
+    insightsList,
+    insightsPartialUpdate,
+    insightsViewedCreate,
+} from 'products/product_analytics/frontend/generated/api'
 import { BIVisualizationNodeApi, InsightApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import type { BIConfig } from '../../../frontend/src/queries/schema/schema-business-intelligence'
 import type { DataWarehouseSavedQueryApi } from '../../data_warehouse/frontend/generated/api.schemas'
 import type { ExternalDataSourceConnectionOptionApi } from '../../warehouse_sources/frontend/generated/api.schemas'
-import { captureBIEditorQueryRun, captureBIEditorQuerySaved } from './biEditorAnalytics'
+import { captureBIEditorQueryRun, captureBIEditorQuerySaved, captureBIWorksheetAction } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import {
     BIEditorView,
@@ -50,10 +56,23 @@ import {
     parseBIEditorState,
 } from './biEditorTypes'
 import type { BIQueryBuildResult } from './biEditorTypes'
+import { mergeBITableSettings } from './biMeasureSettings'
 import { applyBIDateRange, mergeBIQuerySource } from './biQueryFilters'
+import { getBIScatterAxisOptions } from './biScatter'
 
 export interface BISceneLogicProps {
     tabId: string
+}
+
+export interface BIWorksheetSnapshot {
+    worksheet: BIVisualizationNode
+    name: string
+}
+
+export interface BIWorksheetHistory {
+    past: BIWorksheetSnapshot[]
+    present: BIWorksheetSnapshot | null
+    future: BIWorksheetSnapshot[]
 }
 
 function emptyWorksheet(): BIVisualizationNode {
@@ -74,12 +93,18 @@ export interface biSceneLogicValues {
     connectionOptionsLoading: boolean // connectionSelectorLogic
     connectionId: string | null // databaseTableListLogic
     currentTeamId: number | null // teamLogic
+    canRedo: boolean
+    canUndo: boolean
+    chartSettingsDefaults: ChartSettings | null
+    copyDisabledReason: string | undefined
     dataNodeKey: string
+    displayedQueryIsCurrent: boolean
     exportViewName: string
     exportViewOpen: boolean
     exportedView: Awaited<ReturnType<typeof warehouseSavedQueriesCreate>> | null
     exportedViewLoading: boolean
     hasUnsavedChanges: boolean
+    history: BIWorksheetHistory
     insight: InsightApi | null
     insightLoading: boolean
     lastRunQuery: BIVisualizationNode | null
@@ -101,8 +126,8 @@ export interface biSceneLogicActions {
     runAfterChange: () => {
         value: true
     } // biEditorLogic
-    setChartType: (chartType: import('~/types').ChartDisplayType) => {
-        chartType: import('~/types').ChartDisplayType
+    setChartType: (chartType: ChartDisplayType) => {
+        chartType: ChartDisplayType
     } // biEditorLogic
     cancelQuery: () => {
         value: true
@@ -143,7 +168,26 @@ export interface biSceneLogicActions {
         insight: InsightApi
         payload?: string
     }
+    navigateHierarchy: (worksheet: BIVisualizationNode) => {
+        worksheet: BIVisualizationNode
+    }
     openWorksheet: () => {
+        value: true
+    }
+    pushHistory: (
+        snapshot: BIWorksheetSnapshot,
+        reset: boolean
+    ) => {
+        reset: boolean
+        snapshot: BIWorksheetSnapshot
+    }
+    recordWorksheet: (reset?: any) => {
+        reset: any
+    }
+    redo: () => {
+        value: true
+    }
+    restoreHistory: () => {
         value: true
     }
     restoreWorksheet: (worksheet: BIVisualizationNode) => {
@@ -152,7 +196,9 @@ export interface biSceneLogicActions {
     runQuery: () => {
         value: true
     }
-    saveInsight: () => any
+    saveInsight: (options?: { asCopy?: boolean }) => {
+        asCopy?: boolean
+    }
     saveInsightFailure: (
         error: string,
         errorObject?: any
@@ -162,13 +208,23 @@ export interface biSceneLogicActions {
     }
     saveInsightSuccess: (
         insight: InsightApi | null,
-        payload?: any
+        payload?: {
+            asCopy?: boolean
+        }
     ) => {
         insight: InsightApi | null
-        payload?: any
+        payload?: {
+            asCopy?: boolean
+        }
     }
     selectConnection: (connectionId: string | null) => {
         connectionId: string | null
+    }
+    setChartSettings: (chartSettings: ChartSettings) => {
+        chartSettings: ChartSettings
+    }
+    setChartSettingsDefaults: (defaults: ChartSettings | undefined) => {
+        defaults: ChartSettings | undefined
     }
     setExportViewName: (name: string) => {
         name: string
@@ -182,6 +238,13 @@ export interface biSceneLogicActions {
     setName: (name: string) => {
         name: string
     }
+    setScatterAxis: (
+        axis: 'x' | 'y',
+        column: string
+    ) => {
+        axis: 'x' | 'y'
+        column: string
+    }
     setVisualization: (visualization: VisualizationNode) => {
         visualization: VisualizationNode
     }
@@ -191,17 +254,25 @@ export interface biSceneLogicActions {
     syncWorksheetUrl: () => {
         value: true
     }
+    undo: () => {
+        value: true
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface biSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        displayedQueryIsCurrent: (lastRunQuery: BIVisualizationNode | null, worksheet: BIVisualizationNode) => boolean
+        canUndo: (history: BIWorksheetHistory) => boolean
+        canRedo: (history: BIWorksheetHistory) => boolean
+        copyDisabledReason: (generatedQuery: BIQueryBuildResult | null, name: string) => string | undefined
         dataNodeKey: (tabId: string) => string
         worksheet: (
             config: BIConfig,
             generatedQuery: BIQueryBuildResult | null,
-            visualization: BIVisualizationNode
+            visualization: BIVisualizationNode,
+            chartSettingsDefaults: ChartSettings | null
         ) => BIVisualizationNode
         hasUnsavedChanges: (worksheet: BIVisualizationNode, name: string, insight: InsightApi | null) => boolean
         saveDisabledReason: (
@@ -237,8 +308,17 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         actions: [biEditorLogic(props), ['restoreState', 'runAfterChange', 'resetConfig', 'setChartType']],
     })),
     actions({
+        recordWorksheet: (reset = false) => ({ reset }),
+        pushHistory: (snapshot: BIWorksheetSnapshot, reset: boolean) => ({ snapshot, reset }),
+        undo: true,
+        redo: true,
+        restoreHistory: true,
         restoreWorksheet: (worksheet: BIVisualizationNode) => ({ worksheet }),
+        navigateHierarchy: (worksheet: BIVisualizationNode) => ({ worksheet }),
         setVisualization: (visualization: VisualizationNode) => ({ visualization }),
+        setChartSettings: (chartSettings: ChartSettings) => ({ chartSettings }),
+        setChartSettingsDefaults: (defaults: ChartSettings | undefined) => ({ defaults }),
+        setScatterAxis: (axis: 'x' | 'y', column: string) => ({ axis, column }),
         setName: (name: string) => ({ name }),
         runQuery: true,
         cancelQuery: true,
@@ -268,25 +348,34 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                     }
                     return insight
                 },
-                saveInsight: async () => {
-                    if (values.saveDisabledReason) {
+                saveInsight: async (options: { asCopy?: boolean } = {}) => {
+                    const asCopy = options.asCopy ?? false
+                    if (asCopy ? values.copyDisabledReason : values.saveDisabledReason) {
                         return values.insight
                     }
                     const dashboard = Number(router.values.searchParams.dashboard)
                     const payload = {
-                        name: values.name.trim(),
+                        name: asCopy ? `${values.name.trim()} (copy)` : values.name.trim(),
                         query: JSON.parse(JSON.stringify(values.worksheet)) as BIVisualizationNodeApi,
                         saved: true,
-                        ...(!values.insight && Number.isInteger(dashboard) && dashboard > 0
+                        ...(!asCopy && !values.insight && Number.isInteger(dashboard) && dashboard > 0
                             ? { dashboards: [dashboard] }
                             : {}),
                     }
                     const state = { editorView: BIEditorView.BI, config: values.config }
-                    const operation = values.insight ? 'update' : 'create'
-                    const insight = values.insight
-                        ? await insightsPartialUpdate(String(values.currentTeamId), values.insight.id, payload)
-                        : await insightsCreate(String(values.currentTeamId), payload)
+                    const operation = values.insight && !asCopy ? 'update' : 'create'
+                    const insight =
+                        values.insight && !asCopy
+                            ? await insightsPartialUpdate(String(values.currentTeamId), values.insight.id, payload)
+                            : await insightsCreate(String(values.currentTeamId), payload)
                     captureBIEditorQuerySaved(state, 'insight', operation, !!payload.dashboards?.length)
+                    captureBIWorksheetAction('saved', state.config, { insight_id: insight.id })
+                    if (asCopy) {
+                        captureBIWorksheetAction('copied', state.config, { insight_id: insight.id })
+                    }
+                    if (payload.dashboards?.length) {
+                        captureBIWorksheetAction('added_to_dashboard', state.config, { insight_id: insight.id })
+                    }
                     return insight
                 },
             },
@@ -311,10 +400,52 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         ],
     })),
     reducers({
+        history: [
+            { past: [], present: null, future: [] } as BIWorksheetHistory,
+            {
+                pushHistory: (state, { snapshot, reset }) =>
+                    reset
+                        ? { past: [], present: snapshot, future: [] }
+                        : equal(state.present, snapshot)
+                          ? state
+                          : {
+                                past: state.present ? [...state.past, state.present].slice(-100) : [],
+                                present: snapshot,
+                                future: [],
+                            },
+                undo: (state) =>
+                    state.past.length
+                        ? {
+                              past: state.past.slice(0, -1),
+                              present: state.past[state.past.length - 1],
+                              future: state.present ? [state.present, ...state.future] : state.future,
+                          }
+                        : state,
+                redo: (state) =>
+                    state.future.length
+                        ? {
+                              past: state.present ? [...state.past, state.present] : state.past,
+                              present: state.future[0],
+                              future: state.future.slice(1),
+                          }
+                        : state,
+            },
+        ],
+        chartSettingsDefaults: [
+            null as ChartSettings | null,
+            {
+                setChartSettingsDefaults: (_, { defaults }) => defaults ?? null,
+                navigateHierarchy: () => null,
+                restoreWorksheet: () => null,
+                setVisualization: () => null,
+            },
+        ],
         visualization: [
             emptyWorksheet(),
             {
                 restoreWorksheet: (_, { worksheet }) => worksheet,
+                navigateHierarchy: (_, { worksheet }) => worksheet,
+                setChartSettings: (state, { chartSettings }) => ({ ...state, chartSettings }),
                 setVisualization: (state, { visualization }) => ({
                     ...state,
                     ...visualization,
@@ -333,13 +464,32 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         exportViewOpen: [false, { setExportViewOpen: (_, { open }) => open }],
     }),
     selectors({
+        displayedQueryIsCurrent: [
+            (s) => [s.lastRunQuery, s.worksheet],
+            (lastRunQuery: BIVisualizationNode | null, worksheet: BIVisualizationNode): boolean =>
+                !!lastRunQuery &&
+                equal(lastRunQuery.source, worksheet.source) &&
+                equal(lastRunQuery.config, worksheet.config),
+        ],
+        canUndo: [(s) => [s.history], (history: BIWorksheetHistory): boolean => history.past.length > 0],
+        canRedo: [(s) => [s.history], (history: BIWorksheetHistory): boolean => history.future.length > 0],
+        copyDisabledReason: [
+            (s) => [s.generatedQuery, s.name],
+            (generatedQuery: BIQueryBuildResult | null, name: string): string | undefined =>
+                !generatedQuery
+                    ? 'Select a table and resolve any invalid fields before saving'
+                    : !name.trim()
+                      ? 'Enter a worksheet name'
+                      : undefined,
+        ],
         dataNodeKey: [(_, props) => [props.tabId], (tabId: string): string => `InsightViz.new-bi-${tabId}`],
         worksheet: [
-            (s) => [s.config, s.generatedQuery, s.visualization],
+            (s) => [s.config, s.generatedQuery, s.visualization, s.chartSettingsDefaults],
             (
                 config: BIConfig,
                 generatedQuery: BIQueryBuildResult | null,
-                visualization: BIVisualizationNode
+                visualization: BIVisualizationNode,
+                chartSettingsDefaults: ChartSettings | null
             ): BIVisualizationNode => ({
                 ...visualization,
                 ...generatedQuery?.node,
@@ -349,13 +499,27 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 source: generatedQuery
                     ? mergeBIQuerySource(visualization.source, generatedQuery.node.source)
                     : { ...visualization.source, query: '' },
-                chartSettings: mergeBIChartSettings(visualization.chartSettings, generatedQuery?.node.chartSettings),
+                chartSettings: mergeBIChartSettings(
+                    visualization.chartSettings,
+                    generatedQuery?.node.chartSettings,
+                    chartSettingsDefaults ?? buildBIQuery(visualization.config)?.node.chartSettings,
+                    config.chartType === ChartDisplayType.ScatterPlot,
+                    config.chartType === ChartDisplayType.ScatterPlot
+                        ? getBIScatterAxisOptions(config).map(({ value }) => value)
+                        : []
+                ),
+                tableSettings: mergeBITableSettings(
+                    visualization.tableSettings,
+                    generatedQuery?.node.tableSettings,
+                    buildBIQuery(visualization.config)?.node.tableSettings
+                ),
             }),
         ],
         hasUnsavedChanges: [
             (s) => [s.worksheet, s.name, s.insight],
             (worksheet: BIVisualizationNode, name: string, insight: InsightApi | null): boolean =>
-                !equal(JSON.parse(JSON.stringify(worksheet)), insight?.query) || name !== insight?.name,
+                !equal(JSON.parse(JSON.stringify(worksheet)), insight?.query ?? emptyWorksheet()) ||
+                name.trim() !== (insight?.name || 'Untitled worksheet'),
         ],
         saveDisabledReason: [
             (s) => [s.generatedQuery, s.insight, s.name],
@@ -384,12 +548,71 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
+        recordWorksheet: ({ reset }) => {
+            if (!cache.restoringHistory) {
+                actions.pushHistory(
+                    JSON.parse(JSON.stringify({ worksheet: values.worksheet, name: values.name })),
+                    reset
+                )
+            }
+        },
+        undo: () => {
+            actions.restoreHistory()
+            captureBIWorksheetAction('undo', values.config)
+        },
+        redo: () => {
+            actions.restoreHistory()
+            captureBIWorksheetAction('redo', values.config)
+        },
+        restoreHistory: () => {
+            const snapshot = values.history.present
+            if (!snapshot) {
+                return
+            }
+            cache.restoringHistory = true
+            const lastRunQuery = values.lastRunQuery
+            try {
+                actions.restoreWorksheet(snapshot.worksheet)
+                actions.setName(snapshot.name)
+                actions.setLastRunQuery(lastRunQuery)
+            } finally {
+                cache.restoringHistory = false
+            }
+            actions.runAfterChange()
+        },
+        navigateHierarchy: ({ worksheet }) => {
+            actions.restoreState({ editorView: BIEditorView.BI, config: worksheet.config })
+            actions.runAfterChange()
+        },
+        setName: () => actions.recordWorksheet(),
+        [dataNodeLogic({ key: `InsightViz.new-bi-${props.tabId}`, query: emptyWorksheet().source }).actionTypes
+            .loadDataSuccess]: ({ response }) => {
+            if (
+                !cache.firstChartCaptured &&
+                values.lastRunQuery &&
+                response &&
+                'results' in response &&
+                Array.isArray(response.results) &&
+                response.results.length
+            ) {
+                cache.firstChartCaptured = true
+                captureBIWorksheetAction('first_chart', values.lastRunQuery.config, {
+                    insight_id: values.insight?.id,
+                    result_count: response.results.length,
+                })
+            }
+        },
         resetConfig: () => {
+            const dataLogic = dataNodeLogic.findMounted({ key: values.dataNodeKey })
+            dataLogic?.actions.cancelQuery()
+            dataLogic?.actions.clearResponse()
             actions.restoreWorksheet({
                 ...emptyWorksheet(),
+                config: values.config,
                 source: { kind: NodeKind.HogQLQuery, query: '', connectionId: values.connectionId ?? undefined },
             })
             actions.syncWorksheetUrl()
+            actions.recordWorksheet()
         },
         selectConnection: ({ connectionId }) => {
             if (connectionId !== values.connectionId) {
@@ -398,6 +621,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                     source: { kind: NodeKind.HogQLQuery, query: '', connectionId: connectionId ?? undefined },
                 })
                 actions.syncWorksheetUrl()
+                actions.recordWorksheet()
             }
         },
         restoreWorksheet: ({ worksheet }) => {
@@ -407,9 +631,32 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             if (connectionChanged) {
                 databaseTableListLogic.actions.setConnection(connectionId)
             }
+            const config = { ...applyBIDateRange(worksheet.config, worksheet.source.filters?.dateRange) }
+            if (
+                worksheet.source.query &&
+                config.source &&
+                !config.rows.length &&
+                !config.columns.length &&
+                !config.values.length
+            ) {
+                config.values = [
+                    {
+                        field: {
+                            id: 'bi-default-count',
+                            name: 'Count of rows',
+                            expression: '',
+                            type: 'integer',
+                            source: config.source,
+                        },
+                        aggregation: 'custom',
+                        customExpression: 'count(*)',
+                        label: 'Count of rows',
+                    },
+                ]
+            }
             actions.restoreState({
                 editorView: BIEditorView.BI,
-                config: applyBIDateRange(worksheet.config, worksheet.source.filters?.dateRange),
+                config,
             })
             if (connectionChanged || !databaseTableListLogic.values.database) {
                 databaseTableListLogic.actions.loadDatabase({ shallow: true })
@@ -435,20 +682,24 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                     worksheet = { ...worksheet, source: { ...worksheet.source, filters: filters as HogQLFilters } }
                 }
                 actions.restoreWorksheet(worksheet)
+                actions.recordWorksheet(true)
+                void insightsViewedCreate(String(values.currentTeamId), { insight_ids: [insight.id] }).catch(() => {})
             }
         },
         saveInsightSuccess: ({ insight }) => {
             if (insight) {
+                actions.setName(insight.name || 'Untitled worksheet')
                 localStorage.removeItem(`bi-worksheet-${values.currentTeamId}-${props.tabId}`)
                 refreshTreeItem('insight', insight.short_id)
                 const dashboard = router.values.searchParams.dashboard
                 router.actions.push(
-                    urls.insightView(insight.short_id as InsightShortId),
+                    urls.businessIntelligenceWorksheet(insight.short_id),
                     dashboard ? { dashboard } : {}
                 )
             }
         },
         runAfterChange: async (_, breakpoint) => {
+            actions.recordWorksheet()
             actions.syncWorksheetUrl()
             if (!values.generatedQuery) {
                 const dataLogic = dataNodeLogic.findMounted({ key: values.dataNodeKey })
@@ -488,6 +739,61 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             }
         },
         cancelQuery: () => dataNodeLogic.findMounted({ key: values.dataNodeKey })?.actions.cancelQuery(),
+        setScatterAxis: ({ axis, column }) => {
+            const options = getBIScatterAxisOptions(values.config)
+            const option = options.find((option) => option.value === column)
+            if (!option) {
+                return
+            }
+            const settings = values.worksheet.chartSettings ?? {}
+            const previousY = settings.yAxis?.find((item) => item.column === column)
+            if (axis === 'x') {
+                const swap = previousY && settings.xAxis
+                actions.setChartSettings({
+                    ...settings,
+                    xAxis: previousY ?? { column },
+                    xAxisLabel:
+                        previousY && settings.yAxis?.length === 1
+                            ? (settings.leftYAxisSettings?.label ?? option.label)
+                            : option.label,
+                    yAxis: swap
+                        ? settings.yAxis?.map((item) => (item.column === column ? settings.xAxis! : item))
+                        : settings.yAxis,
+                    leftYAxisSettings: {
+                        ...settings.leftYAxisSettings,
+                        label:
+                            swap && settings.yAxis?.length === 1
+                                ? settings.xAxisLabel
+                                : settings.leftYAxisSettings?.label,
+                    },
+                })
+            } else if (column !== settings.xAxis?.column) {
+                actions.setChartSettings({
+                    ...settings,
+                    yAxis: [previousY ?? { column }],
+                    leftYAxisSettings: { ...settings.leftYAxisSettings, label: option.label },
+                })
+            }
+        },
+        setChartSettings: ({ chartSettings }) => {
+            actions.setChartSettingsDefaults(
+                buildBIQuery(values.lastRunQuery?.config ?? values.config)?.node.chartSettings
+            )
+            if (values.lastRunQuery) {
+                const availableColumns = new Set(
+                    getBIScatterAxisOptions(values.lastRunQuery.config).map(({ value }) => value)
+                )
+                const axes = [chartSettings.xAxis, ...(chartSettings.yAxis ?? [])].filter((axis) => axis !== undefined)
+                if (
+                    values.lastRunQuery.config.chartType !== ChartDisplayType.ScatterPlot ||
+                    axes.every((axis) => availableColumns.has(axis.column))
+                ) {
+                    actions.setLastRunQuery({ ...values.lastRunQuery, chartSettings })
+                }
+            }
+            actions.syncWorksheetUrl()
+            actions.recordWorksheet()
+        },
         setVisualization: ({ visualization }) => {
             const config = applyBIDateRange(values.config, visualization.source.filters?.dateRange)
             if (config !== values.config) {
@@ -498,6 +804,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             }
             actions.setLastRunQuery(values.worksheet)
             actions.syncWorksheetUrl()
+            actions.recordWorksheet()
         },
         discardChanges: () => {
             if (isBIVisualizationNode(values.insight?.query)) {
@@ -508,6 +815,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 actions.setName('Untitled worksheet')
             }
             actions.syncWorksheetUrl()
+            actions.recordWorksheet(true)
         },
         syncWorksheetUrl: () => {
             localStorage.setItem(
@@ -515,11 +823,18 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 JSON.stringify(values.worksheet)
             )
             cache.lastHash = JSON.stringify(values.worksheet)
-            router.actions.replace(
-                urls.businessIntelligence({ insightShortId: values.insight?.short_id }),
-                router.values.searchParams,
-                { q: cache.lastHash }
-            )
+            cache.syncingWorksheetUrl = true
+            try {
+                router.actions.replace(
+                    values.insight
+                        ? urls.businessIntelligenceWorksheet(values.insight.short_id)
+                        : urls.businessIntelligenceNew(),
+                    router.values.searchParams,
+                    { q: cache.lastHash }
+                )
+            } finally {
+                cache.syncingWorksheetUrl = false
+            }
         },
         shareWorksheet: async () => {
             actions.syncWorksheetUrl()
@@ -527,16 +842,20 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         },
         openWorksheet: () => {
             const { searchParams, hashParams } = router.values
+            const pathId = router.values.location.pathname.match(/\/bi\/([^/]+)$/)?.[1]
+            const insightShortId =
+                searchParams.open_insight || (pathId && pathId !== 'new' ? decodeURIComponent(pathId) : undefined)
             if (searchParams.open_view) {
                 router.actions.replace(urls.sqlEditor({ view_id: searchParams.open_view }))
                 return
             }
-            if (searchParams.open_insight && cache.loadingId !== searchParams.open_insight) {
-                cache.loadingId = searchParams.open_insight
-                actions.loadInsight(searchParams.open_insight)
+            if (insightShortId && cache.loadingId !== insightShortId) {
+                cache.loadingId = insightShortId
+                cache.firstChartCaptured = false
+                actions.loadInsight(insightShortId)
                 return
             }
-            if (searchParams.open_insight) {
+            if (insightShortId) {
                 return
             }
             if (cache.lastHash !== undefined && hashParams.q === cache.lastHash) {
@@ -566,16 +885,33 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 lemonToast.error('Could not restore the worksheet link.')
             }
             actions.restoreWorksheet(worksheet)
+            if (searchParams.starter) {
+                actions.setLastRunQuery(null)
+            }
             actions.setName('Untitled worksheet')
+            actions.recordWorksheet(true)
         },
     })),
-    urlToAction(({ actions }) => ({ '/bi': () => actions.openWorksheet() })),
+    beforeUnload(({ values, actions, cache }) => ({
+        enabled: (newLocation) =>
+            !cache.syncingWorksheetUrl &&
+            values.hasUnsavedChanges &&
+            (!newLocation || addProjectIdIfMissing(newLocation.pathname) !== router.values.location.pathname),
+        message: 'Leave worksheet? Changes you made will be discarded.',
+        onConfirm: () => actions.discardChanges(),
+    })),
+    urlToAction(({ actions }) => ({
+        '/bi': () => actions.openWorksheet(),
+        '/bi/new': () => actions.openWorksheet(),
+        '/bi/:insightShortId': () => actions.openWorksheet(),
+    })),
     beforeUnmount(({ props }) => {
         if (releaseConnectionScope(`bi:${props.tabId}`, databaseTableListLogic.values.connectionId)) {
             databaseTableListLogic.actions.resetConnectionScope()
         }
     }),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
+        captureBIWorksheetAction('opened', values.config)
         connectionSelectorLogic.actions.maybeLoadConnectionOptions()
         actions.openWorksheet()
     }),

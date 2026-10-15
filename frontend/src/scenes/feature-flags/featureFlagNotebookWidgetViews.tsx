@@ -18,6 +18,7 @@ import {
 import { FeatureFlagConfigReadonlyNotice } from 'products/feature_flags/frontend/FeatureFlagConfigReadonlyNotice'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { FeatureFlagLoadError } from './FeatureFlagLoadError'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 
@@ -109,10 +110,15 @@ function FeatureFlagCompactSummary({
     attributes,
 }: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>): JSX.Element {
     const { id } = attributes
-    const { featureFlag, featureFlagLoading, featureFlagMissing } = useValues(featureFlagLogic({ id }))
+    const { featureFlag, featureFlagLoading, featureFlagMissing, featureFlagLoadFailed } = useValues(
+        featureFlagLogic({ id })
+    )
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
+    }
+    if (featureFlagLoadFailed) {
+        return <FeatureFlagLoadError id={id} />
     }
     if (featureFlagLoading && !featureFlag.id) {
         return <FeatureFlagWidgetLoading />
@@ -154,10 +160,15 @@ function FeatureFlagReleaseConditionsWidget({
     attributes,
 }: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>): JSX.Element {
     const { id } = attributes
-    const { featureFlag, featureFlagLoading, featureFlagMissing } = useValues(featureFlagLogic({ id }))
+    const { featureFlag, featureFlagLoading, featureFlagMissing, featureFlagLoadFailed } = useValues(
+        featureFlagLogic({ id })
+    )
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
+    }
+    if (featureFlagLoadFailed) {
+        return <FeatureFlagLoadError id={id} />
     }
     if (featureFlagLoading && !featureFlag.id) {
         return <FeatureFlagWidgetLoading />
@@ -182,10 +193,15 @@ function FeatureFlagImplementationWidget({
     attributes,
 }: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>): JSX.Element {
     const { id } = attributes
-    const { featureFlag, featureFlagLoading, featureFlagMissing } = useValues(featureFlagLogic({ id }))
+    const { featureFlag, featureFlagLoading, featureFlagMissing, featureFlagLoadFailed } = useValues(
+        featureFlagLogic({ id })
+    )
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
+    }
+    if (featureFlagLoadFailed) {
+        return <FeatureFlagLoadError id={id} />
     }
     if (featureFlagLoading && !featureFlag.id) {
         return <FeatureFlagWidgetLoading />
@@ -207,6 +223,7 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
         featureFlag,
         featureFlagLoading,
         featureFlagMissing,
+        featureFlagLoadFailed,
         hasUnsavedChanges,
         nonEmptyVariants,
         hasEarlyAccessFeatures,
@@ -215,6 +232,9 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
+    }
+    if (featureFlagLoadFailed) {
+        return <FeatureFlagLoadError id={id} />
     }
     if (featureFlagLoading && !featureFlag.id) {
         return <FeatureFlagWidgetLoading />

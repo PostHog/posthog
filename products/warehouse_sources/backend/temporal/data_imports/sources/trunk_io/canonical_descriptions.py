@@ -1,10 +1,15 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.settings import MERGE_QUEUE_PULL_REQUESTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.settings import (
+    MERGE_QUEUE_PULL_REQUESTS,
+    TEST_COLLECTIONS,
+    TESTS,
+)
 
 _FLAKY_TESTS_DOCS_URL = "https://docs.trunk.io/flaky-tests/api"
 _MERGE_QUEUE_DOCS_URL = "https://docs.trunk.io/merge-queue/reference/merge"
+_V2_DOCS_URL = "https://docs.trunk.io/flaky-tests/reference/api-reference"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "UnhealthyTests": {
@@ -84,6 +89,41 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "prBaseBranch": "The base branch of the pull request.",
             "prAuthor": "The author of the pull request.",
             "synced_through": "PostHog-added: the start of the sync run this row was fetched in, used to track incremental progress.",
+        },
+    },
+    TEST_COLLECTIONS: {
+        "description": "Test collections in the organization. Each collection has its own flake detection, quarantining and ticketing settings.",
+        "docs_url": _V2_DOCS_URL,
+        "columns": {
+            "id": "The collection's id.",
+            "name": "The name of the collection.",
+            "description": "The description of the collection, if any.",
+            "testCount": "The number of distinct tests seen in this collection. Stays 0 until the first upload is processed.",
+            "quarantineEnabled": "Whether quarantining is turned on for this collection.",
+            "autoQuarantineEnabled": "Whether flaky tests in this collection are quarantined automatically.",
+            "createdAt": "The time the collection was created.",
+            "updatedAt": "The time the collection was last updated.",
+        },
+    },
+    TESTS: {
+        "description": "Tests across every test collection in the organization, with their current status and quarantine state. Test ids differ from the ids in the repository-scoped tables.",
+        "docs_url": _V2_DOCS_URL,
+        "columns": {
+            "id": "A stable unique identifier for the test.",
+            "testCollectionId": "The id of the collection that owns the test.",
+            "repositoryId": "The id of the repository the test was uploaded for. Uploads made without a repository carry the nil UUID.",
+            "name": "The name of the test.",
+            "parentName": "The parent of the test, such as its test suite.",
+            "className": "The class name of the test.",
+            "file": "The file path of the test.",
+            "target": "The build target that ran the test, when one was reported.",
+            "variant": "The variant of the test.",
+            "crossVariantId": "Groups the same test across variants, when it has any.",
+            "codeowners": "Code owners for the test.",
+            "status": "The test's current status: healthy, flaky or broken.",
+            "statusSince": "When the status last changed. Empty for a test no monitor has classified yet.",
+            "quarantineState": "Whether the test is currently quarantined: quarantined or notQuarantined.",
+            "labels": "The labels on the test, with what applied each one.",
         },
     },
 }

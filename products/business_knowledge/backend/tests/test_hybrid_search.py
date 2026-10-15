@@ -4,6 +4,7 @@ from uuid import UUID
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -27,7 +28,7 @@ from products.business_knowledge.backend.models import (
 )
 
 
-class TestRRFFusion(BaseTest):
+class TestRRFFusion(SimpleTestCase):
     def test_fts_only_produces_ranked_output(self) -> None:
         ids = [uuid.uuid4() for _ in range(3)]
         fused = _rrf_fuse(ids, [])

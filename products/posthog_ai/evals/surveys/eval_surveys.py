@@ -1,13 +1,4 @@
-"""Survey creation eval cases for the sandboxed coding agent.
-
-Intent mirrors ``ee/hogai/eval/ci/eval_surveys.py``. The CI version calls
-Max's ``CreateSurveyTool`` directly and checks Django state. This version
-asks the sandboxed agent to create surveys through the PostHog MCP
-``survey-create`` tool and scores the payload/result it produced.
-
-To run:
-    flox activate -- bash -c "set -a; source .env; set +a; python -m products.posthog_ai.eval_harness.harness eval_surveys"
-"""
+"""Survey creation eval cases for the sandbox agent."""
 
 from __future__ import annotations
 

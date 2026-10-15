@@ -41,7 +41,6 @@ def split_rule(rule_id: str, *values: Any) -> dict[str, Any]:
         "id": rule_id,
         "rule_type": "experiment",
         "targeting": {"properties": []},
-        "experiment_id": None,
         "paused": False,
         "rollout_percentage": 100,
         "on_rollout_miss": "continue",

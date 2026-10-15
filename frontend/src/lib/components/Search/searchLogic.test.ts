@@ -3,14 +3,15 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { recentItemsModel } from '~/models/recentItemsModel'
 import { initKeaTests } from '~/test/init'
 
+import { searchListsLogic } from './searchListsLogic'
 import { searchLogic } from './searchLogic'
-import { filterSearchItems } from './utils'
+import { SEARCH_TAB_CATEGORY, filterSearchItems } from './utils'
 
 /** Poll until a condition holds. The searches settle in no fixed order, so an ordered
  *  `toDispatchActions` list would wait on an action that had already gone past. */
@@ -41,11 +42,17 @@ describe('searchLogic', () => {
         })
     }
 
+    const searchOnceProductsLoad = async (search: string): Promise<void> => {
+        await expectLogic(recentItemsModel).toDispatchActions(['loadSceneLogViewsSuccess'])
+        logic.actions.setSearch(search)
+    }
+
     beforeEach(() => {
         useMocks({
             get: {
                 '/api/environments/:team_id/search/': { results: [], counts: {} },
                 '/api/projects/:team_id/file_system/': { results: [], count: 0 },
+                '/api/projects/:team_id/file_system/log_view/': [],
                 '/api/projects/:team_id/conversations/tickets/': { results: [], count: 0 },
             },
         })
@@ -66,76 +73,6 @@ describe('searchLogic', () => {
         logic.unmount()
         jest.restoreAllMocks()
     })
-
-    it.each([false, true])('gates the command-menu terminal toggle when enabled=%s', (enabled) => {
-        logic.unmount()
-        logic = searchLogic({ logicKey: 'command' })
-        logic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: enabled })
-
-        const toggle = logic.values.miscItems.find((item) => item.id === 'misc-toggle-terminal')
-        expect(!!toggle).toBe(enabled)
-        expect(terminalDockLogic.values.dockOpen).toBe(false)
-        if (toggle) {
-            toggle.onSelect?.()
-            expect(terminalDockLogic.values.dockOpen).toBe(true)
-            toggle.onSelect?.()
-            expect(terminalDockLogic.values.dockOpen).toBe(false)
-            toggle.onSelect?.()
-            featureFlagLogic.actions.setFeatureFlags([], {})
-            expect(terminalDockLogic.values.dockOpen).toBe(false)
-            expect(logic.values.miscItems.some((item) => item.id === 'misc-toggle-terminal')).toBe(false)
-        }
-        featureFlagLogic.actions.setFeatureFlags([], {})
-        terminalDockLogic.actions.toggleTerminal()
-        expect(terminalDockLogic.values.dockOpen).toBe(false)
-    })
-
-    it.each([
-        ['off', false, 'Model preferences', false],
-        ['on', true, 'Agent preferences', true],
-    ])(
-        'shows one copy of a section gated on a flag and its negation, with the flag %s',
-        (_state, flagOn, expectedName, expectsGatedKeyword) => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: flagOn })
-            const settings = [
-                {
-                    id: 'task-agent-my-preference',
-                    hasTitle: true,
-                    titleString: 'My default model',
-                    descriptionString: null,
-                },
-                {
-                    id: 'task-comments-slack-dm',
-                    hasTitle: true,
-                    titleString: 'Gated setting',
-                    descriptionString: null,
-                    keywords: ['zebra'],
-                    flag: 'TODAY_RAIL_NAV' as const,
-                },
-            ]
-            logic.actions.setSettingsSections([
-                {
-                    id: 'environment-task-agents',
-                    level: 'environment',
-                    titleString: 'Agent preferences',
-                    flag: 'TODAY_RAIL_NAV',
-                    settings,
-                },
-                {
-                    id: 'environment-task-agents',
-                    level: 'environment',
-                    titleString: 'Model preferences',
-                    flag: '!TODAY_RAIL_NAV',
-                    settings,
-                },
-            ])
-
-            const items = logic.values.settingsItems.filter((item) => item.id === 'settings-project-task-agents')
-            expect(items.map((item) => item.displayName)).toEqual([expectedName])
-            expect(items[0].name.includes('zebra')).toBe(expectsGatedKeyword)
-        }
-    )
 
     it('aborts and cancels the in-flight person search when the term is cleared', async () => {
         neverResolvingPersonSearch()
@@ -174,7 +111,8 @@ describe('searchLogic', () => {
 
     it.each([
         ['materialized views', 'dataManagementItems', 'Models'],
-        ['batch exports', 'dataManagementItems', 'Destinations'],
+        ['data modeling', 'dataManagementItems', 'Models'],
+        ['batch exports', 'dataManagementItems', 'Destinations Batch exports'],
         ['insights', 'productsItems', 'Product analytics'],
         ['semantic layer', 'productsItems', 'Data catalog'],
         ['Semantic Layer', 'productsItems', 'Data catalog'],
@@ -194,15 +132,73 @@ describe('searchLogic', () => {
         ['models data quality', true, true],
         ['data quality', false, false],
         ['', true, false],
-    ])('lists the Models data quality tab for search %j with the flag on=%s: %s', (search, flagEnabled, listed) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: flagEnabled })
-        logic.actions.setSearch(search)
+    ])(
+        'lists the Models data quality tab for search %j with the flag on=%s: %s',
+        async (search, flagEnabled, listed) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: flagEnabled })
+            await searchOnceProductsLoad(search)
 
-        const dataManagement = logic.values.allCategories.find((category) => category.key === 'data-management')
-        const tabRow = dataManagement?.items.find((item) => item.href === urls.models('data-quality'))
-        expect(tabRow ? { displayName: tabRow.displayName, parentName: tabRow.parentName } : undefined).toEqual(
-            listed ? { displayName: 'Data quality', parentName: 'Models' } : undefined
-        )
+            const rows = logic.values.allCategories.flatMap((category) =>
+                category.items.filter((item) => item.href === urls.models('data-quality'))
+            )
+            expect(rows.map((row) => ({ displayName: row.displayName, parentName: row.parentName }))).toEqual(
+                listed ? [{ displayName: 'Data quality', parentName: 'Models' }] : []
+            )
+        }
+    )
+
+    it.each([
+        ['batch exports', [], '/data-management/destinations?tab=batch'],
+        ['metrics sql', [], '/metrics?activeTab=sql'],
+        ['dashboards cross-project', [FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS], '/dashboard?tab=cross-project'],
+        ['tracing sql', [FEATURE_FLAGS.TRACING, FEATURE_FLAGS.TRACING_SCENE_TABS], '/tracing?tab=sql'],
+        ['reusable widgets', [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS], '/notebooks?tab=widgets'],
+        ['replay vision usage', [], '/replay-vision?tab=usage'],
+    ])('links the tab row found by %j with flags %j to %s', async (search, flags, href) => {
+        featureFlagLogic.actions.setFeatureFlags([], Object.fromEntries(flags.map((flag) => [flag, true])))
+        await searchOnceProductsLoad(search)
+
+        const tabs = logic.values.allCategories.find((category) => category.key === SEARCH_TAB_CATEGORY)
+        expect(tabs?.items.map((item) => item.href)).toContain(href)
+    })
+
+    it('does not list every tab row for "ab", which only resembles the group name', async () => {
+        await searchOnceProductsLoad('ab')
+
+        const rows = logic.values.allCategories.flatMap((category) => category.items)
+        expect(rows.some((item) => item.category === SEARCH_TAB_CATEGORY)).toBe(true)
+        expect(rows.map((item) => item.href)).not.toContain('/metrics?activeTab=sql')
+    })
+
+    it('lists Error tracking first in Products for "errors"', async () => {
+        await searchOnceProductsLoad('errors')
+
+        const products = logic.values.allCategories.find((category) => category.key === 'tools')
+        expect(products?.items[0]?.name).toBe('Error tracking')
+    })
+
+    it('lists the Tabs group above Settings', async () => {
+        searchListsLogic({ commandPalette: false }).actions.setSettingsSections([
+            {
+                id: 'environment-web-analytics',
+                level: 'environment',
+                titleString: 'Web vitals',
+                settings: [
+                    {
+                        id: 'web-vitals-autocapture',
+                        hasTitle: true,
+                        titleString: 'Web vitals',
+                        descriptionString: null,
+                    },
+                ],
+            },
+        ])
+        await searchOnceProductsLoad('web vitals')
+
+        const keys = logic.values.allCategories.map((category) => category.key)
+        expect(keys).toContain('settings')
+        expect(keys.indexOf(SEARCH_TAB_CATEGORY)).toBeGreaterThan(-1)
+        expect(keys.indexOf(SEARCH_TAB_CATEGORY)).toBeLessThan(keys.indexOf('settings'))
     })
 
     it.each([
@@ -251,6 +247,51 @@ describe('searchLogic', () => {
             }),
         ])
         expect(logic.values.allCategories.find((category) => category.key === 'tickets')?.items).toHaveLength(1)
+    })
+
+    it('maps views and endpoints into separate categories and detail scenes', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/search/': {
+                    results: [
+                        {
+                            result_id: 'view-id',
+                            type: 'data_warehouse_view',
+                            rank: 1,
+                            extra_fields: { name: 'orders_by_day', node_id: 'node-id' },
+                        },
+                        {
+                            result_id: 'endpoint-id',
+                            type: 'endpoint',
+                            rank: 1,
+                            extra_fields: { name: 'orders_api' },
+                        },
+                    ],
+                    counts: {},
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.setSearch('orders')).toDispatchActions([
+            'loadUnifiedSearchResultsSuccess',
+        ])
+
+        expect(logic.values.allCategories.find((category) => category.key === 'data_warehouse_view')?.items).toEqual([
+            expect.objectContaining({
+                name: 'orders_by_day',
+                category: 'data_warehouse_view',
+                href: urls.nodeDetail('node-id'),
+                itemType: 'data_modeling',
+            }),
+        ])
+        expect(logic.values.allCategories.find((category) => category.key === 'endpoint')?.items).toEqual([
+            expect.objectContaining({
+                name: 'orders_api',
+                category: 'endpoint',
+                href: urls.endpoint('orders_api'),
+                itemType: 'endpoints',
+            }),
+        ])
     })
 
     // A Slack or widget ticket has no email subject, so the first message stands in as the title.
