@@ -1316,12 +1316,12 @@ class TestProperty(BaseTest):
     )
     def test_data_warehouse_property_with_list_values(self, operator: str, expected: str):
         expr = self._property_to_expr(
-            Property(
-                type="data_warehouse",
-                key="foobars.properties.$feature/test",
-                value=["control", "test"],
-                operator=operator,
-            ),
+            {
+                "type": "data_warehouse",
+                "key": "foobars.properties.$feature/test",
+                "value": ["control", "test"],
+                "operator": operator,
+            },
             self.team,
         )
 
