@@ -2402,8 +2402,9 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             "miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read "
             "callers (session auth or a `signal_scout:read` PAK) get the newest stored profile whatever its age, "
             "with `stale=true` when it is past `expires_at`. They never build inline: when the team has no "
-            "profile, the call starts a background build and returns 404, so retry in a minute. Read this at the start of a run to orient on "
-            "the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface."
+            "profile, the call starts a background build and returns 404, so retry in a minute. Read this at "
+            "the start of a run to orient on the team's product mix, integrations, warehouse sources, signal "
+            "coverage, and existing inbox surface."
         ),
     )
     @action(

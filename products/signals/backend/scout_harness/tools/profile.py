@@ -64,9 +64,9 @@ class ProjectProfile:
     """Wire shape for a `SignalProjectProfile` row.
 
     `payload` is the structured snapshot: `{inventory: {...}}`. `stale` is true when the
-    row is past `expires_at`, which only a read-only caller can get. Surfaced as a dict because consumers
-    (the agent, the scout's prompts) read it as JSON, but the `inventory` block is
-    validated against the `Inventory` schema on write (see `profile/schema.py`), so the
+    row is past `expires_at`, which only a read-only caller can get. `payload` is surfaced
+    as a dict because consumers (the agent, the scout's prompts) read it as JSON, but the
+    `inventory` block is validated against the `Inventory` schema on write (see `profile/schema.py`), so the
     stored jsonb is schema-backed rather than free-form.
     """
 
@@ -144,10 +144,10 @@ def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfil
     non-expired row before paying the build cost again.
 
     Concurrent cache misses (several scout runs, or a scout run and the
-    `build_signal_project_profile` task, hitting the same team at once) take a Postgres advisory lock keyed on team_id and re-check the cache after
-    acquiring it. Without this, a thundering herd would each run `build_inventory` and
-    insert a separate row; the lock collapses them into a single build with the losers
-    returning the winner's freshly persisted row. After persisting, prune so only the
+    `build_signal_project_profile` task, hitting the same team at once) take a Postgres
+    advisory lock keyed on team_id and re-check the cache after acquiring it. Without
+    this, a thundering herd would each run `build_inventory` and insert a separate row;
+    the lock collapses them into a single build with the losers returning the winner's freshly persisted row. After persisting, prune so only the
     last `PROFILE_KEEP_N` rows survive — the table would otherwise grow unbounded
     (one row per cache miss, ~once per `PROFILE_TTL` per team, forever).
 
