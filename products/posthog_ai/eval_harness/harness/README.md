@@ -38,6 +38,8 @@ A run of one-shot suites never pays for — or fails preflight on — the sandbo
 | `context.py`       | `EvalContext`, the single object every suite receives.                                                                            |
 | `reporting.py`     | `ProgressReporter` and the final summary table. The quiet Braintrust reporter lives with the engine (`../engines/braintrust.py`). |
 | `transcript.py`    | Mirrors stdout and stderr to one run log, then publishes its absolute path as the final line.                                     |
+| `dashboard.py`     | Interactive terminal view, input handling, and bounded log reads. Runs separately from the eval loop.                             |
+| `progress.py`      | Immutable trial progress shared by the reporter and interactive view.                                                             |
 | `lifecycle.py`     | `SandboxedEvalHarness`: orchestrates bootstrap, the run, and teardown.                                                            |
 
 ## Boot sequence
@@ -79,8 +81,15 @@ Terminal writes do not hold the transcript file lock, so progress output cannot 
 The runner starts workflow cleanup before progress reporting.
 Cancellation during progress reporting does not stop workflow cleanup.
 The sandbox window always reclaims notebook kernels after the agent run, without another progress report.
-The console defaults to concise output. `--verbose` shows detailed logging and tracebacks.
+Interactive terminals use the dashboard by default. CI, pipes, and `--no-tui` use concise text output.
+`--tui` requires an interactive terminal. `--verbose` shows detailed logging and tracebacks.
 Both modes retain detailed logs in the transcript, including routine service stderr without a warning label.
+
+The reporter publishes immutable trial updates to the dashboard; the view does not parse log lines to infer case state.
+The dashboard uses a separate thread and a duplicate terminal descriptor, outside stdout/stderr capture.
+The transcript routes console messages to the view while still saving their original text.
+Cancel controls send one SIGINT through the existing cleanup path and keep the view open during teardown.
+The completed view stays open until `q`, then the final summary and transcript path print to the restored terminal.
 
 Every invocation that attempts an eval writes the combined stdout/stderr stream to `logs/harness/<timestamp>_<id>.log`.
 An explanatory line identifies the full run transcript, followed by the log's unlabeled absolute path as the final line in both the transcript and terminal.

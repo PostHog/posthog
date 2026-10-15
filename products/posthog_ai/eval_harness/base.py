@@ -642,6 +642,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     total_attempts=self.ctx.infrastructure_retries + 1,
                     delay_seconds=delay,
                     error_type=error_type,
+                    trial_id=hooks.metadata.get("trial_id") if hooks is not None else None,
                 )
                 await asyncio.sleep(delay)
         raise AssertionError("unreachable")

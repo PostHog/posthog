@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import sys
 import logging
+from contextlib import ExitStack
+from typing import TYPE_CHECKING
 
 from .cli import HarnessOptions, parse_args
 from .django_env import setup_django
@@ -11,12 +13,17 @@ from .ports import PERSONHOG_ROUTER_PORT
 from .providers import SANDBOX_PROVIDER_SETTING, PreflightError
 from .transcript import RunTranscript, write_console
 
+if TYPE_CHECKING:
+    from .dashboard import EvalDashboard
+
 logger = logging.getLogger("products.posthog_ai.eval_harness")
 
 USAGE_ERROR_EXIT_CODE = 2
 
 
-def _run(options: HarnessOptions, *, transcript: RunTranscript | None = None) -> int:
+def _run(
+    options: HarnessOptions, *, transcript: RunTranscript | None = None, dashboard: EvalDashboard | None = None
+) -> int:
     # Load the repo-root .env before Django reads the environment, so the harness
     # works without a manual `set -a; source .env`. Shell values win, and the
     # explicit overrides below still trump anything an env file provided.
@@ -49,7 +56,7 @@ def _run(options: HarnessOptions, *, transcript: RunTranscript | None = None) ->
     from .lifecycle import SandboxedEvalHarness  # noqa: PLC0415 — must import after django.setup()
 
     try:
-        return SandboxedEvalHarness(options).run()
+        return SandboxedEvalHarness(options, dashboard=dashboard).run()
     except (PreflightError, SuiteDiscoveryError) as e:
         # A missing prerequisite or a typo'd selector is user error, not a harness
         # bug: say what's wrong without a traceback.
@@ -66,27 +73,54 @@ def _configure_logging(transcript: RunTranscript | None = None, *, verbose: bool
     )
 
 
+def use_dashboard(options: HarnessOptions) -> bool:
+    terminal = sys.stdin.isatty() and sys.stdout.isatty() and sys.stderr.isatty() and os.getenv("TERM") != "dumb"
+    if options.interactive is True and not terminal:
+        raise PreflightError("--tui requires an interactive terminal. Use --no-tui for redirected output.")
+    return terminal and (options.interactive if options.interactive is not None else not os.getenv("CI"))
+
+
 def main(argv: list[str] | None = None) -> int:
     options = parse_args(argv)
     if options.list_only:
         _configure_logging()
         return _run(options)
 
+    try:
+        interactive = use_dashboard(options)
+    except PreflightError as error:
+        write_console(f"error: {error}\n", stream=sys.stderr)
+        return USAGE_ERROR_EXIT_CODE
+
     transcript = RunTranscript.create()
     exit_code = 1
     try:
-        with transcript.capture(verbose=options.verbose):
-            _configure_logging(transcript, verbose=options.verbose)
-            try:
-                exit_code = _run(options, transcript=transcript)
-            except KeyboardInterrupt:
-                logger.warning("Interrupted")
-                exit_code = 130
-            except Exception:
-                logger.exception("Sandboxed eval harness failed")
-                exit_code = 1
-            finally:
-                logging.shutdown()
+        with ExitStack() as stack:
+            dashboard = None
+            if interactive:
+                from .dashboard import (
+                    open_dashboard,  # noqa: PLC0415 — keep the terminal UI off the noninteractive import path
+                )
+
+                try:
+                    dashboard = stack.enter_context(open_dashboard(transcript.path))
+                except (OSError, RuntimeError) as error:
+                    write_console(f"Interactive view unavailable: {error}. Continuing with plain text output.\n")
+            with transcript.capture(verbose=options.verbose, console_output=dashboard.write if dashboard else None):
+                _configure_logging(transcript, verbose=options.verbose)
+                try:
+                    exit_code = _run(options, transcript=transcript, dashboard=dashboard)
+                except KeyboardInterrupt:
+                    logger.warning("Interrupted")
+                    exit_code = 130
+                except Exception:
+                    logger.exception("Sandboxed eval harness failed")
+                    exit_code = 1
+                finally:
+                    logging.shutdown()
+            if dashboard:
+                dashboard.finish(exit_code)
+                write_console(dashboard.result_text)
     finally:
         transcript.finish()
     return exit_code

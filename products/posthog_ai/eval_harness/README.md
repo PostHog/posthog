@@ -77,6 +77,8 @@ python -m products.posthog_ai.eval_harness.harness --list
 | `--create-db`                     | Rebuild the eval test database instead of reusing it.                                                    |
 | `--case-timeout <seconds>`        | Agent-run budget (minimum 1 second), started after the case's team setup.                                |
 | `--verbose`                       | Show detailed logs and tracebacks in the console. The transcript always keeps the detailed logs.         |
+| `--tui`                           | Force the interactive view. Requires an interactive terminal.                                            |
+| `--no-tui`                        | Use plain text output, including in an interactive terminal.                                             |
 | `--trials N`                      | Run every case N times (Braintrust trials), for variance on stochastic agents.                           |
 | `--infra-retries N`               | Retry temporary case setup failures and service readiness timeouts N times. Default 2; use 0 to disable. |
 | `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).                          |
@@ -109,10 +111,33 @@ A timeout summary contains the failure reason. Its raw log file can be empty; th
 
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.
-Normal console output shows runner progress, summaries, and short error messages.
+Interactive terminals show a live view by default. CI and redirected output use plain text.
+Plain text output shows runner progress, summaries, and short error messages.
 Dependency warnings, SDK progress bars, and direct setup prints stay in the transcript.
 `--verbose` also shows Python warnings, SDK output, and detailed logs in the console.
 Native subprocess output always goes to the transcript.
+
+### Interactive view
+
+The view shows service setup and one row per trial, with phase, elapsed time, trial number, and setup retry count.
+Use Up/Down and Enter to select a trial. Its details show local results and scores after execution.
+Select **Run and setup** for setup status and run messages. Press `l` to switch to the full run transcript.
+During agent execution, use this transcript for live logs. Per-trial log files become available after execution.
+
+| Key                  | Action                                                            |
+| -------------------- | ----------------------------------------------------------------- |
+| Up/Down, Enter       | Select a trial or the run                                         |
+| Tab                  | Move focus between the trial list and details                     |
+| `l`                  | Switch between details and logs                                   |
+| `/`, Enter, Escape   | Search the details, accept the search, or leave search            |
+| `f`                  | Turn automatic log following on or off                            |
+| `q`, then `y`        | Cancel a running eval and wait for cleanup; `n` continues the run |
+| Ctrl-C               | Cancel once and wait for cleanup                                  |
+| `q` after completion | Close the view                                                    |
+
+The final results stay visible until you close the view. The terminal then prints the final summary and transcript path.
+Use `--no-tui` for the existing text output. `--verbose` adds detailed messages to the view or text output.
+The view does not change scores, retries, timeouts, or sandbox cleanup. Its screen controls are not written to the transcript.
 
 ### Comparing skill delivery
 
@@ -313,7 +338,7 @@ python -m products.posthog_ai.eval_harness.harness --list | grep my_thing
 
 ## Output
 
-Progress lines use stable labels as cases and suites start or finish: `SUITE START`, `EXPERIMENT START`, `CASE START`, `CASE PHASE`, `CASE READY`, `CASE DONE`, `EXPERIMENT DONE`, and `SUITE DONE`.
+In plain text output and the transcript, progress lines use stable labels as cases and suites start or finish: `SUITE START`, `EXPERIMENT START`, `CASE START`, `CASE PHASE`, `CASE READY`, `CASE DONE`, `EXPERIMENT DONE`, and `SUITE DONE`.
 Only the overall run uses `PASS` or `FAIL`, so a suite with a low behavioral score still reads as completed rather than passed.
 The console shows case starts and phase changes for each trial.
 A status line every 30 seconds shows execution totals, phase counts, elapsed time, and the oldest active trial.
