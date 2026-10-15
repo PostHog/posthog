@@ -22,7 +22,7 @@ use crate::batch::{Batch, Block, Inspectors, SessionKey};
 use crate::process::{admit, read, sampled};
 use crate::store::BlobStore;
 use crate::teams::TeamCache;
-use crate::write::{prepare, write_blocks, write_images, WriteError};
+use crate::write::{prepare, write_block_index, write_blocks, write_images, WriteError};
 
 /// Records the partitions each rebalance takes away, so the loop can drop what it buffered for them.
 pub struct RebalanceContext {
@@ -281,5 +281,14 @@ async fn flush(blocks: &mut [Block], writer: Option<&Writer>) -> Result<(), Flus
     )
     .await?;
     counter!("replay_recorder_v4_written_blocks_total").increment(written.len() as u64);
+    write_block_index(
+        blocks,
+        &written,
+        &keys,
+        &writer.rrweb_bucket,
+        writer.store.as_ref(),
+        now,
+    )
+    .await?;
     Ok(())
 }
