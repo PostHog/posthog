@@ -27,6 +27,7 @@ use crate::observability::metrics::{
     COHORT_STREAM_TRANSFERS_CONSUME_BATCH_SIZE, COHORT_STREAM_TRANSFER_DESERIALIZE_ERRORS,
 };
 use crate::partitions::offset_tracker::OffsetTracker;
+use crate::partitions::provenance::ProvenanceInput;
 use crate::workers::MergeWorkerDeps;
 
 /// One merge trigger consumed from `person_merge_events`, paired with its commit coordinates.
@@ -64,6 +65,8 @@ pub trait FollowerRoute: Send + Sync + 'static {
     const CONSUMED_TOTAL: &'static str;
     const DESERIALIZE_ERRORS_TOTAL: &'static str;
     const CONSUME_BATCH_SIZE: &'static str;
+    /// The provenance slot this route's commits record.
+    const INPUT: ProvenanceInput;
 
     /// The route-specific commit tracker. Each route selects its own so commits never cross topics.
     fn tracker(deps: &MergeWorkerDeps) -> &Arc<OffsetTracker>;
@@ -89,6 +92,7 @@ impl FollowerRoute for MergeRoute {
     const CONSUMED_TOTAL: &'static str = COHORT_STREAM_MERGES_CONSUMED;
     const DESERIALIZE_ERRORS_TOTAL: &'static str = COHORT_STREAM_MERGE_DESERIALIZE_ERRORS;
     const CONSUME_BATCH_SIZE: &'static str = COHORT_STREAM_MERGES_CONSUME_BATCH_SIZE;
+    const INPUT: ProvenanceInput = ProvenanceInput::Merges;
 
     fn tracker(deps: &MergeWorkerDeps) -> &Arc<OffsetTracker> {
         &deps.merge_tracker
@@ -121,6 +125,7 @@ impl FollowerRoute for TransferRoute {
     const CONSUMED_TOTAL: &'static str = COHORT_STREAM_TRANSFERS_CONSUMED;
     const DESERIALIZE_ERRORS_TOTAL: &'static str = COHORT_STREAM_TRANSFER_DESERIALIZE_ERRORS;
     const CONSUME_BATCH_SIZE: &'static str = COHORT_STREAM_TRANSFERS_CONSUME_BATCH_SIZE;
+    const INPUT: ProvenanceInput = ProvenanceInput::Transfers;
 
     fn tracker(deps: &MergeWorkerDeps) -> &Arc<OffsetTracker> {
         &deps.transfer_tracker
@@ -153,6 +158,7 @@ impl FollowerRoute for CascadeRoute {
     const CONSUMED_TOTAL: &'static str = COHORT_STREAM_CASCADES_CONSUMED;
     const DESERIALIZE_ERRORS_TOTAL: &'static str = COHORT_STREAM_CASCADE_DESERIALIZE_ERRORS;
     const CONSUME_BATCH_SIZE: &'static str = COHORT_STREAM_CASCADES_CONSUME_BATCH_SIZE;
+    const INPUT: ProvenanceInput = ProvenanceInput::Cascades;
 
     fn tracker(deps: &MergeWorkerDeps) -> &Arc<OffsetTracker> {
         &deps.cascade_tracker
@@ -230,7 +236,8 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
                     let now = tokio::time::Instant::now();
                     if now >= commit_deadline {
                         fsync_then_commit(
-                            self.dispatcher.handle(),
+                            &self.dispatcher,
+                            R::INPUT,
                             &self.consumer,
                             self.tracker(),
                             self.owned_committable_offsets(),
@@ -247,7 +254,8 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
         // Final sync commit runs before the events consumer's shutdown; workers may still be marking
         // offsets at this point, but follower offsets are independent.
         fsync_then_commit(
-            self.dispatcher.handle(),
+            &self.dispatcher,
+            R::INPUT,
             &self.consumer,
             self.tracker(),
             self.owned_committable_offsets(),

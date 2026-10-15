@@ -15,8 +15,8 @@ pub use column_families::{
 };
 pub use handle::{OffloadConfig, OffloadMode, ReadLane, StoreHandle};
 pub use keys::{
-    MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2CohortPrefix, Stage2DirtyKey,
-    Stage2DirtyPrefix, Stage2Key, Stage2TransferredRegisterKey,
+    MergeAppliedKey, MergeDrainKey, PartitionProvenanceKey, PendingTransferKey, Stage2CohortPrefix,
+    Stage2DirtyKey, Stage2DirtyPrefix, Stage2Key, Stage2TransferredRegisterKey,
     Stage2TransferredRegisterPersonPrefix, TombstoneKey,
 };
 pub use keyspace::{

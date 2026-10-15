@@ -26,12 +26,13 @@ use tracing::warn;
 
 use super::column_families::{self, Cf, OpaqueCf};
 use super::keys::{
-    self, MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2CohortPrefix, Stage2DirtyKey,
-    Stage2Key, Stage2TransferredRegisterKey, Stage2TransferredRegisterPersonPrefix, TombstoneKey,
-    STAGE2_DIRTY_KEY_LEN,
+    self, MergeAppliedKey, MergeDrainKey, PartitionProvenanceKey, PendingTransferKey,
+    Stage2CohortPrefix, Stage2DirtyKey, Stage2Key, Stage2TransferredRegisterKey,
+    Stage2TransferredRegisterPersonPrefix, TombstoneKey, STAGE2_DIRTY_KEY_LEN,
 };
 use super::keyspace::{
-    BehavioralKey, Keyspace, Meta, PersonPrefix, PersonRecordKey, META_SCHEMA_VERSION,
+    BehavioralKey, Keyspace, Meta, PersonPrefix, PersonRecordKey, META_PROVENANCE,
+    META_SCHEMA_VERSION,
 };
 use super::staged::{StagedBatch, StagedOp};
 use crate::observability::metrics::{
@@ -418,11 +419,23 @@ impl CohortStore {
         }
     }
 
-    /// Stamp `cf_meta[b"schema_version"]` with the current schema version (big-endian `u32`).
+    /// Stamp `cf_meta[b"schema_version"]` with the current schema version (big-endian `u32`). Only a
+    /// fresh store gets here, so it also records provenance from its first write.
     fn stamp_schema_version(&self) -> Result<(), StoreError> {
         self.write_batch(|batch| {
             batch.put::<Meta>(&META_SCHEMA_VERSION, &STORE_SCHEMA_VERSION.to_be_bytes());
+            batch.put::<Meta>(&META_PROVENANCE, &[]);
         })
+    }
+
+    /// Whether this store records partition provenance. `false` only for a store that predates it.
+    pub fn tracks_provenance(&self) -> Result<bool, StoreError> {
+        Ok(self.get(Cf::Meta, META_PROVENANCE.0)?.is_some())
+    }
+
+    /// Record that every partition this store keeps now carries provenance.
+    pub fn mark_provenance_tracked(&self) -> Result<(), StoreError> {
+        self.write_batch(|batch| batch.put::<Meta>(&META_PROVENANCE, &[]))
     }
 
     /// Read a raw value from any CF.
@@ -694,6 +707,7 @@ impl CohortStore {
             })?;
             if Stage2DirtyKey::decode(&key_bytes).is_ok()
                 || Stage2TransferredRegisterKey::decode(&key_bytes).is_ok()
+                || PartitionProvenanceKey::decode(&key_bytes).is_ok()
             {
                 // Metadata is the partition tail, so no Stage 2 row can follow it. This is reachable
                 // only for the all-ones row prefix; ordinary cohort ranges end earlier.
@@ -781,6 +795,37 @@ impl CohortStore {
             })?;
             out.push((
                 Stage2TransferredRegisterKey::decode(&key_bytes)?,
+                value.to_vec(),
+            ));
+        }
+        Ok(out)
+    }
+
+    /// Read every provenance slot of one partition as raw `(slot, value)` pairs, in slot order.
+    pub fn read_partition_provenance(
+        &self,
+        partition_id: u16,
+    ) -> Result<Vec<(u8, Vec<u8>)>, StoreError> {
+        let (start, end) = PartitionProvenanceKey::partition_range(partition_id);
+        let handle = self.cf(Cf::Stage2)?;
+        let mut read_opts = ReadOptions::default();
+        read_opts.set_iterate_upper_bound(end);
+        let iter = self.db.iterator_cf_opt(
+            handle,
+            read_opts,
+            IteratorMode::From(&start, Direction::Forward),
+        );
+        let mut out = Vec::new();
+        for item in iter {
+            let (key_bytes, value) = item.map_err(|source| {
+                counter!(STORE_ERRORS_TOTAL, "op" => OP_SCAN).increment(1);
+                StoreError::Backend {
+                    op: OP_SCAN,
+                    source,
+                }
+            })?;
+            out.push((
+                PartitionProvenanceKey::decode(&key_bytes)?.slot,
                 value.to_vec(),
             ));
         }
@@ -2631,6 +2676,14 @@ mod tests {
             .write_batch(|b| b.put::<Behavioral>(&key, b"state"))
             .unwrap();
         assert!(store.get_behavioral(&key).unwrap().is_some());
+        let mut provenance = StagedBatch::default();
+        provenance.put_partition_provenance(PartitionProvenanceKey::new(5, 0), b"lineage");
+        provenance.put_partition_provenance(PartitionProvenanceKey::new(6, 0), b"neighbor");
+        store.apply(&provenance).unwrap();
+        assert_eq!(
+            store.read_partition_provenance(5).unwrap(),
+            vec![(0, b"lineage".to_vec())]
+        );
 
         store.delete_partition(5).unwrap();
 
@@ -2638,6 +2691,14 @@ mod tests {
             store.get_behavioral(&key).unwrap(),
             None,
             "the partition's behavioral rows are reclaimed",
+        );
+        assert!(
+            store.read_partition_provenance(5).unwrap().is_empty(),
+            "a wiped partition must lose its provenance, or it would read warm with no state",
+        );
+        assert_eq!(
+            store.read_partition_provenance(6).unwrap(),
+            vec![(0, b"neighbor".to_vec())]
         );
         assert_eq!(
             store

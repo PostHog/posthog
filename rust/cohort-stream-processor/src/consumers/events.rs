@@ -47,12 +47,13 @@ use crate::observability::metrics::{
 use crate::partitions::backpressure::Backpressure;
 use crate::partitions::offset_tracker::OffsetTracker;
 use crate::partitions::pause::{ConsumerPauser, PartitionPauser};
+use crate::partitions::provenance::{stage_input_offsets, ProvenanceInput, ProvenanceRegistry};
 use crate::partitions::rebalance::{CohortConsumerContext, ConsumerCommandReceiver};
 use crate::partitions::router::{PartitionRouter, SeedRefusal, SeedSendOutcome, SendOutcome};
 use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::MembershipSink;
 use crate::store::durability::OffsetManifest;
-use crate::store::StoreHandle;
+use crate::store::{StagedBatch, StoreHandle};
 use crate::workers::{EventNameGating, MergeWorkerDeps, Stage1Worker};
 
 /// Back-off after a Kafka transport error so a fast-failing `recv()` can't spin a consume loop.
@@ -538,6 +539,23 @@ impl EventDispatcher {
         }
     }
 
+    /// The settled boot assignment, once the boot staleness sweep has recorded it.
+    pub(crate) fn boot_assignment(&self) -> Option<&HashSet<i32>> {
+        self.boot_assignment.get()
+    }
+
+    /// Whether a revoke drain still runs for the partition. The drain can delete the partition's
+    /// state after a quick reassign, so its provenance is not final until the drain ends.
+    pub(crate) fn is_draining(&self, partition: i32) -> bool {
+        self.workers
+            .get(&partition)
+            .is_some_and(|slot| matches!(*slot, WorkerSlot::Draining))
+    }
+
+    pub(crate) fn provenance(&self) -> &ProvenanceRegistry {
+        &self.merge.reconcile.provenance
+    }
+
     pub fn owns(&self, partition: i32) -> bool {
         self.owned.contains(&partition)
     }
@@ -614,6 +632,7 @@ impl EventDispatcher {
         // Forget before ownership flips: every tenure starts fail-closed for the seed fence, and
         // a concurrent idle-probe advance can't slip in between.
         self.merge.live_watermarks.forget_partition(partition);
+        self.merge.reconcile.provenance.begin_tenure(partition);
         self.owned.insert(partition);
         counter!(PARTITIONS_ASSIGNED_TOTAL).increment(1);
     }
@@ -622,6 +641,7 @@ impl EventDispatcher {
     /// for rapid revoke-then-reassign; teardown is decided in the async drain.
     pub fn revoke_partition_sync(&self, partition: i32) {
         self.owned.remove(&partition);
+        self.merge.reconcile.provenance.end_tenure(partition);
         counter!(PARTITIONS_REVOKED_TOTAL).increment(1);
     }
 
@@ -1115,7 +1135,8 @@ impl CohortStreamEventsConsumer {
         let tracker = self.dispatcher.shutdown().await;
         let offsets = self.dispatcher.owned_committable_offsets();
         fsync_then_commit(
-            self.dispatcher.handle(),
+            &self.dispatcher,
+            ProvenanceInput::Events,
             &self.consumer,
             &tracker,
             offsets,
@@ -1388,16 +1409,30 @@ pub(crate) fn commit_offsets<C: ConsumerContext>(
 /// The caller captures `offsets` before this runs, so the fsync makes durable exactly what they
 /// already reflect. It runs on the write lane with no permit so the commit cadence never queues
 /// behind reads.
+///
+/// With provenance on, a partition without a verdict for its tenure commits nothing, and the others
+/// record `offsets` as their provenance in the same fsync, so the provenance never trails a commit.
 pub(crate) async fn fsync_then_commit<C: ConsumerContext>(
-    handle: &StoreHandle,
+    dispatcher: &EventDispatcher,
+    input: ProvenanceInput,
     consumer: &StreamConsumer<C>,
     tracker: &OffsetTracker,
     offsets: HashMap<i32, i64>,
     topic: &str,
     mode: CommitMode,
 ) {
+    let handle = dispatcher.handle();
+    let provenance = dispatcher.provenance();
+    let offsets = provenance.committable(offsets);
     if offsets.is_empty() {
         return;
+    }
+    if provenance.is_enabled() {
+        let mut staged = StagedBatch::default();
+        stage_input_offsets(&mut staged, input, &offsets);
+        if handle.commit(staged).await.is_err() {
+            return; // store counted the error; a commit without its provenance would read stale
+        }
     }
     if handle.flush_wal_sync().await.is_err() {
         return; // store counted the error; skip commit so `committed` never outruns `durable`
@@ -1422,7 +1457,8 @@ async fn run_commit_loop(
             _ = handle.shutdown_recv() => break,
             _ = ticker.tick() => {
                 fsync_then_commit(
-                    dispatcher.handle(),
+                    &dispatcher,
+                    ProvenanceInput::Events,
                     &consumer,
                     dispatcher.tracker(),
                     dispatcher.owned_committable_offsets(),

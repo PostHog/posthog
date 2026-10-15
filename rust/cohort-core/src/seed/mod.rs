@@ -21,6 +21,7 @@ pub use ids::{ClaimEpoch, ConditionHash, ConditionHashError, RunId, SChunkMs, Sc
 pub use person::{PersonSeed, PersonSeedError, MAX_PERSON_SEED_HASHES};
 pub use reconcile::{
     BehavioralShapeHash, PersonShapeHash, ReconcileCompleteMarker, ReconcileScope, ReconcileTile,
-    ReconcileTileError, ScopeKind, ShapeHashError, UnknownScopeKind,
+    ReconcileTileError, ReconcileWithheldMarker, ScopeKind, ShapeHashError, UnknownScopeKind,
+    WithheldReason,
 };
 pub use tile::SeedTile;

@@ -11,6 +11,7 @@ pub mod intake;
 pub mod offset_tracker;
 pub mod pacing;
 pub mod pause;
+pub mod provenance;
 pub mod rebalance;
 pub mod router;
 pub mod shuffle_message;
@@ -29,6 +30,10 @@ pub use partitioner::{
     merge_partition_key, murmur2, partition_for, partition_of, COHORT_PARTITION_COUNT,
 };
 pub use pause::{ConsumerPauser, PartitionPauser};
+pub use provenance::{
+    ClassifierInput, ConsumerCommits, PartitionClass, ProvenanceClassifier, ProvenanceInput,
+    ProvenanceRegistry,
+};
 pub use rebalance::{
     run_rebalance_worker, CohortConsumerContext, ConsumerCommand, ConsumerCommandReceiver,
     ConsumerCommandSender, RebalanceEvent, RebalanceEventReceiver,

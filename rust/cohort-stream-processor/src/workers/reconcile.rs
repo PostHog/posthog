@@ -23,14 +23,15 @@ use crate::filters::reverse_index::TeamFilters;
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, RECONCILE_BITS_FIXED_TOTAL,
     RECONCILE_JOBS_COMPLETED_TOTAL, RECONCILE_JOBS_DISCARDED_TOTAL,
-    RECONCILE_MARKERS_EMITTED_TOTAL, RECONCILE_MARKER_PRODUCE_ERRORS,
-    RECONCILE_PAGE_DURATION_SECONDS, RECONCILE_QUEUE_DEPTH, RECONCILE_ROWS_EMITTED_TOTAL,
-    RECONCILE_ROWS_SCANNED_TOTAL,
+    RECONCILE_MARKERS_EMITTED_TOTAL, RECONCILE_MARKERS_WITHHELD_TOTAL,
+    RECONCILE_MARKER_PRODUCE_ERRORS, RECONCILE_PAGE_DURATION_SECONDS, RECONCILE_QUEUE_DEPTH,
+    RECONCILE_ROWS_EMITTED_TOTAL, RECONCILE_ROWS_SCANNED_TOTAL,
 };
 use crate::partitions::offset_tracker::{DeferredOffset, MarkOutcome, OffsetTracker};
+use crate::partitions::provenance::{PartitionClass, ProvenanceRegistry};
 use crate::producer::{
     ChangeOrigin, CohortMembershipChange, MembershipSink, NoopReconcileMarkerSink,
-    ReconcileCompleteMarker, ReconcileMarkerSink,
+    ReconcileCompleteMarker, ReconcileMarkerSink, ReconcileWithheldMarker, WithheldReason,
 };
 use crate::stage2::Stage2State;
 use crate::store::{
@@ -99,6 +100,9 @@ pub struct ReconcileDeps {
     /// [`NoopReconcileMarkerSink`], which fails every produce rather than acking a marker the seeder
     /// would then wait for.
     pub marker_sink: Arc<dyn ReconcileMarkerSink>,
+    /// Each owned partition's provenance verdict. A fenced partition withholds its completion
+    /// markers; a partition without a verdict holds its reconciles until it gets one.
+    pub provenance: Arc<ProvenanceRegistry>,
 }
 
 impl Default for ReconcileDeps {
@@ -108,6 +112,7 @@ impl Default for ReconcileDeps {
             scan_page: DEFAULT_RECONCILE_SCAN_PAGE,
             backlog: Arc::new(ReconcileBacklog::default()),
             marker_sink: Arc::new(NoopReconcileMarkerSink),
+            provenance: Arc::new(ProvenanceRegistry::default()),
         }
     }
 }
@@ -397,6 +402,27 @@ pub(crate) async fn handle_reconcile_drain(
                 continue;
             }
             ReconcileGuard::Proceed => {}
+        }
+
+        match merge.reconcile.provenance.class(i32::from(partition_id)) {
+            None => {
+                debug!(
+                    partition_id,
+                    team_id = tile.team_id().0,
+                    cohort_id = tile.cohort_id().0,
+                    run_id = %tile.run_id().0,
+                    "reconcile drain waiting for the partition's provenance verdict",
+                );
+                return;
+            }
+            Some(PartitionClass::Fenced(reason)) => {
+                match withhold_marker(partition_id, merge, queue, &tile, reason, last_updated).await
+                {
+                    DrainStep::Reenter => continue,
+                    DrainStep::Yield => return,
+                }
+            }
+            Some(PartitionClass::Warm) => {}
         }
 
         let filters = filters.expect("the proceed guard proved the team exists");
@@ -784,6 +810,70 @@ async fn drain_marker(
         "reconcile job completed",
     );
     DrainStep::Yield
+}
+
+/// Emit a `reconcile_withheld` outcome in place of the completion marker of a partition that is
+/// missing history, then release the job's seed offset as a discard does, so later seeds keep
+/// flowing. The run stays short on this partition, so the sweeper deletes nothing for it.
+async fn withhold_marker(
+    partition_id: u16,
+    merge: &MergeWorkerDeps,
+    queue: &mut ReconcileQueue,
+    tile: &ReconcileTile,
+    reason: WithheldReason,
+    last_updated: &str,
+) -> DrainStep {
+    let marker = ReconcileWithheldMarker::new(
+        tile.team_id(),
+        tile.cohort_id(),
+        partition_id,
+        tile.run_id(),
+        reason,
+        last_updated.to_string(),
+    );
+    let acks = merge
+        .reconcile
+        .marker_sink
+        .produce_withheld(vec![marker])
+        .await;
+    let kind = tile.scope().kind().as_str();
+    let failed_acks = acks.iter().filter(|ack| ack.is_err()).count();
+    if acks.len() != 1 || failed_acks > 0 {
+        counter!(RECONCILE_MARKER_PRODUCE_ERRORS, "kind" => kind).increment(1);
+        warn_job!(
+            tile,
+            partition_id,
+            reason = reason.as_str(),
+            ack_count = acks.len(),
+            failed_acks,
+            "reconcile withheld-marker produce failed; retrying on the next tick",
+        );
+        return DrainStep::Yield;
+    }
+
+    let withheld = queue
+        .finish_front()
+        .expect("the withheld queue head is still present");
+    complete_offset(
+        &merge.seed_tracker,
+        partition_id,
+        withheld.offset,
+        "withheld reconcile",
+    );
+    counter!(
+        RECONCILE_MARKERS_WITHHELD_TOTAL,
+        "reason" => reason.as_str(),
+        "kind" => kind,
+    )
+    .increment(1);
+    warn_job!(
+        tile,
+        partition_id,
+        reason = reason.as_str(),
+        kind,
+        "withholding the reconcile completion marker: the partition is missing history",
+    );
+    DrainStep::Reenter
 }
 
 struct PageProgress {
@@ -2016,6 +2106,46 @@ mod tests {
         assert!(shell.queue.front().is_none());
         assert!(shell.deps.reconcile.backlog.is_empty());
         assert_eq!(shell.committable(), Some(7));
+    }
+
+    #[tokio::test]
+    async fn a_partition_missing_history_withholds_its_marker_and_releases_the_seed_offset() {
+        let sink = CaptureSink::new();
+        let mut shell =
+            DrainShell::new(false, Arc::new(sink.clone()), CaptureCascadeSink::new(), 8);
+        let registry = Arc::new(ProvenanceRegistry::enabled());
+        shell.deps.reconcile.provenance = registry.clone();
+        shell.write_current(Uuid::from_u128(11), true, false, true);
+        shell.enqueue(tile(TEAM, COHORT, 1), 5);
+
+        registry.begin_tenure(i32::from(PARTITION));
+        shell.tick().await;
+        assert!(
+            shell.markers.markers().is_empty() && shell.markers.withheld().is_empty(),
+            "a tenure without a verdict neither certifies nor withholds",
+        );
+        assert!(shell.queue.front().is_some());
+
+        let (_, generation) = registry.pending()[0];
+        assert!(registry.settle(
+            i32::from(PARTITION),
+            generation,
+            PartitionClass::Fenced(WithheldReason::Cold),
+        ));
+        shell.tick().await;
+
+        assert!(
+            shell.markers.markers().is_empty(),
+            "a cold partition must never certify, or the sweeper deletes true members",
+        );
+        let withheld = shell.markers.withheld();
+        assert_eq!(withheld.len(), 1);
+        assert_eq!(withheld[0].partition(), PARTITION);
+        assert_eq!(withheld[0].reason(), WithheldReason::Cold);
+        assert!(sink.changes().is_empty());
+        assert!(shell.queue.front().is_none());
+        assert!(shell.deps.reconcile.backlog.is_empty());
+        assert_eq!(shell.committable(), Some(6));
     }
 
     #[tokio::test]

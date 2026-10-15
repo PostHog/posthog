@@ -151,6 +151,10 @@ pub struct MetaKey(pub &'static [u8]);
 /// `cf_meta[b"schema_version"]` → the store schema version as a big-endian `u32`.
 pub const META_SCHEMA_VERSION: MetaKey = MetaKey(b"schema_version");
 
+/// `cf_meta[b"provenance"]` → present once the store records partition provenance. An existing
+/// store without it predates provenance, so its partitions adopt their current commits once.
+pub const META_PROVENANCE: MetaKey = MetaKey(b"provenance");
+
 mod sealed {
     /// Sealed so only this module's keyspaces implement [`super::Keyspace`]; downstream code cannot
     /// bind a new key type to a CF without declaring its partitioning here.
@@ -235,6 +239,8 @@ impl Keyspace for Meta {
         // literal is an unknown key — conflating the two would report "expected N bytes, got N".
         if bytes == META_SCHEMA_VERSION.0 {
             Ok(META_SCHEMA_VERSION)
+        } else if bytes == META_PROVENANCE.0 {
+            Ok(META_PROVENANCE)
         } else if bytes.len() != META_SCHEMA_VERSION.0.len() {
             Err(StoreError::KeyDecode {
                 kind: "meta",

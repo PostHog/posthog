@@ -40,6 +40,7 @@ use crate::partitions::pacing::{
     AgeMs, CauseSet, Hysteresis, PauseCause, PauseLedger, SeedPacing, SeedPacingConfig, UsedPct,
 };
 use crate::partitions::pause::PartitionPauser;
+use crate::partitions::provenance::ProvenanceInput;
 use crate::partitions::rebalance::CohortConsumerContext;
 use crate::partitions::watermarks::WatermarkMs;
 
@@ -539,7 +540,8 @@ impl SeedFollowerConsumer {
                     let now = tokio::time::Instant::now();
                     if now >= commit_deadline {
                         fsync_then_commit(
-                            self.dispatcher.handle(),
+                            &self.dispatcher,
+                            ProvenanceInput::Seeds,
                             &self.consumer,
                             &self.dispatcher.merge_deps().seed_tracker,
                             self.owned_committable_offsets(),
@@ -562,7 +564,8 @@ impl SeedFollowerConsumer {
         }
 
         fsync_then_commit(
-            self.dispatcher.handle(),
+            &self.dispatcher,
+            ProvenanceInput::Seeds,
             &self.consumer,
             &self.dispatcher.merge_deps().seed_tracker,
             self.owned_committable_offsets(),
