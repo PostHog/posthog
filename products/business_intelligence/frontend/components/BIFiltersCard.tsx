@@ -6,7 +6,8 @@ import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 
-import { getBIFieldPillLabel, getBIFilterSummary } from '../biEditorTypes'
+import { getBIFilterSummary } from '../biEditorTypes'
+import { getBIFilterLabel } from '../biFilterSummary'
 import { BIConditionGroups } from './BIConditionGroups'
 import { BIFilterPill } from './BIFilterPill'
 import { BIResultFiltersCard } from './BIResultFiltersCard'
@@ -45,7 +46,7 @@ export function BIFiltersCard(): JSX.Element {
                     group={config.rowFilterGroup}
                     options={config.filters.map((filter) => ({
                         value: filter.field.id,
-                        label: `${getBIFieldPillLabel(filter.field)}: ${getBIFilterSummary(filter)}`,
+                        label: `${getBIFilterLabel(filter)}: ${getBIFilterSummary(filter)}`,
                     }))}
                     onChange={(group) => setFilterGroup('row', group)}
                 />
