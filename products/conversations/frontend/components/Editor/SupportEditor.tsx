@@ -6,20 +6,16 @@ import ExtensionDocument from '@tiptap/extension-document'
 import { Image } from '@tiptap/extension-image'
 import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
+import { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
-import {
-    EditorContent,
-    Extension,
-    NodeViewContent,
-    NodeViewProps,
-    NodeViewWrapper,
-    ReactNodeViewRenderer,
-} from '@tiptap/react'
+import type { NodeView } from '@tiptap/pm/view'
+import { EditorContent, Extension } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
 import { common, createLowlight } from 'lowlight'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createRoot } from 'react-dom/client'
 
 import { IconCode, IconCopy, IconImage, IconList, IconTerminal } from '@posthog/icons'
 
@@ -48,31 +44,128 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 const lowlight = createLowlight(common)
 lowlight.register('plaintext', () => ({ contains: [] }))
 
-function SupportCodeBlockComponent({ node }: NodeViewProps): JSX.Element {
-    const code = node.textContent
+// Not ReactNodeViewRenderer: when a writing assistant inserts lines without a paste event, the browser
+// copies its wrapper <div> once per line, ProseMirror ignores the copies, and only the first line is sent.
+function createSupportCodeBlockView(initialNode: ProseMirrorNode): NodeView {
+    let node = initialNode
+    const dom = document.createElement('div')
+    dom.className = 'SupportEditor__code-block'
+    const copyButton = document.createElement('div')
+    copyButton.className = 'SupportEditor__code-block-copy'
+    copyButton.contentEditable = 'false'
+    const pre = document.createElement('pre')
+    const code = document.createElement('code')
+    // The language attribute is parsed back from this class when the block is re-read from the DOM.
+    const setLanguageClass = (): void => {
+        code.className = node.attrs.language ? `language-${node.attrs.language}` : ''
+    }
+    setLanguageClass()
+    pre.append(code)
+    dom.append(copyButton, pre)
 
-    return (
-        <NodeViewWrapper className="SupportEditor__code-block">
-            <div className="SupportEditor__code-block-copy" contentEditable={false}>
-                <LemonButton
-                    size="xsmall"
-                    icon={<IconCopy />}
-                    onClick={() => void copyToClipboard(code, 'code')}
-                    tooltip="Copy code"
-                />
-            </div>
-            <pre>
-                <code>
-                    <NodeViewContent />
-                </code>
-            </pre>
-        </NodeViewWrapper>
+    const root = createRoot(copyButton)
+    root.render(
+        <LemonButton
+            size="xsmall"
+            icon={<IconCopy />}
+            onClick={() => void copyToClipboard(node.textContent, 'code')}
+            tooltip="Copy code"
+        />
     )
+
+    return {
+        dom,
+        contentDOM: code,
+        update: (updatedNode) => {
+            if (updatedNode.type !== node.type) {
+                return false
+            }
+            node = updatedNode
+            setLanguageClass()
+            return true
+        },
+        stopEvent: (event) => copyButton.contains(event.target as Node),
+        ignoreMutation: (mutation) =>
+            mutation.type !== 'selection' &&
+            (copyButton.contains(mutation.target) || (mutation.type === 'attributes' && mutation.target === code)),
+        // Deferred because React warns when a root unmounts while it is still rendering.
+        destroy: () => setTimeout(() => root.unmount()),
+    }
+}
+
+const CODE_LINE_ELEMENTS = new Set(['CODE', 'DIV', 'P', 'LI', 'TR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6'])
+
+/**
+ * Turns the line elements and `<br>`s in a `<pre>` into newline text, in place. The text nodes stay the same
+ * objects, so ProseMirror can still map the caret into them when it re-reads a block the browser edited.
+ */
+export function flattenCodeLines(pre: HTMLElement): HTMLElement {
+    const ownerDocument = pre.ownerDocument
+    let hasText = false
+    let endsWithNewline = false
+    let trailingSeparator = null as Text | null
+
+    const appended = (text: string): void => {
+        if (text) {
+            hasText = true
+            endsWithNewline = text.endsWith('\n')
+            trailingSeparator = null
+        }
+    }
+    const addSeparator = (reference: ChildNode, position: 'before' | 'after'): void => {
+        const separator = ownerDocument.createTextNode('\n')
+        reference[position](separator)
+        endsWithNewline = true
+        trailingSeparator = separator
+    }
+    const walk = (parent: Node): void => {
+        for (const child of Array.from(parent.childNodes)) {
+            if (child.nodeType === Node.TEXT_NODE) {
+                appended(child.textContent ?? '')
+            } else if (child.nodeType === Node.ELEMENT_NODE) {
+                const element = child as Element
+                if (element.tagName === 'BR') {
+                    element.replaceWith(ownerDocument.createTextNode('\n'))
+                    appended('\n')
+                } else if (CODE_LINE_ELEMENTS.has(element.tagName)) {
+                    if (hasText && !endsWithNewline) {
+                        addSeparator(element, 'before')
+                    }
+                    walk(element)
+                    if (hasText && !endsWithNewline) {
+                        addSeparator(element, 'after')
+                    }
+                    element.replaceWith(...Array.from(element.childNodes))
+                } else {
+                    walk(element)
+                }
+            }
+        }
+    }
+    walk(pre)
+    trailingSeparator?.remove()
+    return pre
 }
 
 const SupportCodeBlockExtension = CodeBlockLowlight.extend({
+    // Some editors copy a code block as a <pre> with one <div> per line. The default rule parses
+    // those divs as separate blocks, so only the first line stays in the code block and the rest
+    // leaves it. Read the whole <pre> as text instead, so every pasted line stays in the block.
+    parseHTML() {
+        return [
+            {
+                tag: 'pre',
+                preserveWhitespace: 'full',
+                contentElement: (dom) => flattenCodeLines(dom as HTMLElement),
+            },
+        ]
+    },
+    // The browser can insert lines as copies of <code>, so re-read the whole block with the rule above.
+    extendNodeSchema(extension) {
+        return extension.name === this.name ? { reparseInView: true } : {}
+    },
     addNodeView() {
-        return ReactNodeViewRenderer(SupportCodeBlockComponent)
+        return ({ node }) => createSupportCodeBlockView(node)
     },
     addKeyboardShortcuts() {
         return {
