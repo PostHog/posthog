@@ -934,6 +934,26 @@ class TestCalculateActivity(BaseTest):
             assert [c["event"] for c in captured] == ["experiment metric error"]
             assert captured[0]["properties"]["error_type"] == "timeout"
 
+    def test_late_result_after_out_of_time_failure_replaces_the_timeout(self):
+        exp = self._experiment(flag_key="calc-out-of-time-late-result", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        _record_out_of_time(
+            MetricOutOfTimeFailure(
+                recalculation_id=str(recalc.id), experiment_id=exp.id, metric_uuid="m1", metric_type="primary"
+            )
+        )
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=3)
+
+        recalc.refresh_from_db()
+        assert result.success is True
+        assert ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1").status == (
+            ExperimentMetricResult.Status.COMPLETED
+        )
+        assert recalc.metric_errors == {}
+
     @parameterized.expand(
         [
             ("org_quota", ConcurrencyLimitExceeded("org quota saturated")),

@@ -491,6 +491,14 @@ def _clear_retry(recalculation_id: str, metric_uuid: str) -> None:
             recalc.save(update_fields=["metric_retries"])
 
 
+def _clear_error(recalculation_id: str, metric_uuid: str) -> None:
+    with transaction.atomic():
+        recalc = ExperimentMetricsRecalculation.objects.select_for_update().get(id=recalculation_id)
+        if metric_uuid in (recalc.metric_errors or {}):
+            recalc.metric_errors.pop(metric_uuid)
+            recalc.save(update_fields=["metric_errors"])
+
+
 def _fail(
     recalculation_id: str, metric_uuid: str, step: str, message: str, *, error_type: str
 ) -> MetricRecalculationResult:
@@ -754,14 +762,19 @@ def _calculate_experiment_metric_for_recalculation_sync(
             result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
-            results.record_run_result(
-                recalculation_id,
-                calculation_config,
-                window=query_to_dt,
-                query_from=query_from,
-                result=result_dict,
-                query_id=client_query_id,
-            )
+            with transaction.atomic():
+                stored = results.record_run_result(
+                    recalculation_id,
+                    calculation_config,
+                    window=query_to_dt,
+                    query_from=query_from,
+                    result=result_dict,
+                    query_id=client_query_id,
+                )
+                # The workflow can record this metric as out of time while this attempt's thread still runs. The
+                # frontend shows a metric_errors entry over a result, so a result that lands later removes it.
+                if stored:
+                    _clear_error(recalculation_id, metric_uuid)
             _capture_experiment_metric_event(
                 experiment,
                 metric_uuid,
@@ -951,7 +964,7 @@ def _record_metric_out_of_time_failure_sync(failure: MetricOutOfTimeFailure) -> 
         with transaction.atomic():
             # The last attempt can write its result and die before it reports success, which Temporal sees as a
             # timeout. Its thread can also still be running. Take the result store's run-write locks, in its order,
-            # so that no result write lands between this check and the failure write.
+            # so that no result write lands between this check and the two failure writes.
             Experiment.objects.select_for_update(no_key=True).filter(id=experiment.id, team_id=state.team_id).exists()
             ExperimentMetricsRecalculation.objects.select_for_update().filter(id=failure.recalculation_id).exists()
             completed = results.has_completed(calculation_config, window=state.query_to)
@@ -964,18 +977,18 @@ def _record_metric_out_of_time_failure_sync(failure: MetricOutOfTimeFailure) -> 
                     error_message=_OUT_OF_TIME_MESSAGE,
                     query_id=None,
                 )
+                _record_failure(
+                    failure.recalculation_id,
+                    failure.metric_uuid,
+                    "calculation",
+                    _OUT_OF_TIME_MESSAGE,
+                    error_type="timeout",
+                    retriable=True,
+                )
         if completed:
             _clear_retry(failure.recalculation_id, failure.metric_uuid)
             return
 
-        _record_failure(
-            failure.recalculation_id,
-            failure.metric_uuid,
-            "calculation",
-            _OUT_OF_TIME_MESSAGE,
-            error_type="timeout",
-            retriable=True,
-        )
         _clear_retry(failure.recalculation_id, failure.metric_uuid)
         _capture_experiment_metric_event(
             experiment,
