@@ -339,6 +339,11 @@ export interface TaskListOptions {
   ciStatus?: string;
   /** List only tasks the requesting user has pinned. */
   pinned?: boolean;
+  /**
+   * List only tasks from any of these sources, in the desktop source filter's words. Filtering on
+   * the server keeps sources the user hid, such as scheduled runs, from filling the page.
+   */
+  sources?: readonly string[];
   /** Filter to tasks with a thread comment from this user ID. */
   commentedBy?: number;
   /** Filter to tasks whose thread mentions this user ID. */
@@ -3303,7 +3308,7 @@ export class PostHogAPIClient {
     options?: TaskListOptions,
   ): Promise<{ tasks: Task[]; count: number }> {
     const teamId = await this.getTeamId();
-    const params: Record<string, string | number | boolean> = {
+    const params: Record<string, string | number | boolean | string[]> = {
       limit: options?.limit ?? 500,
     };
 
@@ -3349,6 +3354,10 @@ export class PostHogAPIClient {
 
     if (options?.pinned) {
       params.pinned = true;
+    }
+
+    if (options?.sources?.length) {
+      params.sources = [...options.sources];
     }
 
     if (options?.commentedBy) {
