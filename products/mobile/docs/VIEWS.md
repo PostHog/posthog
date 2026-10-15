@@ -149,7 +149,7 @@ An insight kind without a phone renderer shows "This chart opens on the web." `i
 
 ## Date range control
 
-The range sits in each view's header (`src/features/views/range/`), as prototype E and F show.
+The range sits in each view's header, under the title (`src/features/views/range/`).
 
 - **Header row** (`ViewRangeControl`): ‹ (`range-step-prev`), the range button (`view-range`), › (`range-step-next`), and "Not saved" (`view-range-not-saved`) while the range differs from the saved one. The resolved dates show under the row.
 - **Steps:** ‹ and ›, or a swipe on the button (right for the earlier period), step through periods with a selection haptic. Steps start from the window the server resolved (`rangeStep.ts`), so they wait while a new range loads. › stops at the current period, and a step that lands on it returns to the matching relative preset, so the cache is shared with the web again. All time cannot step. Screen readers adjust the button up or down to step, and activate it to open the sheet.
@@ -212,7 +212,7 @@ The web analytics screen shows the overview numbers only. Its top lists open on 
 
 The tab makes no backend change. [`VIEWS_BACKEND_FOLLOWUPS.md`](VIEWS_BACKEND_FOLLOWUPS.md) lists the server work that would unlock more, ranked by user value, with the app change that follows each item. The main ones:
 
-- Server-side refresh protection for OAuth callers, so focus can refresh safely.
+- A server-side check of `next_allowed_client_refresh` for app callers, so focus can force a refresh safely.
 - Display mode and chosen tile on the server, so pins keep their mode on a new phone.
 - Insights viewed on the web in Recent, and phone views in the web's "Recently viewed".
 - Compare on dashboards: `DASHBOARD_COMPARE_SUPPORTED` stays false until US and EU run a build that accepts `compareFilter` in a dashboard override (the deploy check at the end of that file).

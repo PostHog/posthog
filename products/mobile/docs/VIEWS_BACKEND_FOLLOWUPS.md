@@ -10,7 +10,7 @@ Ranked by user value, highest first.
 
 | Item | What users get | Backend change | Size | Priority |
 | --- | --- | --- | --- | --- |
-| 1. Server-side refresh protection for OAuth callers | Views refresh on focus, and the server keeps every OAuth client inside the rate limits | Bucket OAuth tokens in `PersonalApiKeyRateThrottle`, or clamp `force_*` inside `next_allowed_client_refresh` for non-session callers | M | P1 |
+| 1. Refresh on focus, checked on the server | Views refresh when they come back into focus, without a tap | The server enforces `next_allowed_client_refresh` for app callers: a forced read inside the window returns the cache | M | P1 |
 | 2. Display mode and chosen tile sync across devices | Number and Chart pins survive a new phone, a reinstall and a new sign-in | Two nullable fields on `FileSystemShortcut`, with serializer fields and a migration | S | P1 |
 | 3. Insights viewed on the web appear in Recent | Recent on the phone lists the insights the person opened on the web | `required_scopes` on `insights/my_last_viewed/` | XS | P1 |
 | 4. Phone views count as "recently viewed" | Phone opens show in the web's "Recently viewed" and in Recent on other phones | The explicit `log_view` endpoint logs views for OAuth callers | S | P2 |
@@ -30,18 +30,18 @@ Backend line numbers are from `origin/master` at `e9f815a9ced` (2026-10-14).
 Check them again before you start.
 App modules are the Views code in `src/features/views/`, `src/api/` and `src/model/views.ts`.
 
-### 1. Server-side refresh protection for OAuth callers
+### 1. Refresh on focus, checked on the server
 
 **What it enables:**
 The app can force a refresh when a view comes back into focus, not only when the person taps refresh.
-The server, not only the app, keeps each OAuth client inside the published rate limits.
+A check on the server makes that safe: a forced read inside the window returns the cache, whatever the client sends.
 
 **Why it matters to users:**
 People open a view on the phone to see the latest number.
 Today, on focus, the phone shows the cached number until the server's staleness window passes.
 For daily data that window is 6 hours.
 People often refresh right after they open a view, so today they must tap the button each time.
-With a server guard, the app can do that refresh for them.
+With a server-side check, the app can do that refresh for them.
 
 **What the app does today:**
 
@@ -50,35 +50,16 @@ With a server guard, the app can do that refresh for them.
 - The list and dashboards also have a bulk floor: one forced pass per 5 minutes per screen.
 - One queue (`src/features/views/refreshQueue.ts`) allows 2 requests in flight and one request per item per 60 s. It pauses on `Retry-After`.
 - Token buckets in `src/api/budget.ts` cap each budget family at 25% of the published limits.
-- All of these limits live in the app. A bug in the app, or another OAuth client, meets no server limit.
+- The window check lives in the app only, so forcing on focus would depend on every app version getting it right.
 
 **Backend change:**
 
-The facts:
+Enforce `next_allowed_client_refresh` on the server for app callers.
 
-- OAuth requests skip every DRF throttle on the Views endpoints.
-  `PersonalApiKeyRateThrottle._allow_request_internal` returns `True` for an authenticated request without a personal API key (`posthog/rate_limit.py:215-217`).
-  `allow_request` always asks for that check (`:266-268`).
-  The settings say so too: "OAuth callers skip DRF's default throttles" (`posthog/settings/web.py:1398`).
-- The server never enforces `next_allowed_client_refresh`.
-  It sets the field on a fresh compute (`posthog/hogql_queries/query_runner.py:2800`).
-  `force_*` computes inside the window for every caller (`:2481-2513`).
+- Today the server sets the field on a fresh compute (`posthog/hogql_queries/query_runner.py:2800`), and the web honors it in its refresh controls.
+  `force_*` computes inside the window (`:2481-2513`).
   Only shared links clamp a forced refresh (`shared_insights_execution_mode`, `:494-510`).
-
-Option A: bucket OAuth tokens in `PersonalApiKeyRateThrottle`.
-
-- Give `hashed_personal_api_key_for_throttling` (`posthog/rate_limit.py:145-164`), or a sibling helper, an OAuth branch.
-  The OAuth authenticator keeps the token on `request.successful_authenticator.access_token` (`posthog/auth.py:1048`).
-- Use a stable ident, for example `oauth:{application_id}:{user_id}`.
-  Do not use the token value: a token refresh issues a new token, and the bucket would reset.
-- Do not take the early `return True` for that ident (`posthog/rate_limit.py:216-217`), and use the ident in `get_cache_key` (`:270-294`).
-- This applies the published budgets to every OAuth client, which includes the desktop apps, MCP clients and sandbox tasks.
-  Agree the budgets with their owners first.
-- Throttles run only when `RATE_LIMIT_ENABLED` is on (`posthog/rate_limit.py:212-213`).
-
-Option B: clamp `force_*` inside the window for non-session callers.
-
-- When the caller is not a browser session, run `force_blocking` as `RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE` and `force_async` as `RECENT_CACHE_CALCULATE_ASYNC_IF_STALE`.
+- The change: when the caller is not a browser session, run `force_blocking` as `RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE` and `force_async` as `RECENT_CACHE_CALCULATE_ASYNC_IF_STALE`.
   Set the staleness override to the runner's `_refresh_frequency()`.
   Inside the window the server then returns the cache. Past the window it computes, as a force does today.
 - The runner already supports a per-request staleness override.
@@ -86,32 +67,26 @@ Option B: clamp `force_*` inside the window for non-session callers.
   The shared-link clamp uses the same mechanism (`:428-432, 494-510`).
 - The window depends on the runner: the base `_refresh_frequency` is 1 minute (`:3385-3386`), and the insight runners use 3 or 15 minutes.
   So resolve the window inside the runner, for example with a flag on `run()` that sets the override from `_refresh_frequency()`.
-- Apply the clamp in `resolve_execution_mode` (`posthog/hogql_queries/refresh_policy.py:71-93`) for insight and dashboard reads.
+- Apply the check in `resolve_execution_mode` (`posthog/hogql_queries/refresh_policy.py:71-93`) for insight and dashboard reads.
   Apply it in `_process_query_request` (`posthog/api/query.py:176-186`) for `POST query/`.
 - Read the caller type from the `access_method` query tag.
   The OAuth authenticator sets it to `AccessMethod.OAUTH` (`posthog/auth.py:1058-1062`).
   `posthog/api/query.py:325, 332` read it with `get_query_tag_value("access_method")`.
-
-Options A and B can ship together.
-The platform owners decide which.
+- The platform owners decide which callers count as app callers.
 
 Skills and tests:
 
 - Invoke `/improving-drf-endpoints` and `/writing-tests`.
-- Option A: add an OAuth case to `posthog/test/test_rate_limit.py`.
-  Today only the session case has a test (`test_does_not_rate_limit_non_personal_api_key_endpoints`, `:430`). No test covers OAuth.
-- Option B: extend `posthog/hogql_queries/test/test_refresh_policy.py` with a parameterized table of refresh mode by access method.
-  Add one runner test: a clamped force inside the window returns the cached result.
+- Extend `posthog/hogql_queries/test/test_refresh_policy.py` with a parameterized table of refresh mode by access method.
+  Add one runner test: a forced read inside the window returns the cached result.
 - No migration and no OpenAPI change.
 
 **App change when it lands:**
 
 - `useViewRefresh` can send `force_blocking` on focus for each visible item that `isEligible` accepts ("force when the server allows").
 - Keep `isEligible`, the queue and the token buckets. They keep the app inside the limits on older deploys and on self-hosted instances.
-- With option A, a throttled request gets a 429 with `Retry-After`. The queue already pauses the budget family for that time.
 
 **Size:** M.
-Option A alone is S, but it needs agreement with every OAuth client owner.
 
 ### 2. Display mode and chosen tile sync across devices
 
