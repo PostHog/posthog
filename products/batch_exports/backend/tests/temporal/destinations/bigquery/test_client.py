@@ -13,6 +13,7 @@ import pyarrow as pa
 import requests
 import google.auth.exceptions
 from google.api_core.exceptions import (
+    BadRequest,
     Forbidden,
     GatewayTimeout,
     InternalServerError,
@@ -28,6 +29,7 @@ from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
     BigQueryField,
+    BigQueryIncompatibleSchemaError,
     BigQueryTable,
     BigQueryType,
     GoogleCloudServiceAccountIntegration,
@@ -93,29 +95,40 @@ async def test_execute_query_pending_timeout(states_sequence: list[str], should_
 
 
 def _make_load_test_client(
-    reload_outcomes: collections.abc.Sequence[str | Exception],
+    reload_outcomes: collections.abc.Sequence[str | Exception | dict[str, str]],
+    submission_errors: collections.abc.Sequence[Exception] = (),
 ) -> tuple[BigQueryClient, BigQueryTable, list[int]]:
     mock_sync_client = MagicMock()
     mock_sync_client.project = "test-project"
 
-    load_job = bigquery.LoadJob(
-        "test-job-id", None, bigquery.TableReference.from_string("test-project.dataset.table"), mock_sync_client
-    )
-    load_job._properties["status"] = {"state": "RUNNING"}
     outcomes = iter(reload_outcomes)
-
-    def reload(*args, **kwargs):
-        outcome = next(outcomes)
-        if isinstance(outcome, Exception):
-            raise outcome
-        load_job._set_properties({**load_job._properties, "status": {"state": outcome}})
-
-    load_job.reload = reload  # type: ignore
+    errors = iter(submission_errors)
     uploads: list[int] = []
 
     # A plain function rather than a MagicMock, because a mock keeps the file alive in `call_args`.
     def load_table_from_file(file, *args, **kwargs):
+        file.seek(0)
         uploads.append(len(file.read()))
+        error = next(errors, None)
+        if error is not None:
+            raise error
+
+        load_job = bigquery.LoadJob(
+            f"test-job-{len(uploads)}",
+            None,
+            bigquery.TableReference.from_string("test-project.dataset.table"),
+            mock_sync_client,
+        )
+        load_job._properties["status"] = {"state": "RUNNING"}
+
+        def reload(*args, **kwargs):
+            outcome = next(outcomes)
+            if isinstance(outcome, Exception):
+                raise outcome
+            status = {"state": "DONE", "errorResult": outcome} if isinstance(outcome, dict) else {"state": outcome}
+            load_job._set_properties({**load_job._properties, "status": status})
+
+        load_job.reload = reload  # type: ignore
         return load_job
 
     mock_sync_client.load_table_from_file = load_table_from_file
@@ -156,6 +169,10 @@ async def test_load_file_does_not_keep_file_alive_after_load(reloads_until_done:
         ([RetryError("deadline exceeded", cause=InternalServerError("internal")), "DONE"], None),
         ([requests.exceptions.ConnectionError("reset"), requests.exceptions.Timeout("timeout"), "DONE"], None),
         ([google.auth.exceptions.TransportError("token refresh failed"), "DONE"], None),
+        ([Forbidden("quota", errors=[{"reason": "quotaExceeded"}]), "DONE"], None),
+        ([Forbidden("rate limit", errors=[{"reason": "rateLimitExceeded"}]), "DONE"], None),
+        ([Forbidden("reason: quotaExceeded"), "DONE"], None),
+        ([BadRequest("matched no files")], BadRequest),
         ([NotFound("job not found")], NotFound),
         (["RUNNING", Forbidden("forbidden")], Forbidden),
     ],
@@ -165,6 +182,10 @@ async def test_load_file_does_not_keep_file_alive_after_load(reloads_until_done:
         "client_retries_exhausted",
         "requests_connection_errors",
         "auth_transport_error",
+        "quota_exceeded",
+        "rate_limit_exceeded",
+        "quota_exceeded_in_message",
+        "bad_request_does_not_resubmit",
         "not_found_raises",
         "forbidden_raises",
     ],
@@ -184,6 +205,48 @@ async def test_load_file_retries_transient_poll_errors_without_uploading_again(
                 await client.load_file(io.BytesIO(b"x"), format="Parquet", table=table, poll_interval=0.01)
 
     assert len(uploads) == 1
+
+
+@pytest.mark.parametrize("failure_phase", ["submission", "job_result"])
+@pytest.mark.parametrize(
+    "error,expected_exception",
+    [
+        (InternalServerError("internal"), None),
+        (Forbidden("quota", errors=[{"reason": "quotaExceeded"}]), None),
+        (BadRequest("matched no files"), None),
+        (BadRequest("invalid data"), BadRequest),
+        (
+            BadRequest("Required field event cannot be null", errors=[{"reason": "invalidQuery"}]),
+            BigQueryIncompatibleSchemaError,
+        ),
+    ],
+    ids=["backend_error", "quota_exceeded", "matched_no_files", "invalid_data", "required_field"],
+)
+@pytest.mark.asyncio
+async def test_load_file_submission_and_terminal_errors(
+    failure_phase: str, error: Exception, expected_exception: type[Exception] | None
+) -> None:
+    if failure_phase == "submission":
+        client, table, uploads = _make_load_test_client(["DONE"], submission_errors=[error])
+    else:
+        assert isinstance(error, (InternalServerError, Forbidden, BadRequest))
+        reason = (
+            error.errors[0]["reason"]
+            if error.errors
+            else ("backendError" if isinstance(error, InternalServerError) else "invalid")
+        )
+        client, table, uploads = _make_load_test_client([{"reason": reason, "message": error.message}, "DONE"])
+    real_sleep = asyncio.sleep
+
+    with patch("asyncio.sleep", side_effect=lambda delay: real_sleep(0)):
+        if expected_exception is None:
+            result = await client.load_file(io.BytesIO(b"payload"), format="Parquet", table=table, poll_interval=0)
+            assert result.state == "DONE"
+        else:
+            with pytest.raises(expected_exception):
+                await client.load_file(io.BytesIO(b"payload"), format="Parquet", table=table, poll_interval=0)
+
+    assert uploads == ([7, 7] if expected_exception is None else [7])
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS

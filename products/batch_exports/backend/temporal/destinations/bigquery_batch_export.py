@@ -595,6 +595,14 @@ def _is_contention_exception(exc: Exception) -> bool:
     return "concurrent update" in str(exc)
 
 
+def _has_error_reason(err: GoogleAPICallError, reason: str) -> bool:
+    return (
+        err.reason == reason
+        or any(isinstance(detail, dict) and detail.get("reason") == reason for detail in err.errors)
+        or f"reason: {reason}" in str(err)
+    )
+
+
 class BigQueryClient:
     """Async client to interact with BigQuery.
 
@@ -1056,7 +1064,9 @@ class BigQueryClient:
         )
         return await query_job(merge_query)
 
-    async def load_file(self, file, format: FileFormat, table: BigQueryTable, poll_interval: float = 1.0):
+    async def load_file(
+        self, file: typing.BinaryIO, format: FileFormat, table: BigQueryTable, poll_interval: float = 1.0
+    ) -> None:
         """Load a file into BigQuery table."""
         schema = tuple(field.to_destination_field() for field in table.fields)
         if format == "Parquet":
@@ -1082,57 +1092,89 @@ class BigQueryClient:
 
         self.logger.info("Waiting for BigQuery load job", format=format, table_id=table.name)
 
-        initial_retry = 1
-        backoff_factor = 2
-        max_retry = 32
         attempt = 0
 
         while True:
             try:
-                result = await self._run_load_job(file, bq_table, job_config=job_config, poll_interval=poll_interval)
-            except (
-                TooManyRequests,
-                ServiceUnavailable,
-                GatewayTimeout,
-                InternalServerError,
-                BigQueryQuotaExceededError,
-            ) as err:
+                load_job = await self._start_load_job(file, bq_table, job_config=job_config)
+            except (GoogleAPICallError, BigQueryQuotaExceededError) as err:
+                await self._handle_load_job_error(err, attempt)
+                attempt += 1
+                continue
+
+            await self._wait_for_load_job(load_job, poll_interval=poll_interval)
+
+            try:
+                load_job.result()
+                return None
+            except (GoogleAPICallError, BigQueryQuotaExceededError) as err:
+                await self._handle_load_job_error(err, attempt)
+                attempt += 1
+
+    async def _handle_load_job_error(self, err: Exception, attempt: int) -> None:
+        initial_retry = 1
+        backoff_factor = 2
+        max_retry = 32
+
+        if isinstance(
+            err,
+            (TooManyRequests, ServiceUnavailable, GatewayTimeout, InternalServerError, BigQueryQuotaExceededError),
+        ):
+            backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
+            self.logger.warning(
+                "LoadJob transient error encountered",
+                attempt=attempt,
+                backoff=backoff,
+                error_code=err.code,
+                exc_info=True,
+            )
+            self.external_logger.warning(
+                "Encountered a service-side issue that will be retried in %d seconds, this is attempt number %d."
+                " These type of errors indicate BigQuery may be under too much load from all sources. You may have"
+                " to check with BigQuery if it keeps happening consistently."
+                " Error: %s",
+                backoff,
+                attempt,
+                err,
+                attempt=attempt,
+                backoff=backoff,
+                error_code=err.code,
+            )
+
+            await asyncio.sleep(backoff)
+        elif isinstance(err, Forbidden):
+            if not _has_error_reason(err, "quotaExceeded"):
+                raise err
+
+            backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
+            self.logger.warning(
+                "LoadJob quota exceeded", attempt=attempt, backoff=backoff, error_code=err.code, exc_info=True
+            )
+            self.external_logger.warning(
+                "BigQuery load job quota exceeded. This error will be retried in %d seconds, this is attempt number %d."
+                " It may take several minutes or longer until the quota is restored, as it is restored over the course"
+                " of 24 hours. If this happens frequently, consider contacting Google Cloud support to increase your quota.",
+                backoff,
+                attempt,
+                attempt=attempt,
+                backoff=backoff,
+                error_code=err.code,
+            )
+            await asyncio.sleep(backoff)
+        elif isinstance(err, BadRequest):
+            if "matched no files" in str(err):
                 backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
                 self.logger.warning(
-                    "LoadJob transient error encountered",
+                    "LoadJob could not find the uploaded file",
                     attempt=attempt,
                     backoff=backoff,
                     error_code=err.code,
                     exc_info=True,
                 )
                 self.external_logger.warning(
-                    "Encountered a service-side issue that will be retried in %d seconds, this is attempt number %d."
-                    " These type of errors indicate BigQuery may be under too much load from all sources. You may have"
-                    " to check with BigQuery if it keeps happening consistently."
-                    " Error: %s",
-                    backoff,
-                    attempt,
-                    err,
-                    attempt=attempt,
-                    backoff=backoff,
-                    error_code=err.code,
-                )
-
-                await asyncio.sleep(backoff)
-                attempt += 1
-
-            except Forbidden as err:
-                if err.reason != "quotaExceeded" and "reason: quotaExceeded" not in str(err):
-                    raise
-
-                backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
-                self.logger.warning(
-                    "LoadJob quota exceeded", attempt=attempt, backoff=backoff, error_code=err.code, exc_info=True
-                )
-                self.external_logger.warning(
-                    "BigQuery load job quota exceeded. This error will be retried in %d seconds, this is attempt number %d."
-                    " It may take several minutes or longer until the quota is restored, as it is restored over the course"
-                    " of 24 hours. If this happens frequently, consider contacting Google Cloud support to increase your quota.",
+                    "BigQuery could not find the file we uploaded for a load job."
+                    " This is usually a temporary issue on BigQuery's side. The load will be retried in %d"
+                    " seconds, this is attempt number %d.",
                     backoff,
                     attempt,
                     attempt=attempt,
@@ -1140,75 +1182,42 @@ class BigQueryClient:
                     error_code=err.code,
                 )
                 await asyncio.sleep(backoff)
-                attempt += 1
-            except BadRequest as err:
-                if "matched no files" in str(err):
-                    backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
-                    self.logger.warning(
-                        "LoadJob could not find the uploaded file",
-                        attempt=attempt,
-                        backoff=backoff,
-                        error_code=err.code,
-                        exc_info=True,
-                    )
-                    self.external_logger.warning(
-                        "BigQuery could not find the file we uploaded for a load job."
-                        " This is usually a temporary issue on BigQuery's side. The load will be retried in %d"
-                        " seconds, this is attempt number %d.",
-                        backoff,
-                        attempt,
-                        attempt=attempt,
-                        backoff=backoff,
-                        error_code=err.code,
-                    )
-                    await asyncio.sleep(backoff)
-                    attempt += 1
-                    continue
+                return
 
-                if err.reason != "invalidQuery" or "Required field" not in str(err):
-                    raise
-                try:
-                    field_name = str(err).split(" ")[2]
-                except IndexError:
-                    field_name = "unknown"
+            if not _has_error_reason(err, "invalidQuery") or "Required field" not in str(err):
+                raise err
+            try:
+                field_name = str(err).split(" ")[2]
+            except IndexError:
+                field_name = "unknown"
 
-                self.external_logger.warning(
-                    "BigQuery load job failed as a nullable field ('%s') is REQUIRED in the destination table."
-                    " Consider updating your table's schema so that the field is not REQUIRED."
-                    " Tables created automatically by the batch export always use non-REQUIRED fields.",
-                    field_name,
-                    error_code=err.code,
-                    exc_info=True,
-                )
-                raise BigQueryIncompatibleSchemaError(repr(field_name))
+            self.external_logger.warning(
+                "BigQuery load job failed as a nullable field ('%s') is REQUIRED in the destination table."
+                " Consider updating your table's schema so that the field is not REQUIRED."
+                " Tables created automatically by the batch export always use non-REQUIRED fields.",
+                field_name,
+                error_code=err.code,
+                exc_info=True,
+            )
+            raise BigQueryIncompatibleSchemaError(repr(field_name))
 
-            else:
-                return result
+        else:
+            raise err
 
-    async def _run_load_job(self, file, bq_table, job_config, poll_interval: float):
-        """Run a BigQuery LoadJob and return its result.
-
-        We poll the job ourselves and only call `LoadJob.result()` once the job is done.
-        While a job runs, `result()` polls through google-api-core's retry loop, which raises
-        an exception on every poll and keeps each one in a list. The exception tracebacks and
-        that list form a reference cycle that keeps the calling frames, and so `file`, alive
-        until the cyclic garbage collector runs. With large files, this holds gigabytes of
-        memory that the activity does not use.
-        """
+    async def _start_load_job(
+        self, file: typing.BinaryIO, bq_table: bigquery.Table, job_config: bigquery.LoadJobConfig
+    ) -> bigquery.LoadJob:
         load_job = await asyncio.to_thread(
             self.sync_client.load_table_from_file, file, bq_table, job_config=job_config, rewind=True
         )
-
-        await self._wait_for_load_job(load_job, poll_interval=poll_interval)
-
-        return load_job.result()  # Non-blocking: Job is done.
+        return load_job
 
     async def _wait_for_load_job(self, load_job: bigquery.LoadJob, poll_interval: float) -> None:
         """Poll a LoadJob until it is done.
 
-        A transient error while polling does not mean that the job failed, so we retry it forever.
-        If the error reached `load_file`, it would upload the file again and start a second load
-        job, which can load the same rows twice.
+        A transient error while polling does not mean that the job failed, so we retry the same job.
+        Polling it ourselves avoids google-api-core's polling retry loop, whose exception
+        tracebacks can retain the file until the cyclic garbage collector runs.
         """
         initial_retry = 1
         backoff_factor = 2
@@ -1218,7 +1227,11 @@ class BigQueryClient:
         while True:
             try:
                 done = await asyncio.to_thread(load_job.done)
-            except LOAD_JOB_POLL_RETRYABLE_EXCEPTIONS:
+            except (*LOAD_JOB_POLL_RETRYABLE_EXCEPTIONS, Forbidden) as err:
+                if isinstance(err, Forbidden) and not any(
+                    _has_error_reason(err, reason) for reason in ("quotaExceeded", "rateLimitExceeded")
+                ):
+                    raise
                 backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
                 self.logger.warning(
                     "Transient error while polling LoadJob",
