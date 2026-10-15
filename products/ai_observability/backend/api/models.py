@@ -40,8 +40,8 @@ class LLMProviderModelsSummarySerializer(serializers.Serializer):
         help_text=(
             "True when this provider's models can only be listed by passing `key_id` for one of the team's provider "
             "keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's "
-            "models in the playground. Evaluations and taggers always run on one of the team's own provider keys, "
-            "whatever this value is."
+            "models in the playground. LLM-judge evaluations and LLM taggers always run on one of the team's own "
+            "provider keys, whatever this value is."
         )
     )
 
