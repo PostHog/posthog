@@ -41,6 +41,7 @@ import { trackInitEvent } from './analytics'
 import type { RedisLike } from './cache/RedisCache'
 import { getEnv, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { InstructionsBuilder } from './instructions'
+import { InterviewRecruitment, InterviewRequestError } from './interview-recruitment'
 import { initDurationSeconds, initTotal } from './metrics'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
@@ -143,6 +144,7 @@ class McpDispatcher {
     private readonly toolExecutor: ToolExecutor
     private readonly instructionsBuilder: InstructionsBuilder
     private readonly skillCatalogService: SkillCatalogService
+    private readonly interviewRecruitment: InterviewRecruitment
 
     private warmupPromise: Promise<void> | undefined
 
@@ -154,6 +156,7 @@ class McpDispatcher {
         this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)
         this.skillCatalogService = new SkillCatalogService(redis, { archiveUrl: env.POSTHOG_MCP_SKILLS_URL })
         this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder, this.skillCatalogService)
+        this.interviewRecruitment = new InterviewRecruitment(redis)
     }
 
     async warmup(): Promise<void> {
@@ -316,6 +319,9 @@ class McpDispatcher {
             }
             return jsonRpcResult(id, stateless ? this.decorateStatelessResult(method, result) : result)
         } catch (error) {
+            if (error instanceof InterviewRequestError) {
+                return jsonRpcMethodError(id, ErrorCode.InvalidParams, error.message)
+            }
             console.error('[McpDispatcher] Internal error:', error)
             return jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
         }
@@ -341,6 +347,12 @@ class McpDispatcher {
             case Method.ToolsList:
                 return await this.toolExecutor.handleToolsList(state!)
             case Method.ToolsCall:
+                if (stateless && params) {
+                    const invitation = await this.interviewRecruitment.beforeToolCall(params, state!, props.userHash)
+                    if (invitation) {
+                        return invitation
+                    }
+                }
                 return await this.toolExecutor.handleToolCall(params, state!)
             case Method.ResourcesList:
                 return this.resourceCatalog.getResourcesList()
@@ -366,7 +378,7 @@ class McpDispatcher {
             base._meta && typeof base._meta === 'object' ? (base._meta as Record<string, unknown>) : undefined
         return {
             ...base,
-            resultType: 'complete',
+            resultType: base.resultType === 'input_required' ? 'input_required' : 'complete',
             ...(CACHEABLE_METHODS.has(method)
                 ? { ttlMs: CACHEABLE_RESULT_TTL_MS, cacheScope: 'private' as const }
                 : {}),

@@ -90,6 +90,68 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
 
+## Interview recruitment with form elicitation
+
+The `mcp-interview-recruitment` boolean flag enables an optional interview invitation before a tool call.
+Create the flag in the MCP server's analytics project and manage its audience and rollout there.
+A missing or disabled flag skips recruitment. Local development also keeps it disabled unless a
+development flag override explicitly enables it.
+
+Flag evaluation includes these properties from the current request, without updating the person's
+stored profile. Empty values explicitly replace any stored value for that property.
+
+| Property                                       | Use                                                                                      |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `mcp_client_name`, `mcp_client_version`        | Select particular MCP clients and versions.                                              |
+| `mcp_vendor_client`                            | Distinguish pooled clients, such as `ClaudeCode` and `ClaudeAI`.                         |
+| `mcp_consumer`                                 | Select or exclude a wrapping application.                                                |
+| `mcp_oauth_client_id`, `mcp_oauth_client_name` | Select the OAuth application identified by token introspection.                          |
+| `mcp_source`                                   | Select a surface using the existing source classifier, including `mcp` and `posthog_ai`. |
+| `mcp_task_origin`, `mcp_has_task`              | Identify task-bound requests.                                                            |
+
+Start with a positive client allowlist, such as `mcp_client_name = claude-code` and
+`mcp_source = mcp`, then add users or a percentage rollout to the same condition group.
+Use `mcp_vendor_client` when a provider pools clients under one name. These are person-property
+conditions supplied as request overrides, not event-property filters or a last-used-client cohort.
+Keep every condition group constrained to the desired clients; alternative groups are OR conditions.
+
+Task-bound requests, credentials with `internal_run:read`, and recognized self-driving OAuth
+applications always skip recruitment, even when the flag is enabled. This also excludes sandboxed
+PostHog AI runs. Other PostHog AI connections can be excluded with `mcp_source` and the OAuth app
+properties. Client names and consumer headers are self-reported; they do not prove a human is present.
+A third-party unattended agent using the same identity and capabilities as an interactive client cannot
+be distinguished by this feature. Unknown clients should remain outside the flag's allowlist.
+
+The invitation uses native form elicitation on protocol revision `2026-07-28`, for clients advertising
+form support. Legacy protocol connections and clients without form support continue without an
+invitation. No MCP App, extra tool, or agent instruction is involved. The original tool runs after the
+client returns the form response, so the interaction does not rerun a completed write.
+
+The form asks permission to contact the user at their PostHog account email about a 20-minute interview:
+
+- **Yes, contact me** records `interested` and stops further invitations.
+- **Don't ask again**, or declining the form, records `do_not_ask_again` and stops further invitations.
+- **Not now**, dismissing the form, or abandoning it starts a seven-day cooldown.
+
+Responses are JSON records in the MCP server's shared Redis, under
+`mcp:interview:{<identity hash>}:response`. The identity hash is the SHA-256 hex digest of
+`JSON.stringify([publicPostHogBaseUrl, distinctId])`; it scopes the preference to the authenticated
+user and PostHog instance, across tokens, sessions, and projects. Submitted records contain
+`distinct_id`, `response`, and `responded_at`. Use `SCAN MATCH 'mcp:interview:*:response'` and `GET`
+to inspect responses. This implementation records consent; it does not send an email.
+
+Interested and opted-out records have no TTL. They remain suppressed until reset, provided Redis
+retains the records; this is not a separate durable database. Do not put these keys behind an
+expiring cache or delete them during cache maintenance. Cooldown records expire after seven days.
+Redis failures skip new invitations. A response write must succeed before the original tool runs;
+the client can retry the continuation if that write fails.
+
+To reset one user, delete that user's `:response` key and any matching
+`:response:mcp-interview:*` pending keys. Disable the flag or finish any open invitation before
+resetting. Do not reset all users just to test a change. Pending continuations expire after ten minutes
+and are bound to the original token and tool arguments. An expired continuation returns an error
+asking the caller to retry the original tool call without `requestState` or `inputResponses`.
+
 ## Claude web and desktop exec schema budget
 
 Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.

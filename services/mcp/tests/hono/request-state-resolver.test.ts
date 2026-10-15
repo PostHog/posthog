@@ -141,6 +141,7 @@ vi.mock('@/hono/request-context', () => {
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
@@ -483,17 +484,72 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
-    it('evaluates the exec skills flag even though no generated tool declares it', async () => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ [MCP_EXEC_SKILLS_FEATURE_FLAG]: true })
+    it.each([MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INTERVIEW_RECRUITMENT_FLAG])(
+        'evaluates %s even though no generated tool declares it',
+        async (flag) => {
+            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ [flag]: true })
 
-        const result = await makeResolver().resolve(makeProps())
+            const result = await makeResolver().resolve(makeProps())
 
-        expect(evaluateFeatureFlags).toHaveBeenCalledWith(
-            expect.arrayContaining([MCP_EXEC_SKILLS_FEATURE_FLAG]),
-            'distinct-id',
-            undefined
+            expect(evaluateFeatureFlags).toHaveBeenCalledWith(
+                expect.arrayContaining([flag]),
+                'distinct-id',
+                undefined,
+                expect.objectContaining({ mcp_source: 'mcp', mcp_has_task: false })
+            )
+            expect(result.toolFeatureFlags?.[flag]).toBe(true)
+        }
+    )
+
+    it('targets the current client instead of the session or a previously used surface', async () => {
+        mockSessionStore.set('mcpClientName', 'old-client')
+        mockSessionStore.set('mcpConsumer', 'posthog-code')
+        mockTokenStore.set('oauthClientId', 'test-oauth-app')
+        mockTokenStore.set('clientName', 'Test OAuth app')
+        await makeResolver().resolve(
+            makeProps({ mcpClientName: 'claude-code', mcpVendorClient: 'ClaudeCode', mcpConsumer: 'direct' })
         )
-        expect(result.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG]).toBe(true)
+        expect(evaluateFeatureFlags).toHaveBeenLastCalledWith(
+            expect.any(Array),
+            'distinct-id',
+            undefined,
+            expect.objectContaining({
+                mcp_client_name: 'claude-code',
+                mcp_vendor_client: 'ClaudeCode',
+                mcp_consumer: 'direct',
+                mcp_oauth_client_id: 'test-oauth-app',
+                mcp_oauth_client_name: 'Test OAuth app',
+                mcp_task_origin: '',
+                mcp_has_task: false,
+            })
+        )
+        await makeResolver().resolve(
+            makeProps({ mcpClientName: 'another-client', mcpConsumer: '', mcpVendorClient: '' })
+        )
+        expect(evaluateFeatureFlags).toHaveBeenLastCalledWith(
+            expect.any(Array),
+            'distinct-id',
+            undefined,
+            expect.objectContaining({ mcp_client_name: 'another-client', mcp_consumer: '', mcp_vendor_client: '' })
+        )
+    })
+
+    it.each([
+        { taskId: 'test-task' },
+        { taskOriginProduct: 'signals_scout' },
+        { taskOriginProduct: 'research' },
+        { scopes: ['internal_run:read'] },
+        { oauthClientId: 'jpSRPhGBBbDGpKprit9bgJEuo6oUTa8ULymqf8PE' },
+    ])('excludes automated callers even when recruitment is forced on: %j', async (input) => {
+        if (input.scopes) {
+            mockApiKey.scopes = input.scopes
+        }
+        if ('oauthClientId' in input) {
+            mockTokenStore.set('oauthClientId', input.oauthClientId)
+        }
+        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ [MCP_INTERVIEW_RECRUITMENT_FLAG]: true })
+        const result = await makeResolver().resolve(makeProps(input))
+        expect(result.toolFeatureFlags?.[MCP_INTERVIEW_RECRUITMENT_FLAG]).toBe(false)
     })
 
     it('honors a dev/test flag override even when evaluation returns nothing', async () => {
@@ -504,6 +560,21 @@ describe('RequestStateResolver MCP client contexts', () => {
         const result = await makeResolver().resolve(props)
 
         expect(result.toolFeatureFlags?.['dev-forced-flag']).toBe(true)
+    })
+
+    it('keeps local interview recruitment off unless explicitly overridden', async () => {
+        vi.stubEnv('POSTHOG_API_BASE_URL', 'http://localhost:8000')
+        try {
+            expect((await makeResolver().resolve(makeProps())).toolFeatureFlags?.[MCP_INTERVIEW_RECRUITMENT_FLAG]).toBe(
+                false
+            )
+            vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ [MCP_INTERVIEW_RECRUITMENT_FLAG]: true })
+            expect((await makeResolver().resolve(makeProps())).toolFeatureFlags?.[MCP_INTERVIEW_RECRUITMENT_FLAG]).toBe(
+                true
+            )
+        } finally {
+            vi.unstubAllEnvs()
+        }
     })
 
     describe('pinned project/org context', () => {
