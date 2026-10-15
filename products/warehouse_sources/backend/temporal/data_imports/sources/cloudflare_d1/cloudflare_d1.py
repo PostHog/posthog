@@ -1,6 +1,6 @@
 import re
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from requests import Response, Session
@@ -38,15 +38,14 @@ _HIDDEN_TABLE_PREFIXES = ("_cf_", "sqlite_")
 
 @frozen
 class D1ResumeConfig:
-    """Where the next page starts: a rowid for keyset paging, or an offset otherwise.
+    """Where the next page starts: the key values of the last row handed over, or an offset.
 
-    `last_value` is the incremental column's value on the last row handed over, which keeps the
-    keyset stable when many rows share one value.
+    `last_values` lines up with the keyset columns: the incremental column first when there is one,
+    then the rowid or the primary key columns. A view without either pages by `offset`.
     """
 
     table: str
-    last_rowid: int | None = None
-    last_value: Any = None
+    last_values: list[Any] | None = None
     offset: int = 0
 
 
@@ -142,6 +141,28 @@ class D1Client:
         return int(rows[0][0]["n"]) if rows and rows[0] else None
 
 
+# SQLite answers to any of these names with the hidden integer key, unless a column took the name.
+_ROWID_ALIASES = ("rowid", "_rowid_", "oid")
+_DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DATE_TYPES = (IncrementalFieldType.DateTime, IncrementalFieldType.Date, IncrementalFieldType.Timestamp)
+
+
+def rowid_alias(table: D1Table) -> str | None:
+    """A name that reaches the hidden rowid, or None when the table has none or every alias is a column."""
+    if not table.has_rowid:
+        return None
+    taken = {name.lower() for name, _, _ in table.columns}
+    return next((alias for alias in _ROWID_ALIASES if alias not in taken), None)
+
+
+def _free_name(table: D1Table, base: str) -> str:
+    taken = {name for name, _, _ in table.columns}
+    name = base
+    while name in taken:
+        name = f"_{name}"
+    return name
+
+
 def _sql_param(value: Any) -> str:
     # The query endpoint binds parameters as strings; SQLite's column affinity converts them back
     # to numbers when the column is numeric.
@@ -150,54 +171,76 @@ def _sql_param(value: Any) -> str:
     return str(value)
 
 
-def _cursor_expression(sql: str, field_type: IncrementalFieldType | None) -> str:
-    """The expression to order and compare an incremental value by.
+def watermark_like(sample: Any, watermark: Any, field_type: IncrementalFieldType | None) -> Any:
+    """The watermark in the form the column stores, so a plain comparison can use an index.
 
-    SQLite stores dates as text in whatever form the app wrote ("2024-01-02 03:04:05",
-    "2024-01-02T03:04:05Z"), and the pipeline hands the watermark back as an ISO datetime. Plain
-    text comparison of two forms is wrong, so both sides go through strftime, which keeps
-    milliseconds and folds a UTC offset into UTC.
+    SQLite keeps dates as whatever text the app wrote. The pipeline hands the watermark back as a
+    datetime, and its ISO text compares wrongly against "2024-01-02 03:04:05". The bound drops
+    fractions and zone suffixes: a value's own suffix then sorts after the bound, so the inclusive
+    comparison keeps every row of the watermark's second.
     """
-    if field_type in (IncrementalFieldType.DateTime, IncrementalFieldType.Date, IncrementalFieldType.Timestamp):
-        return f"strftime('%Y-%m-%d %H:%M:%f', {sql})"
-    return sql
+    if field_type not in _DATE_TYPES or not isinstance(watermark, datetime | date):
+        return watermark
+    moment = watermark if isinstance(watermark, datetime) else datetime(watermark.year, watermark.month, watermark.day)
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(UTC).replace(tzinfo=None)
+    if isinstance(sample, int | float):
+        seconds = moment.replace(tzinfo=UTC).timestamp()
+        # Epoch milliseconds already have 13 digits.
+        return int(seconds * 1000) if sample > 10**11 else int(seconds)
+    if isinstance(sample, str) and _DATE_ONLY_RE.match(sample):
+        return moment.date().isoformat()
+    separator = "T" if isinstance(sample, str) and "T" in sample else " "
+    return moment.strftime(f"%Y-%m-%d{separator}%H:%M:%S")
+
+
+def _keyset(table: D1Table, incremental_field: str | None) -> list[str]:
+    alias = rowid_alias(table)
+    tiebreak = [alias] if alias else list(table.primary_keys)
+    if not tiebreak:
+        return []
+    return ([incremental_field] if incremental_field else []) + tiebreak
 
 
 def _page_query(
     table: D1Table,
     incremental_field: str | None,
-    field_type: IncrementalFieldType | None,
-    watermark: Any,
+    bound: Any,
     position: D1ResumeConfig,
+    keyset: list[str],
+    rowid_tag: str,
 ) -> tuple[str, list[str]]:
     params: list[str] = []
     where: list[str] = []
-    tiebreak = ["rowid"] if table.has_rowid else [quote_identifier(key) for key in table.primary_keys]
-    if incremental_field is None:
-        order = tiebreak or ["1"]
-        if table.has_rowid and position.last_rowid is not None:
-            where.append(f"rowid > {int(position.last_rowid)}")
-    else:
+    alias = rowid_alias(table)
+    if incremental_field is not None:
         column = quote_identifier(incremental_field)
-        cursor = _cursor_expression(column, field_type)
-        bound = _cursor_expression("?", field_type)
-        order = [cursor, *tiebreak]
         # NULL never satisfies a watermark comparison, so the pipeline could never advance past a
         # NULL row; leaving them out keeps every page's rows inside the cursor's reach.
         where.append(f"{column} IS NOT NULL")
-        if table.has_rowid and position.last_rowid is not None:
-            last_rowid = int(position.last_rowid)
-            where.append(f"({cursor} > {bound} OR ({cursor} = {bound} AND rowid > {last_rowid}))")
-            params.extend([_sql_param(position.last_value), _sql_param(position.last_value)])
-        elif watermark is not None:
-            where.append(f"{cursor} > {bound}")
-            params.append(_sql_param(watermark))
-    select = "rowid AS __rowid, *" if table.has_rowid else "*"
+        if bound is not None:
+            # Inclusive: rows of the watermark's own second come again, and the merge keeps one.
+            where.append(f"{column} >= ?")
+            params.append(_sql_param(bound))
+    if keyset and position.last_values is not None:
+        keys = ", ".join(quote_identifier(key) if key != alias else key for key in keyset)
+        values = []
+        for key, value in zip(keyset, position.last_values):
+            if key == alias:
+                values.append(str(int(value)))
+            else:
+                values.append("?")
+                params.append(_sql_param(value))
+        where.append(f"({keys}) > ({', '.join(values)})")
+    select = f"{alias} AS {quote_identifier(rowid_tag)}, *" if alias else "*"
+    order = [quote_identifier(key) if key != alias else key for key in keyset]
+    if not order:
+        order = [quote_identifier(incremental_field)] if incremental_field else ["1"]
     sql = f"SELECT {select} FROM {quote_identifier(table.name)}"
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += f" ORDER BY {', '.join(order)} LIMIT {PAGE_SIZE}"
-    if not table.has_rowid:
+    if not keyset:
         sql += f" OFFSET {position.offset}"
     return sql, params
 
@@ -214,27 +257,37 @@ def iter_table_rows(
         # SQLite reads an unknown double-quoted name as a string literal, so the query would run
         # and match nothing instead of failing.
         raise D1QueryError(f"no such column: {incremental_field}")
+    keyset = _keyset(table, incremental_field)
+    alias = rowid_alias(table)
+    rowid_tag = _free_name(table, "__posthog_rowid")
+    bound = None
+    if incremental_field is not None and watermark is not None:
+        column = quote_identifier(incremental_field)
+        sample = client.query(
+            f"SELECT {column} AS v FROM {quote_identifier(table.name)} WHERE {column} IS NOT NULL LIMIT 1"
+        )
+        rows = sample[0] if sample else []
+        bound = watermark_like(rows[0]["v"] if rows else None, watermark, field_type)
     position = D1ResumeConfig(table=table.name)
     if manager.can_resume():
         saved = manager.load_state()
         if saved is not None and saved.table == table.name:
             position = saved
     while True:
-        sql, params = _page_query(table, incremental_field, field_type, watermark, position)
+        sql, params = _page_query(table, incremental_field, bound, position, keyset, rowid_tag)
         rows = client.query(sql, params)[0]
         if not rows:
             return
         last = rows[-1]
-        if table.has_rowid:
+        if keyset:
             position = D1ResumeConfig(
-                table=table.name,
-                last_rowid=last["__rowid"],
-                last_value=last.get(incremental_field) if incremental_field else None,
+                table=table.name, last_values=[last[rowid_tag] if key == alias else last[key] for key in keyset]
             )
-            for row in rows:
-                row.pop("__rowid", None)
         else:
             position = D1ResumeConfig(table=table.name, offset=position.offset + len(rows))
+        if alias:
+            for row in rows:
+                del row[rowid_tag]
         # Staged before the yield it covers, so a hand-off resumes after this page.
         manager.save_state(position)
         yield rows

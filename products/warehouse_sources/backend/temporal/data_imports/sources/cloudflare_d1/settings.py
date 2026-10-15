@@ -27,11 +27,13 @@ def incremental_type_for_declared_type(declared_type: str) -> IncrementalFieldTy
 
     SQLite column affinity is decided by substrings of the declared type, so the same rules apply
     here. Date and time types are text affinity in SQLite, and the ISO 8601 strings SQLite's own
-    date functions produce compare correctly as text, so they are offered as datetimes.
+    date functions produce compare correctly as text, so they are offered as dates and datetimes.
     """
     upper = declared_type.upper()
     if "INT" in upper:
         return IncrementalFieldType.Integer
+    if "DATE" in upper and "TIME" not in upper:
+        return IncrementalFieldType.Date
     if any(token in upper for token in ("DATE", "TIME")):
         return IncrementalFieldType.DateTime
     if any(token in upper for token in ("REAL", "FLOA", "DOUB", "NUM", "DEC")):

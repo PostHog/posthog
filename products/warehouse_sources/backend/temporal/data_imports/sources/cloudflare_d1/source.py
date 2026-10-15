@@ -1,5 +1,7 @@
 from typing import Optional, cast
 
+from requests import RequestException
+
 from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -38,6 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class CloudflareD1Source(ResumableSource[CloudflareD1SourceConfig, D1ResumeConfig]):
     # A D1 binding lives in wrangler.toml, which carries no package, env key or script tag.
     codebase_detection = NOT_DETECTABLE
+    detects_primary_keys = True
 
     supported_versions = ("v4",)
     default_version = "v4"
@@ -144,14 +147,23 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
                 SourceSchema(
                     name=table.name,
                     supports_incremental=bool(incremental_fields),
-                    supports_append=bool(incremental_fields),
+                    # The watermark comparison is inclusive, so only a merge keeps re-read rows single.
+                    supports_append=False,
                     incremental_fields=incremental_fields,
                     columns=list(table.columns),
                     detected_primary_keys=list(table.primary_keys) or None,
-                    row_count=client.count_rows(table.name) if with_counts else None,
+                    row_count=self._count_rows(client, table.name) if with_counts else None,
                 )
             )
         return schemas
+
+    @staticmethod
+    def _count_rows(client: D1Client, table: str) -> int | None:
+        # Only a progress estimate: a view too slow to count must not stop the sync.
+        try:
+            return client.count_rows(table)
+        except (D1QueryError, RequestException):
+            return None
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[D1ResumeConfig]:
         return ResumableSourceManager[D1ResumeConfig](inputs, D1ResumeConfig)
@@ -175,6 +187,6 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
                 client, table, incremental_field, inputs.incremental_field_type, watermark, resumable_source_manager
             ),
             primary_keys=list(table.primary_keys) or None,
-            rows_to_sync=client.count_rows(table.name) if incremental_field is None else None,
+            rows_to_sync=self._count_rows(client, table.name) if incremental_field is None else None,
             sort_mode="asc",
         )
