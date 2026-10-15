@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -70,7 +71,7 @@ describe('traceDialogLogic', () => {
     })
 
     it('keeps the trace after close so the exit animation does not flash an empty dialog', async () => {
-        logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'def456' })
+        logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'def456' }, { entryPoint: 'log_details' })
 
         await expectLogic(logic, () => {
             logic.actions.closeTraceDialog()
@@ -82,7 +83,7 @@ describe('traceDialogLogic', () => {
         ['stays open on a hash-only change', '/logs#panel', true],
         ['closes on a new pathname', '/insights', false],
     ])('%s', async (_name, url, expectedOpen) => {
-        logic.actions.openTraceDialog({ traceId: 'abc123' })
+        logic.actions.openTraceDialog({ traceId: 'abc123' }, { entryPoint: 'log_details' })
 
         await expectLogic(logic, () => {
             router.actions.push(url)
@@ -97,10 +98,10 @@ describe('traceDialogLogic', () => {
         getTraceSpy.mockResolvedValueOnce({ results: [span('A1'), span('B1')], hasMore: false, nextOffset: null })
 
         await expectLogic(logic, () => {
-            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: openedSpanId })
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: openedSpanId }, { entryPoint: 'log_details' })
         }).toDispatchActions(['loadTraceSpansSuccess'])
 
-        expect(logic.values.selectedSpanId).toBe('B1')
+        expect(logic.values.selectedSpan?.span_id).toBe('B1')
     })
 
     it.each([
@@ -117,7 +118,7 @@ describe('traceDialogLogic', () => {
         pages.forEach((p) => getTraceSpy.mockResolvedValueOnce(p))
 
         await expectLogic(logic, () => {
-            logic.actions.openTraceDialog({ traceId: 'abc123' })
+            logic.actions.openTraceDialog({ traceId: 'abc123' }, { entryPoint: 'log_details' })
         }).toDispatchActions(['loadTraceSpansSuccess'])
 
         expect(logic.values.traceSpans?.spans.map((s) => s.span_id)).toEqual(expectedSpanIds)
@@ -129,7 +130,7 @@ describe('traceDialogLogic', () => {
         let resolveFirstPage: (p: TracePage) => void = () => {}
         getTraceSpy.mockReturnValueOnce(new Promise<TracePage>((resolve) => (resolveFirstPage = resolve)))
 
-        logic.actions.openTraceDialog({ traceId: 'abc123' })
+        logic.actions.openTraceDialog({ traceId: 'abc123' }, { entryPoint: 'log_details' })
         logic.actions.closeTraceDialog()
         await expectLogic(logic, () => {
             resolveFirstPage(page(['a'], 1))
@@ -142,9 +143,9 @@ describe('traceDialogLogic', () => {
         let rejectFirstTrace: (error: Error) => void = () => {}
         getTraceSpy.mockReturnValueOnce(new Promise<TracePage>((_, reject) => (rejectFirstTrace = reject)))
 
-        logic.actions.openTraceDialog({ traceId: 'first' })
+        logic.actions.openTraceDialog({ traceId: 'first' }, { entryPoint: 'log_details' })
         await expectLogic(logic, () => {
-            logic.actions.openTraceDialog({ traceId: 'second' })
+            logic.actions.openTraceDialog({ traceId: 'second' }, { entryPoint: 'log_details' })
         }).toDispatchActions(['loadTraceSpansSuccess'])
 
         rejectFirstTrace(new Error('boom'))
@@ -164,7 +165,7 @@ describe('traceDialogLogic', () => {
             nextOffset: null,
         })
         await expectLogic(logic, () => {
-            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'A1' })
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'A1' }, { entryPoint: 'log_details' })
         }).toDispatchActions(['loadTraceSpansSuccess'])
 
         logic.actions.toggleSpanCollapsed('A')
@@ -176,7 +177,7 @@ describe('traceDialogLogic', () => {
     it('clears the failure once a retry succeeds', async () => {
         getTraceSpy.mockRejectedValueOnce(new Error('boom'))
         await expectLogic(logic, () => {
-            logic.actions.openTraceDialog({ traceId: 'abc123' })
+            logic.actions.openTraceDialog({ traceId: 'abc123' }, { entryPoint: 'log_details' })
         })
             .toDispatchActions(['loadTraceSpansFailure'])
             .toMatchValues({ traceSpansFailed: true })
@@ -195,7 +196,7 @@ describe('traceDialogLogic', () => {
         getTraceSpy.mockResolvedValueOnce({ results: [span('a', statusCode)], hasMore: false, nextOffset: null })
 
         await expectLogic(logic, () => {
-            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' })
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' }, { entryPoint: 'log_details' })
         })
             .toDispatchActions(['loadTraceSpansSuccess'])
             .toMatchValues({ activeInspectorTab: expectedTab })
@@ -203,7 +204,7 @@ describe('traceDialogLogic', () => {
 
     it('keeps a picked tab across spans, and drops it for the next trace', async () => {
         getTraceSpy.mockResolvedValue({ results: [span('a', 2), span('b')], hasMore: false, nextOffset: null })
-        logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' })
+        logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' }, { entryPoint: 'log_details' })
         await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
 
         logic.actions.setInspectorTab('attributes')
@@ -212,7 +213,7 @@ describe('traceDialogLogic', () => {
         }).toMatchValues({ activeInspectorTab: 'attributes' })
 
         await expectLogic(logic, () => {
-            logic.actions.openTraceDialog({ traceId: 'def456', spanId: 'a' })
+            logic.actions.openTraceDialog({ traceId: 'def456', spanId: 'a' }, { entryPoint: 'log_details' })
         })
             .toDispatchActions(['loadTraceSpansSuccess'])
             .toMatchValues({ activeInspectorTab: 'errors' })
@@ -221,7 +222,7 @@ describe('traceDialogLogic', () => {
     it('treats a missing parent row as its own selection, not the root span', async () => {
         const orphan = { ...span('child'), parent_span_id: 'GONE' }
         getTraceSpy.mockResolvedValueOnce({ results: [span('a'), orphan], hasMore: false, nextOffset: null })
-        logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' })
+        logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' }, { entryPoint: 'log_details' })
         await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
 
         await expectLogic(logic, () => {
@@ -237,7 +238,7 @@ describe('traceDialogLogic', () => {
         ['a recording opens', () => sessionPlayerModalLogic.actions.openSessionPlayer({ id: 'session-1' })],
         ['the full-screen logs viewer opens', () => logsViewerModalLogic.actions.openLogsViewerModal()],
     ])('closes when %s, since that modal sits behind the dialog', async (_name, open) => {
-        logic.actions.openTraceDialog({ traceId: 'abc123' })
+        logic.actions.openTraceDialog({ traceId: 'abc123' }, { entryPoint: 'log_details' })
 
         await expectLogic(logic, open).toMatchValues({ isOpen: false })
     })
@@ -245,13 +246,16 @@ describe('traceDialogLogic', () => {
     it('drops the log from a previous open, so a later open has no stale strip or marker', async () => {
         logic.actions.openTraceDialog(
             { traceId: 'abc123', ts: '2026-05-01T12:00:00.000Z' },
-            { body: 'run_sql failed', severity: 'error' }
+            { entryPoint: 'log_details', openedFrom: { body: 'run_sql failed', severity: 'error' } }
         )
         expect(logic.values.openedAtUs).not.toBeNull()
 
         // A metrics link passes a time near the trace, which is no point in it to mark.
         await expectLogic(logic, () => {
-            logic.actions.openTraceDialog({ traceId: 'def456', ts: '2026-05-01T12:00:00.000Z' })
+            logic.actions.openTraceDialog(
+                { traceId: 'def456', ts: '2026-05-01T12:00:00.000Z' },
+                { entryPoint: 'metric_exemplar' }
+            )
         }).toMatchValues({ openedFrom: null, openedAtUs: null })
     })
 
@@ -260,7 +264,7 @@ describe('traceDialogLogic', () => {
 
         beforeEach(async () => {
             getTraceSpy.mockResolvedValue({ results: [span('a'), span('b')], hasMore: false, nextOffset: null })
-            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' })
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' }, { entryPoint: 'log_details' })
             await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
             // Stands in for the logs list under the dialog, which binds J and K on window too.
             pageListener = jest.fn()
@@ -286,7 +290,7 @@ describe('traceDialogLogic', () => {
         it('steps onto a missing parent row and on past it', async () => {
             const orphan = { ...span('b'), parent_span_id: 'GONE' }
             getTraceSpy.mockResolvedValue({ results: [span('a'), orphan], hasMore: false, nextOffset: null })
-            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' })
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' }, { entryPoint: 'log_details' })
             await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
 
             press('j')
@@ -346,9 +350,91 @@ describe('traceDialogLogic', () => {
         }
 
         await expectLogic(logic, () => {
-            logic.actions.openTraceDialog({ traceId: 'abc123' })
+            logic.actions.openTraceDialog({ traceId: 'abc123' }, { entryPoint: 'log_details' })
         })
             .toDispatchActions(['loadTraceSpansSuccess'])
             .toMatchValues({ traceIdentity: expectedIdentity })
+    })
+
+    describe('usage events', () => {
+        let captureSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        })
+
+        afterEach(() => {
+            captureSpy.mockRestore()
+        })
+
+        const closeReasons = (): string[] =>
+            captureSpy.mock.calls
+                .filter(([event]) => event === 'tracing trace dialog closed')
+                .map(([, properties]) => properties.reason)
+
+        it.each([
+            ['dismissed', () => logic.actions.closeTraceDialog(), ['dismissed']],
+            ['back to log', () => logic.actions.closeTraceDialog('back_to_log'), ['back_to_log']],
+            ['navigated away', () => router.actions.push('/insights'), ['navigated']],
+            // The Open in Tracing link navigates too, but the close has to say why.
+            [
+                'open in tracing',
+                () => {
+                    logic.actions.openInTracing()
+                    router.actions.push('/tracing')
+                },
+                ['open_in_tracing'],
+            ],
+            [
+                'open in tracing without a pathname change',
+                () => {
+                    logic.actions.openInTracing()
+                    router.actions.push(router.values.location.pathname, { trace: 'abc123' })
+                    expect(logic.values.isOpen).toBe(false)
+                },
+                ['open_in_tracing'],
+            ],
+            [
+                'another trace opened over it',
+                () => logic.actions.openTraceDialog({ traceId: 'def456' }, { entryPoint: 'metric_sample' }),
+                // The second dialog closes on the final dismiss.
+                ['replaced', 'dismissed'],
+            ],
+        ])('records one close for %s', async (_name, exit, expectedReasons) => {
+            logic.actions.openTraceDialog({ traceId: 'abc123' }, { entryPoint: 'log_details' })
+            await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+
+            exit()
+            // A second close of an already-closed dialog must not record another session.
+            logic.actions.closeTraceDialog()
+
+            expect(closeReasons()).toEqual(expectedReasons)
+        })
+
+        it('reports the entry point and how the person moved through the trace', async () => {
+            getTraceSpy.mockResolvedValue({ results: [span('a'), span('b')], hasMore: false, nextOffset: null })
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' }, { entryPoint: 'log_row_action' })
+            await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+
+            logic.actions.selectNextSpan()
+            logic.actions.setInspectorTab('attributes')
+            logic.actions.closeTraceDialog()
+
+            expect(captureSpy).toHaveBeenCalledWith('tracing trace dialog opened', {
+                entry_point: 'log_row_action',
+                has_span: true,
+                has_log: false,
+            })
+            expect(captureSpy).toHaveBeenCalledWith(
+                'tracing trace dialog closed',
+                expect.objectContaining({
+                    entry_point: 'log_row_action',
+                    reason: 'dismissed',
+                    spans_selected: 1,
+                    keyboard_steps: 1,
+                    tabs_viewed: ['attributes'],
+                })
+            )
+        })
     })
 })

@@ -52,7 +52,12 @@ export function TraceDialogOpenedFromLog(): JSX.Element | null {
                     )}
                 </span>
             )}
-            <LemonButton size="xsmall" type="secondary" onClick={closeTraceDialog} data-attr="trace-dialog-back-to-log">
+            <LemonButton
+                size="xsmall"
+                type="secondary"
+                onClick={() => closeTraceDialog('back_to_log')}
+                data-attr="trace-dialog-back-to-log"
+            >
                 Back to log
             </LemonButton>
         </div>

@@ -20,7 +20,9 @@ function DialogTraceButton(): JSX.Element | null {
         <ViewTraceButton
             traceId="abc123"
             spanId="def456"
-            onClick={(event) => openTraceDialog(event, { traceId: 'abc123', spanId: 'def456' })}
+            onClick={(event) =>
+                openTraceDialog(event, { traceId: 'abc123', spanId: 'def456' }, { entryPoint: 'log_details' })
+            }
         />
     )
 }
