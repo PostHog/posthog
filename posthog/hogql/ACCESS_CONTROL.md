@@ -98,7 +98,11 @@ HogQL is intentionally more restrictive here, and it's a known limitation.
 
 ## 2. Warehouse tables and views
 
-Gated by the `hogql-warehouse-access-control` feature flag (checked in `Database._fetch_sources`).
+Enabled by `hogql-warehouse-access-control` or by `authz-rebac=v2` for warehouse tables (checked in `Database._fetch_sources`).
+The SDK routes warehouse table queries and external data source permissions to OpenFGA in v2.
+Synchronization projects their policies, creators, project membership, and each table's direct `source` relationship.
+Table query checks use `can_query`, which aliases the resolved view permission.
+Warehouse views keep their Python resolver, including checks of the tables their definitions reference.
 
 ### Resource-level: the `warehouse_objects` umbrella
 
@@ -263,6 +267,7 @@ The cache key is derived from `get_cache_payload()`:
 - `QueryRunner.get_cache_payload()` adds named property restriction records, including the group type index, and a property-enforcement version when the user has property restrictions.
   Bump that version when tightening enforcement so a cached result cannot bypass the new masking rules.
 - `AnalyticsQueryRunner.get_cache_payload()` adds `restricted_resources` (denied scopes) and `restricted_objects` (denied object IDs per scope) for levels 1 and 2.
+- Warehouse reads also include the SDK filter in `authz_resource_filters`, so different OpenFGA decisions cannot share cached query results.
 
 Two things keep cache hit rates high:
 

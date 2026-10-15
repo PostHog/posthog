@@ -40,6 +40,42 @@ class OrganizationProjection:
     def add(self, user: str, relation: str, object: str) -> None:
         self.relationships.add(Relationship(user=user, relation=relation, object=object))
 
+    def add_warehouse(
+        self, team: Team, membership_by_user: dict[int, OrganizationMembership], resource_keys: dict[str, str]
+    ) -> dict[str, set[str]]:
+        from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415 -- defer warehouse model imports until projection runs
+            authorization_sources,
+            authorization_tables,
+        )
+
+        sources = authorization_sources(team.id)
+        source_ids = {str(source.id) for source in sources}
+        tables = authorization_tables(team.id)
+        for type_name, objects, category in (
+            ("external_data_source", sources, "external_data_source"),
+            ("warehouse_table", tables, "warehouse_objects"),
+        ):
+            for obj in objects:
+                object_key = self.key(type_name, f"{team.id}/{obj.id}")
+                policy_key = self.key("access_policy", f"{team.id}/{type_name}/{obj.id}")
+                self.add(self.key("project", team.id), "project", object_key)
+                self.add(resource_keys[category], "resource", object_key)
+                self.add(policy_key, "policy", object_key)
+                self.add(self.organization_key, "organization", policy_key)
+                creator = membership_by_user.get(obj.created_by_id) if obj.created_by_id is not None else None
+                if creator is not None:
+                    self.add(f"{self.key('organization_member', str(creator.id))}#user", "creator", object_key)
+        for table in tables:
+            if table.external_data_source_id is not None:
+                if str(table.external_data_source_id) not in source_ids:
+                    raise ValueError("Warehouse table source must belong to the same project")
+                self.add(
+                    self.key("external_data_source", f"{team.id}/{table.external_data_source_id}"),
+                    "source",
+                    self.key("warehouse_table", f"{team.id}/{table.id}"),
+                )
+        return {"external_data_source": source_ids, "warehouse_table": {str(table.id) for table in tables}}
+
     def add_shares(self, team: Team, active_insight_ids: set[str]) -> None:
         shares = SharingConfiguration.objects.filter(
             SharingConfiguration.tokens_active_q(),
@@ -117,7 +153,7 @@ class OrganizationProjection:
         for team in Team.objects.filter(organization_id=self.organization_id):
             project_key = self.key("project", team.id)
             self.add(self.organization_key, "organization", project_key)
-            resource_keys = {}
+            resource_keys: dict[str, str] = {}
             for category in ACCESS_CONTROL_RESOURCES:
                 resource_key = self.key("resource", f"{team.id}/{category}")
                 resource_policy_key = self.key("access_policy", f"{team.id}/{category}/default")
@@ -160,6 +196,11 @@ class OrganizationProjection:
                         f"{self.key('organization_member', str(creator_membership.id))}#user", "creator", object_key
                     )
 
+            object_ids = {
+                "dashboard": dashboard_ids,
+                "insight": insight_ids,
+                **self.add_warehouse(team, membership_by_user, resource_keys),
+            }
             for rule in authorization_rules(team.id, self.organization_id):
                 if rule.resource == "project":
                     if rule.resource_id != str(team.id):
@@ -169,7 +210,7 @@ class OrganizationProjection:
                 else:
                     resource_type = rule.resource
                     if rule.resource_id is not None:
-                        resource_ids = {"dashboard": dashboard_ids, "insight": insight_ids}.get(resource_type, set())
+                        resource_ids = object_ids.get(resource_type, set())
                         if rule.resource_id not in resource_ids:
                             continue
                     elif resource_type not in resource_keys:

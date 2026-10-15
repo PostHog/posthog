@@ -7,7 +7,7 @@ from products.authz.backend.facade import api
 
 
 class Command(BaseCommand):
-    help = "Reconcile existing dashboard authorization data into OpenFGA."
+    help = "Reconcile organization authorization data into OpenFGA."
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("organization_ids", nargs="+", type=UUID)

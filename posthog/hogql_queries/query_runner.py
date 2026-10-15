@@ -3562,6 +3562,17 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
             self.query, self.team, bypassed_scopes=self._bypassed_access_scopes
         )
 
+        if queried_resources == set():
+            return payload
+
+        if self.user_access_control is not None:
+            from posthog.authz import resource_list_cache_key  # noqa: PLC0415 -- avoid the authz/model import cycle
+
+            warehouse_scopes = {"warehouse_table", "external_data_source"}
+            sdk_scopes = warehouse_scopes if queried_resources is None else queried_resources & warehouse_scopes
+            if filters := resource_list_cache_key(self.user_access_control, sdk_scopes):
+                payload["authz_resource_filters"] = filters
+
         if isinstance(self.user, User) and not self.team.organization.is_feature_available(
             AvailableFeature.ACCESS_CONTROL
         ):
