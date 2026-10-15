@@ -14,8 +14,8 @@ live rows leaves a three-week window where a dormant account is invisible.
 """
 
 import uuid
+import itertools
 
-from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -66,17 +66,22 @@ def sweep_blocklisted_gateway_credentials() -> SweepResult:
     blocked_user_ids: set[int] = set()
     team_organizations: dict[int, str] = {}
 
-    candidates = (
+    now = timezone.now()
+    gateway_tokens = (
         OAuthAccessToken.objects.alias(scope_tokens=oauth_scope_tokens_expression())
         .filter(scope_tokens__overlap=sorted(GATEWAY_BEARING_SCOPES), application_id__isnull=False)
         .filter(user__isnull=False)
-        # An expired row is only worth reading for the refresh token hanging off it.
-        # Server-minted sandbox tokens carry this scope, expire in hours, have no
-        # refresh token and are kept 30 days, so admitting every expired row scans
-        # that backlog for credentials a ban cannot reach.
-        .filter(Q(expires__gt=timezone.now()) | Q(refresh_token__isnull=False))
         .select_related("user", "application")
-        .iterator(chunk_size=_CHUNK_SIZE)
+    )
+    # An expired row is only worth reading for the refresh token hanging off it.
+    # Server-minted sandbox tokens carry this scope, expire in hours, have no
+    # refresh token and are kept 30 days, so admitting every expired row scans
+    # that backlog for credentials a ban cannot reach. Two disjoint selects, not one
+    # OR across the outer join: the OR keeps Postgres from using the expires index
+    # and makes it read that backlog anyway.
+    candidates = itertools.chain(
+        gateway_tokens.filter(expires__gt=now).iterator(chunk_size=_CHUNK_SIZE),
+        gateway_tokens.filter(expires__lte=now, refresh_token__isnull=False).iterator(chunk_size=_CHUNK_SIZE),
     )
     for token in candidates:
         user = token.user

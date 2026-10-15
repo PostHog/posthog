@@ -17,25 +17,25 @@ def batch_delete_model(queryset: QuerySet, query: Q, context: dagster.OpExecutio
     CLEAR_EXPIRED_TOKENS_BATCH_SIZE = getattr(settings, "CLEAR_EXPIRED_TOKENS_BATCH_SIZE", 1000)
     CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL = getattr(settings, "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL", 0.1)
 
-    current_no = start_no = queryset.count()
-    context.log.info(f"Starting deletion of {start_no} {token_type}")
+    model = cast(Any, queryset.model)
+    context.log.info(f"Starting deletion of {token_type}")
 
-    while current_no:
-        flat_queryset = queryset.values_list("id", flat=True)[:CLEAR_EXPIRED_TOKENS_BATCH_SIZE]
-        batch_length = flat_queryset.count()
-
-        if batch_length == 0:
+    # One select per batch and no count(): each count re-ran the whole filter, and on
+    # posthog_oauthaccesstoken that filter is an outer join to the refresh token table.
+    deleted = 0
+    while True:
+        batch_ids = list(model.objects.filter(query).values_list("id", flat=True)[:CLEAR_EXPIRED_TOKENS_BATCH_SIZE])
+        if not batch_ids:
             break
 
-        cast(Any, queryset.model).objects.filter(id__in=list(flat_queryset)).delete()
-        context.log.debug(f"{batch_length} {token_type} deleted, {current_no - batch_length} left")
+        model.objects.filter(id__in=batch_ids).delete()
+        deleted += len(batch_ids)
+        context.log.debug(f"{len(batch_ids)} {token_type} deleted, {deleted} so far")
 
-        queryset = cast(Any, queryset.model).objects.filter(query)
+        if len(batch_ids) < CLEAR_EXPIRED_TOKENS_BATCH_SIZE:
+            break
         time.sleep(CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL)
-        current_no = queryset.count()
 
-    stop_no = cast(Any, queryset.model).objects.filter(query).count()
-    deleted = start_no - stop_no
     return deleted
 
 
