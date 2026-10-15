@@ -21,23 +21,12 @@ from posthog.models.person.deletion import (
     tombstone_orphaned_ch_persons,
 )
 from posthog.models.person.util import create_person_distinct_id, get_distinct_id_rows, get_persons_by_uuids
-from posthog.personhog_client.client import personhog_call, require_personhog_client
-from posthog.personhog_client.proto import (
-    DISTINCT_ID_WRITE_ACTION_TOMBSTONE,
-    DISTINCT_ID_WRITE_OUTCOME_APPLIED,
-    DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE,
-    DistinctIdRow,
-    DistinctIdWrite,
-    WriteDistinctIdsRequest,
-)
+from posthog.personhog_client.proto import DistinctIdRow
 
 from . import datatypes, lookups, observe, repairs, team_scan
 
-# The most rows a personhog repair write takes in one call.
-WRITE_BATCH_SIZE = 250
-
 # A key whose last recorded outcome is one of these needs nothing more, so a resumed run skips it.
-DONE_OUTCOMES = frozenset({"repaired", "tombstoned", "republished", "buried", "detached", "already_detached"})
+DONE_OUTCOMES = frozenset({"repaired", "tombstoned", "republished", "buried"})
 
 
 class VerbError(Exception):
@@ -345,82 +334,8 @@ def _bury_mapping(row: dict[str, Any], context: VerbContext) -> None:
     context.action(row, "buried", version=int(confirmed.version))
 
 
-def detach_stray(rows: list[dict[str, Any]], context: VerbContext) -> None:
-    """Tombstone live mappings whose Postgres person is tombstoned, while they still hold the reported version."""
-    for batch in lookups._chunks(rows, WRITE_BATCH_SIZE):
-        repairs._retry_transient(
-            partial(_detach_batch, list(batch), context), what="detach_stray batch", log=context.log
-        )
-
-
-def _detach_batch(rows: list[dict[str, Any]], context: VerbContext) -> None:
-    team_id = context.team_id
-    ch = observe.ch_mapping_states(team_id, [r["key"] for r in rows])
-    writes: list[DistinctIdWrite] = []
-    by_key: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        pg = row["evidence"]["pg"]
-        ch_state = ch.get(row["key"])
-        min_version = max(int(pg["version"]) + 1, (ch_state.max_version + 1) if ch_state else 0)
-        writes.append(
-            DistinctIdWrite(
-                distinct_id=row["key"],
-                action=DISTINCT_ID_WRITE_ACTION_TOMBSTONE,
-                person_uuid=pg["person_uuid"],
-                min_version=min_version,
-                expected_version=int(pg["version"]),
-            )
-        )
-        by_key[row["key"]] = row
-    if not context.apply:
-        current = {r.distinct_id: r for r in get_distinct_id_rows(team_id, list(by_key), strong=True)}
-        for write in writes:
-            now = current.get(write.distinct_id)
-            unchanged = (
-                now is not None
-                and not now.is_deleted
-                and now.person_uuid == write.person_uuid
-                and now.version == write.expected_version
-                and now.person_is_deleted
-            )
-            context.action(
-                by_key[write.distinct_id],
-                "would_repair" if unchanged else "skipped_changed",
-                target_version=write.min_version,
-            )
-        return
-    context.pacer.before_write()
-    response = personhog_call(
-        "person_consistency_detach_stray",
-        lambda: require_personhog_client().write_distinct_ids(WriteDistinctIdsRequest(team_id=team_id, writes=writes)),
-    )
-    min_versions = {w.distinct_id: w.min_version for w in writes}
-    for result in response.results:
-        row = by_key[result.distinct_id]
-        stored = result.row if result.HasField("row") else None
-        tombstoned_here = (
-            stored is not None
-            and stored.is_deleted
-            and stored.person_uuid == row["evidence"]["pg"]["person_uuid"]
-            and stored.version >= min_versions[result.distinct_id]
-        )
-        if stored is not None and (result.outcome == DISTINCT_ID_WRITE_OUTCOME_APPLIED or tombstoned_here):
-            context.deliveries.track(
-                create_person_distinct_id(
-                    team_id, result.distinct_id, stored.person_uuid, version=int(stored.version), is_deleted=True
-                )
-            )
-            outcome = "detached" if result.outcome == DISTINCT_ID_WRITE_OUTCOME_APPLIED else "already_detached"
-            context.action(row, outcome, version=int(stored.version))
-        elif result.outcome == DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE:
-            context.action(row, "skipped_person_gone")
-        else:
-            context.action(row, "skipped_changed")
-
-
 VERBS: dict[str, VerbFn] = {
     "republish": republish,
     "merge_stale": merge_stale,
     "bury": bury,
-    "detach_stray": detach_stray,
 }
