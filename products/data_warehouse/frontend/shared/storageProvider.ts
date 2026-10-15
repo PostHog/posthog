@@ -1,4 +1,4 @@
-import { ManualLinkSourceType } from '~/types'
+import { DataWarehouseTable, ManualLinkSourceType } from '~/types'
 
 /** How each self-managed storage provider is named in the source catalog. */
 export const MANUAL_LINK_SOURCE_LABELS: Record<ManualLinkSourceType, string> = {
@@ -41,6 +41,21 @@ export function storageProviderFromUrl(url: string | undefined): ManualLinkSourc
         return 'cloudflare-r2'
     }
     return null
+}
+
+/**
+ * The provider whose labels a self-managed table form shows. A saved table stores no provider, so it is
+ * read back from the table's URL. The source wizard's pick is ignored there: it outlives the setup it was
+ * made in, so it can name a different provider than the table being edited.
+ */
+export function selfManagedFormProvider(
+    table: Pick<DataWarehouseTable, 'id' | 'url_pattern'> | null | undefined,
+    wizardProvider: ManualLinkSourceType | null
+): ManualLinkSourceType {
+    if (table?.id) {
+        return storageProviderFromUrl(table.url_pattern) ?? 'aws'
+    }
+    return wizardProvider ?? 'aws'
 }
 
 /**

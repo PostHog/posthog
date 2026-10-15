@@ -7,7 +7,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ManualLinkSourceType } from '~/types'
 
-import { describeStorageProviderMismatch } from '../../../shared/storageProvider'
+import { describeStorageProviderMismatch, selfManagedFormProvider } from '../../../shared/storageProvider'
 import { selfManagedSourceLogic } from '../selfManagedSourceLogic'
 import { sourceWizardLogic } from '../sourceWizardLogic'
 
@@ -58,7 +58,7 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
     const { manualLinkingProvider } = useValues(sourceWizardLogic)
     const { table } = useValues(selfManagedSourceLogic)
 
-    const provider = manualLinkingProvider ?? 'aws'
+    const provider = selfManagedFormProvider(table, manualLinkingProvider)
     const isCsvFormat = table?.format === 'CSV' || table?.format === 'CSVWithNames'
     const providerMismatch = describeStorageProviderMismatch(table?.url_pattern, provider)
 
