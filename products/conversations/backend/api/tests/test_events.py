@@ -16,6 +16,7 @@ from posthog.settings import SITE_URL
 from products.access_control.backend.models.role import Role
 from products.conversations.backend.events import (
     EVENT_SOURCE,
+    _get_customer_properties,
     _resolve_groups_from_analytics,
     capture_message_received,
     capture_message_sent,
@@ -238,6 +239,26 @@ class TestConversationEvents(BaseTest):
 
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["properties"]["customer_email"] == "customer@example.com"
+
+    @parameterized.expand(
+        [
+            ("authenticated_email", "email", True, "customer@example.com", True),
+            ("widget_form_email", "widget", True, "customer-123", False),
+            ("unauthenticated_email", "email", False, "customer@example.com", False),
+        ]
+    )
+    def test_customer_email_verified_requires_attested_email(
+        self, _name, channel_source, identity_verified, distinct_id, expected
+    ):
+        ticket = Ticket(
+            team=self.team,
+            channel_source=channel_source,
+            identity_verified=identity_verified,
+            distinct_id=distinct_id,
+            anonymous_traits={"email": "customer@example.com"},
+        )
+
+        assert _get_customer_properties(ticket)["customer_email_verified"] is expected
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_message_received_uses_team_token(self, mock_capture):

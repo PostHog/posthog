@@ -412,12 +412,25 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
     }
 
 
+def _is_customer_email_verified(ticket: Ticket, customer_email: str) -> bool:
+    # A server check attests the distinct_id of a verified ticket: the signed widget identity, or the
+    # sender address on email, Slack and Teams tickets. The widget form can supply any email, so the
+    # email counts as verified only when it is that attested identity.
+    return (
+        ticket.identity_verified is True
+        and bool(customer_email)
+        and customer_email.lower() == (ticket.distinct_id or "").lower()
+    )
+
+
 def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = False) -> dict:
     """Customer identity on the ticket, for workflow filters and analytics."""
     traits = ticket.anonymous_traits or {}
+    customer_email = traits.get("email") or ticket.email_from or ""
     properties = {
         "customer_name": traits.get("name", ""),
-        "customer_email": traits.get("email") or ticket.email_from or "",
+        "customer_email": customer_email,
+        "customer_email_verified": _is_customer_email_verified(ticket, customer_email),
     }
     if include_distinct_id:
         properties["customer_distinct_id"] = ticket.distinct_id or ""
