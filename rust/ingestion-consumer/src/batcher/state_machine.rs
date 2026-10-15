@@ -368,10 +368,14 @@ impl ActiveState {
         let runs = sent.accepted();
         effects.completions =
             completions(assignment_epoch, runs.iter().flat_map(|run| &run.messages));
-        effects.key_acks = key_acks(
-            runs.iter()
-                .map(|run| (&run.routing_key, run.messages.as_slice(), &[][..])),
-        );
+        effects.key_acks = key_acks(runs.iter().map(|run| {
+            (
+                &run.routing_key,
+                run.first_keyed_partition(),
+                run.messages.as_slice(),
+                &[][..],
+            )
+        }));
         for run in runs {
             self.settle_key(&run.routing_key, Settlement::Done, now, &mut effects)?;
         }
@@ -410,6 +414,7 @@ impl ActiveState {
         effects.key_acks = key_acks(partial_runs.iter().map(|run| {
             (
                 &run.routing_key,
+                run.first_keyed_partition,
                 run.accepted.as_slice(),
                 run.unfinished.as_slice(),
             )
@@ -644,26 +649,30 @@ fn key_acks<'a>(
     runs: impl IntoIterator<
         Item = (
             &'a Arc<str>,
+            Option<i32>,
             &'a [SentMessage],
             &'a [SerializedKafkaMessage],
         ),
     >,
 ) -> Vec<KeyAck> {
     runs.into_iter()
-        .filter_map(|(routing_key, accepted, unfinished)| {
-            let max_offset = ack_mark(
-                accepted
-                    .iter()
-                    .map(|message| (message.partition, message.offset, message.keyed)),
-                unfinished
-                    .iter()
-                    .map(|message| (message.partition, message.offset)),
-            )?;
-            Some(KeyAck {
-                routing_key: Arc::clone(routing_key),
-                max_offset,
-            })
-        })
+        .filter_map(
+            |(routing_key, first_keyed_partition, accepted, unfinished)| {
+                let max_offset = ack_mark(
+                    first_keyed_partition?,
+                    accepted
+                        .iter()
+                        .map(|message| (message.partition, message.offset, message.keyed)),
+                    unfinished
+                        .iter()
+                        .map(|message| (message.partition, message.offset)),
+                )?;
+                Some(KeyAck {
+                    routing_key: Arc::clone(routing_key),
+                    max_offset,
+                })
+            },
+        )
         .collect()
 }
 
@@ -1531,6 +1540,31 @@ mod tests {
         let (_, effects) = batcher.on_request_succeeded(now, &workers, unkeyed_request, 1);
         assert_eq!(effects.completions[0].offsets, vec![Offset(5)]);
         assert!(effects.key_acks.is_empty());
+    }
+
+    #[test]
+    fn a_partial_leaving_a_keys_first_partition_unfinished_resends_it_without_a_violation() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let sentinel = KeyOrderSentinel::new();
+        let run = KeyRun {
+            routing_key: "a".into(),
+            messages: vec![message("a", 0, 10), message("a", 1, 100)],
+        };
+        let (batcher, effects) =
+            packing_batcher(2, Duration::ZERO, 4, now).on_groups(now, &workers, 0, vec![run]);
+        assert!(apply_to_sentinel(&sentinel, &effects).is_empty());
+        let request = effects.sends[0].request;
+
+        let (_, effects) =
+            batcher.on_request_partial(now, &workers, request, 1, vec![message("a", 0, 10)]);
+        assert_eq!(effects.completions[0].offsets, vec![Offset(100)]);
+        assert!(
+            effects.key_acks.is_empty(),
+            "partition 1's offset is no mark for partition 0"
+        );
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![10])]);
+        assert!(apply_to_sentinel(&sentinel, &effects).is_empty());
     }
 
     #[test]

@@ -29,14 +29,31 @@ impl SentMessage {
     }
 }
 
+/// The partition the key's order watermark tracks.
+fn first_keyed_partition(messages: &[SentMessage]) -> Option<i32> {
+    messages
+        .iter()
+        .find(|message| message.keyed)
+        .map(|message| message.partition)
+}
+
 pub struct SentRun {
     pub routing_key: Arc<str>,
     pub messages: Vec<SentMessage>,
 }
 
+impl SentRun {
+    pub fn first_keyed_partition(&self) -> Option<i32> {
+        first_keyed_partition(&self.messages)
+    }
+}
+
 /// One run's share of a partial ack.
 pub struct PartialRun {
     pub routing_key: Arc<str>,
+    /// Taken from the whole run, because the first keyed message may itself
+    /// be unfinished.
+    pub first_keyed_partition: Option<i32>,
     pub accepted: Vec<SentMessage>,
     pub unfinished: Vec<SerializedKafkaMessage>,
 }
@@ -149,6 +166,7 @@ impl InFlightRequest {
             .map(|run| {
                 let mut partial_run = PartialRun {
                     routing_key: run.routing_key,
+                    first_keyed_partition: first_keyed_partition(&run.messages),
                     accepted: Vec::new(),
                     unfinished: Vec::new(),
                 };
