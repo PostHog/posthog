@@ -59,7 +59,11 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+from posthog.hogql_queries.hogql_cohort_query import (
+    INTERVAL_TO_SECONDS,
+    HogQLCohortQuery,
+    validate_performed_event_regularly_lookback,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
@@ -76,7 +80,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS, Property
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS, OperatorInterval, Property
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
@@ -287,25 +291,42 @@ class HogQLFilter(BaseModel, extra="forbid"):
     value: Any | None = None
 
 
+MAX_BEHAVIORAL_PERIOD_VALUE = 10_000
+MAX_BEHAVIORAL_OPERATOR_VALUE = 1_000_000
+
+
 class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["behavioral"]
     key: Union[str, int]  # action IDs can be ints
     value: str
     event_type: str
-    time_value: int | None = None
+    time_value: int | None = Field(default=None, le=MAX_BEHAVIORAL_PERIOD_VALUE)
     time_interval: str | None = None
     negation: bool = False
     operator: str | None = None
-    operator_value: int | None = None
+    operator_value: int | None = Field(default=None, le=MAX_BEHAVIORAL_OPERATOR_VALUE)
     seq_time_interval: str | None = None
-    seq_time_value: int | None = None
+    seq_time_value: int | None = Field(default=None, le=MAX_BEHAVIORAL_PERIOD_VALUE)
     seq_event: Union[str, int] | None = None  # Allow both string and int for seq_event
     seq_event_type: str | None = None
-    total_periods: int | None = None
-    min_periods: int | None = None
+    total_periods: int | None = Field(default=None, le=MAX_BEHAVIORAL_PERIOD_VALUE)
+    min_periods: int | None = Field(default=None, le=MAX_BEHAVIORAL_PERIOD_VALUE)
     event_filters: list[Union[EventPropFilter, HogQLFilter]] | None = None
     explicit_datetime: str | None = None
     explicit_datetime_to: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_performed_event_regularly_lookback(self) -> "BehavioralFilter":
+        if (
+            self.value == "performed_event_regularly"
+            and self.time_value is not None
+            and self.total_periods is not None
+            and self.time_interval in INTERVAL_TO_SECONDS
+        ):
+            validate_performed_event_regularly_lookback(
+                self.time_value, cast(OperatorInterval, self.time_interval), self.total_periods
+            )
+        return self
 
 
 class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):

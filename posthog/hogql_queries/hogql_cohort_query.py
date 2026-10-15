@@ -62,6 +62,21 @@ INTERVAL_TO_SECONDS = {
 }
 
 
+# Keeps the lookback far below the limits of date arithmetic, so a huge filter value fails with a clear error.
+MAX_PERFORMED_EVENT_REGULARLY_LOOKBACK_YEARS = 10
+
+
+def validate_performed_event_regularly_lookback(
+    time_value: int, time_interval: OperatorInterval, total_periods: int
+) -> None:
+    lookback_seconds = time_value * total_periods * INTERVAL_TO_SECONDS[time_interval]
+    if lookback_seconds > MAX_PERFORMED_EVENT_REGULARLY_LOOKBACK_YEARS * INTERVAL_TO_SECONDS["year"]:
+        raise ValueError(
+            f"The 'performed event regularly' range ({total_periods} periods of {time_value} {time_interval}) "
+            f"cannot be longer than {MAX_PERFORMED_EVENT_REGULARLY_LOOKBACK_YEARS} years"
+        )
+
+
 def validate_interval(interval: Optional[OperatorInterval]) -> OperatorInterval:
     if interval is None or interval not in INTERVAL_TO_SECONDS.keys():
         raise ValueError(f"Invalid interval: {interval}")
@@ -526,6 +541,7 @@ class HogQLCohortQuery:
                     f"min_periods ({min_period_count}) cannot be greater than total_periods ({total_period_count})"
                 )
             )
+        validate_performed_event_regularly_lookback(time_value, date_interval, total_period_count)
 
         series = self._get_series(prop)
 

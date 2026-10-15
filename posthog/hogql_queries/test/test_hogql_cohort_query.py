@@ -27,6 +27,33 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
             with self.assertRaises(ValueError):
                 HogQLCohortQuery(cohort=cohort).get_query()
 
+    def test_performed_event_regularly_with_huge_total_periods_raises_value_error(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="huge total periods",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "type": "behavioral",
+                            "value": "performed_event_regularly",
+                            "event_type": "events",
+                            "operator": "gte",
+                            "operator_value": 1,
+                            "time_value": 1,
+                            "time_interval": "day",
+                            "min_periods": 1,
+                            "total_periods": 10**12,
+                        }
+                    ],
+                }
+            },
+        )
+        with self.assertRaisesRegex(ValueError, "cannot be longer than 10 years"):
+            HogQLCohortQuery(cohort=cohort).get_query()
+
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_multiple_person_properties_optimization(self, mock_feature_enabled: MagicMock) -> None:
         """
