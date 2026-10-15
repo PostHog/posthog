@@ -111,7 +111,7 @@ class InboxOnboarding:
             self._enqueue_activation_jobs(config)
             return self._state(config)
 
-        if (config.onboarding or {}).get("variant") == "quick":
+        if (config.onboarding or {}).get("variant") == "test-github":
             self.authorize_scouts(True)
             if draft["automatic_implementation"] or not any(
                 item["kind"] == "canonical" and item["skill_name"] == "signals-scout-general"
@@ -187,7 +187,7 @@ class InboxOnboarding:
                     "completed_at": timezone.now().isoformat(),
                     "activated_by": user.pk,
                 }
-                if state.get("variant") == "quick":
+                if state.get("variant") == "test-github":
                     config.onboarding["jobs"] = {"scout": "pending", "recommendations": "pending"}
                 config.save(
                     update_fields=["onboarding", "autostart_enabled", "default_autostart_priority", "updated_at"]
@@ -200,7 +200,7 @@ class InboxOnboarding:
 
     def _enqueue_activation_jobs(self, config: SignalTeamConfig) -> None:
         state = config.onboarding or {}
-        if state.get("variant") != "quick":
+        if state.get("variant") != "test-github":
             return
         self.authorize_scouts(True)
         from products.signals.backend.tasks import (

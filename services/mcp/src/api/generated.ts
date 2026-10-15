@@ -60908,24 +60908,24 @@ export namespace Schemas {
 
     /**
      * * `control` - Control
-     * * `test` - Focused steps
-     * * `quick` - Activate and explore
+     * * `test-ui` - Focused steps
+     * * `test-github` - Activate and explore
      */
     export type InboxOnboardingVariantEnum = typeof InboxOnboardingVariantEnum[keyof typeof InboxOnboardingVariantEnum];
 
 
     export const InboxOnboardingVariantEnum = {
       Control: 'control',
-      Test: 'test',
-      Quick: 'quick',
+      TestUi: 'test-ui',
+      TestGithub: 'test-github',
     } as const;
 
     export interface InboxOnboardingExposure {
       /** Assigned experiment variant at the eligible Inbox impression.
        *
        * * `control` - Control
-       * * `test` - Focused steps
-       * * `quick` - Activate and explore */
+       * * `test-ui` - Focused steps
+       * * `test-github` - Activate and explore */
       variant: InboxOnboardingVariantEnum;
     }
 
@@ -60975,8 +60975,8 @@ export namespace Schemas {
       /** Variant recorded at the first eligible impression.
        *
        * * `control` - Control
-       * * `test` - Focused steps
-       * * `quick` - Activate and explore */
+       * * `test-ui` - Focused steps
+       * * `test-github` - Activate and explore */
       variant: InboxOnboardingVariantEnum | null;
     }
 
