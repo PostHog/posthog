@@ -129,6 +129,7 @@ function TaxonomicFilterActivePanel({
                         size="sm"
                         data-attr="taxonomic-panel-retry"
                         loading={retrying}
+                        onKeyDown={(event) => event.stopPropagation()}
                         onClick={handleRetry}
                     >
                         Try again
