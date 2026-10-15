@@ -10,6 +10,8 @@ import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { newestByName } from './todayRecentOrder'
+
 export const TODAY_RECENTS_LIMIT = 5
 
 export interface TodayRecentEntry {
@@ -106,16 +108,18 @@ export const todayRecentsLogic = kea<todayRecentsLogicType>([
         recentViewEntries: [
             (s) => [s.recents],
             (recents: FileSystemEntry[]): TodayRecentEntry[] =>
-                recents
-                    .flatMap((entry) => {
+                newestByName(
+                    recents.flatMap((entry) => {
                         const href = VIEW_FILE_SYSTEM_TYPES.has(baseObjectType(entry.type))
                             ? libraryObjectHref(entry)
                             : null
                         return href
                             ? [{ entry, href, name: unescapePath(splitPath(entry.path).pop() ?? entry.path) }]
                             : []
-                    })
-                    .slice(0, TODAY_RECENTS_LIMIT),
+                    }),
+                    (recent) => recent.name,
+                    TODAY_RECENTS_LIMIT
+                ),
         ],
     }),
     listeners(({ actions }) => ({

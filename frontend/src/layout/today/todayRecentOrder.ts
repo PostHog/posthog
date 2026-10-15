@@ -41,6 +41,16 @@ export function sortRecentItems(items: TodayWorkItem[], sort: TodayRecentSort): 
     )
 }
 
+/**
+ * Keeps the first `limit` items of a newest-first list, then sorts them by name.
+ * A click on a row then does not move it, because the row's name does not change.
+ */
+export function newestByName<T>(items: T[], name: (item: T) => string, limit: number): T[] {
+    return items
+        .slice(0, limit)
+        .sort((first, second) => name(first).localeCompare(name(second), undefined, { sensitivity: 'base' }))
+}
+
 /** One section per key, in first-seen order, with the fallback section last. */
 function keyedSections(
     items: TodayWorkItem[],

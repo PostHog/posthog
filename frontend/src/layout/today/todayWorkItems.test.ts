@@ -11,7 +11,13 @@ import {
     filterRecentItems,
     recentSourceOptions,
 } from './todayRecentFilters'
-import { TodayRecentGrouping, TodayRecentSort, groupRecentItems, sortRecentItems } from './todayRecentOrder'
+import {
+    TodayRecentGrouping,
+    TodayRecentSort,
+    groupRecentItems,
+    newestByName,
+    sortRecentItems,
+} from './todayRecentOrder'
 import {
     activeCloudRunId,
     analysisRunId,
@@ -169,6 +175,12 @@ describe('todayWorkItems', () => {
         expect(groups.map((group) => `${group.label}: ${group.items.map((item) => item.id).join(' ')}`)).toEqual(
             sections
         )
+    })
+
+    it('keeps the newest recently viewed rows and lists them by name', () => {
+        const newestFirst = ['Pricing', 'apps', 'Zebra', 'Funnels', 'Billing', 'Alerts']
+
+        expect(newestByName(newestFirst, (name) => name, 5)).toEqual(['apps', 'Billing', 'Funnels', 'Pricing', 'Zebra'])
     })
 
     it.each([
