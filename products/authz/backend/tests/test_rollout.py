@@ -18,7 +18,7 @@ class TestAuthorizationRollout(SimpleTestCase):
         self.subject = Subject(user_id=1)
         organization = patch(
             "products.authz.backend.logic.authorization.organization_id",
-            side_effect=lambda resource: resource.organization_id,
+            side_effect=lambda resource, **kwargs: resource.organization_id,
         )
         organization.start()
         self.addCleanup(organization.stop)
@@ -145,16 +145,30 @@ class TestAuthorizationRollout(SimpleTestCase):
         ):
             assert api.permissions(resource=self.resource, subject=self.subject) == frozenset({Action.VIEW})
 
-    @parameterized.expand([("v1", "v1"), ("shadow", "v1-shadow-log"), ("v2", "v2")])
-    def test_lists_use_the_same_rollout_mode(self, _name: str, variant: str) -> None:
+    @parameterized.expand(
+        [
+            (f"{resource_type}_{variant}", variant, resource_type)
+            for resource_type in (
+                ResourceType.DASHBOARD,
+                ResourceType.WAREHOUSE_TABLE,
+                ResourceType.EXTERNAL_DATA_SOURCE,
+            )
+            for variant in ("v1", "v1-shadow-log", "v2")
+        ]
+    )
+    def test_lists_use_the_same_rollout_mode(self, _name: str, variant: str, resource_type: ResourceType) -> None:
+        self.resource = Resource(type=resource_type, project_id=1, organization_id=self.resource.organization_id)
         v1 = ResourceIds(ids=frozenset({"1"}), complete=True)
         v2 = ResourceIds(ids=frozenset(), complete=False)
         with (
             patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value=variant),
-            patch("products.authz.backend.logic.legacy_authorization.list_resources", return_value=v1),
-            patch("products.authz.backend.logic.authorization.list_resources", return_value=v2) as openfga,
+            patch("products.authz.backend.logic.legacy_authorization.list_resources", autospec=True, return_value=v1),
+            patch(
+                "products.authz.backend.logic.authorization.list_resources", autospec=True, return_value=v2
+            ) as openfga,
             capture_logs() as logs,
         ):
+            assert api.uses_openfga(self.resource) is (variant == "v2")
             assert api.list_resources(resource=self.resource, action=Action.VIEW, subject=self.subject) == (
                 v2 if variant == "v2" else v1
             )

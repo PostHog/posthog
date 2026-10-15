@@ -14,3 +14,5 @@ class WarehouseSourcesConfig(AppConfig):
         # would otherwise drop audit logs. They live in a light activity_logging module because both
         # viewsets pull in dlt via the data-import chain.
         from products.warehouse_sources.backend import activity_logging  # noqa: F401, PLC0415
+
+        from . import authorization_signals  # noqa: F401, PLC0415 -- register warehouse authorization mutations

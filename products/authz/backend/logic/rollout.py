@@ -7,6 +7,8 @@ import structlog
 
 from posthog.ph_client import get_feature_flag_or_none
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+
 from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
 from ..facade.enums import Action, ResourceType
 from . import authorization, legacy_authorization
@@ -16,7 +18,9 @@ ROLLOUT_FLAG = "authz-rebac"
 RolloutMode = Literal["v1", "v1-shadow-log", "v2"]
 
 
-V2_RESOURCES = frozenset({ResourceType.DASHBOARD, ResourceType.INSIGHT})
+V2_RESOURCES = frozenset(
+    {ResourceType.DASHBOARD, ResourceType.INSIGHT, ResourceType.WAREHOUSE_TABLE, ResourceType.EXTERNAL_DATA_SOURCE}
+)
 
 
 def mode(organization_id: UUID, resource_type: ResourceType) -> RolloutMode:
@@ -99,26 +103,46 @@ def permissions(resource: Resource, subject: Subject | None, context: Context | 
 
 
 def list_resources(
-    resource: Resource, action: Action, subject: Subject | None, context: Context | None, limit: int | None
+    resource: Resource,
+    action: Action,
+    subject: Subject | None,
+    context: Context | None,
+    limit: int | None,
+    creator_exempt: bool = False,
+    user_access_control: UserAccessControl | None = None,
 ) -> ResourceIds:
     authorization.validate_context(context)
     authorization.actor_key(subject)
-    org_id = authorization.organization_id(resource)
+    org_id = _organization_id(resource, user_access_control)
     is_share_link = subject is not None and subject.share_link_id is not None
     rollout_mode = "v2" if is_share_link else mode(org_id, resource.type)
-    primary = authorization if rollout_mode == "v2" else legacy_authorization
-    result = primary.list_resources(resource, action, subject, context, limit)
+
+    def legacy() -> ResourceIds:
+        return legacy_authorization.list_resources(
+            resource, action, subject, context, limit, creator_exempt, user_access_control
+        )
+
+    def openfga() -> ResourceIds:
+        return authorization.list_resources(resource, action, subject, context, limit)
+
+    primary, secondary = (openfga, legacy) if rollout_mode == "v2" else (legacy, openfga)
+    result = primary()
     if rollout_mode == "v1" or is_share_link:
         return result
-    secondary = legacy_authorization if rollout_mode == "v2" else authorization
     comparison: ResourceIds | None = None
     try:
-        comparison = secondary.list_resources(resource, action, subject, context, limit)
+        comparison = secondary()
     except Exception as error:
         logger.warning(
             "authz_shadow_list_failed", mode=rollout_mode, organization_id=str(org_id), error_type=type(error).__name__
         )
     v1, v2 = (comparison, result) if rollout_mode == "v2" else (result, comparison)
+    matches = None
+    if comparison is not None and (
+        result.complete != comparison.complete
+        or (result.excluded, result.creator_exempt) == (comparison.excluded, comparison.creator_exempt)
+    ):
+        matches = result == comparison
     logger.info(
         "authz_resource_list_comparison",
         mode=rollout_mode,
@@ -131,6 +155,16 @@ def list_resources(
         v2_count=len(v2.ids) if v2 is not None else None,
         v1_complete=v1.complete if v1 is not None else None,
         v2_complete=v2.complete if v2 is not None else None,
-        matches=result == comparison if comparison is not None else None,
+        v1_excluded=v1.excluded if v1 is not None else None,
+        v2_excluded=v2.excluded if v2 is not None else None,
+        matches=matches,
     )
     return result
+
+
+def _organization_id(resource: Resource, user_access_control: UserAccessControl | None) -> UUID:
+    """The resource's organization, from the caller's preload when it names the project, else looked up."""
+    projects = None
+    if user_access_control is not None and user_access_control.team is not None:
+        projects = {user_access_control.team.id: user_access_control.team.organization_id}
+    return authorization.organization_id(resource, projects=projects)

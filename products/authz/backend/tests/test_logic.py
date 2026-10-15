@@ -26,8 +26,19 @@ class TestResourceKeys(SimpleTestCase):
             )
         with self.assertRaises(ValueError):
             authorization.object_key(Resource(type=ResourceType(child)), org_id=organization_id)
-        with self.assertRaises(NotImplementedError):
-            authorization.object_key(Resource(type=ResourceType(child), id="123", project_id=1), org_id=organization_id)
+        if child == "warehouse_table":
+            id = str(uuid4())
+            assert (
+                authorization.object_key(
+                    Resource(type=ResourceType(child), id=id, project_id=1), org_id=organization_id
+                )
+                == f"warehouse_table:{organization_id}/1/{id}"
+            )
+        else:
+            with self.assertRaises(NotImplementedError):
+                authorization.object_key(
+                    Resource(type=ResourceType(child), id="123", project_id=1), org_id=organization_id
+                )
 
 
 class TestAuthorizationFailures(SimpleTestCase):
@@ -41,9 +52,15 @@ class TestAuthorizationFailures(SimpleTestCase):
     def tearDown(self) -> None:
         redis.get_client().delete(sync_state.state_key(self.organization_id))
 
+    @parameterized.expand([("pending", None), ("old_projection", b"ready:old-projection")])
     @patch("products.authz.backend.logic.authorization.pooled_openfga_client")
-    def test_pending_reconciliation_denies_without_consulting_stale_grants(self, get_client: MagicMock) -> None:
-        sync_state.mark_pending(self.organization_id)
+    def test_pending_reconciliation_denies_without_consulting_stale_grants(
+        self, _name: str, old_state: bytes | None, get_client: MagicMock
+    ) -> None:
+        if old_state is None:
+            sync_state.mark_pending(self.organization_id)
+        else:
+            redis.get_client().set(sync_state.state_key(self.organization_id), old_state)
         assert not authorization.check(
             [CheckRequest(resource=self.resource, action=Action.VIEW, subject=self.subject)], None
         )[0]

@@ -132,6 +132,35 @@ class LegacyAuthorization:
 
             insight = next(iter(authorization_insights(access.team.id, (int(resource.id),))), None)
             return insight is not None and self.check_insight(access, action, insight)
+        if resource.type == ResourceType.WAREHOUSE_TABLE:
+            if not access.has_project_access:
+                return False
+            assert resource.project_id is not None
+            from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415 -- defer warehouse models
+                allowed_table_ids,
+            )
+
+            return UUID(resource.id) in allowed_table_ids(
+                resource.project_id, access, required_level=level, ids=[UUID(resource.id)]
+            )
+        if resource.type == ResourceType.EXTERNAL_DATA_SOURCE:
+            if not access.has_project_access:
+                return False
+            assert resource.project_id is not None
+            from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415 -- defer warehouse models
+                authorization_sources,
+            )
+
+            sources = authorization_sources(resource.project_id, [UUID(resource.id)])
+            return bool(sources) and access.check_access_level_for_ref(
+                ObjectAccessRef(
+                    resource="external_data_source",
+                    id=resource.id,
+                    team_id=resource.project_id,
+                    created_by_id=sources[0].created_by_id,
+                ),
+                level,
+            )
         return self.dashboard_access(access).check(resource.id, level)
 
     def list_resources(
@@ -171,6 +200,101 @@ class LegacyAuthorization:
                     return ResourceIds(ids=frozenset(), complete=False)
         return ResourceIds(ids=frozenset(ids), complete=True)
 
+    def query_resource_filter(
+        self,
+        resource: Resource,
+        subject: Subject | None,
+        limit: int | None,
+        creator_exempt: bool,
+        user_access_control: UserAccessControl | None,
+        action: Action = Action.QUERY,
+    ) -> ResourceIds:
+        """Same shape as the OpenFGA list: only objects with a rule of their own can differ from the
+        resource level, so those are resolved one by one and the rest follow the resource level."""
+        if resource.id is not None or resource.project_id is None:
+            raise ValueError("List resources requires a resource category scoped to a project")
+        if limit is not None and limit < 1:
+            raise ValueError("Resource limit must be positive")
+        cap = limit if limit is not None else authorization.MAX_IDS
+        level: AccessControlLevelResource = "viewer" if action == Action.QUERY else dashboard_level(action)
+        if user_access_control is not None and subject is not None and subject.user_id == user_access_control.user.pk:
+            preloaded_user = user_access_control.user
+            if isinstance(preloaded_user, User) and preloaded_user.is_active:
+                self.users.setdefault(preloaded_user.id, preloaded_user)
+        user = self.user(subject)
+        if user is None:
+            return ResourceIds(ids=frozenset(), complete=True)
+        access = self.adopt(user, resource, user_access_control) or self.user_access(user, resource)
+
+        def build(ids: frozenset[str], *, excluded: bool) -> ResourceIds:
+            return ResourceIds(ids=ids, complete=True, excluded=excluded, creator_exempt=creator_exempt)
+
+        if not access.has_project_access:
+            return ResourceIds(ids=frozenset(), complete=True)
+        if resource.type == ResourceType.EXTERNAL_DATA_SOURCE and level != "viewer":
+            assert resource.project_id is not None
+            from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415 -- defer warehouse models
+                authorization_sources,
+            )
+
+            allowed_sources = {
+                str(source.id)
+                for source in authorization_sources(resource.project_id)
+                if access.check_access_level_for_ref(
+                    ObjectAccessRef(
+                        resource="external_data_source",
+                        id=str(source.id),
+                        team_id=resource.project_id,
+                        created_by_id=source.created_by_id,
+                    ),
+                    level,
+                )
+            }
+            return (
+                ResourceIds(ids=frozenset(allowed_sources), complete=True)
+                if len(allowed_sources) <= cap
+                else ResourceIds(ids=frozenset(), complete=False)
+            )
+        if resource.type == ResourceType.WAREHOUSE_TABLE:
+            from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415 -- avoid loading warehouse models at SDK import time
+                allowed_table_ids,
+                queryable_table_ids,
+            )
+
+            allowed_tables = allowed_table_ids(resource.project_id, access, required_level=level)
+            denied_tables = queryable_table_ids(resource.project_id) - allowed_tables
+            excluded = len(denied_tables) < len(allowed_tables)
+            ids = frozenset(str(id) for id in (denied_tables if excluded else allowed_tables))
+            if len(ids) > cap:
+                return ResourceIds(ids=frozenset(), complete=False)
+            return ResourceIds(ids=ids, complete=True, excluded=excluded)
+        if access.is_organization_admin:
+            return build(frozenset(), excluded=True)
+        scope = cast(APIScopeObject, resource.type.value)
+        with_rule = access.object_ids_with_rules(scope)
+        if len(with_rule) > cap:
+            return ResourceIds(ids=frozenset(), complete=False)
+        allowed = {
+            id: access.check_access_level_for_ref(
+                ObjectAccessRef(resource=scope, id=id, team_id=resource.project_id, created_by_id=None), level
+            )
+            for id in with_rule
+        }
+        if access.check_access_level_for_resource(scope, level):
+            return build(frozenset(id for id, ok in allowed.items() if not ok), excluded=True)
+        return build(frozenset(id for id, ok in allowed.items() if ok), excluded=False)
+
+    def adopt(
+        self, user: User, resource: Resource, user_access_control: UserAccessControl | None
+    ) -> UserAccessControl | None:
+        """Reuse a caller's preloaded access control for its own user and project, so no rule loads twice."""
+        if user_access_control is None or user_access_control.team is None or user_access_control.user.pk != user.pk:
+            return None
+        team = user_access_control.team
+        if team.id != authorization.project_id(resource):
+            return None
+        return self.access.setdefault((user.id, team.id, team.organization_id), user_access_control)
+
 
 def evaluator() -> LegacyAuthorization:
     evaluators = request_context.legacy_evaluators.get()
@@ -188,7 +312,18 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
 
 
 def list_resources(
-    resource: Resource, action: Action, subject: Subject | None, context: Context | None, limit: int | None
+    resource: Resource,
+    action: Action,
+    subject: Subject | None,
+    context: Context | None,
+    limit: int | None,
+    creator_exempt: bool = False,
+    user_access_control: UserAccessControl | None = None,
 ) -> ResourceIds:
     authorization.validate_context(context)
-    return evaluator().list_resources(resource, action, subject, limit)
+    engine = evaluator()
+    if action == Action.QUERY or resource.type in (ResourceType.WAREHOUSE_TABLE, ResourceType.EXTERNAL_DATA_SOURCE):
+        return engine.query_resource_filter(
+            resource, subject, limit, creator_exempt, user_access_control, action=action
+        )
+    return engine.list_resources(resource, action, subject, limit)

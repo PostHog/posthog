@@ -210,6 +210,7 @@ if TYPE_CHECKING:
     from posthog.shared_link_user import SharedLinkUser
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
+    from products.authz.backend.facade.contracts import ResourceIds
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.data_tools.backend.models.expression import DataWarehouseExpression
     from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -467,6 +468,13 @@ def _evaluate_warehouse_access_control_flag(team: Team) -> bool:
     """Never cached, in the flag cache or via cached sources: this flag gates enforcement. A stale
     False (a flag flip, or a transient SDK failure that feature_enabled_or_false reports as False)
     would keep warehouse access control off for every query on the team until a TTL expires."""
+    from products.authz.backend.facade import api as authz  # noqa: PLC0415 -- avoid the authz/model import cycle
+    from products.authz.backend.facade.contracts import Resource  # noqa: PLC0415
+    from products.authz.backend.facade.enums import ResourceType  # noqa: PLC0415
+
+    if authz.uses_openfga(Resource(type=ResourceType.WAREHOUSE_TABLE, organization_id=team.organization_id)):
+        return True
+
     return feature_enabled_or_false(
         "hogql-warehouse-access-control",
         str(team.uuid),
@@ -907,6 +915,7 @@ class Database(BaseModel):
         self._deferred_overridable_expression_field_ids = set()
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
+        self._warehouse_table_access_result: Optional[ResourceIds] = None
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
@@ -1371,10 +1380,22 @@ class Database(BaseModel):
         Userless context (no UserAccessControl) fails closed - every table is denied.
         """
         uac = self.user_access_control
-        if uac is not None and (
-            uac.is_organization_admin or uac.check_access_level_for_object(table, required_level="viewer")
-        ):
-            return False
+        if uac is not None:
+            from products.authz.backend.facade import (
+                api as authz,  # noqa: PLC0415 -- avoid the authz/model import cycle
+            )
+            from products.authz.backend.facade.contracts import Resource, Subject  # noqa: PLC0415
+            from products.authz.backend.facade.enums import Action, ResourceType  # noqa: PLC0415
+
+            if self._warehouse_table_access_result is None:
+                self._warehouse_table_access_result = authz.list_resources(
+                    resource=Resource(type=ResourceType.WAREHOUSE_TABLE, project_id=table.team_id),
+                    action=Action.QUERY,
+                    subject=Subject(user_id=uac.user.pk),
+                    user_access_control=uac,
+                )
+            if self._warehouse_table_access_result.allows(str(table.pk)):
+                return False
 
         # Add table names to denied tables so the query raises "You don't have access" instead of "Unknown table"
         self._denied_tables.add(table.name)
