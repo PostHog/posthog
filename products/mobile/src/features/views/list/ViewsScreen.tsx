@@ -11,6 +11,7 @@ import type { ChartTooltipPoint } from '@/ui/chart/types'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
+import { SearchField } from '@/ui/SearchField'
 import { StateView } from '@/ui/StateView'
 import { colors, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
@@ -40,7 +41,6 @@ import { SwipeRow } from './SwipeRow'
 import { usePinFlows } from './usePinFlows'
 import { type GroupPosition, groupPosition, ViewRow } from './ViewRow'
 import { PinMenu, RowMenu } from './ViewsMenu'
-import { ViewsSearchField } from './ViewsSearchField'
 import { ViewsSkeleton } from './ViewsSkeleton'
 import { pinTargetFor, relativeDay, viewTypeLabel } from './viewMeta'
 
@@ -480,7 +480,7 @@ function ViewsBody(): ReactElement {
     const contentBottom = bottomOffset(insets, 120)
     const { refresh } = list
     const loading = list.pins.data === undefined && !list.pins.isError
-    const status = loading ? 'Loading…' : refresh.status.kind === 'hidden' ? null : refresh.status.text
+    const status = loading ? 'Loading…' : null
     useTabHeader('views', {
         refresh: loading
             ? null
@@ -546,7 +546,7 @@ function ViewsBody(): ReactElement {
                 stickySectionHeadersEnabled={false}
                 ListHeaderComponent={
                     <View style={styles.search}>
-                        <ViewsSearchField
+                        <SearchField
                             value={text}
                             onChangeText={setText}
                             placeholder="Search views"

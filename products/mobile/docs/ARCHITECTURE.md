@@ -54,7 +54,7 @@ products/mobile/
         session/          useSession (create, follow, send, resume, stop, answer), sessionRun (request bodies
                           and the set_config_option plan), sessionReducer, sessionDisplay, SessionThread and its
                           rows, SessionDecisionPanel
-      chats/              ChatsScreen, ChatsSearchField, ChatRow,
+      chats/              ChatsScreen, ChatRow,
                           chatGroups (day labels, grouping, search), sessionStatus, hooks
       notifications/      pushSupport, pushStore, pushRegistration, usePushRegistration,
                           notificationRouting, taskLookup, useNotificationRouting
@@ -62,7 +62,7 @@ products/mobile/
                           EnvironmentGroup (internal builds), LegalGroup, SettingsLinkRow
     lib/                  analytics, posthogClient, dates, errors, haptics, richText, useAsyncAction, useNow,
                           environment (build variant, host kind, update id), appVariants (+ .json), legalLinks
-    ui/                   tokens.ts, primitives, icons/
+    ui/                   tokens.ts, primitives (SearchField, StateView, ...), icons/
   plugins/                Expo config plugins (withIosSceneLifecycle: UIScene life cycle for Xcode 27)
   .argent/flows/          Argent flows that drive the app on a simulator (see TESTING.md)
   assets/                 app icon (shared with PostHog Desktop), adaptive icon, splash, favicon, badged dev and

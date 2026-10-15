@@ -11,6 +11,7 @@ import { Eyebrow } from '@/ui/Eyebrow'
 import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
 import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
+import { SearchField } from '@/ui/SearchField'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { colors, iconSizes, layout } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
@@ -18,7 +19,6 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
 import { useTabHeader } from '../tabs/tabHeaderStore'
 import { ChatRow } from './ChatRow'
-import { ChatsSearchField } from './ChatsSearchField'
 import { filterChats, groupChats } from './chatGroups'
 import { sessionListKeys, useChatList } from './hooks'
 
@@ -131,7 +131,11 @@ export function ChatsScreen(): ReactElement {
     )
 
     // An element, not a component, so typing does not remount the field and drop the keyboard.
-    const listHeader = hasItems ? <ChatsSearchField value={search} onChangeText={setSearch} /> : null
+    const listHeader = hasItems ? (
+        <View style={styles.search}>
+            <SearchField value={search} onChangeText={setSearch} placeholder="Search chats" testID="chats-search" />
+        </View>
+    ) : null
 
     return (
         <View style={styles.screen} testID="chats-screen">
@@ -170,6 +174,10 @@ const styles = StyleSheet.create({
     content: {
         flexGrow: 1,
         paddingHorizontal: layout.inboxGutter,
+    },
+    search: {
+        marginTop: 4,
+        marginBottom: 4,
     },
     sectionHeader: {
         paddingTop: 20,

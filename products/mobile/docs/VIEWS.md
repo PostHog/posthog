@@ -68,7 +68,7 @@ The third slot of the bottom bar opens the Views tab (`app/(tabs)/views.tsx`, `s
 It replaced the Products slot, which opened the web app's product library. `mobile_products_opened` went with it; the bar now sends `mobile_views_opened` when the tab is selected, with the pin count from the cached pin list.
 
 The screen is one `SectionList`: a search field, Pinned, Recent and Browse.
-The screen publishes its header state to the shared tabs header (`useTabHeader('views', …)`, see DESIGN.md, "Tabs header"): the status line and the refresh hint from `useViewsList().refresh`, the refresh button's state, and the "Edit pins" row of the More menu.
+The screen publishes its header state to the shared tabs header (`useTabHeader('views', …)`, see DESIGN.md, "Tabs header"): the refresh hint from `useViewsList().refresh`, the refresh button's state, and the "Edit pins" row of the More menu.
 Loading, the pin list error and the sign-in state are separate screens. The sign-in state (`views-reauth`) shows when `useViewsAccess()` is not `ok`. When the last sign-in asked for a Views scope and the server still left it out, it shows "Views isn't available yet" (`views-unavailable`) without a sign-in button, because a new sign-in gets the same grant ([AUTH.md](AUTH.md), "Server-side ceiling").
 
 ### Pins

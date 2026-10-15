@@ -6,14 +6,14 @@ import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, inputReset, radii } from '@/ui/tokens'
 
-interface ViewsSearchFieldProps {
+interface SearchFieldProps {
     value: string
     onChangeText: (text: string) => void
     placeholder: string
     testID: string
 }
 
-export function ViewsSearchField({ value, onChangeText, placeholder, testID }: ViewsSearchFieldProps): ReactElement {
+export function SearchField({ value, onChangeText, placeholder, testID }: SearchFieldProps): ReactElement {
     const [focused, setFocused] = useState(false)
     return (
         <View style={[styles.ring, focused && styles.ringFocused]}>

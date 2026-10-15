@@ -11,6 +11,7 @@ import { FadeEdge } from '@/ui/FadeEdge'
 import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
+import { SearchField } from '@/ui/SearchField'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { colors, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
@@ -19,7 +20,6 @@ import { type BrowseListState, useBrowseDashboards, useBrowseInsights, useBrowse
 import { usePinFlows } from '../list/usePinFlows'
 import { groupPosition, ViewRow } from '../list/ViewRow'
 import { RowMenu } from '../list/ViewsMenu'
-import { ViewsSearchField } from '../list/ViewsSearchField'
 import { relativeDay } from '../list/viewMeta'
 import { usePinActions, usePinnedKeys } from '../pinHooks'
 import { useViewsAccess } from '../useViewsAccess'
@@ -197,7 +197,7 @@ function BrowseList({ kind, list }: { kind: BrowseKind; list: BrowseListState })
                         <Text style={styles.title} accessibilityRole="header">
                             {copy.title}
                         </Text>
-                        <ViewsSearchField
+                        <SearchField
                             value={text}
                             onChangeText={setText}
                             placeholder={copy.search}
