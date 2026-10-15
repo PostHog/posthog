@@ -131,14 +131,23 @@ it.each([
     expect(memberReads).toBeLessThan(1000)
 })
 
-it('counts large selections without allocating records beyond the filter limit', () => {
+it('reuses row identities and allocates records only within the selection limit', () => {
     let extraReads = 0
+    let dimensionReads = 0
     const onKeepOnly = jest.fn()
     const rows = Array.from({ length: 5000 }, (_, index) =>
-        Object.defineProperty([`Category ${index}`, index, index], 3, {
-            get: () => {
-                extraReads++
-                return 'Example extra value'
+        Object.defineProperties([`Category ${index}`, index, index], {
+            0: {
+                get: () => {
+                    dimensionReads++
+                    return `Category ${index}`
+                },
+            },
+            3: {
+                get: () => {
+                    extraReads++
+                    return 'Example extra value'
+                },
             },
         })
     )
@@ -162,9 +171,11 @@ it('counts large selections without allocating records beyond the filter limit',
         />
     )
     const readsBeforeSelection = extraReads
+    const identitiesBeforeSelection = dimensionReads
     act(() => mockChartProps.onAreaSelect!({ x: [0, 5000], y: [0, 5000] }))
     expect(screen.getByTestId('bi-scatter-selection-count')).toHaveTextContent('5000 selected')
     expect(extraReads).toBe(readsBeforeSelection)
+    expect(dimensionReads).toBe(identitiesBeforeSelection)
     expect(screen.getByText('Keep only').closest('button')).toHaveAttribute('aria-disabled', 'true')
     expect(mockChartProps.series![0].points.every((point) => mockChartProps.isPointHighlighted!(point))).toBe(true)
     act(() => mockChartProps.onAreaSelect!({ x: [0, 2], y: [0, 2] }))
@@ -172,4 +183,18 @@ it('counts large selections without allocating records beyond the filter limit',
     fireEvent.click(screen.getByText('Keep only'))
     expect(onKeepOnly.mock.calls[0][0]).toHaveLength(3)
     expect(onKeepOnly.mock.calls[0][0][0]).toMatchObject({ extra: 'Example extra value' })
+    const readsBeforeToggle = dimensionReads
+    const firstSeries = mockChartProps.series![0]
+    act(() =>
+        mockChartProps.onPointClick!({
+            ...firstSeries.points[4],
+            seriesKey: firstSeries.key,
+            seriesLabel: firstSeries.label,
+            seriesIndex: 0,
+            pointIndex: 4,
+            color: '#000000',
+        })
+    )
+    expect(screen.getByTestId('bi-scatter-selection-count')).toHaveTextContent('1 selected')
+    expect(dimensionReads - readsBeforeToggle).toBe(1)
 })

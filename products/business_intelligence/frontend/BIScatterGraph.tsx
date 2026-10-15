@@ -9,7 +9,7 @@ import {
 } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 
-import { buildBIScatterSeries, createBIScatterRowKey, keepBIScatterRows } from './biScatter'
+import { buildBIScatterSeries, keepBIScatterRows } from './biScatter'
 import { biScatterLogic } from './biScatterLogic'
 
 export interface BIScatterGraphProps extends SqlScatterGraphProps {
@@ -47,28 +47,34 @@ export function BIScatterGraph({
     const selectedKeys = useMemo(() => new Set(selected), [selected])
     const hiddenKeys = useMemo(() => new Set(hiddenSeries), [hiddenSeries])
     const visibleSeries = useMemo(() => series.filter(({ key }) => !hiddenKeys.has(key)), [series, hiddenKeys])
-    const visibleKeys = useMemo(
-        () =>
-            new Set(
-                visibleSeries.flatMap(({ points }) =>
-                    points.flatMap(({ meta }) => (meta?.rowKey === undefined ? [] : [meta.rowKey]))
-                )
-            ),
-        [visibleSeries]
-    )
+    const visibleRowsByKey = useMemo(() => {
+        const index = new Map<string, Set<number>>()
+        for (const { points } of visibleSeries) {
+            for (const { meta } of points) {
+                if (meta?.rowKey !== undefined && meta.rowIndex !== undefined) {
+                    let rowIndexes = index.get(meta.rowKey)
+                    if (!rowIndexes) {
+                        rowIndexes = new Set()
+                        index.set(meta.rowKey, rowIndexes)
+                    }
+                    rowIndexes.add(meta.rowIndex)
+                }
+            }
+        }
+        return index
+    }, [visibleSeries])
     const { selectedRecords, selectedCount } = useMemo(() => {
         if (overBudget || selectedKeys.size === 0) {
             return { selectedRecords: [], selectedCount: 0 }
         }
-        const rowKey = createBIScatterRowKey(query.config, columns)
-        const selectedRows: unknown[][] = []
+        const selectedRowIndexes: number[] = []
         let selectedCount = 0
-        for (const row of rows) {
-            const key = rowKey(row)
-            if (selectedKeys.has(key) && visibleKeys.has(key)) {
-                selectedCount++
+        for (const key of selectedKeys) {
+            const rowIndexes = visibleRowsByKey.get(key)
+            if (rowIndexes) {
+                selectedCount += rowIndexes.size
                 if (selectedCount <= 200) {
-                    selectedRows.push(row)
+                    selectedRowIndexes.push(...rowIndexes)
                 }
             }
         }
@@ -76,13 +82,18 @@ export function BIScatterGraph({
             selectedCount,
             selectedRecords:
                 selectedCount <= 200
-                    ? selectedRows.map((row) =>
-                          Object.fromEntries(columns.map((column, index) => [column, row[index]]))
-                      )
+                    ? selectedRowIndexes
+                          .sort((a, b) => a - b)
+                          .map((rowIndex) =>
+                              Object.fromEntries(columns.map((column, index) => [column, rows[rowIndex][index]]))
+                          )
                     : [],
         }
-    }, [query.config, columns, rows, selectedKeys, visibleKeys, overBudget])
-    const selectionConfig = keepBIScatterRows(query.config, selectedRecords)
+    }, [columns, rows, selectedKeys, visibleRowsByKey, overBudget])
+    const selectionConfig = useMemo(
+        () => keepBIScatterRows(query.config, selectedRecords),
+        [query.config, selectedRecords]
+    )
     const isPointHighlighted = useCallback<NonNullable<SqlScatterGraphProps['isPointHighlighted']>>(
         (point) => point.meta?.rowKey !== undefined && selectedKeys.has(point.meta.rowKey),
         [selectedKeys]
