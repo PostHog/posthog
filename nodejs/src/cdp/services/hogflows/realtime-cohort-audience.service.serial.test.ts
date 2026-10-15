@@ -3,7 +3,7 @@ import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 
 import { resetBehavioralCohortsDatabase } from '../../../../tests/helpers/sql'
-import { RealtimeCohortAudienceService } from './realtime-cohort-audience.service'
+import { MEMBER_PAGE_DEADLINE_MS, RealtimeCohortAudienceService } from './realtime-cohort-audience.service'
 
 describe('RealtimeCohortAudienceService', () => {
     const TEAM_ID = 4242
@@ -52,5 +52,18 @@ describe('RealtimeCohortAudienceService', () => {
         }
 
         expect(collected).toEqual([...members].sort())
+    })
+
+    it('rejects a read that stalls before its statement timeout can apply', async () => {
+        jest.useFakeTimers()
+        try {
+            const stalledRouter = { transaction: () => new Promise(() => {}) } as unknown as PostgresRouter
+            const page = new RealtimeCohortAudienceService(stalledRouter).getMemberPage(TEAM_ID, COHORT_ID, null)
+            const outcome = expect(page).rejects.toThrow('took longer than')
+            await jest.advanceTimersByTimeAsync(MEMBER_PAGE_DEADLINE_MS)
+            await outcome
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })

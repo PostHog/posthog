@@ -4,6 +4,8 @@ import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 export const REALTIME_COHORT_AUDIENCE_PAGE_SIZE = 5000
 
 const MEMBER_PAGE_TIMEOUT_MS = 30_000
+// Covers the connection checkout and BEGIN too, which the statement timeout can't bound.
+export const MEMBER_PAGE_DEADLINE_MS = 60_000
 
 export type RealtimeCohortAudiencePage = {
     ids: string[]
@@ -33,8 +35,8 @@ export class RealtimeCohortAudienceService {
             values.push(cursor)
         }
         // The resolver heartbeats its job while it waits, so a stalled read would hold the job without
-        // ever failing. The timeout turns a stall into an error, which the resolver retries.
-        const result = await this.postgres.transaction(
+        // ever failing. The timeouts turn a stall into an error, which the resolver retries.
+        const read = this.postgres.transaction(
             PostgresUse.BEHAVIORAL_COHORTS_RW,
             'getRealtimeCohortMemberPage',
             async (tx) => {
@@ -58,6 +60,17 @@ export class RealtimeCohortAudienceService {
                 )
             }
         )
+        let deadline: NodeJS.Timeout | undefined
+        const result = await Promise.race([
+            read,
+            new Promise<never>((_, reject) => {
+                deadline = setTimeout(
+                    () =>
+                        reject(new Error(`Realtime cohort member page took longer than ${MEMBER_PAGE_DEADLINE_MS}ms`)),
+                    MEMBER_PAGE_DEADLINE_MS
+                )
+            }),
+        ]).finally(() => clearTimeout(deadline))
         const ids = result.rows.map((row) => row.person_id)
         return {
             ids,
