@@ -7,6 +7,8 @@ import { LemonBadge, LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import {
@@ -15,6 +17,7 @@ import {
     HogFlowEditorMode,
     hogFlowEditorLogic,
 } from '../hogFlowEditorLogic'
+import { HogFlowEditorPanelAddStep } from './HogFlowEditorPanelAddStep'
 import { HogFlowEditorPanelBuild } from './HogFlowEditorPanelBuild'
 import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 import { HogFlowEditorPanelLogs } from './HogFlowEditorPanelLogs'
@@ -28,7 +31,10 @@ import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 export function HogFlowEditorPanel({
     layout = 'floating',
 }: { layout?: 'floating' | 'panel' } = {}): JSX.Element | null {
-    const { panelWidth, selectedNode, mode, workflow } = useValues(hogFlowEditorLogic)
+    const { panelWidth, selectedNode, mode, workflow, isPlacingNewStep } = useValues(hogFlowEditorLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const opensStepPicker = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_STEP_PICKER]
+    const showsStepDetails = !!selectedNode && !isPlacingNewStep
     const { clearPanelWidth, setMode, setPanelWidth, setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const panelRef = useRef<HTMLDivElement>(null)
     const resizerProps: ResizerLogicProps = {
@@ -120,12 +126,17 @@ export function HogFlowEditorPanel({
                     </div>
                 </div>
 
-                {selectedNode && ['build', 'metrics', 'test', 'logs'].includes(mode) && (
+                {showsStepDetails && ['build', 'metrics', 'test', 'logs'].includes(mode) && (
                     <HogFlowEditorPanelSelectedStep />
                 )}
-                {mode === 'build' && (
-                    <>{!selectedNode ? <HogFlowEditorPanelBuild /> : <HogFlowEditorPanelBuildDetail />}</>
-                )}
+                {mode === 'build' &&
+                    (showsStepDetails ? (
+                        <HogFlowEditorPanelBuildDetail />
+                    ) : opensStepPicker ? (
+                        <HogFlowEditorPanelAddStep />
+                    ) : (
+                        <HogFlowEditorPanelBuild />
+                    ))}
                 {mode === 'variables' && <HogFlowEditorPanelVariables />}
                 {mode === 'test' &&
                     (selectedNode?.data?.type === 'function_email' ? (

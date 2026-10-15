@@ -19,8 +19,8 @@ export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentTyp
 
 function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
     const [isHighlighted, setIsHighlighted] = useState(false)
-    const { isCopyingNode, isMovingNode } = useValues(hogFlowEditorLogic)
-    const { setHighlightedDropzoneNodeId, copyNodeToHighlightedDropzone, moveNodeToHighlightedDropzone } =
+    const { isCopyingNode, isMovingNode, isPlacingNewStep } = useValues(hogFlowEditorLogic)
+    const { setHighlightedDropzoneNodeId, copyNodeToHighlightedDropzone, moveNodeToHighlightedDropzone, placeNewStep } =
         useActions(hogFlowEditorLogic)
 
     useEffect(() => {
@@ -28,10 +28,13 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
     }, [id, isHighlighted, setHighlightedDropzoneNodeId])
 
     const handleClick = (): void => {
+        setHighlightedDropzoneNodeId(id)
         if (isCopyingNode) {
             copyNodeToHighlightedDropzone()
         } else if (isMovingNode) {
             moveNodeToHighlightedDropzone()
+        } else if (isPlacingNewStep) {
+            placeNewStep()
         }
     }
 
@@ -41,7 +44,7 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
             onDragLeave={() => setIsHighlighted(false)}
             onMouseOver={() => setIsHighlighted(true)}
             onMouseOut={() => setIsHighlighted(false)}
-            onClick={isCopyingNode || isMovingNode ? handleClick : undefined}
+            onClick={isCopyingNode || isMovingNode || isPlacingNewStep ? handleClick : undefined}
             className={clsx(
                 'flex justify-center items-center p-2 rounded border border-dashed transition-all cursor-pointer hover:border-primary hover:bg-surface-primary',
                 isHighlighted ? 'border-primary bg-surface-primary' : 'border-transparent'

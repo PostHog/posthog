@@ -4,11 +4,14 @@ import type { DragEvent } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton, type LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn, Popover, PopoverContent, PopoverTrigger } from 'lib/ui/quill'
 
 import { type CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowEditorPanelBuild } from '../panel/HogFlowEditorPanelBuild'
+import { StepPickerModal } from '../stepPicker/StepPickerModal'
 import type { HogFlowEdge } from '../types'
 import { computeMoveTreeBranchEdges, isBranchingAction } from './workflowTree'
 
@@ -37,11 +40,14 @@ export function HogFlowTreeDropzone({
     insertionLabel?: string
     alwaysVisible?: boolean
 }): JSX.Element {
-    const { workflow } = useValues(hogFlowEditorLogic)
+    const { workflow, isPlacingNewStep } = useValues(hogFlowEditorLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const opensStepPicker = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_STEP_PICKER]
     const {
         moveNodeToEdge,
         onDragOver,
         onDrop,
+        placeNewStep,
         setHighlightedDropzoneNodeId,
         setNodeToBeAdded,
         setSelectedNodeId,
@@ -84,17 +90,45 @@ export function HogFlowTreeDropzone({
             onDrop(event, edge)
         }
     }
+    const insertHere = (insert: (targetEdge?: HogFlowEdge, joinEdges?: HogFlowEdge[]) => void): void => {
+        if (isBranchJoin && !joinEdges) {
+            setHighlightedDropzoneNodeId(`dropzone_target_${edge.to}_branch_join`)
+            insert()
+        } else {
+            insert(edge, joinEdges)
+        }
+    }
     const handleInsertAction = (action: CreateActionType): void => {
         setPickerOpen(false)
         setNodeToBeAdded(action)
-
-        if (isBranchJoin && !joinEdges) {
-            setHighlightedDropzoneNodeId(`dropzone_target_${edge.to}_branch_join`)
-            onDrop()
-        } else {
-            onDrop(undefined, edge, joinEdges)
-        }
+        insertHere((targetEdge, joinEdges) => onDrop(undefined, targetEdge, joinEdges))
     }
+    const insertButtonProps: LemonButtonProps = {
+        htmlType: 'button',
+        type: 'tertiary',
+        size: 'xsmall',
+        tooltip: insertionLabel ?? 'Insert step here',
+        className: alwaysVisible
+            ? 'relative z-10 me-auto min-w-0 max-w-full bg-transparent text-muted-foreground'
+            : 'absolute -right-2 top-1/2 z-10 !size-4 -translate-y-1/2 border-0 !bg-transparent !p-0',
+        'aria-label': insertionLabel ?? 'Insert step here',
+        'data-attr': 'workflow-tree-insert-action',
+    }
+    const insertButtonContent = alwaysVisible ? (
+        <>
+            <IconPlus className="size-3 shrink-0" />
+            <span className="truncate">{insertionLabel}</span>
+        </>
+    ) : (
+        <span
+            className={cn(
+                'flex size-4 items-center justify-center rounded-full border border-primary bg-primary text-primary-foreground opacity-0 transition-[opacity,box-shadow] group-hover:opacity-100 group-focus-within:opacity-100 group-hover:shadow-sm',
+                pickerOpen && 'opacity-100 shadow-sm'
+            )}
+        >
+            <IconPlus className="size-3" />
+        </span>
+    )
     return (
         <div
             className={cn(
@@ -118,45 +152,50 @@ export function HogFlowTreeDropzone({
                         (showConnector || insertionLabel) && 'group-hover:opacity-100 group-focus-within:opacity-100'
                     )}
                 />
-                <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-                    <PopoverTrigger
-                        render={
-                            <LemonButton
-                                htmlType="button"
-                                type="tertiary"
-                                size="xsmall"
-                                tooltip={insertionLabel ?? 'Insert step here'}
-                                className={cn(
-                                    alwaysVisible
-                                        ? 'relative z-10 me-auto min-w-0 max-w-full bg-transparent text-muted-foreground'
-                                        : 'absolute -right-2 top-1/2 z-10 !size-4 -translate-y-1/2 border-0 !bg-transparent !p-0'
-                                )}
-                                aria-label={insertionLabel ?? 'Insert step here'}
-                                data-attr="workflow-tree-insert-action"
+                {opensStepPicker ? (
+                    <>
+                        <LemonButton {...insertButtonProps} onClick={() => setPickerOpen(true)}>
+                            {insertButtonContent}
+                        </LemonButton>
+                        {pickerOpen && (
+                            <StepPickerModal
+                                isOpen
+                                onClose={() => setPickerOpen(false)}
+                                surface="tree"
+                                onPick={handleInsertAction}
                             />
-                        }
-                    >
-                        {alwaysVisible ? (
-                            <>
-                                <IconPlus className="size-3 shrink-0" />
-                                <span className="truncate">{insertionLabel}</span>
-                            </>
-                        ) : (
-                            <span
-                                className={cn(
-                                    'flex size-4 items-center justify-center rounded-full border border-primary bg-primary text-primary-foreground opacity-0 transition-[opacity,box-shadow] group-hover:opacity-100 group-focus-within:opacity-100 group-hover:shadow-sm',
-                                    pickerOpen && 'opacity-100 shadow-sm'
-                                )}
-                            >
-                                <IconPlus className="size-3" />
-                            </span>
                         )}
-                    </PopoverTrigger>
-                    <PopoverContent side="bottom" align="end" className="w-72 max-h-96 overflow-hidden p-0">
-                        <HogFlowEditorPanelBuild className="max-h-96 p-2" onActionSelect={handleInsertAction} />
-                    </PopoverContent>
-                </Popover>
+                    </>
+                ) : (
+                    <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                        <PopoverTrigger render={<LemonButton {...insertButtonProps} />}>
+                            {insertButtonContent}
+                        </PopoverTrigger>
+                        <PopoverContent side="bottom" align="end" className="w-72 max-h-96 overflow-hidden p-0">
+                            <HogFlowEditorPanelBuild className="max-h-96 p-2" onActionSelect={handleInsertAction} />
+                        </PopoverContent>
+                    </Popover>
+                )}
             </div>
+            {isPlacingNewStep && (
+                <button
+                    type="button"
+                    aria-label={insertionLabel ?? 'Add step here'}
+                    className="group/placement absolute -inset-y-2 inset-x-0 z-20 flex cursor-pointer items-center"
+                    onClick={() => insertHere(placeNewStep)}
+                >
+                    <span
+                        aria-hidden="true"
+                        className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 bg-primary opacity-40 transition-opacity group-hover/placement:opacity-100 group-focus-visible/placement:opacity-100"
+                    />
+                    <span
+                        aria-hidden="true"
+                        className="absolute -right-2 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-full border border-primary bg-primary text-primary-foreground opacity-70 transition-[opacity,transform] group-hover/placement:scale-110 group-hover/placement:opacity-100 group-focus-visible/placement:opacity-100"
+                    >
+                        <IconPlus className="size-3" />
+                    </span>
+                </button>
+            )}
             <div
                 className={cn(
                     'absolute -inset-y-3 inset-x-0 z-20 items-center',

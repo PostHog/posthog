@@ -1,10 +1,17 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from '../workflowLogic'
-import { computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { CreateActionType, computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { CLASSIFY_ACTION_NODE, DELAY_NODES_TO_SHOW } from './stepPicker/stepDefinitions'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
+
+jest.mock('posthog-js')
 
 type Edge = HogFlow['edges'][0]
 const edge = (from: string, to: string, type: 'continue' | 'branch', index?: number): Edge => ({
@@ -673,6 +680,262 @@ describe('hogFlowEditorLogic', () => {
             expect(byId('exit')).toBe(initialNodes.find((node) => node.id === 'exit'))
             expect(byId('branch')).not.toBe(initialNodes.find((node) => node.id === 'branch'))
             expect(byId('branch')?.data.name).toBe('Renamed branch')
+        })
+    })
+
+    describe('placing a new step', () => {
+        const BRANCH_ID = 'route-by-plan'
+        const conditionalBranch: HogFlowAction = {
+            id: BRANCH_ID,
+            type: 'conditional_branch',
+            name: 'Route by plan',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: { conditions: [{ name: 'Paid', filters: {} }] },
+        }
+        const delay: HogFlowAction = {
+            id: 'delay',
+            name: 'Delay',
+            description: '',
+            type: 'delay',
+            created_at: 0,
+            updated_at: 0,
+            config: { delay_duration: '1d' },
+        }
+
+        const captures = (): [string, Record<string, any>][] => (posthog.capture as jest.Mock).mock.calls as any
+        const capturedEvent = (name: string): Record<string, any>[] =>
+            captures()
+                .filter(([event]) => event === name)
+                .map(([, properties]) => properties)
+        const addedActions = (): HogFlowAction[] =>
+            logic.values.workflow.actions.filter(
+                (action) => ![TRIGGER_NODE_ID, EXIT_NODE_ID, BRANCH_ID, delay.id].includes(action.id)
+            )
+
+        const setWorkflow = async (actions: HogFlowAction[], edges: Edge[]): Promise<void> => {
+            await expectLogic(logic, () =>
+                workflowLogic().actions.setWorkflowInfo({ actions, edges })
+            ).toDispatchActions(['setNodesRaw'])
+        }
+        const highlightDropzone = (from: string, to: string, isBranchJoin: boolean): void => {
+            const dropzone = logic.values.dropzoneNodes.find(
+                (node) =>
+                    node.data.edge.source === from &&
+                    node.data.edge.target === to &&
+                    !!node.data.isBranchJoinDropzone === isBranchJoin
+            )
+            logic.actions.setHighlightedDropzoneNodeId(dropzone!.id)
+        }
+
+        beforeEach(async () => {
+            ;(posthog.capture as jest.Mock).mockClear()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_STEP_PICKER], {
+                [FEATURE_FLAGS.WORKFLOWS_STEP_PICKER]: true,
+            })
+            await expectLogic(logic).toDispatchActions(['setNodesRaw'])
+        })
+
+        it.each([
+            {
+                name: 'a highlighted graph dropzone',
+                actions: NEW_WORKFLOW.actions,
+                edges: [edge(TRIGGER_NODE_ID, EXIT_NODE_ID, 'continue')],
+                place: () => {
+                    highlightDropzone(TRIGGER_NODE_ID, EXIT_NODE_ID, false)
+                    logic.actions.placeNewStep()
+                },
+                expectedEdges: (added: string) => [
+                    edge(TRIGGER_NODE_ID, added, 'continue'),
+                    edge(added, EXIT_NODE_ID, 'continue'),
+                ],
+            },
+            {
+                name: 'a tree insertion point',
+                actions: NEW_WORKFLOW.actions,
+                edges: [edge(TRIGGER_NODE_ID, EXIT_NODE_ID, 'continue')],
+                place: () => logic.actions.placeNewStep(edge(TRIGGER_NODE_ID, EXIT_NODE_ID, 'continue')),
+                expectedEdges: (added: string) => [
+                    edge(TRIGGER_NODE_ID, added, 'continue'),
+                    edge(added, EXIT_NODE_ID, 'continue'),
+                ],
+            },
+            {
+                name: 'a tree branch join',
+                actions: [NEW_WORKFLOW.actions[0], conditionalBranch, NEW_WORKFLOW.actions[1]],
+                edges: [
+                    edge(TRIGGER_NODE_ID, BRANCH_ID, 'continue'),
+                    edge(BRANCH_ID, EXIT_NODE_ID, 'branch', 0),
+                    edge(BRANCH_ID, EXIT_NODE_ID, 'continue'),
+                ],
+                place: () =>
+                    logic.actions.placeNewStep(edge(BRANCH_ID, EXIT_NODE_ID, 'branch', 0), [
+                        edge(BRANCH_ID, EXIT_NODE_ID, 'branch', 0),
+                        edge(BRANCH_ID, EXIT_NODE_ID, 'continue'),
+                    ]),
+                expectedEdges: (added: string) => [
+                    edge(TRIGGER_NODE_ID, BRANCH_ID, 'continue'),
+                    edge(BRANCH_ID, added, 'branch', 0),
+                    edge(BRANCH_ID, added, 'continue'),
+                    edge(added, EXIT_NODE_ID, 'continue'),
+                ],
+            },
+        ])('places the picked step at $name', async ({ actions, edges, place, expectedEdges }) => {
+            await setWorkflow(actions, edges)
+
+            logic.actions.startPlacingNewStep(CLASSIFY_ACTION_NODE)
+            expect(logic.values.isPlacingNewStep).toBe(true)
+            expect(logic.values.dropzoneNodes.length).toBeGreaterThan(0)
+
+            place()
+
+            const [added] = addedActions()
+            expect(added).toMatchObject({
+                type: 'function',
+                name: 'Classify with AI',
+                config: { template_id: 'template-posthog-classify' },
+                output_variable: CLASSIFY_ACTION_NODE.output_variable,
+            })
+            expect(logic.values.workflow.edges).toEqual(expectedEdges(added.id))
+            expect(logic.values.workflow.variables?.map((variable) => variable.key)).toEqual(
+                expect.arrayContaining(['category', 'confidence'])
+            )
+            expect(logic.values.isPlacingNewStep).toBe(false)
+            expect(logic.values.dropzoneNodes).toEqual([])
+            expect(capturedEvent('workflow step placement finished')).toEqual([
+                { step_id: 'template-posthog-classify', outcome: 'placed' },
+            ])
+        })
+
+        it.each([
+            {
+                name: 'Escape',
+                cancel: () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })),
+            },
+            { name: 'a click on the empty canvas', cancel: () => logic.actions.handlePaneClick() },
+            { name: 'Cancel', cancel: () => logic.actions.cancelPlacingNewStep() },
+        ])('stops placement without inserting on $name', async ({ cancel }) => {
+            await setWorkflow(NEW_WORKFLOW.actions, [edge(TRIGGER_NODE_ID, EXIT_NODE_ID, 'continue')])
+            logic.actions.startPlacingNewStep(CLASSIFY_ACTION_NODE)
+
+            cancel()
+
+            expect(addedActions()).toEqual([])
+            expect(logic.values.isPlacingNewStep).toBe(false)
+            expect(logic.values.nodeToBeAdded).toBeNull()
+            expect(logic.values.dropzoneNodes).toEqual([])
+            expect(capturedEvent('workflow step placement finished')).toEqual([
+                { step_id: 'template-posthog-classify', outcome: 'cancelled' },
+            ])
+        })
+
+        const linearWithDelay = {
+            actions: [NEW_WORKFLOW.actions[0], delay, NEW_WORKFLOW.actions[1]],
+            edges: [edge(TRIGGER_NODE_ID, delay.id, 'continue'), edge(delay.id, EXIT_NODE_ID, 'continue')],
+        }
+        const delayNode = (): HogFlowActionNode => logic.values.nodesById[delay.id]
+        const newDelayStep: CreateActionType = DELAY_NODES_TO_SHOW[0]
+
+        it.each([
+            { name: 'copy', start: () => logic.actions.startCopyingNode(delayNode()) },
+            { name: 'move', start: () => logic.actions.startMovingNode(delayNode()) },
+        ])('ends a pending $name when placement starts, and places the picked step', async ({ start }) => {
+            await setWorkflow(linearWithDelay.actions, linearWithDelay.edges)
+            start()
+
+            logic.actions.startPlacingNewStep(CLASSIFY_ACTION_NODE)
+
+            expect(logic.values.isCopyingNode).toBe(false)
+            expect(logic.values.isMovingNode).toBe(false)
+            logic.actions.placeNewStep(edge(delay.id, EXIT_NODE_ID, 'continue'))
+            const [added] = addedActions()
+            expect(added).toMatchObject({ config: { template_id: 'template-posthog-classify' } })
+            expect(logic.values.workflow.edges).toEqual([
+                edge(TRIGGER_NODE_ID, delay.id, 'continue'),
+                edge(delay.id, added.id, 'continue'),
+                edge(added.id, EXIT_NODE_ID, 'continue'),
+            ])
+        })
+
+        it.each([
+            {
+                name: 'copying a step',
+                start: () => logic.actions.startCopyingNode(delayNode()),
+                expectedNodeToBeAdded: () => delayNode().data,
+            },
+            {
+                name: 'moving a step',
+                start: () => logic.actions.startMovingNode(delayNode()),
+                expectedNodeToBeAdded: () => null,
+            },
+            {
+                name: 'duplicating a step',
+                start: () => logic.actions.duplicateNodeBelow(delay.id),
+                expectedNodeToBeAdded: () => null,
+            },
+        ])('cancels a pending placement when $name starts', async ({ start, expectedNodeToBeAdded }) => {
+            await setWorkflow(linearWithDelay.actions, linearWithDelay.edges)
+            logic.actions.startPlacingNewStep(CLASSIFY_ACTION_NODE)
+
+            start()
+
+            expect(logic.values.isPlacingNewStep).toBe(false)
+            expect(logic.values.nodeToBeAdded).toEqual(expectedNodeToBeAdded())
+            expect(addedActions().filter((action) => action.type === 'function')).toEqual([])
+            expect(capturedEvent('workflow step placement finished')).toEqual([
+                { step_id: 'template-posthog-classify', outcome: 'cancelled' },
+            ])
+        })
+
+        it.each([
+            {
+                name: 'is dragged in',
+                add: () => {
+                    logic.actions.setNodeToBeAdded(newDelayStep)
+                    logic.actions.onDrop(undefined, edge(delay.id, EXIT_NODE_ID, 'continue'))
+                },
+                expected: [{ action_type: 'delay', template_id: null, step_picker_enabled: true }],
+            },
+            {
+                name: 'is placed from the step picker',
+                add: () => {
+                    logic.actions.startPlacingNewStep(CLASSIFY_ACTION_NODE)
+                    logic.actions.placeNewStep(edge(delay.id, EXIT_NODE_ID, 'continue'))
+                },
+                expected: [
+                    {
+                        action_type: 'function',
+                        template_id: 'template-posthog-classify',
+                        step_picker_enabled: true,
+                    },
+                ],
+            },
+            {
+                name: 'is copied',
+                add: () => {
+                    logic.actions.startCopyingNode(delayNode())
+                    highlightDropzone(delay.id, EXIT_NODE_ID, false)
+                    logic.actions.copyNodeToHighlightedDropzone()
+                },
+                expected: [],
+            },
+            {
+                name: 'is moved',
+                add: () => logic.actions.moveNodeToEdge(delay.id, edge(TRIGGER_NODE_ID, delay.id, 'continue'), false),
+                expected: [],
+            },
+            {
+                name: 'is duplicated',
+                add: () => logic.actions.duplicateNodeBelow(delay.id),
+                expected: [],
+            },
+        ])('captures workflow step added only when a new step $name', async ({ add, expected }) => {
+            await setWorkflow(linearWithDelay.actions, linearWithDelay.edges)
+
+            add()
+
+            expect(capturedEvent('workflow step added')).toEqual(expected)
         })
     })
 

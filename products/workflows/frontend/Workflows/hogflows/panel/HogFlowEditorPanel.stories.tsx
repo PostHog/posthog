@@ -293,3 +293,9 @@ Metrics.args = { mode: 'metrics', selectedNodeId: 'delay' }
 
 export const Logs: StoryFn<PanelStoryProps> = Template.bind({})
 Logs.args = { mode: 'logs', selectedNodeId: 'delay' }
+
+export const BuildWithStepPicker: StoryFn<PanelStoryProps> = Template.bind({})
+BuildWithStepPicker.args = { mode: 'build', selectedNodeId: null }
+BuildWithStepPicker.parameters = {
+    featureFlags: [FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE, FEATURE_FLAGS.WORKFLOWS_STEP_PICKER],
+}
