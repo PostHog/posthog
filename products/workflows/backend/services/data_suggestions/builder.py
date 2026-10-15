@@ -7,6 +7,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.messaging.backend.facade.api import EmailTemplateContent
+from products.workflows.backend.facade.contracts import MissingInput
 from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email
 from products.workflows.backend.services.data_suggestions.planner import (
     MAX_PLANNED_STEPS,
@@ -361,3 +362,43 @@ def clean_copy(text: str) -> str:
     cleaned = cleaned.replace("{", "").replace("}", "").strip()
     # Sentence case starts with a capital, which the model does not always write.
     return cleaned[:1].upper() + cleaned[1:]
+
+
+def missing_inputs(
+    workflow: dict[str, Any], input_schemas: dict[str, list[dict[str, Any]]], *, sender_field: str = "Email sender"
+) -> tuple[MissingInput, ...]:
+    """The settings a draft leaves blank: required template inputs, the email sender and unset branch conditions.
+    `input_schemas` maps a template id to its inputs schema."""
+    missing: list[MissingInput] = []
+    for action in workflow["actions"]:
+        config = action.get("config") or {}
+        fields: list[str] = []
+        if action["type"] == "conditional_branch":
+            fields += [
+                f"Condition: {condition.get('name') or 'unnamed'}"
+                for condition in config.get("conditions") or []
+                if not _has_conditions(condition.get("filters"))
+            ]
+        if action["type"] == "function_email":
+            sender = (((config.get("inputs") or {}).get("email") or {}).get("value") or {}).get("from") or {}
+            if not sender.get("email"):
+                fields.append(sender_field)
+        else:
+            inputs = config.get("inputs") or {}
+            fields += [
+                item.get("label") or item.get("key") or "input"
+                for item in input_schemas.get(config.get("template_id") or "", [])
+                if item.get("required") and _is_blank((inputs.get(item.get("key")) or {}).get("value"))
+            ]
+        step_name = action.get("name") or action["id"]
+        missing += [MissingInput(step_id=action["id"], step_name=step_name, field=field) for field in fields]
+    return tuple(missing)
+
+
+def _has_conditions(filters: Any) -> bool:
+    # The draft check compiles every condition, so an unset one still carries source and bytecode keys.
+    return isinstance(filters, dict) and any(filters.get(key) for key in ("properties", "events", "actions"))
+
+
+def _is_blank(value: Any) -> bool:
+    return value is None or value == "" or value == [] or value == {}
