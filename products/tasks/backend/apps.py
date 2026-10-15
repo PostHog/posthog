@@ -11,3 +11,4 @@ class TasksConfig(AppConfig):
         # process type (celery, temporal, migrate) wires them without pulling
         # the viewset import graph into django.setup().
         from products.tasks.backend import search_index, team_deletion  # noqa: F401, PLC0415
+        from products.tasks.backend.logic.services import workflow_inbox_report_claim  # noqa: F401, PLC0415

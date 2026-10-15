@@ -1,5 +1,11 @@
 """The Inbox report claim a workflow task takes when an Inbox report started its workflow."""
 
+from typing import Any
+
+from django.db import transaction
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
 import structlog
 
 from products.tasks.backend.facade import contracts
@@ -48,4 +54,23 @@ def release_unused_inbox_report_claim(task_run: TaskRun) -> None:
     # Deferred because the signals facade imports the tasks facade, which imports this module.
     from products.signals.backend.facade.api import release_report_claim_of_task  # noqa: PLC0415
 
-    release_report_claim_of_task(team_id=task_run.team_id, report_id=claim["report_id"], task_id=str(task_run.task_id))
+    try:
+        release_report_claim_of_task(
+            team_id=task_run.team_id, report_id=claim["report_id"], task_id=str(task_run.task_id)
+        )
+    except Exception:
+        logger.exception(
+            "workflow_task_inbox_report_claim_release_failed", team_id=task_run.team_id, run_id=str(task_run.id)
+        )
+
+
+@receiver(post_save, sender=TaskRun)
+def release_unused_inbox_report_claim_on_end(
+    sender: type[TaskRun], instance: TaskRun, created: bool, update_fields: frozenset[str] | None = None, **kwargs: Any
+) -> None:
+    # A signal rather than a call at each ending, because the agent, the API, cancellation and the
+    # janitors each finish runs on their own path. After commit, so a release never blocks the
+    # status change or the step wake.
+    if created or not instance.is_terminal or (update_fields is not None and "status" not in update_fields):
+        return
+    transaction.on_commit(lambda: release_unused_inbox_report_claim(instance))

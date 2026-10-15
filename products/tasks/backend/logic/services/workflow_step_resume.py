@@ -9,7 +9,6 @@ from products.cdp.backend.workflow_step_resume import (
     cap_value,
     emit_workflow_step_resume,
 )
-from products.tasks.backend.logic.services.workflow_inbox_report_claim import release_unused_inbox_report_claim
 from products.tasks.backend.logic.services.workflow_task_output import RUN_OUTPUT_RESERVED_KEYS
 from products.tasks.backend.models import Task, TaskRun
 
@@ -97,7 +96,6 @@ def resume_workflow_step_for_run(task_run: TaskRun, *, wait_for_final_message: b
     status = _STATUS_BY_RUN_STATUS.get(task_run.status)
     if status is None:
         return
-    release_unused_inbox_report_claim(task_run)
     origin_key = _workflow_origin_key(task_run)
     if origin_key is None:
         return
