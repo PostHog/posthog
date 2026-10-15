@@ -1007,32 +1007,24 @@ def team_api_test_factory():
             self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
             self.assertIsNone(self.team.secret_api_token_backup)
 
-        def test_rotate_secret_token_requires_caller_to_hold_minted_scopes(self):
-            # Rotation mints a PSAK with the migrated scopes, so a scoped token lacking
-            # them must not escalate through this endpoint.
+        def test_rotate_secret_token_rejects_scoped_tokens(self):
+            # Rotation mints a PSAK mirror row, so the endpoint must stay session-only:
+            # opening it to scoped tokens would let them mint a durable credential.
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
             self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
             self.team.secret_api_token_backup = None
             self.team.save()
 
-            lacking = self.create_personal_api_key_with_scopes(["project:write"])
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/rotate_secret_token/",
-                HTTP_AUTHORIZATION=f"Bearer {lacking}",
-            )
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            for scopes in (["project:write"], ["project:write", "feature_flag:read", "support_ticket:read"]):
+                token = self.create_personal_api_key_with_scopes(scopes)
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/rotate_secret_token/",
+                    HTTP_AUTHORIZATION=f"Bearer {token}",
+                )
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, scopes)
             self.team.refresh_from_db()
             self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
-
-            holding = self.create_personal_api_key_with_scopes(
-                ["project:write", "feature_flag:read", "support_ticket:read"]
-            )
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/rotate_secret_token/",
-                HTTP_AUTHORIZATION=f"Bearer {holding}",
-            )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         def test_rotate_secret_token_requires_fresh_session(self):
             # Rotation mints a durable credential, so an aged session must reauthenticate
@@ -1044,8 +1036,8 @@ def team_api_test_factory():
             self.team.save()
 
             session = self.client.session
-            session[django_settings.SESSION_LAST_REAUTH_AT_KEY] = (
-                time.time() - django_settings.SESSION_FRESH_REAUTH_AGE - 1
+            session[django_settings.SESSION_COOKIE_CREATED_AT_KEY] = (
+                time.time() - django_settings.SESSION_SENSITIVE_ACTIONS_AGE - 1
             )
             session.save()
 
