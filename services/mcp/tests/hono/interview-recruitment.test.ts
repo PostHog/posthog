@@ -10,7 +10,19 @@ vi.mock('@/hono/request-state-resolver', () => ({
 }))
 vi.mock('@/hono/tool-executor', () => ({
     ToolExecutor: class {
-        handleToolCall = executeTool
+        async handleToolCall(
+            params: Record<string, unknown>,
+            state: ResolvedState,
+            hooks?: ToolCallHooks
+        ): Promise<unknown> {
+            const invitation = await hooks?.beforeExecute(state)
+            if (invitation) {
+                return invitation
+            }
+            const result = await executeTool(params, state)
+            await hooks?.afterExecute(state, result)
+            return result
+        }
     },
 }))
 
@@ -19,6 +31,7 @@ import { McpDispatcher } from '@/hono/dispatcher'
 import { interviewRecruitmentConfigSchema, MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import type { ToolCatalog } from '@/hono/tool-catalog'
+import type { ToolCallHooks } from '@/hono/tool-executor'
 import type { RequestProperties } from '@/lib/request-properties'
 import {
     META_CLIENT_CAPABILITIES,
@@ -41,7 +54,21 @@ function createRedis(): {
         return entry?.value
     }
     const redis = {
-        eval: vi.fn(async (_script: string, _numberOfKeys: number, ...args: (string | number)[]) => {
+        eval: vi.fn(async (_script: string, numberOfKeys: number, ...args: (string | number)[]) => {
+            if (numberOfKeys === 1) {
+                const [key, now, ttl, request] = args as [string, number, number, string]
+                const record = JSON.parse(get(key) ?? JSON.stringify({ started: now, completed: 0, requests: [] })) as {
+                    started: number
+                    completed: number
+                    requests: string[]
+                }
+                if (request && record.completed < 1000 && !record.requests.includes(request)) {
+                    record.completed++
+                    record.requests.push(request)
+                }
+                entries.set(key, { value: JSON.stringify(record), expires: now + ttl * 1000 })
+                return [record.completed, record.started]
+            }
             const [preference, pending, first, second, ttl, pendingTtl] = args as [
                 string,
                 string,
@@ -74,7 +101,12 @@ function makeState(): ResolvedState {
         distinctId: 'test-person',
         context: { api: { getProjectBaseUrl: () => 'https://us.posthog.com' } },
         toolFeatureFlags: { [MCP_INTERVIEW_RECRUITMENT_FLAG]: true },
-        interviewRecruitmentConfig: interviewRecruitmentConfigSchema.parse({}),
+        interviewRecruitmentConfig: interviewRecruitmentConfigSchema.parse({
+            min_completed_tool_calls: 0,
+            min_session_age_seconds: 0,
+        }),
+        requestContext: { mcpConversationId: 'conversation-a', mcpClientName: 'test-client' },
+        allTools: [{ name: 'project-get' }, { name: 'skill-get' }, { name: 'docs-search' }],
         clientProfile: { capabilities: { supportsInstructions: false } },
     } as unknown as ResolvedState
 }
@@ -94,7 +126,9 @@ function callParams(capabilities: Record<string, unknown> = { elicitation: { url
     }
 }
 
-function request(params: Record<string, unknown>): Request {
+let nextRequestId = 1
+
+function request(params: Record<string, unknown>, id: number): Request {
     return new Request('https://mcp.test/mcp', {
         method: 'POST',
         headers: {
@@ -103,16 +137,17 @@ function request(params: Record<string, unknown>): Request {
             'Mcp-Method': 'tools/call',
             'Mcp-Name': String(params.name),
         },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params }),
+        body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params }),
     })
 }
 
 async function call(
     dispatcher: McpDispatcher,
     params = callParams(),
-    requestProps = props
+    requestProps = props,
+    id?: number
 ): Promise<{ result?: Record<string, unknown>; error?: { code: number } }> {
-    return (await dispatcher.handleRequest(request(params), requestProps)).json()
+    return (await dispatcher.handleRequest(request(params, id ?? nextRequestId++), requestProps)).json()
 }
 
 function continuation(requestState: unknown, response: unknown): Record<string, unknown> {
@@ -126,6 +161,7 @@ describe('MCP interview recruitment', () => {
 
     beforeEach(() => {
         vi.clearAllMocks()
+        nextRequestId = 1
         state = makeState()
         resolveState.mockResolvedValue(state)
         executeTool.mockResolvedValue(toolResult)
@@ -157,7 +193,7 @@ describe('MCP interview recruitment', () => {
             const resumed = await call(dispatcher, continuation(invitation.result?.requestState, answer))
             expect(resumed.result).toMatchObject({ resultType: 'complete', ...toolResult })
             expect(executeTool).toHaveBeenCalledTimes(1)
-            const [key, record] = [...storage.entries.entries()][0]!
+            const [key, record] = [...storage.entries.entries()].find(([key]) => key.endsWith(':response'))!
             expect(record.expires).toBeUndefined()
             expect(JSON.parse(record.value)).toMatchObject({
                 distinct_id: 'test-person',
@@ -205,6 +241,84 @@ describe('MCP interview recruitment', () => {
             state.suppressAnalytics = condition === 'suppressed'
             expect((await call(dispatcher)).result).toMatchObject(toolResult)
             expect(storage.entries.size).toBe(0)
+        }
+    )
+
+    it('waits for three completed product calls and two minutes in the same conversation', async () => {
+        vi.useFakeTimers()
+        state.interviewRecruitmentConfig = interviewRecruitmentConfigSchema.parse({})
+        expect((await call(dispatcher)).result).toMatchObject(toolResult)
+        expect((await call(dispatcher)).result).toMatchObject(toolResult)
+        vi.advanceTimersByTime(120_000)
+        expect((await call(dispatcher)).result).toMatchObject(toolResult)
+        expect((await call(dispatcher)).result?.resultType).toBe('input_required')
+        expect(executeTool).toHaveBeenCalledTimes(3)
+    })
+
+    it.each(['failed', 'search', 'learn', 'skill', 'docs'])(
+        'does not count %s calls toward the warm-up',
+        async (kind) => {
+            vi.useFakeTimers()
+            state.interviewRecruitmentConfig = interviewRecruitmentConfigSchema.parse({})
+            const params = callParams()
+            params.arguments = {
+                command: {
+                    failed: 'call project-get {}',
+                    search: 'search project',
+                    learn: 'learn -s project',
+                    skill: 'call skill-get {}',
+                    docs: 'call docs-search {}',
+                }[kind],
+            }
+            for (let i = 0; i < 3; i++) {
+                if (kind === 'failed') {
+                    executeTool.mockResolvedValueOnce({ ...toolResult, isError: true })
+                }
+                expect((await call(dispatcher, params)).result?.resultType).toBe('complete')
+            }
+            vi.advanceTimersByTime(120_000)
+            expect((await call(dispatcher)).result).toMatchObject(toolResult)
+            expect((await call(dispatcher)).result).toMatchObject(toolResult)
+            vi.advanceTimersByTime(120_000)
+            expect((await call(dispatcher)).result).toMatchObject(toolResult)
+            expect((await call(dispatcher)).result?.resultType).toBe('input_required')
+        }
+    )
+
+    it('does not count a replay of the same completed RPC twice', async () => {
+        vi.useFakeTimers()
+        state.interviewRecruitmentConfig = interviewRecruitmentConfigSchema.parse({})
+        for (let i = 0; i < 3; i++) {
+            expect((await call(dispatcher, callParams(), props, 10)).result).toMatchObject(toolResult)
+        }
+        vi.advanceTimersByTime(120_000)
+        expect((await call(dispatcher, callParams(), props, 11)).result).toMatchObject(toolResult)
+        expect((await call(dispatcher, callParams(), props, 12)).result).toMatchObject(toolResult)
+        expect((await call(dispatcher, callParams(), props, 13)).result?.resultType).toBe('input_required')
+    })
+
+    it.each(['missing conversation', 'different conversation', 'different client', 'different person'])(
+        'does not reuse warm-up progress for a %s',
+        async (change) => {
+            vi.useFakeTimers()
+            state.interviewRecruitmentConfig = interviewRecruitmentConfigSchema.parse({})
+            for (let i = 0; i < 3; i++) {
+                await call(dispatcher)
+            }
+            vi.advanceTimersByTime(120_000)
+            if (change === 'missing conversation') {
+                state.requestContext.mcpConversationId = undefined
+            }
+            if (change === 'different conversation') {
+                state.requestContext.mcpConversationId = 'conversation-b'
+            }
+            if (change === 'different client') {
+                state.requestContext.mcpClientName = 'another-client'
+            }
+            if (change === 'different person') {
+                state.distinctId = 'another-person'
+            }
+            expect((await call(dispatcher)).result).toMatchObject(toolResult)
         }
     )
 
@@ -259,7 +373,9 @@ describe('MCP interview recruitment', () => {
         expect(
             (await call(dispatcher, continuation(invitation.result?.requestState, { action: 'decline' }))).result
         ).toMatchObject(toolResult)
-        expect(JSON.parse([...storage.entries.values()][0]!.value).response).toBe('do_not_ask_again')
+        expect(
+            JSON.parse([...storage.entries.entries()].find(([key]) => key.endsWith(':response'))![1].value).response
+        ).toBe('do_not_ask_again')
     })
 
     it('skips the invitation if Redis fails, but retries a response write before executing the tool', async () => {

@@ -2,13 +2,17 @@ import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
 import { META_CLIENT_CAPABILITIES } from '@/lib/stateless-protocol'
+import { parseExecCallInnerToolName } from '@/tools/exec'
 
 import type { RedisLike } from './cache/RedisCache'
+import { resolveSessionKey } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 
 export const MCP_INTERVIEW_RECRUITMENT_FLAG = 'mcp-interview-recruitment'
 
 export const interviewRecruitmentConfigSchema = z.object({
+    min_completed_tool_calls: z.number().int().min(0).max(1000).default(3),
+    min_session_age_seconds: z.number().int().min(0).max(86400).default(120),
     message: z
         .string()
         .trim()
@@ -27,6 +31,20 @@ const INPUT_ID = 'mcp-interview'
 const STATE_PREFIX = 'mcp-interview:'
 const PENDING_SECONDS = 10 * 60
 const COOLDOWN_SECONDS = 7 * 24 * 60 * 60
+const CONVERSATION_IDLE_SECONDS = 24 * 60 * 60
+
+// The counter and deduplication fields expire together; retries cannot increment after losing their deduplication record.
+const OBSERVE_CONVERSATION = `
+redis.call('HSETNX', KEYS[1], 'started_at', ARGV[1])
+local completed = tonumber(redis.call('HGET', KEYS[1], 'completed_calls') or '0')
+if ARGV[3] ~= '' and completed < 1000 then
+    if redis.call('HSETNX', KEYS[1], 'request:' .. ARGV[3], '1') == 1 then
+        completed = redis.call('HINCRBY', KEYS[1], 'completed_calls', 1)
+    end
+end
+redis.call('EXPIRE', KEYS[1], ARGV[2])
+return {completed, tonumber(redis.call('HGET', KEYS[1], 'started_at'))}
+`
 
 // Both keys share a Redis Cluster slot. Reserving before returning the invitation prevents parallel calls from asking twice.
 const RESERVE_INVITATION = `
@@ -79,6 +97,79 @@ export class InterviewRecruitment {
             .safeParse((params._meta as Record<string, unknown> | undefined)?.[META_CLIENT_CAPABILITIES]).success
     }
 
+    private canRecruit(params: Record<string, unknown>, state: ResolvedState): boolean {
+        return (
+            state.toolFeatureFlags?.[MCP_INTERVIEW_RECRUITMENT_FLAG] === true &&
+            !state.isImpersonated &&
+            !state.suppressAnalytics &&
+            state.interviewRecruitmentConfig !== undefined &&
+            this.supportsUrl(params)
+        )
+    }
+
+    private isProductCall(params: Record<string, unknown>, state: ResolvedState): boolean {
+        const args = params.arguments as Record<string, unknown> | undefined
+        const name =
+            params.name === 'exec'
+                ? typeof args?.command === 'string'
+                    ? parseExecCallInnerToolName(args.command)
+                    : undefined
+                : params.name
+        return (
+            typeof name === 'string' &&
+            name !== 'docs-search' &&
+            !/^skills?-/.test(name) &&
+            state.allTools.some((tool) => tool.name === name)
+        )
+    }
+
+    private conversationKey(state: ResolvedState): string | undefined {
+        const conversation = resolveSessionKey(state.requestContext)
+        if (!conversation) {
+            return undefined
+        }
+        const client = state.requestContext
+        const hash = createHash('sha256')
+            .update(JSON.stringify([client.mcpClientName, client.mcpVendorClient, client.mcpConsumer, conversation]))
+            .digest('hex')
+        return `${this.preferenceKey(state)}:conversation:${hash}`
+    }
+
+    async afterToolCall(
+        params: Record<string, unknown>,
+        state: ResolvedState,
+        result: unknown,
+        requestId: string | number
+    ): Promise<void> {
+        if (
+            params.requestState !== undefined ||
+            !this.canRecruit(params, state) ||
+            !this.isProductCall(params, state) ||
+            !result ||
+            typeof result !== 'object' ||
+            !Array.isArray((result as Record<string, unknown>).content) ||
+            (result as Record<string, unknown>).isError === true
+        ) {
+            return
+        }
+        const key = this.conversationKey(state)
+        if (!key) {
+            return
+        }
+        try {
+            await this.redis.eval(
+                OBSERVE_CONVERSATION,
+                1,
+                key,
+                Date.now(),
+                CONVERSATION_IDLE_SECONDS,
+                this.requestFingerprint(params, JSON.stringify(requestId))
+            )
+        } catch {
+            // Recruitment bookkeeping must not change the outcome of a completed tool call.
+        }
+    }
+
     private async resume(params: Record<string, unknown>, state: ResolvedState, userHash: string): Promise<void> {
         const requestState = params.requestState as string
         if (!/^mcp-interview:[0-9a-f-]{36}$/.test(requestState)) {
@@ -125,18 +216,32 @@ export class InterviewRecruitment {
         }
         if (
             params.requestState !== undefined ||
-            state.toolFeatureFlags?.[MCP_INTERVIEW_RECRUITMENT_FLAG] !== true ||
-            state.isImpersonated ||
-            state.suppressAnalytics ||
-            !state.interviewRecruitmentConfig ||
-            !this.supportsUrl(params)
+            !this.canRecruit(params, state) ||
+            !this.isProductCall(params, state)
         ) {
             return undefined
         }
+        const conversationKey = this.conversationKey(state)
+        if (!conversationKey) {
+            return undefined
+        }
+        const config = state.interviewRecruitmentConfig!
 
         const requestState = `${STATE_PREFIX}${randomUUID()}`
         const preferenceKey = this.preferenceKey(state)
         try {
+            const now = Date.now()
+            const progress = z
+                .tuple([z.number(), z.number()])
+                .parse(
+                    await this.redis.eval(OBSERVE_CONVERSATION, 1, conversationKey, now, CONVERSATION_IDLE_SECONDS, '')
+                )
+            if (
+                progress[0] < config.min_completed_tool_calls ||
+                now - progress[1] < config.min_session_age_seconds * 1000
+            ) {
+                return undefined
+            }
             const reserved = await this.redis.eval(
                 RESERVE_INVITATION,
                 2,
@@ -163,8 +268,8 @@ export class InterviewRecruitment {
                     method: 'elicitation/create',
                     params: {
                         mode: 'url',
-                        message: state.interviewRecruitmentConfig.message,
-                        url: state.interviewRecruitmentConfig.booking_url,
+                        message: config.message,
+                        url: config.booking_url,
                     },
                 },
             },

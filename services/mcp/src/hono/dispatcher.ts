@@ -313,7 +313,7 @@ class McpDispatcher {
         const stateless = protocolMeta.protocolVersion === STATELESS_PROTOCOL_VERSION
 
         try {
-            const result = await this.dispatchMethod(method, params, props, state, stateless)
+            const result = await this.dispatchMethod(method, params, props, state, stateless, id)
             if (result === METHOD_NOT_FOUND) {
                 return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
             }
@@ -333,7 +333,8 @@ class McpDispatcher {
         params: Record<string, unknown> | undefined,
         props: RequestProperties,
         state: ResolvedState | undefined,
-        stateless: boolean
+        stateless: boolean,
+        requestId: string | number
     ): Promise<unknown> {
         // SEP-2575 removed `initialize` and `ping` from the modern dialect.
         if (stateless && (method === Method.Initialize || method === Method.Ping)) {
@@ -347,13 +348,18 @@ class McpDispatcher {
             case Method.ToolsList:
                 return await this.toolExecutor.handleToolsList(state!)
             case Method.ToolsCall:
-                if (stateless && params) {
-                    const invitation = await this.interviewRecruitment.beforeToolCall(params, state!, props.userHash)
-                    if (invitation) {
-                        return invitation
-                    }
-                }
-                return await this.toolExecutor.handleToolCall(params, state!)
+                return await this.toolExecutor.handleToolCall(
+                    params,
+                    state!,
+                    stateless && params
+                        ? {
+                              beforeExecute: (callState) =>
+                                  this.interviewRecruitment.beforeToolCall(params, callState, props.userHash),
+                              afterExecute: (callState, result) =>
+                                  this.interviewRecruitment.afterToolCall(params, callState, result, requestId),
+                          }
+                        : undefined
+                )
             case Method.ResourcesList:
                 return this.resourceCatalog.getResourcesList()
             case Method.ResourcesRead:

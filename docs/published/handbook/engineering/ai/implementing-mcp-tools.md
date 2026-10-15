@@ -102,7 +102,9 @@ Set the enabled boolean flag's JSON payload to customize the invitation without 
 ```json
 {
   "message": "Squeal on our MCP. Book a 20-minute chat. We'll pay you in PostHog merch.",
-  "booking_url": "https://cal.com/adam-posthog/posthog-chat"
+  "booking_url": "https://cal.com/adam-posthog/posthog-chat",
+  "min_completed_tool_calls": 3,
+  "min_session_age_seconds": 120
 }
 ```
 
@@ -110,6 +112,22 @@ Omitted fields use the defaults above. A malformed payload, an empty message, a 
 characters, or a non-HTTPS booking URL skips recruitment. Flag values and payloads come from the same
 evaluation, with the same audience properties. Payload edits apply to subsequent requests without
 restarting the server. A displayed invitation keeps the copy and URL it already received.
+
+By default, an eligible conversation must complete three successful product tool calls and have been
+observed for at least 120 seconds. The earliest invitation is before its fourth product call, once both
+thresholds are met. Discovery commands, skills, documentation lookups, and failed calls do not count.
+The timer starts at the first eligible product request; it does not measure when the chat UI opened.
+The payload accepts 0–1,000 completed calls and 0–86,400 seconds. Setting both to zero permits an
+immediate invitation for testing.
+
+Progress is updated atomically in shared Redis, scoped to the user, instance, client, and conversation
+handle already resolved by the MCP Analytics SDK. The SDK returns a handle on the first call for the
+agent to echo on subsequent calls. If it is missing or changes, progress does not accumulate across
+those calls. This measures calls observed under that handle, not chat messages or an independently
+verified client UI conversation boundary. A client reusing a handle across chats also reuses its progress.
+The counter expires after 24 hours without eligible activity, caps at 1,000 completions, and deduplicates
+identical RPC IDs and tool arguments. A retried call with a new RPC ID is a new request. Continuations
+of an invitation do not increment it.
 
 Flag evaluation includes these properties from the current request, without updating the person's
 stored profile. Empty values explicitly replace any stored value for that property.
