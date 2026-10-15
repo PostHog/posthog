@@ -116,6 +116,13 @@ CREATE TABLE posthog.writable_metrics4_series (
   time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
   original_expiry_timestamp DateTime64(6)
 ) ENGINE = Distributed('logs', 'posthog', 'metrics4_series');
+CREATE TABLE posthog.writable_metrics4_service_freshness (
+  team_id Int32,
+  time_bucket DateTime64(0),
+  service_name LowCardinality(String),
+  original_expiry_time_bucket DateTime64(0),
+  max_timestamp SimpleAggregateFunction(max, DateTime64(6))
+) ENGINE = Distributed('logs', 'posthog', 'metrics4_service_freshness');
 CREATE TABLE posthog.writable_query_log_archive (
   hostname LowCardinality(String),
   user LowCardinality(String),
@@ -430,6 +437,15 @@ CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_series TO posthog.wr
   original_expiry_timestamp
 FROM posthog.metrics4_input
 WHERE has_labels;
+CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_service_freshness TO posthog.writable_metrics4_service_freshness (team_id Int32, time_bucket DateTime64(0), service_name LowCardinality(String), original_expiry_time_bucket DateTime64(0), max_timestamp SimpleAggregateFunction(max, DateTime64(6))) AS SELECT
+  team_id,
+  toStartOfHour(timestamp) AS time_bucket,
+  service_name,
+  toStartOfHour(original_expiry_timestamp) AS original_expiry_time_bucket,
+  maxSimpleState(timestamp) AS max_timestamp
+FROM posthog.metrics4_input
+GROUP BY
+  team_id, time_bucket, service_name, original_expiry_time_bucket;
 CREATE MATERIALIZED VIEW posthog.ops_query_log_archive_mv TO posthog.writable_query_log_archive (hostname LowCardinality(String), user LowCardinality(String), query_id String, initial_query_id String, is_initial_query UInt8, type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4), event_date Date, event_time DateTime, event_time_microseconds DateTime64(6), query_start_time DateTime, query_start_time_microseconds DateTime64(6), query_duration_ms UInt64, read_rows UInt64, read_bytes UInt64, written_rows UInt64, written_bytes UInt64, result_rows UInt64, result_bytes UInt64, memory_usage UInt64, peak_threads_usage UInt64, current_database LowCardinality(String), query String, formatted_query String, normalized_query_hash UInt64, query_kind LowCardinality(String), exception_code Int32, exception String, stack_trace String, team_id Int64, log_comment String, ProfileEvents Map(LowCardinality(String), UInt64)) AS SELECT
   hostname,
   user,

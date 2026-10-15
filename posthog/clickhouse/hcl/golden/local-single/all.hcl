@@ -7798,6 +7798,35 @@ SQL
     }
   }
 
+  table "metrics4_service_freshness" {
+    order_by     = ["team_id", "time_bucket", "service_name", "original_expiry_time_bucket"]
+    partition_by = "toDate(original_expiry_time_bucket)"
+    ttl          = "original_expiry_time_bucket"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "max_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_service_freshness"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
   table "metrics_distributed" {
     column "team_id" {
       type = "Int32"
@@ -19374,6 +19403,29 @@ SQL
     }
   }
 
+  table "writable_metrics4_service_freshness" {
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "max_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metrics4_service_freshness"
+    }
+  }
+
   table "writable_person" {
     column "id" {
       type = "UUID"
@@ -24268,6 +24320,37 @@ SQL
     }
     column "original_expiry_timestamp" {
       type = "DateTime64(6)"
+    }
+  }
+
+  materialized_view "metrics4_input_to_metrics4_service_freshness" {
+    to_table = "posthog.writable_metrics4_service_freshness"
+    query    = <<SQL
+SELECT
+  team_id,
+  toStartOfHour(timestamp) AS time_bucket,
+  service_name,
+  toStartOfHour(original_expiry_timestamp) AS original_expiry_time_bucket,
+  maxSimpleState(timestamp) AS max_timestamp
+FROM posthog.metrics4_input
+GROUP BY
+  team_id, time_bucket, service_name, original_expiry_time_bucket
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "max_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
     }
   }
 

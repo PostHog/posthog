@@ -1594,6 +1594,13 @@ CREATE TABLE posthog.metrics4_series (
 GROUP BY
   team_id, time_bucket, service_name)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_series', '{replica}-{shard}', timestamp) ORDER BY (team_id, metric_name, series_fingerprint, time_bucket) PARTITION BY toStartOfWeek(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 1024, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.metrics4_service_freshness (
+  team_id Int32,
+  time_bucket DateTime64(0),
+  service_name LowCardinality(String),
+  original_expiry_time_bucket DateTime64(0),
+  max_timestamp SimpleAggregateFunction(max, DateTime64(6))
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_service_freshness', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, original_expiry_time_bucket) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics_distributed (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -4251,6 +4258,13 @@ CREATE TABLE posthog.writable_metrics4_series (
   time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
   original_expiry_timestamp DateTime64(6)
 ) ENGINE = Distributed('logs', 'posthog', 'metrics4_series');
+CREATE TABLE posthog.writable_metrics4_service_freshness (
+  team_id Int32,
+  time_bucket DateTime64(0),
+  service_name LowCardinality(String),
+  original_expiry_time_bucket DateTime64(0),
+  max_timestamp SimpleAggregateFunction(max, DateTime64(6))
+) ENGINE = Distributed('logs', 'posthog', 'metrics4_service_freshness');
 CREATE TABLE posthog.writable_person (
   id UUID,
   created_at DateTime64(3),
@@ -5564,6 +5578,15 @@ CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_series TO posthog.wr
   original_expiry_timestamp
 FROM posthog.metrics4_input
 WHERE has_labels;
+CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_service_freshness TO posthog.writable_metrics4_service_freshness (team_id Int32, time_bucket DateTime64(0), service_name LowCardinality(String), original_expiry_time_bucket DateTime64(0), max_timestamp SimpleAggregateFunction(max, DateTime64(6))) AS SELECT
+  team_id,
+  toStartOfHour(timestamp) AS time_bucket,
+  service_name,
+  toStartOfHour(original_expiry_timestamp) AS original_expiry_time_bucket,
+  maxSimpleState(timestamp) AS max_timestamp
+FROM posthog.metrics4_input
+GROUP BY
+  team_id, time_bucket, service_name, original_expiry_time_bucket;
 CREATE MATERIALIZED VIEW posthog.performance_events_mv TO posthog.writeable_performance_events (uuid UUID, session_id String, window_id String, pageview_id String, distinct_id String, timestamp DateTime64(3), time_origin DateTime64(3, 'UTC'), entry_type LowCardinality(String), name String, team_id Int64, current_url String, start_time Float64, duration Float64, redirect_start Float64, redirect_end Float64, worker_start Float64, fetch_start Float64, domain_lookup_start Float64, domain_lookup_end Float64, connect_start Float64, secure_connection_start Float64, connect_end Float64, request_start Float64, response_start Float64, response_end Float64, decoded_body_size Int64, encoded_body_size Int64, initiator_type LowCardinality(String), next_hop_protocol LowCardinality(String), render_blocking_status LowCardinality(String), response_status Int64, transfer_size Int64, largest_contentful_paint_element String, largest_contentful_paint_render_time Float64, largest_contentful_paint_load_time Float64, largest_contentful_paint_size Float64, largest_contentful_paint_id String, largest_contentful_paint_url String, dom_complete Float64, dom_content_loaded_event Float64, dom_interactive Float64, load_event_end Float64, load_event_start Float64, redirect_count Int64, navigation_type LowCardinality(String), unload_event_end Float64, unload_event_start Float64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   uuid,
   session_id,
