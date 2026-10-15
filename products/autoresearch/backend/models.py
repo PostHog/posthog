@@ -21,8 +21,17 @@ def unit_interval_constraint(field: str, name: str) -> models.CheckConstraint:
     )
 
 
-# The research intervals a user can pick, in days.
-RESEARCH_INTERVAL_DAYS_CHOICES = (7, 14, 30, 60, 90)
+class ResearchIntervalDays(models.IntegerChoices):
+    """The research intervals a user can pick, in days."""
+
+    DAYS_7 = 7, "7 days"
+    DAYS_14 = 14, "14 days"
+    DAYS_30 = 30, "30 days"
+    DAYS_60 = 60, "60 days"
+    DAYS_90 = 90, "90 days"
+
+
+RESEARCH_INTERVAL_DAYS_CHOICES = tuple(ResearchIntervalDays.values)
 
 
 def min_value_constraint(field: str, minimum: int, name: str, *, nullable: bool = False) -> models.CheckConstraint:
@@ -110,7 +119,7 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
         blank=True,
         default=7,
         db_default=7,
-        choices=[(days, f"{days} days") for days in RESEARCH_INTERVAL_DAYS_CHOICES],
+        choices=ResearchIntervalDays.choices,
         help_text="Days between scheduled research runs once the first burst of daily runs ends",
     )
 
