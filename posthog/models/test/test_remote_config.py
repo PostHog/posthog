@@ -13,7 +13,11 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 from posthog.models.project import Project
-from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
+from posthog.models.remote_config import (
+    REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
+    RemoteConfig,
+    UnreadableTriggerGroupsError,
+)
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -346,30 +350,46 @@ class TestRemoteConfig(_RemoteConfigBase):
 
     @parameterized.expand(
         [
-            ("group_not_an_object", {"version": 2, "groups": ["not-a-group", _READABLE_GROUP]}, [_SENT_GROUP]),
+            ("group_not_an_object", {"version": 2, "groups": ["not-a-group", _READABLE_GROUP]}, [_SENT_GROUP], True),
             (
                 "conditions_missing",
                 {"version": 2, "groups": [{"id": "g2", "sampleRate": 1}, _READABLE_GROUP]},
                 [_SENT_GROUP],
+                True,
             ),
-            ("events_null", {"version": 2, "groups": [_FLAG_GROUP_WITH_NULL_EVENTS]}, [_FLAG_GROUP_WITH_NULL_EVENTS]),
+            (
+                "events_null",
+                {"version": 2, "groups": [_FLAG_GROUP_WITH_NULL_EVENTS]},
+                [_FLAG_GROUP_WITH_NULL_EVENTS],
+                False,
+            ),
             (
                 "events_not_a_list",
                 {"version": 2, "groups": [{"conditions": {"events": "purchase"}}, _READABLE_GROUP]},
                 [_SENT_GROUP],
+                True,
             ),
-            ("groups_missing", {"version": 2}, []),
-            ("groups_all_unreadable", {"version": 2, "groups": [{"conditions": {"events": "purchase"}}]}, False),
-            ("column_not_an_object", ["not-a-config"], False),
-            ("groups_not_a_list", {"version": 2, "groups": None}, False),
+            ("groups_missing", {"version": 2}, [], False),
+            ("groups_all_unreadable", {"version": 2, "groups": [{"conditions": {"events": "purchase"}}]}, False, True),
+            ("column_not_an_object", ["not-a-config"], False, True),
+            ("groups_not_a_list", {"version": 2, "groups": None}, False, True),
         ]
     )
     def test_session_recording_trigger_groups_send_only_readable_groups(
-        self, _name: str, stored: Any, expected_trigger_groups: list[dict] | Literal[False]
+        self,
+        _name: str,
+        stored: Any,
+        expected_trigger_groups: list[dict] | Literal[False],
+        expect_reported: bool,
     ) -> None:
         self.team.session_recording_trigger_groups = stored
-        self.team.save()
-        self.sync_remote_config()
+        with patch("posthog.models.remote_config.capture_exception") as mock_capture_exception:
+            self.team.save()
+            self.sync_remote_config()
+        reported = any(
+            isinstance(c.args[0], UnreadableTriggerGroupsError) for c in mock_capture_exception.call_args_list
+        )
+        assert reported == expect_reported
         session_recording = self.remote_config.config["sessionRecording"]
         if expected_trigger_groups is False:
             assert session_recording is False

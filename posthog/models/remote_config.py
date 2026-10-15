@@ -62,6 +62,14 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     return joined
 
 
+class UnreadableTriggerGroupsError(Exception):
+    """
+    A team's stored session recording trigger groups hold a shape that posthog-js cannot read.
+    The Team API rejects these shapes.
+    A write that skipped the Team API validation stored this one.
+    """
+
+
 class RemoteConfig(UUIDTModel):
     """
     RemoteConfig is a helper model. There is one per team and stores a highly cacheable JSON object
@@ -170,25 +178,19 @@ class RemoteConfig(UUIDTModel):
             "triggerMatchType": team.session_recording_trigger_match_type_config,
         }
 
-        # The Team API validates this column. Older rows can still hold malformed JSON.
+        # The Team API validates this column. A write that skips the Team API can still store malformed JSON.
         trigger_groups_config = team.session_recording_trigger_groups
 
         # V2: If trigger groups configured, send V2 + V1 fallback fields
         if trigger_groups_config:
             groups = trigger_groups_config.get("groups", []) if isinstance(trigger_groups_config, dict) else None
-            # posthog-js uses the V1 fields when triggerGroups is empty.
-            # A team that set up only trigger groups has empty V1 fields.
-            # Empty V1 fields record every session.
-            # This builder turns recording off when the config holds no readable group.
-            if not isinstance(groups, list):
-                return False
 
             # Normalize events to objects for SDK: ["purchase"] -> [{"name": "purchase"}]
             # This future-proofs the contract so WHERE clauses (property filters on events)
             # can be added later without a breaking SDK change.
             # Build normalized copies to avoid mutating the team's stored data.
             normalized_groups = []
-            for group in groups:
+            for group in groups if isinstance(groups, list) else []:
                 # The SDK throws on a group whose conditions is not an object.
                 # It also throws on events that is neither null nor a list.
                 conditions = group.get("conditions") if isinstance(group, dict) else None
@@ -207,8 +209,18 @@ class RemoteConfig(UUIDTModel):
                     continue
                 normalized_groups.append(group)
 
-            if groups and not normalized_groups:
-                return False
+            if not isinstance(groups, list) or len(normalized_groups) < len(groups):
+                capture_exception(
+                    UnreadableTriggerGroupsError(
+                        "Dropped session recording trigger groups that posthog-js cannot read"
+                    ),
+                    additional_properties={"team_id": team.id, "readable_groups": len(normalized_groups)},
+                )
+                # posthog-js uses the V1 fields when triggerGroups is empty.
+                # A team that set up only trigger groups has empty V1 fields.
+                # Empty V1 fields record every session.
+                if not normalized_groups:
+                    return False
 
             return {
                 **base_config,
