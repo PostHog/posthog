@@ -39,6 +39,15 @@ export interface AEOPromptApi {
     updated_at: string | null
 }
 
+export interface PaginatedAEOPromptListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AEOPromptApi[]
+}
+
 export interface PatchedAEOPromptUpdateRequestApi {
     /** Turn the prompt on or off for future runs. */
     active?: boolean
@@ -1712,6 +1721,17 @@ export interface GeneratePathCleaningSuggestionResponseApi {
     status: string
     /** The stored suggestion when status is generated, else null. */
     suggestion?: PathCleaningSuggestionIssueApi | null
+}
+
+export type AeoPromptsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type HeatmapScreenshotsContentRetrieveParams = {

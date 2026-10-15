@@ -15,6 +15,7 @@ import type {
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
+    AeoPromptsListParams,
     ApplyPathCleaningSuggestionResponseApi,
     ContentAutopilotExportResponseApi,
     ContentAutopilotOpportunityApi,
@@ -45,6 +46,7 @@ import type {
     HeatmapsResponseApi,
     LlmsTxtFetchRequestApi,
     LlmsTxtFetchResponseApi,
+    PaginatedAEOPromptListApi,
     PaginatedContentAutopilotOpportunityListApi,
     PaginatedContentAutopilotProposalListListApi,
     PaginatedContentAutopilotRunListApi,
@@ -96,16 +98,32 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getAeoPromptsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/aeo_prompts/`
+export const getAeoPromptsListUrl = (projectId: string, params?: AeoPromptsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/`
 }
 
 /**
- * Lists the project's AEO prompt set, grouped by topic.
+ * Lists the project's AEO prompt set, grouped by topic, one page at a time.
  * @summary List AEO prompts
  */
-export const aeoPromptsList = async (projectId: string, options?: RequestInit): Promise<AEOPromptApi[]> => {
-    return apiMutator<AEOPromptApi[]>(getAeoPromptsListUrl(projectId), {
+export const aeoPromptsList = async (
+    projectId: string,
+    params?: AeoPromptsListParams,
+    options?: RequestInit
+): Promise<PaginatedAEOPromptListApi> => {
+    return apiMutator<PaginatedAEOPromptListApi>(getAeoPromptsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

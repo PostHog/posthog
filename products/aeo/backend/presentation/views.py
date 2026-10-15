@@ -1,6 +1,6 @@
 from typing import Any
 
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
@@ -92,7 +92,7 @@ class AEOPromptImportResultSerializer(DataclassSerializer):
         }
 
 
-class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["partial_update", "bulk_import"]
@@ -105,15 +105,16 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         ):
             raise PermissionDenied("This feature is not available.")
 
-    @validated_request(
+    @extend_schema(
         operation_id="aeo_prompts_list",
         summary="List AEO prompts",
-        description="Lists the project's AEO prompt set, grouped by topic.",
-        responses={200: OpenApiResponse(response=AEOPromptSerializer(many=True))},
+        description="Lists the project's AEO prompt set, grouped by topic, one page at a time.",
+        responses={200: AEOPromptSerializer(many=True)},
         tags=["web_analytics"],
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
-        return Response(AEOPromptSerializer(list_prompts(self.team_id), many=True).data)
+        page = self.paginate_queryset(list_prompts(self.team_id))
+        return self.get_paginated_response(AEOPromptSerializer(page, many=True).data)
 
     @validated_request(
         operation_id="aeo_prompts_retrieve",

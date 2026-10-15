@@ -39,7 +39,7 @@ def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]
 
 
 def list_prompts(team_id: int) -> list[Prompt]:
-    return [_to_prompt(p) for p in AEOPrompt.objects.for_team(team_id).order_by("topic", "-rank", "created_at")]
+    return [_to_prompt(p) for p in AEOPrompt.objects.for_team(team_id).order_by("topic", "-rank", "created_at", "id")]
 
 
 def get_prompt(team_id: int, prompt_id: str) -> Prompt:

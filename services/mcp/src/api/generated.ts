@@ -70220,6 +70220,15 @@ export namespace Schemas {
       seconds_per_merged_pr: number;
     }
 
+    export interface PaginatedAEOPromptList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AEOPrompt[];
+    }
+
     export interface PaginatedAccountChannelSummaryList {
       count: number;
       /** @nullable */
@@ -119851,6 +119860,17 @@ export namespace Schemas {
     export const AdvancedActivityLogsListSchema = {
       Ocsf: 'ocsf',
     } as const;
+
+    export type AeoPromptsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
     /**

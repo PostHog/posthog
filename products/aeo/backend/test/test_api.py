@@ -40,7 +40,7 @@ class TestAEOPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"created": 2, "updated": 0, "skipped": 0}
 
-        listed = {row["prompt"]: row for row in self.client.get(self.url).json()}
+        listed = {row["prompt"]: row for row in self.client.get(self.url).json()["results"]}
         assert listed["Best session replay tool?"]["topic"] == "Session replay"
         assert listed["Best session replay tool?"]["external_visibility"] == 42.5
         assert listed["Best feature flag tool?"]["external_visibility"] is None
@@ -54,6 +54,18 @@ class TestAEOPromptAPI(APIBaseTest):
         response = self.client.post(f"{self.url}bulk_import/", payload, format="json")
         assert response.json() == {"created": 0, "updated": 2, "skipped": 0}
         assert AEOPrompt.objects.for_team(self.team.id).get(id=replay_id).active is False
+
+    def test_list_pages_without_overlap(self) -> None:
+        prompts = [{"prompt": f"q{i}?", "topic": "same topic"} for i in range(5)]
+        self.client.post(f"{self.url}bulk_import/", {"prompts": prompts}, format="json")
+
+        first = self.client.get(f"{self.url}?limit=3").json()
+        second = self.client.get(f"{self.url}?limit=3&offset=3").json()
+
+        assert first["count"] == 5
+        assert first["next"] is not None and second["next"] is None
+        ids = [row["id"] for row in first["results"] + second["results"]]
+        assert len(ids) == len(set(ids)) == 5
 
     def test_bulk_import_rejects_out_of_range_visibility(self) -> None:
         response = self.client.post(
