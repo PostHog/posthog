@@ -171,12 +171,46 @@ describe('businessKnowledgeLogic', () => {
         expect(logic.values.libraryScope).toEqual('all')
     })
 
-    it('files a new source into the selected library', async () => {
+    it('selects a new library while other libraries exist', async () => {
+        const existing = {
+            id: '22222222-2222-2222-2222-222222222222',
+            name: 'Docs',
+            is_default: false,
+            source_count: 1,
+            repos: [],
+        }
+        const created = {
+            id: '33333333-3333-3333-3333-333333333333',
+            name: 'Support',
+            is_default: false,
+            source_count: 0,
+            repos: [],
+        }
+        mockedApi.listLibraries.mockResolvedValue([existing])
+        await expectLogic(logic, () => {
+            logic.actions.loadLibraries()
+        }).toFinishAllListeners()
+        mockedApi.createLibrary.mockResolvedValue(created)
+        mockedApi.listLibraries.mockResolvedValue([existing, created])
+
+        await expectLogic(logic, () => {
+            logic.actions.createLibrary('Support')
+        }).toFinishAllListeners()
+
+        expect(logic.values.libraryScope).toEqual(created.id)
+    })
+
+    it('files a new source into the selected library when the modal closes mid-request', async () => {
         const libraryId = '22222222-2222-2222-2222-222222222222'
         mockedApi.listLibraries.mockResolvedValue([
             { id: libraryId, name: 'Docs', is_default: false, source_count: 0, repos: [] },
         ])
-        mockedApi.createTextSource.mockResolvedValue(MOCK_SOURCE)
+        let resolveCreate: (source: KnowledgeSourceApi) => void = () => undefined
+        mockedApi.createTextSource.mockReturnValue(
+            new Promise((resolve) => {
+                resolveCreate = resolve
+            })
+        )
         mockedApi.updateSource.mockResolvedValue({ ...MOCK_SOURCE, library_ids: [libraryId] })
         await expectLogic(logic, () => {
             logic.actions.setLibraryScope(libraryId)
@@ -188,7 +222,12 @@ describe('businessKnowledgeLogic', () => {
         logic.actions.setTextSourceValue('text', 'Refunds are available within 30 days.')
         await expectLogic(logic, () => {
             logic.actions.submitTextSource()
-        }).toFinishAllListeners()
+        }).toDispatchActions(['submitTextSourceRequest'])
+        expect(mockedApi.createTextSource).toHaveBeenCalled()
+        logic.actions.closeCreateModal()
+        expect(logic.values.createLibraryIds).toEqual([])
+        resolveCreate(MOCK_SOURCE)
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(mockedApi.updateSource).toHaveBeenCalledWith(MOCK_SOURCE.id, { library_ids: [libraryId] })
     })

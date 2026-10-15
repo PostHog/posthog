@@ -65,6 +65,25 @@ def _ensure_user_managed_source(source: KnowledgeSource) -> None:
         raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
 
 
+def _requested_library_ids(team_id: int, request: Request) -> list[UUID] | None:
+    if "library_ids" not in request.data:
+        return None
+    raw_ids = request.data.get("library_ids")
+    if not isinstance(raw_ids, list):
+        raise exceptions.ValidationError({"library_ids": "Must be a list of library ids."})
+    parsed: list[UUID] = []
+    for raw in raw_ids:
+        try:
+            parsed.append(UUID(str(raw)))
+        except (ValueError, DjangoValidationError):
+            raise exceptions.ValidationError({"library_ids": "Must be a list of library ids."})
+    try:
+        libraries.require_libraries(team_id, parsed)
+    except libraries.LibraryRejected as exc:
+        raise exceptions.ValidationError(exc.errors) from None
+    return parsed
+
+
 class _ConflictError(exceptions.APIException):
     # 409 is the right semantics for "resource is currently busy / in a
     # state that conflicts with the request". DRF has no first-class helper
@@ -312,12 +331,12 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.NotFound()
 
         # Validate before the type update runs, so a bad id cannot leave a half-applied PATCH.
-        library_ids = self._requested_library_ids(request)
+        library_ids = _requested_library_ids(self.team_id, request)
         if library_ids is None:
             return self._dispatch_source_update(source, request)
         if not set(request.data.keys()) <= {"library_ids"}:
             self._dispatch_source_update(source, request)
-        self._replace_source_libraries(source, library_ids)
+        libraries.replace_source_libraries(self.team_id, source, library_ids, skip_missing=True)
         fresh = logic.get_for_team(source.id, self.team_id) or source
         return Response(KnowledgeSourceSerializer(instance=fresh).data)
 
@@ -337,30 +356,6 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except LibraryNotFound:
             raise exceptions.NotFound()
         return library_id, False
-
-    def _requested_library_ids(self, request: Request) -> list[UUID] | None:
-        if "library_ids" not in request.data:
-            return None
-        raw_ids = request.data.get("library_ids")
-        if not isinstance(raw_ids, list):
-            raise exceptions.ValidationError({"library_ids": "Must be a list of library ids."})
-        parsed: list[UUID] = []
-        for raw in raw_ids:
-            try:
-                parsed.append(UUID(str(raw)))
-            except (ValueError, DjangoValidationError):
-                raise exceptions.ValidationError({"library_ids": "Must be a list of library ids."})
-        try:
-            libraries.require_libraries(self.team_id, parsed)
-        except libraries.LibraryRejected as exc:
-            raise exceptions.ValidationError(exc.errors) from None
-        return parsed
-
-    def _replace_source_libraries(self, source: KnowledgeSource, library_ids: list[UUID]) -> None:
-        try:
-            libraries.replace_source_libraries(self.team_id, source, library_ids)
-        except libraries.LibraryRejected as exc:
-            raise exceptions.ValidationError(exc.errors) from None
 
     def _dispatch_source_update(self, source: KnowledgeSource, request: Request) -> Response:
         if source.is_generated:

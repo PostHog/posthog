@@ -10,16 +10,19 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
+from posthog.models.team import Team
 
 from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.constants import BK_DRILLDOWN_MAX_RADIUS, BK_RRF_SCORE_FLOOR
 from products.business_knowledge.backend.libraries import create_library
+from products.business_knowledge.backend.llm_telemetry import RetrievalTrace
 from products.business_knowledge.backend.logic import (
     _rrf_fuse,
     _semantic_chunk_candidates,
     _SemanticCandidate,
     get_document_window,
     search_knowledge,
+    search_knowledge_for_team,
 )
 from products.business_knowledge.backend.models import (
     KnowledgeChunk,
@@ -210,6 +213,25 @@ class TestHybridSearch(BaseTest):
         unscoped = search_knowledge(self.team.id, "refund warranty", use_semantic=False)
         assert {result.source_name for result in scoped} == {"filed"}
         assert {result.source_name for result in unscoped} == {"unfiled", "filed"}
+
+    @patch("products.business_knowledge.backend.logic.generate_embedding", side_effect=RuntimeError("no gateway"))
+    def test_a_child_environment_searches_the_parent_library(self, _embed: MagicMock) -> None:
+        child = Team.objects.create(
+            organization=self.organization,
+            parent_team=self.team,
+            project=self.team.project,
+            name="Child environment",
+        )
+        self._ready_source_with_chunks(["The refund policy states thirty day returns."], name="unfiled")
+        filed = self._ready_source_with_chunks(["Warranty covers manufacturing defects only."], name="filed")
+        library = create_library(self.team.id, "Docs")
+        self._file_source(library.id, filed.id)
+
+        results = search_knowledge_for_team(
+            child, "refund warranty", trace=RetrievalTrace(surface="api"), library_id=library.id
+        )
+
+        assert {result.source_name for result in results} == {"filed"}
 
     @patch("products.business_knowledge.backend.logic._semantic_chunk_candidates")
     def test_library_scoped_semantic_search_drops_other_sources(self, mock_semantic: MagicMock) -> None:

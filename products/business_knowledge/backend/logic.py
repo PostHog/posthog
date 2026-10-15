@@ -2837,9 +2837,11 @@ def search_knowledge_for_team(
     Used by the DRF search endpoint (sync view). The async path is
     ``async_search_knowledge_for_team``. Both share ``search_knowledge``.
     """
+    # Rows are stored under the parent team, and a child environment can reach this through an environment token.
+    canonical_team_id = resolve_effective_team_id(team.id)
     if library_id is not None:
-        with team_scope(team.id, canonical=True):
-            if not _library_has_sources(team.id, library_id):
+        with team_scope(canonical_team_id, canonical=True):
+            if not _library_has_sources(canonical_team_id, library_id):
                 return []
     embedding: list[float] | None = None
     try:
@@ -2849,7 +2851,7 @@ def search_knowledge_for_team(
     except Exception:
         logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
     return search_knowledge(
-        team.id,
+        canonical_team_id,
         query,
         limit=limit,
         use_semantic=embedding is not None,

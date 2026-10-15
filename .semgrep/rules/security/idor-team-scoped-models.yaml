@@ -258,6 +258,9 @@ rules:
                               |KnowledgeDocument
                               |KnowledgeGapSuggestion
                               |KnowledgeLearningRun
+                              |KnowledgeLibrary
+                              |KnowledgeLibraryRepository
+                              |KnowledgeLibrarySource
                               |KnowledgeSource
                               |PlaygroundChat
                               |PlaygroundTurn
@@ -721,6 +724,9 @@ rules:
                         |KnowledgeDocument
                         |KnowledgeGapSuggestion
                         |KnowledgeLearningRun
+                        |KnowledgeLibrary
+                        |KnowledgeLibraryRepository
+                        |KnowledgeLibrarySource
                         |KnowledgeSource
                         |PlaygroundChat
                         |PlaygroundTurn

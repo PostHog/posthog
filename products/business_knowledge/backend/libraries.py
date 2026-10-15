@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Count
 
 import structlog
@@ -50,6 +50,20 @@ def _clean_name(name: str) -> str:
 
 def _normalize_repo(repo: str) -> str:
     return repo.strip().lower()
+
+
+def _lock_membership(team_id: int) -> None:
+    # Transaction-scoped. A per-library and a per-source replace edit the same link rows, so both take this one lock.
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            [f"business_knowledge_library_membership:{team_id}"],
+        )
+
+
+def _require_library_locked(team_id: int, library_id: UUID) -> None:
+    if not KnowledgeLibrary.objects.filter(team_id=team_id, id=library_id).exists():
+        raise LibraryNotFound()
 
 
 @with_team_scope()
@@ -131,7 +145,9 @@ def rename_library(team_id: int, library_id: UUID, name: str) -> KnowledgeLibrar
 def delete_library(team_id: int, library_id: UUID) -> None:
     team_id = resolve_effective_team_id(team_id)
     library = get_library(team_id, library_id)
-    library.delete()
+    with transaction.atomic():
+        _lock_membership(team_id)
+        library.delete()
 
 
 def _source_ids_for_library(team_id: int, library_id: UUID) -> list[str]:
@@ -178,11 +194,13 @@ def replace_library_sources(team_id: int, library_id: UUID, source_ids: list[UUI
     found = set(KnowledgeSource.objects.filter(team_id=team_id, id__in=requested).values_list("id", flat=True))
     if set(requested) != found:
         raise LibraryRejected({"source_ids": "One or more sources were not found."})
-    before = _source_ids_for_library(team_id, library.id)
     after = [str(source_id) for source_id in requested]
-    if before == sorted(after):
-        return library
     with transaction.atomic():
+        _lock_membership(team_id)
+        _require_library_locked(team_id, library.id)
+        before = _source_ids_for_library(team_id, library.id)
+        if before == sorted(after):
+            return library
         KnowledgeLibrarySource.objects.filter(team_id=team_id, library=library).delete()
         KnowledgeLibrarySource.objects.bulk_create(
             [KnowledgeLibrarySource(team_id=team_id, library=library, source_id=source_id) for source_id in requested]
@@ -217,17 +235,19 @@ def replace_library_repos(
             raise LibraryRejected({"repos": "Choose repositories that are selected for this environment."})
         if normalized not in requested:
             requested.append(normalized)
-    current_visible = set(
-        KnowledgeLibraryRepository.objects.filter(
-            team_id=team_id,
-            library=library,
-            repo__in=environment_allowlist,
-        ).values_list("repo", flat=True)
-    )
     requested_set = set(requested)
-    if current_visible == requested_set:
-        return library
     with transaction.atomic():
+        _lock_membership(team_id)
+        _require_library_locked(team_id, library.id)
+        current_visible = set(
+            KnowledgeLibraryRepository.objects.filter(
+                team_id=team_id,
+                library=library,
+                repo__in=environment_allowlist,
+            ).values_list("repo", flat=True)
+        )
+        if current_visible == requested_set:
+            return library
         KnowledgeLibraryRepository.objects.filter(
             team_id=team_id,
             library=library,
@@ -273,15 +293,25 @@ def require_libraries(team_id: int, library_ids: list[UUID]) -> None:
 
 
 @with_team_scope()
-def replace_source_libraries(team_id: int, source: KnowledgeSource, library_ids: list[UUID]) -> None:
+def replace_source_libraries(
+    team_id: int, source: KnowledgeSource, library_ids: list[UUID], *, skip_missing: bool = False
+) -> None:
+    """`skip_missing` drops a library deleted since the caller validated it, as if the delete ran after this call."""
     team_id = resolve_effective_team_id(team_id)
     requested = list(dict.fromkeys(library_ids))
-    require_libraries(team_id, requested)
-    before = _library_ids_for_source(team_id, source.id)
-    after = sorted(str(library_id) for library_id in requested)
-    if before == after:
-        return
     with transaction.atomic():
+        _lock_membership(team_id)
+        if skip_missing:
+            existing = set(
+                KnowledgeLibrary.objects.filter(team_id=team_id, id__in=requested).values_list("id", flat=True)
+            )
+            requested = [library_id for library_id in requested if library_id in existing]
+        else:
+            require_libraries(team_id, requested)
+        before = _library_ids_for_source(team_id, source.id)
+        after = sorted(str(library_id) for library_id in requested)
+        if before == after:
+            return
         KnowledgeLibrarySource.objects.filter(team_id=team_id, source=source).delete()
         KnowledgeLibrarySource.objects.bulk_create(
             [KnowledgeLibrarySource(team_id=team_id, library_id=library_id, source=source) for library_id in requested]

@@ -5,6 +5,7 @@ import { LemonButton, LemonCard, LemonDialog, LemonTag, Link } from '@posthog/le
 
 import { TZLabel } from 'lib/components/TZLabel'
 
+import type { KnowledgeLibrary } from '../../api'
 import { StatusTag } from '../../components/StatusTag/StatusTag'
 import type { KnowledgeSource } from '../sources/businessKnowledgeLogic'
 import { SourceLibraries } from './SourceLibraries'
@@ -47,18 +48,24 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }):
 
 export interface KnowledgeSourceDetailsProps {
     source: KnowledgeSource
+    libraries: KnowledgeLibrary[]
     isRefreshing: boolean
     isDeleting: boolean
+    isSavingLibraries: boolean
     onRefresh: () => void
     onDelete: () => void
+    onLibrariesChange: (libraryIds: string[]) => void
 }
 
 export function KnowledgeSourceDetails({
     source,
+    libraries,
     isRefreshing,
     isDeleting,
+    isSavingLibraries,
     onRefresh,
     onDelete,
+    onLibrariesChange,
 }: KnowledgeSourceDetailsProps): JSX.Element {
     const canRefresh = source.source_type === 'url' && !source.is_generated
 
@@ -147,7 +154,12 @@ export function KnowledgeSourceDetails({
                         <span translate="no">{formatFileSize(source.file_size_bytes)}</span>
                     </DetailRow>
                 ) : null}
-                <SourceLibraries />
+                <SourceLibraries
+                    libraries={libraries}
+                    selectedIds={source.library_ids}
+                    saving={isSavingLibraries}
+                    onChange={onLibrariesChange}
+                />
             </div>
             <div className="mt-3 flex flex-wrap justify-end gap-2 border-t pt-3">
                 {canRefresh ? (

@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconDocument, IconFolder, IconFolderOpen, IconPlusSmall, IconStack } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu } from '@posthog/lemon-ui'
 
-import type { KnowledgeLibrary } from '../../api'
 import { LIBRARY_SCOPE_ALL, LIBRARY_SCOPE_UNFILED, businessKnowledgeLogic } from './businessKnowledgeLogic'
+import { LibraryButton } from './LibraryButton'
 
 const VISIBLE_LIBRARIES = 8
 
@@ -76,28 +76,5 @@ export function LibraryRow(): JSX.Element {
                 New library
             </LemonButton>
         </div>
-    )
-}
-
-function LibraryButton({
-    library,
-    active,
-    onClick,
-}: {
-    library: KnowledgeLibrary
-    active: boolean
-    onClick: () => void
-}): JSX.Element {
-    return (
-        <LemonButton
-            size="small"
-            icon={active ? <IconFolderOpen /> : <IconFolder />}
-            active={active}
-            onClick={onClick}
-            data-attr="business-knowledge-library-select"
-        >
-            <span className="max-w-40 truncate">{library.name}</span>
-            <span className="ml-1.5 text-xs text-secondary">{library.source_count}</span>
-        </LemonButton>
     )
 }
