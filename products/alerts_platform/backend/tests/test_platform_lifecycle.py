@@ -162,7 +162,12 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 {"state": "snoozed", "firing_started_at": datetime(2026, 9, 16, 9, tzinfo=UTC)},
                 HandbackRefusal.FIRING,
             ),
-            ("broken_is_never_due", {"next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC)}, {"state": "broken"}, None),
+            (
+                "broken_is_never_due",
+                {"next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC), "check_status": "broken"},
+                {},
+                None,
+            ),
             (
                 "disabled_while_a_check_runs",
                 {"enabled": False, "next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC)},
