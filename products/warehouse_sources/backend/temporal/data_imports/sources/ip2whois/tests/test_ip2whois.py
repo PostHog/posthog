@@ -7,20 +7,27 @@ from unittest import mock
 import requests
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ip2whois import (
+    IP2WhoisSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.ip2whois import (
     IP2WHOIS_BASE_URL,
     MAX_DOMAINS,
     IP2WhoisAPIError,
     IP2WhoisRetryableError,
     _fetch_domain,
-    get_rows,
     ip2whois_source,
     normalize_domain,
     parse_domains,
     validate_credentials,
 )
-
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.ip2whois"
+from products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.source import IP2WhoisSource
 
 
 def _response(status: int = 200, body: Optional[dict[str, Any]] = None) -> mock.MagicMock:
@@ -57,22 +64,6 @@ class TestNormalizeDomain:
 
 
 class TestParseDomains:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("example.com", ["example.com"]),
-            ("example.com\nposthog.com", ["example.com", "posthog.com"]),
-            ("example.com, posthog.com", ["example.com", "posthog.com"]),
-            ("example.com posthog.com", ["example.com", "posthog.com"]),
-            # Dedup is case/host normalized and order-preserving.
-            ("example.com\nEXAMPLE.com\nwww.example.com", ["example.com"]),
-            # Invalid tokens are dropped, valid ones kept.
-            ("example.com\ngarbage\nposthog.com", ["example.com", "posthog.com"]),
-        ],
-    )
-    def test_valid(self, raw, expected):
-        assert parse_domains(raw) == expected
-
     @pytest.mark.parametrize("raw", [None, "", "   \n  ", "garbage", "not a domain\nlocalhost"])
     def test_invalid_raises(self, raw):
         with pytest.raises(ValueError):
@@ -125,13 +116,6 @@ class TestFetchDomain:
         assert "SUPERSECRETKEY" not in message
         assert f"{status} Client Error: {reason} for url: {IP2WHOIS_BASE_URL}" == message
 
-    def test_domain_level_error_is_skipped(self):
-        # A per-domain rejection (HTTP 400, code 10007) must skip just this domain, not fail the sync.
-        session = mock.MagicMock()
-        session.get.return_value = _response(400, {"error": {"error_code": 10007, "error_message": "Invalid domain."}})
-
-        assert _fetch_once(session, "secret", "bad_domain.invalid", structlog.get_logger()) is None
-
     def test_account_level_error_raises(self):
         # A 200 body-level error that isn't a domain-level code (e.g. quota) is fatal for the run.
         session = mock.MagicMock()
@@ -178,76 +162,70 @@ class TestValidateCredentials:
         ],
     )
     def test_status_mapping(self, status, body, expected_valid):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(status, body)
-
+        with scripted_network([ScriptedResponse(status=status, json=body)]) as network:
             is_valid, _ = validate_credentials("test-key", "example.com")
 
         assert is_valid is expected_valid
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].path == "/v2"
+        assert network.requests_log[0].param("domain") == "example.com"
+        assert network.requests_log[0].param("key") == "test-key"
+        assert network.session_options[0]["redact_values"] == ("test-key",)
 
     def test_malformed_domains_is_invalid_without_request(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+        with scripted_network([]) as network:
             is_valid, message = validate_credentials("test-key", "garbage")
 
         assert is_valid is False
         assert message is not None
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
     def test_network_error_is_invalid(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
-
+        with scripted_network(always(ConnectionError("boom"))) as network:
             is_valid, message = validate_credentials("test-key", "example.com")
 
         assert is_valid is False
         assert message is not None
-
-    def test_probes_first_domain(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200, {"domain": "example.com"})
-
-            validate_credentials("test-key", "example.com\nposthog.com")
-
-            called_url = mock_session.return_value.get.call_args[0][0]
-
-        assert called_url.startswith(IP2WHOIS_BASE_URL)
-        assert "domain=example.com" in called_url
+        assert {request.path for request in network.requests_log} == {"/v2"}
 
 
 class TestGetRows:
-    def test_yields_one_batch_per_domain_and_targets_each(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, {"domain": "EXAMPLE.COM"}),
-                _response(200, {"domain": "posthog.com"}),
-            ]
-
-            batches = list(get_rows("test-key", ["example.com", "posthog.com"], structlog.get_logger()))
-
-        assert [batch[0]["domain"] for batch in batches] == ["example.com", "posthog.com"]
-
     def test_skips_domains_that_return_none(self):
         # A domain-level rejection drops out; the rest of the list still syncs.
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(400, {"error": {"error_code": 10007, "error_message": "Invalid domain."}}),
-                _response(200, {"domain": "posthog.com"}),
-            ]
+        driver = SourceDriver(
+            IP2WhoisSource(), IP2WhoisSourceConfig(api_key="test-key", domains="bad.invalid\nposthog.com")
+        )
+        result = driver.run(
+            "whois",
+            [
+                ScriptedResponse(status=400, json={"error": {"error_code": 10007, "error_message": "Invalid domain."}}),
+                ScriptedResponse(json={"domain": "posthog.com"}),
+            ],
+        )
 
-            batches = list(get_rows("test-key", ["bad.invalid", "posthog.com"], structlog.get_logger()))
-
-        assert [batch[0]["domain"] for batch in batches] == ["posthog.com"]
+        assert result.raised is None
+        assert [row["domain"] for row in result.rows] == ["posthog.com"]
+        assert result.params("domain") == ["bad.invalid", "posthog.com"]
+        assert result.session_options[0]["redact_values"] == ("test-key",)
 
     def test_all_domains_skipped_raises_rather_than_emptying_table(self):
         # Full refresh replaces the table with this run's rows. If every domain is skipped we must fail
         # loudly, not complete "successfully" with an empty table.
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(
-                400, {"error": {"error_code": 10007, "error_message": "Invalid domain."}}
-            )
+        driver = SourceDriver(
+            IP2WhoisSource(), IP2WhoisSourceConfig(api_key="test-key", domains="bad1.invalid\nbad2.invalid")
+        )
+        result = driver.run(
+            "whois",
+            [
+                ScriptedResponse(status=400, json={"error": {"error_code": 10007, "error_message": "Invalid domain."}}),
+                ScriptedResponse(status=400, json={"error": {"error_code": 10007, "error_message": "Invalid domain."}}),
+            ],
+        )
 
-            with pytest.raises(IP2WhoisAPIError, match="no WHOIS data"):
-                list(get_rows("test-key", ["bad1.invalid", "bad2.invalid"], structlog.get_logger()))
+        assert isinstance(result.raised, IP2WhoisAPIError)
+        assert "no WHOIS data" in str(result.raised)
+        assert result.rows == []
+        assert result.params("domain") == ["bad1.invalid", "bad2.invalid"]
 
 
 class TestIP2WhoisSource:

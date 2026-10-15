@@ -62,4 +62,40 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "objectType": "Lightfield object type of the record.",
         },
     },
+    "custom_objects": {
+        "description": "Records of the customer-defined custom object types in Lightfield, across every type the API key can read.",
+        "docs_url": "https://docs.lightfield.app/api/resources/object/methods/list/",
+        "columns": {
+            **_COMMON_COLUMNS,
+            "objectType": "Slug of the custom object type the record belongs to.",
+        },
+    },
+    "field_definitions": {
+        "description": "Field definitions for each Lightfield object type, including system and custom fields. Resolves the field slugs used as keys in the fields map of each record.",
+        "docs_url": "https://docs.lightfield.app/using-the-api/fields-and-relationships/",
+        "columns": {
+            "ownerObjectType": "Object type the field belongs to, such as account, contact, or a custom object slug.",
+            "key": "Field key as it appears in the fields map of a record. System fields start with $.",
+            "id": "Unique identifier of the field definition.",
+            "label": "Human-readable display name of the field.",
+            "description": "Description of the field, or null.",
+            "valueType": "Data type of the field, such as TEXT, NUMBER, CURRENCY, or SINGLE_SELECT.",
+            "typeConfiguration": "Type-specific configuration, such as select options, currency code, or uniqueness.",
+            "readOnly": "True for fields that the API cannot write, such as AI-generated summaries.",
+        },
+    },
+    "relationship_definitions": {
+        "description": "Relationship definitions for each Lightfield object type. Resolves the relationship keys used in the relationships map of each record.",
+        "docs_url": "https://docs.lightfield.app/using-the-api/fields-and-relationships/",
+        "columns": {
+            "ownerObjectType": "Object type the relationship belongs to, such as account, contact, or a custom object slug.",
+            "objectType": "Type of the related object, such as account or contact.",
+            "key": "Relationship key as it appears in the relationships map of a record. System relationships start with $.",
+            "id": "Unique identifier of the relationship definition.",
+            "label": "Human-readable display name of the relationship.",
+            "description": "Description of the relationship, or null.",
+            "cardinality": "Whether the relationship is HAS_ONE or HAS_MANY.",
+            "directions": "Directional metadata for a self-referential relationship.",
+        },
+    },
 }

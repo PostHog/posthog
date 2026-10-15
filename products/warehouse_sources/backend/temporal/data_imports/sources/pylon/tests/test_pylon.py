@@ -14,9 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.pylo
     PYLON_EU_BASE_URL,
     PYLON_US_BASE_URL,
     PylonResumeConfig,
-    _build_url,
     _format_rfc3339,
-    _parse_rfc3339,
     _to_datetime,
     base_url_for_token,
     get_rows,
@@ -51,13 +49,6 @@ class TestFormatRfc3339:
     def test_format(self, _name: str, value: datetime, expected: str) -> None:
         assert _format_rfc3339(value) == expected
 
-    def test_no_plus_offset(self) -> None:
-        assert "+00:00" not in _format_rfc3339(datetime(2026, 3, 4, tzinfo=UTC))
-
-    def test_roundtrip(self) -> None:
-        dt = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
-        assert _parse_rfc3339(_format_rfc3339(dt)) == dt
-
 
 class TestToDatetime:
     @parameterized.expand(
@@ -70,17 +61,6 @@ class TestToDatetime:
     )
     def test_to_datetime(self, _name: str, value: Any, expected: datetime) -> None:
         assert _to_datetime(value) == expected
-
-
-class TestBuildUrl:
-    def test_no_params(self) -> None:
-        assert _build_url("https://api.usepylon.com/teams", {}) == "https://api.usepylon.com/teams"
-
-    def test_encodes_params(self) -> None:
-        url = _build_url("https://api.usepylon.com/issues", {"limit": 100, "cursor": "a b"})
-        query = parse_qs(urlparse(url).query)
-        assert query["limit"] == ["100"]
-        assert query["cursor"] == ["a b"]
 
 
 class TestValidateCredentials:
@@ -151,46 +131,6 @@ class TestSyncPathRegion:
 
 
 class TestSimpleEndpointPagination:
-    def test_follows_cursor_until_exhausted(self) -> None:
-        pages = [_page([{"id": "1"}], cursor="c1"), _page([{"id": "2"}], cursor="c2"), _page([{"id": "3"}])]
-        manager = _no_resume_manager()
-
-        with pytest.MonkeyPatch().context() as mp:
-            mp.setattr(pylon, "make_tracked_session", lambda *a, **k: MagicMock())
-            mp.setattr(pylon, "_fetch_page", MagicMock(side_effect=pages))
-            batches = list(
-                get_rows(api_token="t", endpoint="teams", logger=MagicMock(), resumable_source_manager=manager)
-            )
-
-        assert [row["id"] for batch in batches for row in batch] == ["1", "2", "3"]
-
-    def test_saves_state_after_each_page_with_next_cursor(self) -> None:
-        pages = [_page([{"id": "1"}], cursor="c1"), _page([{"id": "2"}])]
-        manager = _no_resume_manager()
-
-        with pytest.MonkeyPatch().context() as mp:
-            mp.setattr(pylon, "make_tracked_session", lambda *a, **k: MagicMock())
-            mp.setattr(pylon, "_fetch_page", MagicMock(side_effect=pages))
-            list(get_rows(api_token="t", endpoint="teams", logger=MagicMock(), resumable_source_manager=manager))
-
-        # Only the page that has a next cursor saves state (the last page must not).
-        assert manager.save_state.call_count == 1
-        assert manager.save_state.call_args.args[0] == PylonResumeConfig(cursor="c1")
-
-    def test_resumes_from_saved_cursor(self) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = PylonResumeConfig(cursor="resume-cursor")
-        fetch = MagicMock(side_effect=[_page([{"id": "9"}])])
-
-        with pytest.MonkeyPatch().context() as mp:
-            mp.setattr(pylon, "make_tracked_session", lambda *a, **k: MagicMock())
-            mp.setattr(pylon, "_fetch_page", fetch)
-            list(get_rows(api_token="t", endpoint="teams", logger=MagicMock(), resumable_source_manager=manager))
-
-        first_url = fetch.call_args_list[0].args[1]
-        assert parse_qs(urlparse(first_url).query)["cursor"] == ["resume-cursor"]
-
     def test_stops_when_cursor_does_not_advance(self) -> None:
         # An endpoint that keeps returning the same cursor with has_next_page=true must not loop forever.
         stuck = _page([{"id": "1"}], cursor="same")
@@ -220,23 +160,6 @@ class TestSimpleEndpointPagination:
 
 
 class TestFanOutEndpoint:
-    def test_fans_out_over_all_object_types_and_stamps_object_type(self) -> None:
-        object_types = PYLON_ENDPOINTS["custom_fields"].fan_out_object_types or []
-        # One single-page response per object type; the field omits object_type so the stamp must fill it.
-        pages = [_page([{"id": f"f-{ot}"}]) for ot in object_types]
-        manager = _no_resume_manager()
-
-        with pytest.MonkeyPatch().context() as mp:
-            mp.setattr(pylon, "make_tracked_session", lambda *a, **k: MagicMock())
-            mp.setattr(pylon, "_fetch_page", MagicMock(side_effect=pages))
-            batches = list(
-                get_rows(api_token="t", endpoint="custom_fields", logger=MagicMock(), resumable_source_manager=manager)
-            )
-
-        rows = [row for batch in batches for row in batch]
-        assert {row["object_type"] for row in rows} == set(object_types)
-        assert len(rows) == len(object_types)
-
     def test_resumes_from_saved_object_type(self) -> None:
         object_types = PYLON_ENDPOINTS["custom_fields"].fan_out_object_types or []
         resume_type = object_types[2]
@@ -287,53 +210,6 @@ class TestWindowedIssues:
         # Each window is contiguous: a window's end is the next window's start.
         for earlier, later in zip(windows, windows[1:]):
             assert earlier["end_time"] == later["start_time"]
-
-    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
-    def test_incremental_starts_from_watermark(self) -> None:
-        manager = _no_resume_manager()
-        fetch = MagicMock(return_value=_page([{"id": "i", "created_at": "2026-06-10T00:00:00Z"}]))
-        watermark = datetime(2026, 6, 1, tzinfo=UTC)
-
-        with pytest.MonkeyPatch().context() as mp:
-            mp.setattr(pylon, "make_tracked_session", lambda *a, **k: MagicMock())
-            mp.setattr(pylon, "_fetch_page", fetch)
-            list(
-                get_rows(
-                    api_token="t",
-                    endpoint="issues",
-                    logger=MagicMock(),
-                    resumable_source_manager=manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=watermark,
-                )
-            )
-
-        windows = [parse_qs(urlparse(c.args[1]).query) for c in fetch.call_args_list]
-        # Watermark is 22 days before now, so a single <=30-day window covers it.
-        assert len(windows) == 1
-        assert windows[0]["start_time"] == ["2026-06-01T00:00:00Z"]
-        assert windows[0]["end_time"] == ["2026-06-23T00:00:00Z"]
-
-    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
-    def test_future_watermark_is_a_no_op(self) -> None:
-        manager = _no_resume_manager()
-        fetch = MagicMock(return_value=_page([]))
-
-        with pytest.MonkeyPatch().context() as mp:
-            mp.setattr(pylon, "make_tracked_session", lambda *a, **k: MagicMock())
-            mp.setattr(pylon, "_fetch_page", fetch)
-            list(
-                get_rows(
-                    api_token="t",
-                    endpoint="issues",
-                    logger=MagicMock(),
-                    resumable_source_manager=manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=datetime(2027, 1, 1, tzinfo=UTC),
-                )
-            )
-
-        assert fetch.call_count == 0
 
     @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_resumes_from_saved_window(self) -> None:

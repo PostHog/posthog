@@ -208,4 +208,61 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "onDashboard": "Whether the title appears on the Jamf Pro dashboard.",
         },
     },
+    "patch_policies": {
+        "description": "Patch policies that deploy software title updates, with their deployment counts by status.",
+        "docs_url": "https://developer.jamf.com/jamf-pro/reference/get_v2-patch-policies",
+        "columns": {
+            "id": "Unique identifier of the patch policy.",
+            "policyName": "Name of the patch policy.",
+            "policyEnabled": "Whether the patch policy is enabled.",
+            "policyTargetVersion": "Software title version the policy deploys.",
+            "policyDeploymentMethod": "How the policy deploys the update (for example, self service or automatic install).",
+            "softwareTitle": "Name of the software title the policy patches.",
+            "softwareTitleConfigurationId": "Identifier of the software title configuration the policy belongs to.",
+            "pending": "Number of devices with a pending deployment.",
+            "completed": "Number of devices where the deployment completed.",
+            "deferred": "Number of devices where the user deferred the deployment.",
+            "failed": "Number of devices where the deployment failed.",
+        },
+    },
+    "patch_policy_logs": {
+        "description": "Deployment log for each patch policy: one row per device with its latest deployment status.",
+        "docs_url": "https://developer.jamf.com/jamf-pro/reference/get_v2-patch-policies-id-logs",
+        "columns": {
+            "patchPolicyId": "Identifier of the patch policy.",
+            "deviceId": "Identifier of the device.",
+            "deviceName": "Name of the device.",
+            "statusCode": "Numeric deployment status code.",
+            "statusDate": "Timestamp of the latest status change.",
+            "statusEnum": "Deployment status of the device.",
+            "attemptNumber": "Number of deployment attempts on the device.",
+            "ignoredForPatchPolicyId": "Identifier of the patch policy the device is ignored for, if any.",
+        },
+    },
+    "mobile_device_groups": {
+        "description": "Smart and static mobile device groups defined in Jamf Pro.",
+        "docs_url": "https://developer.jamf.com/jamf-pro/reference/get_v2-mobile-device-groups",
+        "columns": {
+            "id": "Unique identifier of the mobile device group.",
+            "name": "Name of the mobile device group.",
+            "description": "Description of the mobile device group.",
+            "isSmartGroup": "Whether the group is a smart group (criteria-based) rather than a static group.",
+        },
+    },
+    "mobile_device_smart_group_memberships": {
+        "description": "Membership of each smart mobile device group: one row per group and member device.",
+        "docs_url": "https://developer.jamf.com/jamf-pro/reference/get_v2-mobile-device-groups-smart-group-membership-id",
+        "columns": {
+            "mobileDeviceGroupId": "Identifier of the smart mobile device group.",
+            "mobileDeviceId": "Identifier of the member mobile device.",
+        },
+    },
+    "mobile_device_static_group_memberships": {
+        "description": "Membership of each static mobile device group: one row per group and member device.",
+        "docs_url": "https://developer.jamf.com/jamf-pro/reference/get_v2-mobile-device-groups-static-group-membership-id",
+        "columns": {
+            "mobileDeviceGroupId": "Identifier of the static mobile device group.",
+            "mobileDeviceId": "Identifier of the member mobile device.",
+        },
+    },
 }

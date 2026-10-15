@@ -51,6 +51,12 @@ def list_schedules(*, team_id: int, hog_flow_id: UUID) -> list[WorkflowSchedule]
     return [_to_schedule(s) for s in schedules]
 
 
+def list_schedules_oldest_first(*, team_id: int, hog_flow_id: UUID) -> list[WorkflowSchedule]:
+    """The schedules a workflow response embeds, in the order they were added."""
+    schedules = HogFlowSchedule.objects.filter(hog_flow_id=hog_flow_id, team_id=team_id).order_by("created_at", "id")
+    return [_to_schedule(s) for s in schedules]
+
+
 def get_schedule(*, team_id: int, hog_flow_id: UUID, schedule_id: str) -> WorkflowSchedule:
     return _to_schedule(_get_schedule_row(team_id, hog_flow_id, schedule_id))
 

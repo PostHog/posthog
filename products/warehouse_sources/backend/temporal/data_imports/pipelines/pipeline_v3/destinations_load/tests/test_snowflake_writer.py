@@ -1,19 +1,43 @@
 from collections.abc import AsyncIterator
+from dataclasses import replace
 
 import pytest
+from unittest import mock
 
 import pyarrow as pa
 from parameterized import parameterized
+from snowflake.connector.errors import OperationalError, ProgrammingError
 
-from products.batch_exports.backend.facade.destinations.snowflake import SnowflakeClient
+from products.batch_exports.backend.facade.destinations.snowflake import (
+    InvalidPrivateKeyError,
+    SnowflakeAuthenticationError,
+    SnowflakeClient,
+    SnowflakeConnectionError,
+    SnowflakeFileNotLoadedError,
+    SnowflakeIncompatibleSchemaError,
+    SnowflakeInsufficientPrivilegesError,
+    SnowflakeIntegrationNotFoundError,
+    SnowflakeQueryClientTimeoutError,
+    SnowflakeQueryServerTimeoutError,
+    SnowflakeRetryableConnectionError,
+    SnowflakeWarehouseSuspendedError,
+    SnowflakeWarehouseUsageError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     DestinationBatchContext,
     DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    MISSING_INTEGRATION_DETAIL,
+    DestinationConfigurationError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.tests.fake_snowflake import (
     FakeSnowflakeClient,
     FakeSnowflakeTable,
     MergeMultiMatchError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers import (
+    snowflake,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.snowflake import (
     SnowflakeDestinationWriter,
@@ -86,6 +110,108 @@ async def _deliver(
     )
     if is_final:
         await writer.finalize_run(ctx)
+
+
+class TestConfigurationErrors:
+    @pytest.mark.parametrize("finalize", [False, True], ids=["write_batch", "finalize_run"])
+    @pytest.mark.parametrize(
+        ("error", "detail_word"),
+        [
+            (SnowflakeAuthenticationError("fake-secret"), "password"),
+            (InvalidPrivateKeyError("fake-secret"), "private key"),
+            (SnowflakeConnectionError("fake-secret"), "account"),
+            (SnowflakeInsufficientPrivilegesError("fake-secret"), "privileges"),
+            (SnowflakeWarehouseUsageError("fake-secret"), "warehouse"),
+            (SnowflakeIntegrationNotFoundError(42, 1), "connection details"),
+            (ProgrammingError(msg="fake-secret", errno=3001), "privileges"),
+            (ProgrammingError(msg="fake-secret", errno=2043), "database or schema"),
+        ],
+    )
+    async def test_permanent_errors_are_configuration_errors(
+        self, error: Exception, detail_word: str, finalize: bool
+    ) -> None:
+        ctx = _ctx()
+        client = FakeSnowflakeClient()
+        writer = LocalSnowflakeWriter(ctx, client)
+        target = client if isinstance(error, ProgrammingError) else writer
+        method = "execute_async_query" if isinstance(error, ProgrammingError) else "_make_client"
+
+        with (
+            mock.patch.object(target, method, side_effect=error),
+            pytest.raises(DestinationConfigurationError, match=detail_word) as caught,
+        ):
+            if finalize:
+                await writer.finalize_run(ctx)
+            else:
+                await writer.write_batch(
+                    _batches(_rows([1], ["a"])), DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=False)
+                )
+
+        assert str(caught.value).startswith(f"{ctx.destination_name}:")
+        assert caught.value.__cause__ is error
+        assert str(error) not in caught.value.detail
+        assert "fake-secret" not in caught.value.detail
+
+    @pytest.mark.parametrize("finalize", [False, True], ids=["write_batch", "finalize_run"])
+    @pytest.mark.parametrize(
+        "error",
+        [
+            SnowflakeRetryableConnectionError("fake-secret"),
+            SnowflakeWarehouseSuspendedError("fake-secret"),
+            SnowflakeQueryClientTimeoutError(1, "fake-secret", "RUNNING"),
+            SnowflakeQueryServerTimeoutError("fake-secret"),
+            SnowflakeFileNotLoadedError("charges", "FAILED", 1, "fake-secret"),
+            SnowflakeIncompatibleSchemaError("fake-secret"),
+            ProgrammingError(msg="fake-secret", errno=608),
+            ProgrammingError(msg="fake-secret", errno=90073),
+            OperationalError(msg="fake-secret"),
+            TimeoutError("fake-secret"),
+            UnrelatedTableExistsError("fake-secret"),
+            RuntimeError("fake-secret"),
+        ],
+    )
+    async def test_transient_errors_propagate_unchanged(self, error: Exception, finalize: bool) -> None:
+        ctx = _ctx()
+        client = FakeSnowflakeClient()
+        writer = LocalSnowflakeWriter(ctx, client)
+
+        with (
+            mock.patch.object(client, "execute_async_query", side_effect=error),
+            pytest.raises(type(error)) as caught,
+        ):
+            if finalize:
+                await writer.finalize_run(ctx)
+            else:
+                await writer.write_batch(
+                    _batches(_rows([1], ["a"])), DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=False)
+                )
+
+        assert caught.value is error
+        assert not isinstance(caught.value, DestinationConfigurationError)
+
+    @pytest.mark.parametrize("missing", ["integration", "deleted_integration", "private_key", "password"])
+    async def test_missing_connection_details_are_configuration_errors(self, missing: str) -> None:
+        ctx = replace(_ctx(), integration_id=None if missing == "integration" else 42)
+        writer = SnowflakeDestinationWriter(ctx)
+        creds = mock.Mock(
+            authentication_type="keypair" if missing == "private_key" else "password", private_key=None, password=None
+        )
+
+        with (
+            mock.patch.object(
+                snowflake,
+                "get_snowflake_integration",
+                return_value=creds,
+                side_effect=SnowflakeIntegrationNotFoundError(42, 1) if missing == "deleted_integration" else None,
+            ),
+            pytest.raises(DestinationConfigurationError, match="connection details") as caught,
+        ):
+            await writer.write_batch(
+                _batches(_rows([1], ["a"])), DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=False)
+            )
+
+        assert caught.value.detail == MISSING_INTEGRATION_DETAIL
+        assert str(caught.value).startswith(f"{ctx.destination_name}:")
 
 
 class TestFullRefresh:

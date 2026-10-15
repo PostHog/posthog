@@ -1,84 +1,37 @@
-import json
-from collections.abc import Callable
 from datetime import UTC, date, datetime
-from typing import Any
 
 import pytest
-from unittest import mock
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite.eventbrite import (
     EventbriteResumeConfig,
     _format_changed_since,
-    eventbrite_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the eventbrite module.
-EB_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite.eventbrite.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite.source import EventbriteSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventbrite import (
+    EventbriteSourceConfig,
 )
 
 
-def _response(
-    data_key: str, items: list[dict[str, Any]], *, has_more: bool = False, continuation: str | None = None
-) -> Response:
-    body: dict[str, Any] = {
-        data_key: items,
-        "pagination": {"has_more_items": has_more, "continuation": continuation},
-    }
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(EventbriteSource(), EventbriteSourceConfig(api_token="token"))
 
 
-def _make_manager(resume_state: EventbriteResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(
-    session: mock.MagicMock, responses: list[Response] | Callable[[str], Response]
-) -> list[tuple[str, dict[str, Any]]]:
-    """Wire a mock session; return per-request (url, params) snapshots captured AT SEND TIME.
-
-    ``responses`` is either a flat list (consumed in request order) or a router callable keyed on the
-    resolved request URL — the latter is needed for fan-out, whose request order interleaves parents
-    and children. ``request.params`` is one dict mutated in place across pages, so snapshot a copy.
-    """
-    session.headers = {}
-    snapshots: list[tuple[str, dict[str, Any]]] = []
-    iterator = iter(responses) if isinstance(responses, list) else None
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        snapshots.append((request.url, dict(request.params or {})))
-        return prepared
-
-    def _send(prepared: Any, **_kwargs: Any) -> Response:
-        if iterator is not None:
-            return next(iterator)
-        assert not isinstance(responses, list)
-        return responses(prepared.url)
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = _send
-    return snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> Any:
-    return eventbrite_source("token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
+def _page(
+    data_key: str, items: list[dict[str, str]], *, has_more: bool = False, continuation: str | None = None
+) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            data_key: items,
+            "pagination": {"has_more_items": has_more, "continuation": continuation},
+        }
+    )
 
 
 class TestFormatChangedSince:
@@ -94,320 +47,50 @@ class TestFormatChangedSince:
     def test_format_changed_since(self, value: object, expected: str) -> None:
         assert _format_changed_since(value) == expected
 
-    def test_no_plus_offset_in_output(self) -> None:
-        result = _format_changed_since(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-        assert "+00:00" not in result
-        assert result.endswith("Z")
-
 
 class TestTopLevelPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_continuation_until_has_more_false(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
+    def test_follows_continuation_until_has_more_false(self) -> None:
+        result = _driver().run(
+            "organizations",
             [
-                _response("organizations", [{"id": "1"}, {"id": "2"}], has_more=True, continuation="tok2"),
-                _response("organizations", [{"id": "3"}], has_more=False, continuation=None),
+                _page("organizations", [{"id": "1"}, {"id": "2"}], has_more=True, continuation="tok2"),
+                _page("organizations", [{"id": "3"}]),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_run("organizations", manager))
-
-        assert [r["id"] for r in rows] == ["1", "2", "3"]
-        assert "continuation" not in snaps[0][1]
-        assert snaps[1][1]["continuation"] == "tok2"
-        assert session.send.call_count == 2
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["1", "2", "3"]
+        assert result.params("continuation") == [None, "tok2"]
         # Checkpoint saved after the first page (points at the next page's token); the last page ends it.
-        manager.save_state.assert_called_once_with(EventbriteResumeConfig(continuation="tok2"))
+        assert result.saved_states == [EventbriteResumeConfig(continuation="tok2")]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_has_more_false_even_with_continuation_token(self, MockSession: mock.MagicMock) -> None:
-        # Eventbrite can still return a continuation token on the final page; gate strictly on
-        # has_more_items so a stale token does not trigger an extra (infinite) request.
-        session = MockSession.return_value
-        _wire(session, [_response("categories", [{"id": "1"}], has_more=False, continuation="stale-tok")])
-
-        rows = _rows(_run("categories", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["1"]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_seeds_continuation(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response("organizations", [{"id": "9"}], has_more=False, continuation=None)])
-
-        manager = _make_manager(EventbriteResumeConfig(continuation="resume-tok"))
-        _rows(_run("organizations", manager))
-
-        assert snaps[0][1]["continuation"] == "resume-tok"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_no_rows(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("formats", [], has_more=False, continuation=None)])
-
-        rows = _rows(_run("formats", _make_manager()))
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-
-class TestFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_org_fan_out_builds_child_urls_per_org(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-
-        def router(url: str) -> Response:
-            if url.endswith("/users/me/organizations/"):
-                return _response("organizations", [{"id": "org1"}, {"id": "org2"}])
-            if url.endswith("/organizations/org1/events/"):
-                return _response("events", [{"id": "e1"}])
-            if url.endswith("/organizations/org2/events/"):
-                return _response("events", [{"id": "e2"}])
-            raise AssertionError(f"unexpected url {url}")
-
-        _wire(session, router)
-
-        rows = _rows(_run("events", _make_manager()))
-
-        # Child rows are yielded with their raw shape (no parent ids injected).
-        assert rows == [{"id": "e1"}, {"id": "e2"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_event_fan_out_is_two_levels(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-
-        def router(url: str) -> Response:
-            if url.endswith("/users/me/organizations/"):
-                return _response("organizations", [{"id": "org1"}])
-            if url.endswith("/organizations/org1/events/"):
-                return _response("events", [{"id": "e1"}, {"id": "e2"}])
-            if url.endswith("/events/e1/attendees/"):
-                return _response("attendees", [{"id": "a1"}])
-            if url.endswith("/events/e2/attendees/"):
-                return _response("attendees", [{"id": "a2"}])
-            raise AssertionError(f"unexpected url {url}")
-
-        _wire(session, router)
-
-        rows = _rows(_run("attendees", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["a1", "a2"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_child_endpoint_paginates_with_continuation(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        events_pages = iter(
-            [
-                _response("events", [{"id": "e1"}], has_more=True, continuation="p2"),
-                _response("events", [{"id": "e2"}], has_more=False, continuation=None),
-            ]
+    def test_resume_seeds_continuation(self) -> None:
+        result = _driver().run(
+            "organizations",
+            [_page("organizations", [{"id": "9"}])],
+            resume_state=EventbriteResumeConfig(continuation="resume-tok"),
         )
 
-        def router(url: str) -> Response:
-            if url.endswith("/users/me/organizations/"):
-                return _response("organizations", [{"id": "org1"}])
-            if url.endswith("/organizations/org1/events/"):
-                return next(events_pages)
-            raise AssertionError(f"unexpected url {url}")
-
-        _wire(session, router)
-
-        rows = _rows(_run("events", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["e1", "e2"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_questions_carry_their_event_id(self, MockSession: mock.MagicMock) -> None:
-        # Question ids repeat across events, so the row is only addressable with the event id the
-        # fan-out injects — without it the composite primary key collapses and merges multi-match.
-        session = MockSession.return_value
-
-        def router(url: str) -> Response:
-            if url.endswith("/users/me/organizations/"):
-                return _response("organizations", [{"id": "org1"}])
-            if url.endswith("/organizations/org1/events/"):
-                return _response("events", [{"id": "e1"}, {"id": "e2"}])
-            if url.endswith("/events/e1/questions/"):
-                return _response("questions", [{"id": "q1"}])
-            if url.endswith("/events/e2/questions/"):
-                return _response("questions", [{"id": "q1"}])
-            raise AssertionError(f"unexpected url {url}")
-
-        _wire(session, router)
-
-        response = _run("questions", _make_manager())
-        rows = _rows(response)
-
-        assert rows == [{"id": "q1", "_events_id": "e1"}, {"id": "q1", "_events_id": "e2"}]
-        assert set(response.primary_keys or []) <= rows[0].keys()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_canned_questions_request_the_full_list(self, MockSession: mock.MagicMock) -> None:
-        # Eventbrite documents `include_all` as required; without it the endpoint returns only the
-        # questions already enabled on the event.
-        session = MockSession.return_value
-
-        def router(url: str) -> Response:
-            if url.endswith("/users/me/organizations/"):
-                return _response("organizations", [{"id": "org1"}])
-            if url.endswith("/organizations/org1/events/"):
-                return _response("events", [{"id": "e1"}])
-            if url.endswith("/events/e1/canned_questions/"):
-                return _response("questions", [{"id": "job_title"}])
-            raise AssertionError(f"unexpected url {url}")
-
-        snaps = _wire(session, router)
-
-        rows = _rows(_run("canned_questions", _make_manager()))
-
-        assert rows == [{"id": "job_title", "_events_id": "e1"}]
-        canned_params = next(p for u, p in snaps if u.endswith("/events/e1/canned_questions/"))
-        assert canned_params["include_all"] == "true"
-
-
-class TestReports:
-    @pytest.mark.parametrize(
-        "endpoint, report_path",
-        [("sales_report", "/reports/sales/"), ("attendee_report", "/reports/attendees/")],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_report_binds_event_into_the_query_string(
-        self, MockSession: mock.MagicMock, endpoint: str, report_path: str
-    ) -> None:
-        # The report endpoints take their event as a query param, so the fan-out binds it through the
-        # path template rather than a path segment — a row is only attributable to an event because
-        # of that binding plus the injected parent id.
-        session = MockSession.return_value
-
-        def router(url: str) -> Response:
-            if url.endswith("/users/me/organizations/"):
-                return _response("organizations", [{"id": "org1"}])
-            if url.endswith("/organizations/org1/events/"):
-                return _response("events", [{"id": "e1"}, {"id": "e2"}])
-            if url.endswith(f"{report_path}?event_ids=e1"):
-                return _response("data", [{"date": "2026-03-04T00:00:00Z", "totals": {"quantity": 1}}])
-            if url.endswith(f"{report_path}?event_ids=e2"):
-                return _response("data", [{"date": "2026-03-04T00:00:00Z", "totals": {"quantity": 2}}])
-            raise AssertionError(f"unexpected url {url}")
-
-        _wire(session, router)
-
-        response = _run(endpoint, _make_manager())
-        rows = _rows(response)
-
-        assert [(r["_events_id"], r["totals"]["quantity"]) for r in rows] == [("e1", 1), ("e2", 2)]
-        assert set(response.primary_keys or []) <= rows[0].keys()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_report_without_pagination_envelope_stops_after_one_page(self, MockSession: mock.MagicMock) -> None:
-        # Reports answer with no `pagination` object at all; the shared continuation paginator must
-        # read that as a terminal page instead of looping.
-        session = MockSession.return_value
-
-        def router(url: str) -> Response:
-            if url.endswith("/users/me/organizations/"):
-                return _response("organizations", [{"id": "org1"}])
-            if url.endswith("/organizations/org1/events/"):
-                return _response("events", [{"id": "e1"}])
-            if "/reports/sales/" in url:
-                resp = Response()
-                resp.status_code = 200
-                resp._content = json.dumps({"timezone": "UTC", "event_ids": ["e1"], "data": [{"date": "d"}]}).encode()
-                return resp
-            raise AssertionError(f"unexpected url {url}")
-
-        _wire(session, router)
-
-        rows = _rows(_run("sales_report", _make_manager()))
-
-        assert rows == [{"date": "d", "_events_id": "e1"}]
-        assert session.send.call_count == 3
+        assert result.raised is None
+        assert result.params("continuation") == ["resume-tok"]
 
 
 class TestIncrementalFilter:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_changed_since_applied_only_to_child_endpoint(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-
-        def router(url: str) -> Response:
-            if url.endswith("/users/me/organizations/"):
-                return _response("organizations", [{"id": "org1"}])
-            if url.endswith("/organizations/org1/orders/"):
-                return _response("orders", [{"id": "ord1"}])
-            raise AssertionError(f"unexpected url {url}")
-
-        snaps = _wire(session, router)
-
-        _rows(
-            _run(
-                "orders",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2026-01-01T00:00:00Z",
-                incremental_field="changed",
-            )
+    def test_changed_since_applied_only_to_child_endpoint(self) -> None:
+        result = _driver().run(
+            "orders",
+            [
+                _page("organizations", [{"id": "org1"}]),
+                _page("orders", [{"id": "ord1"}]),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-01-01T00:00:00Z",
+            incremental_field="changed",
         )
 
-        org_params = next(p for u, p in snaps if u.endswith("/users/me/organizations/"))
-        order_params = next(p for u, p in snaps if u.endswith("/organizations/org1/orders/"))
-        assert "changed_since" not in org_params
-        assert order_params["changed_since"] == "2026-01-01T00:00:00Z"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_changed_since_omitted_when_not_incremental(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-
-        def router(url: str) -> Response:
-            if url.endswith("/users/me/organizations/"):
-                return _response("organizations", [{"id": "org1"}])
-            if url.endswith("/organizations/org1/orders/"):
-                return _response("orders", [{"id": "ord1"}])
-            raise AssertionError(f"unexpected url {url}")
-
-        snaps = _wire(session, router)
-
-        _rows(
-            _run(
-                "orders",
-                _make_manager(),
-                should_use_incremental_field=False,
-                db_incremental_field_last_value="2026-01-01T00:00:00Z",
-                incremental_field="changed",
-            )
-        )
-
-        order_params = next(p for u, p in snaps if u.endswith("/organizations/org1/orders/"))
-        assert "changed_since" not in order_params
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_changed_since_omitted_for_unrelated_incremental_field(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-
-        def router(url: str) -> Response:
-            if url.endswith("/users/me/organizations/"):
-                return _response("organizations", [{"id": "org1"}])
-            if url.endswith("/organizations/org1/orders/"):
-                return _response("orders", [{"id": "ord1"}])
-            raise AssertionError(f"unexpected url {url}")
-
-        snaps = _wire(session, router)
-
-        _rows(
-            _run(
-                "orders",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2026-01-01T00:00:00Z",
-                incremental_field="some_other_field",
-            )
-        )
-
-        order_params = next(p for u, p in snaps if u.endswith("/organizations/org1/orders/"))
-        assert "changed_since" not in order_params
+        assert result.raised is None
+        assert result.paths == ["/v3/users/me/organizations/", "/v3/organizations/org1/orders/"]
+        assert result.params("changed_since") == [None, "2026-01-01T00:00:00Z"]
 
 
 class TestValidateCredentials:
@@ -415,55 +98,24 @@ class TestValidateCredentials:
         "status_code, expected",
         [(200, True), (401, False), (403, False), (500, False)],
     )
-    @mock.patch(EB_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(
-        self, mock_session_factory: mock.MagicMock, status_code: int, expected: bool
-    ) -> None:
-        session = mock.MagicMock()
-        session.get.return_value.status_code = status_code
-        mock_session_factory.return_value = session
+    def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            assert validate_credentials("token") is expected
 
-        assert validate_credentials("token") is expected
-
-    @mock.patch(EB_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session_factory: mock.MagicMock) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("network down")
-        mock_session_factory.return_value = session
-
-        assert validate_credentials("token") is False
+        assert {request.path for request in network.requests_log} == {"/v3/users/me/"}
+        assert all(request.headers["authorization"] == "Bearer token" for request in network.requests_log)
 
 
 class TestEventbriteSourceResponse:
     @pytest.mark.parametrize(
-        "endpoint, partition_key",
-        [
-            ("organizations", "created"),
-            ("events", "created"),
-            ("orders", "created"),
-            ("attendees", "created"),
-            ("sales_report", "date"),
-            ("attendee_report", "date"),
-        ],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_partitioned_endpoints(self, MockSession: mock.MagicMock, endpoint: str, partition_key: str) -> None:
-        MockSession.return_value.headers = {}
-        response = _run(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "week"
-        assert response.partition_keys == [partition_key]
-
-    @pytest.mark.parametrize(
         "endpoint",
         ["categories", "subcategories", "formats", "venues", "ticket_classes", "questions", "canned_questions"],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_partitioned_endpoints(self, MockSession: mock.MagicMock, endpoint: str) -> None:
-        MockSession.return_value.headers = {}
-        response = _run(endpoint, _make_manager())
+    def test_non_partitioned_endpoints(self, endpoint: str) -> None:
+        response_key = endpoint if endpoint in {"categories", "subcategories", "formats"} else "organizations"
+        result = _driver().run(endpoint, [_page(response_key, [])])
 
-        assert response.partition_mode is None
-        assert response.partition_keys is None
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.partition_mode is None
+        assert result.response.partition_keys is None

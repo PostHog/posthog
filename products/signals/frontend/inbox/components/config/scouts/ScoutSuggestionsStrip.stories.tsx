@@ -57,7 +57,6 @@ const meta: Meta<typeof ScoutsRoster> = {
         featureFlags: {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]: true,
         },
         testOptions: { waitForLoadersToDisappear: false },
     },

@@ -1,7 +1,6 @@
 import React, { CSSProperties } from 'react'
 
 import {
-    IconAIGateway,
     IconApp,
     IconApps,
     IconArrowUpRight,
@@ -115,10 +114,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     llm_analytics: {
         icon: <IconLlmAnalytics />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
-    },
-    ai_gateway: {
-        icon: <IconAIGateway />,
-        iconColor: ['var(--color-product-ai-gateway-light)', 'var(--color-product-ai-gateway-dark)'],
     },
     product_analytics: {
         icon: <IconGraph />,
@@ -535,7 +530,7 @@ export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIco
 export function getFileSystemIconType(item: Pick<FileSystemEntry, 'type' | 'meta'>): FileSystemIconType | undefined {
     if (item.type === 'insight' && typeof item.meta?.insight_type === 'string') {
         const insightIconType = `insight/${item.meta.insight_type}` as FileSystemIconType
-        if (insightIconType in iconTypes) {
+        if (insightIconType in iconTypes || insightIconType in fileSystemTypes) {
             return insightIconType
         }
     }

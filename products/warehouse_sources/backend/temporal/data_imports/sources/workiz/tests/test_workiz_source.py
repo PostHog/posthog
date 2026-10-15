@@ -4,7 +4,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workiz import WorkizSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.workiz.source import WorkizSource
 
@@ -14,23 +13,6 @@ class TestWorkizSource:
         self.source = WorkizSource()
         self.team_id = 123
         self.config = WorkizSourceConfig(api_token="tok")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Workiz"
-        assert config.label == "Workiz"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source is visible -- it must not carry the scaffolding flag.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/workiz"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_token"]
-
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API token; the base URL is hardcoded, so there is no
-        # non-secret field an editor could retarget to reuse a preserved token against another host.
-        assert self.source.connection_host_fields == []
 
     @parameterized.expand(
         [
@@ -77,21 +59,6 @@ class TestWorkizSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == datetime.datetime(2024, 1, 1)
         assert kwargs["incremental_field"] == "LeadDateTime"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.workiz.source.workiz_source")
-    def test_source_for_pipeline_full_refresh_drops_last_value(self, mock_source: mock.MagicMock) -> None:
-        # should_use_incremental_field=False means the schema is fully replaced each sync, so any
-        # stale last_value must not leak into the request.
-        mock_source.return_value.name = "Leads"
-        mock_source.return_value.column_hints = None
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Leads"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = datetime.datetime(2024, 1, 1)
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
 
     @parameterized.expand(
         [

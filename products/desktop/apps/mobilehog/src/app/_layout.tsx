@@ -14,9 +14,8 @@ import "@/lib/network";
 import { usePushNotifications } from "@/lib/notifications";
 import { usePrefs } from "@/lib/prefs";
 import { useRepo } from "@/lib/repo";
-import { useSeenReports } from "@/lib/reports";
 import { useSessions } from "@/lib/session";
-import { colors } from "@/lib/theme";
+import { colors, fonts } from "@/lib/theme";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -27,7 +26,6 @@ function AuthGate() {
 
   const hydrateRepo = useRepo((s) => s.hydrate);
   const hydratePrefs = usePrefs((s) => s.hydrate);
-  const hydrateSeen = useSeenReports((s) => s.hydrate);
   usePushNotifications();
   useEffect(() => {
     hydrate();
@@ -37,8 +35,7 @@ function AuthGate() {
   useEffect(() => {
     if (!useAuth.getState().session) return;
     hydrateRepo();
-    hydrateSeen();
-  }, [hydrateRepo, hydrateSeen]);
+  }, [hydrateRepo]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -89,6 +86,18 @@ export default function RootLayout() {
           >
             <Stack.Screen name="login" options={{ animation: "fade" }} />
             <Stack.Screen name="(drawer)" />
+            <Stack.Screen
+              name="report/[id]"
+              options={{
+                headerShown: true,
+                title: "Report",
+                headerBackButtonDisplayMode: "minimal",
+                headerShadowVisible: false,
+                headerTintColor: colors.ink,
+                headerStyle: { backgroundColor: colors.bg },
+                headerTitleStyle: { fontFamily: fonts.sansSemi },
+              }}
+            />
             <Stack.Screen
               name="config"
               options={{

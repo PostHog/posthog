@@ -9,8 +9,6 @@ import { cardMenuParts } from './todayMenuParts'
 import { TodayChatPreview } from './todayPreviewCards'
 import { activityDetail } from './todayWorkItems'
 
-const NO_SUBMENU = (): void => {}
-
 export function TodayChatHoverCard({
     preview,
     onAction,
@@ -19,7 +17,7 @@ export function TodayChatHoverCard({
     onAction: () => void
 }): JSX.Element {
     const updated = activityDetail(preview.timestamp)
-    const parts = useMemo(() => cardMenuParts(onAction, NO_SUBMENU), [onAction])
+    const parts = useMemo(() => cardMenuParts(onAction), [onAction])
     return (
         <div className="flex flex-col" data-attr="today-chat-hover-card">
             <Item size="xs" className="items-start">

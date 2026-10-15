@@ -18,7 +18,7 @@ concurrency:
 
 permissions:
     contents: read
-    # The poster steps write sections of the shared CI report comment (mirrors ci-frontend.yml / ci-ai.yml).
+    # The poster steps write sections of the shared CI report comment (mirrors ci-frontend.yml).
     pull-requests: write
 
 jobs:

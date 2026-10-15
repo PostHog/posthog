@@ -1,7 +1,7 @@
 import { useActions, useValues, useMountedLogic } from 'kea'
 
 import { IconSort } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonDropdown, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { IconArrowDown, IconArrowUp, IconSwapHoriz } from 'lib/lemon-ui/icons'
 
@@ -12,7 +12,6 @@ import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorL
 import { LIMIT_OPTIONS } from 'products/business_intelligence/frontend/biEditorOptions'
 import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { biSceneLogic } from 'products/business_intelligence/frontend/biSceneLogic'
-import { BIShowMe } from 'products/business_intelligence/frontend/components/BIShowMe'
 
 import { BIDateControls } from './BIDateControls'
 
@@ -28,8 +27,8 @@ export function BIToolbar(): JSX.Element {
             autoLoad: !!lastRunQuery,
         })
     )
-    const { autoUpdate, config, generatedQuery, showMeOpen, sortOptions } = useValues(biEditorLogic)
-    const { resetConfig, setAutoUpdate, setLimit, setShowMeOpen, setSort, swapRowsAndColumns } =
+    const { autoUpdate, config, generatedQuery, activePanel, fieldsPaneOpen, sortOptions } = useValues(biEditorLogic)
+    const { resetConfig, setAutoUpdate, setLimit, setActivePanel, toggleFieldsPane, setSort, swapRowsAndColumns } =
         useActions(biEditorLogic)
 
     // Quick sort follows the chosen sort field, or the first measure like desktop BI tools do
@@ -44,35 +43,48 @@ export function BIToolbar(): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1 border-b px-2 py-1">
             <LemonButton
-                size="small"
+                size="xsmall"
                 type="primary"
                 onClick={responseLoading ? cancelQuery : runQuery}
                 disabledReason={
                     !config.source
                         ? 'Select a table before running'
                         : !generatedQuery
-                          ? 'Fix invalid worksheet fields before running'
+                          ? config.rows.length || config.columns.length || config.values.length
+                              ? 'Fix invalid worksheet fields before running'
+                              : 'Add a field to rows or columns before running'
                           : undefined
                 }
                 data-attr="bi-editor-run-query"
             >
                 {responseLoading ? 'Cancel' : 'Run'}
             </LemonButton>
+            <LemonSwitch
+                checked={autoUpdate}
+                onChange={setAutoUpdate}
+                label="Auto-update"
+                size="small"
+                tooltip="Run the query after every change"
+                data-attr="bi-editor-auto-update"
+            />
+            <LemonDivider vertical />
             <LemonButton
                 icon={<IconSwapHoriz />}
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 tooltip="Swap rows and columns"
                 aria-label="Swap rows and columns"
                 disabledReason={
-                    config.rows.length === 0 && config.columns.length === 0 ? 'No fields to swap' : undefined
+                    config.rows.length === 0 && config.columns.length === 0 && config.values.length === 0
+                        ? 'No fields to swap'
+                        : undefined
                 }
                 onClick={swapRowsAndColumns}
                 data-attr="bi-editor-swap"
             />
             <LemonButton
                 icon={<IconArrowUp />}
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 active={config.sort?.direction === 'asc'}
                 tooltip="Sort ascending"
@@ -83,7 +95,7 @@ export function BIToolbar(): JSX.Element {
             />
             <LemonButton
                 icon={<IconArrowDown />}
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 active={config.sort?.direction === 'desc'}
                 tooltip="Sort descending"
@@ -98,8 +110,7 @@ export function BIToolbar(): JSX.Element {
                     {
                         value: null,
                         label: 'Auto',
-                        tooltip:
-                            'Sorts by the newest date or the highest value first, so the top rows stay within the limit.',
+                        tooltip: 'Sorts dates from oldest to newest, or other dimensions by the highest value first.',
                     },
                     ...sortOptions.map((option) => ({ value: option.key, label: option.label })),
                 ]}
@@ -107,7 +118,7 @@ export function BIToolbar(): JSX.Element {
                 renderButtonContent={(option) => `Sort: ${option?.label ?? 'Auto'}`}
                 icon={<IconSort />}
                 aria-label="Sort results by"
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 dropdownMatchSelectWidth={false}
                 disabledReason={sortOptions.length === 0 ? 'Add a field to rows or columns first' : undefined}
@@ -117,18 +128,22 @@ export function BIToolbar(): JSX.Element {
                 value={config.limit}
                 options={LIMIT_OPTIONS}
                 onChange={setLimit}
-                renderButtonContent={(option) => `Limit: ${option?.label ?? config.limit}`}
-                aria-label="Query row limit"
-                size="small"
+                renderButtonContent={(option) => `Aggregated rows: ${option?.label ?? config.limit}`}
+                aria-label="Aggregated result row limit"
+                tooltip="Maximum aggregated result rows, after grouping and calculations. This does not limit the source rows read."
+                size="xsmall"
                 type="tertiary"
                 dropdownMatchSelectWidth={false}
                 data-attr="bi-editor-query-limit"
             />
             <LemonDivider vertical />
             <BIDateControls />
+            {config.comparisonPeriod && (
+                <span className="text-xs text-secondary">Comparison window of this reference range</span>
+            )}
             <LemonDivider vertical />
             <LemonButton
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 onClick={resetConfig}
                 disabledReason={!config.source ? 'Nothing to clear' : undefined}
@@ -136,37 +151,37 @@ export function BIToolbar(): JSX.Element {
             >
                 Clear sheet
             </LemonButton>
-            <div className="ml-auto flex items-center gap-2">
-                <LemonSwitch
-                    checked={autoUpdate}
-                    onChange={setAutoUpdate}
-                    label="Auto-update"
-                    size="small"
-                    tooltip="Run the query after every change"
-                    data-attr="bi-editor-auto-update"
-                />
-                {/* Narrow sheets have no room to dock the chart picker, so it opens as a dropdown */}
-                <LemonDropdown overlay={<BIShowMe docked={false} />} placement="bottom-end">
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        className="@3xl/bi-editor:hidden"
-                        data-attr="bi-editor-show-me"
-                    >
-                        Show me
-                    </LemonButton>
-                </LemonDropdown>
-                {!showMeOpen ? (
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        className="hidden @3xl/bi-editor:flex"
-                        onClick={() => setShowMeOpen(true)}
-                        data-attr="bi-editor-show-me"
-                    >
-                        Show me
-                    </LemonButton>
-                ) : null}
+            <div className="ml-auto flex flex-wrap items-center gap-1">
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    active={fieldsPaneOpen}
+                    onClick={toggleFieldsPane}
+                    aria-pressed={fieldsPaneOpen}
+                    data-attr="bi-editor-toggle-fields"
+                >
+                    Fields
+                </LemonButton>
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    active={activePanel === 'charts'}
+                    onClick={() => setActivePanel(activePanel === 'charts' ? null : 'charts')}
+                    aria-expanded={activePanel === 'charts'}
+                    data-attr="bi-editor-show-me"
+                >
+                    Charts
+                </LemonButton>
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    active={activePanel === 'analysis'}
+                    onClick={() => setActivePanel(activePanel === 'analysis' ? null : 'analysis')}
+                    aria-expanded={activePanel === 'analysis'}
+                    data-attr="bi-editor-analysis"
+                >
+                    Analysis
+                </LemonButton>
             </div>
         </div>
     )

@@ -103,6 +103,11 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 "TOMBSTONED_DELETE_MAX_ROWS must be at least 1"
             );
             assert!(
+                (1..=i32::MAX as u64).contains(&config.hash_key_override_statement_timeout_ms),
+                "HASH_KEY_OVERRIDE_STATEMENT_TIMEOUT_MS must be between 1 and {}",
+                i32::MAX
+            );
+            assert!(
                 config.bulk_max_concurrent_chunks >= 1,
                 "BULK_MAX_CONCURRENT_CHUNKS must be at least 1"
             );
@@ -121,6 +126,7 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 config.bulk_chunk_size,
                 config.bulk_max_concurrent_chunks,
                 config.tombstoned_delete_max_rows,
+                config.hash_key_override_statement_timeout_ms,
             ))
         }
         other => {

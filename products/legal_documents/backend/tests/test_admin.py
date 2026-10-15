@@ -10,7 +10,7 @@ from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
 from django.template.response import TemplateResponse
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 from django.utils.datastructures import MultiValueDict
 
 from parameterized import parameterized
@@ -520,7 +520,7 @@ class TestLegalDocumentAdminPermissions(APIBaseTest):
         self.assertFalse(self.admin.has_delete_permission(request))
 
 
-class TestLegalDocumentInlineRegistration(APIBaseTest):
+class TestLegalDocumentInlineRegistration(SimpleTestCase):
     def test_inline_attaches_to_organization_admin(self) -> None:
         # legal_documents registers LegalDocumentInline via posthog.admin.inline_registry, so
         # core surfaces it on the Organization admin page without importing the product.

@@ -12,6 +12,14 @@ class PlatformAlertConfigurationSourceKind(LabeledStrEnum):
     """The product whose data an alert evaluates."""
 
     LOGS = "logs", "Logs"
+    INSIGHT = "insight", "Insight"
+
+
+class PlatformAlertOwner(LabeledStrEnum):
+    """The one stack that evaluates and delivers an alert, and the only one that writes it."""
+
+    SOURCE = "source", "Source"
+    PLATFORM = "platform", "Platform"
 
 
 class PlatformAlertState(LabeledStrEnum):
@@ -21,6 +29,15 @@ class PlatformAlertState(LabeledStrEnum):
     FIRING = "firing", "Firing"
     ERRORED = "errored", "Errored"
     SNOOZED = "snoozed", "Snoozed"
+    BROKEN = "broken", "Broken"
+
+
+class PlatformAlertCheckStatus(LabeledStrEnum):
+    """Whether a configuration's checks succeed. It holds for every instance of the configuration,
+    because a failed check returns no group to attribute the failure to."""
+
+    OK = "ok", "OK"
+    ERRORED = "errored", "Errored"
     BROKEN = "broken", "Broken"
 
 

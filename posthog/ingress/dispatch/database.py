@@ -84,14 +84,18 @@ def _statement_timeout(connection: BaseDatabaseWrapper, timeout_ms: int, *, rest
 
 
 @contextmanager
-def bounded_statement_timeout(timeout_ms: int, *, models: Sequence[type[Model]]) -> Iterator[None]:
+def bounded_statement_timeout(
+    timeout_ms: int, *, models: Sequence[type[Model]] = (), aliases: Sequence[str] | None = None
+) -> Iterator[None]:
     """Run a block under a per-statement timeout on each alias a read of `models` may use.
 
     A read routed to an alias joins that alias's open transaction, so `SET LOCAL
-    statement_timeout` there caps the query regardless of read-replica routing.
+    statement_timeout` there caps the query regardless of read-replica routing. A block whose
+    queries pin an alias with `.using()` bypasses the router, so it passes that alias as
+    `aliases` instead.
     """
     with ExitStack() as stack:
-        for alias in read_aliases(models):
+        for alias in aliases if aliases is not None else read_aliases(models):
             connection = connections[alias]
             # SET LOCAL dies with the transaction it was set in, so the cap only needs
             # restoring when we are joining a transaction somebody else owns -- a caller

@@ -9,6 +9,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import OperationalError, ProgrammingError, connection
+from django.db.models import Model
 from django.utils import timezone
 
 import requests
@@ -30,6 +31,7 @@ from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
+from posthog.person_db_router import PersonDBRouter
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
@@ -1117,6 +1119,15 @@ def send_org_usage_reports() -> None:
     send_all_org_usage_reports.delay()
 
 
+def ensure_not_persons_db_model(model: type[Model]) -> None:
+    # Hobby keeps persons-database tables in the main database, where a raw delete would skip personhog
+    # and leave the ClickHouse rows live.
+    if PersonDBRouter().is_persons_model(model._meta.app_label, model._meta.model_name):
+        raise ValueError(
+            f"{model._meta.label} lives in the persons database. Use the person, group or team delete flows instead."
+        )
+
+
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 def background_delete_model_task(
     model_name: str, team_id: int, batch_size: int = 10000, records_to_delete: int | None = None
@@ -1143,6 +1154,7 @@ def background_delete_model_task(
         # Parse model name
         app_label, model_label = model_name.split(".")
         model = apps.get_model(app_label, model_label)
+        ensure_not_persons_db_model(model)
 
         # Determine team field name
         team_field = "team_id" if hasattr(model, "team_id") else "team"

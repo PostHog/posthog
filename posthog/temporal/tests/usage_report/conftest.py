@@ -21,6 +21,7 @@ from botocore.client import Config
 
 from posthog.temporal.usage_report.storage import bucket, run_prefix
 from posthog.temporal.usage_report.types import WorkflowContext
+from posthog.usage_counters import _mode_cache
 
 
 def _s3_resource():
@@ -54,3 +55,10 @@ def minio_workflow_ctx() -> Iterator[WorkflowContext]:
         yield ctx
     finally:
         _delete_prefix(run_prefix(ctx))
+
+
+@pytest.fixture(autouse=True)
+def clear_usage_counter_mode_cache() -> Iterator[None]:
+    _mode_cache.clear()
+    yield
+    _mode_cache.clear()

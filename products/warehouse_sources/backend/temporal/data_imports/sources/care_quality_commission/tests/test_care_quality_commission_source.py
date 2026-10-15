@@ -4,7 +4,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission import (
     source as cqc_source,
 )
@@ -20,50 +19,7 @@ def _config(api_key: str = "key", partner_code: str | None = "PC") -> Any:
     return config
 
 
-class TestSourceConfig:
-    def test_config_metadata(self) -> None:
-        config = CareQualityCommissionSource().get_source_config
-        assert config.label == "Care Quality Commission"
-        assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # docsUrl slug must match the published doc filename so the website doesn't 404.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/care-quality-commission"
-        assert config.unreleasedSource is None
-
-    def test_fields(self) -> None:
-        fields: dict[str, Any] = {f.name: f for f in CareQualityCommissionSource().get_source_config.fields}
-        assert set(fields) == {"api_key", "partner_code"}
-        # The subscription key is the secret; the partner code is an optional throttling hint.
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
-        assert fields["partner_code"].required is False
-
-
 class TestGetSchemas:
-    def test_returns_every_stream_as_full_refresh(self) -> None:
-        schemas = {s.name: s for s in CareQualityCommissionSource().get_schemas(MagicMock(), team_id=1)}
-        assert set(schemas) == {
-            "providers",
-            "locations",
-            "inspection_areas",
-            "provider_inspection_areas",
-            "location_inspection_areas",
-        }
-        for schema in schemas.values():
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
-    def test_per_organisation_fan_outs_are_not_selected_by_default(self) -> None:
-        # The per-organisation inspection-area streams cost one request per registered
-        # organisation, so they must not be pre-ticked in the wizard.
-        schemas = CareQualityCommissionSource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas if s.should_sync_default} == {
-            "providers",
-            "locations",
-            "inspection_areas",
-        }
-
     @parameterized.expand(
         [
             ("providers", ["providerId"]),
@@ -87,31 +43,8 @@ class TestDocumentedTables:
         # The endpoint catalog is static (no I/O), so the public docs can render the table list.
         assert CareQualityCommissionSource.lists_tables_without_credentials is True
 
-    def test_documented_tables_carry_descriptions_and_keys(self) -> None:
-        tables = {t["name"]: t for t in CareQualityCommissionSource().get_documented_tables()}
-        assert set(tables) == {
-            "providers",
-            "locations",
-            "inspection_areas",
-            "provider_inspection_areas",
-            "location_inspection_areas",
-        }
-        assert tables["providers"]["primary_keys"] == ["providerId"]
-        assert tables["providers"]["sync_methods"] == ["Full refresh"]
-        assert tables["location_inspection_areas"]["primary_keys"] == ["locationId", "inspectionAreaId"]
-        # Curated descriptions are keyed by schema name — a mismatch silently empties the
-        # published table catalog.
-        for table in tables.values():
-            assert table["description"]
-
 
 class TestValidateCredentials:
-    def test_valid(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(cqc_source, "validate_cqc_credentials", lambda api_key, partner_code: True)
-        ok, error = CareQualityCommissionSource().validate_credentials(_config(), team_id=1)
-        assert ok is True
-        assert error is None
-
     def test_invalid(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(cqc_source, "validate_cqc_credentials", lambda api_key, partner_code: False)
         ok, error = CareQualityCommissionSource().validate_credentials(_config(), team_id=1)

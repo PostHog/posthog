@@ -16,11 +16,12 @@ use serde_json::Value;
 
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::outputs::{OutputRegistry, PublishEvents};
+use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
 };
 use capture::router::router;
+use capture::sinks::sink::SinkResult;
 use capture::time::TimeSource;
 use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, Utc};
@@ -35,6 +36,13 @@ impl PublishEvents for MemorySink {
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().unwrap().extend(events);
         Ok(())
+    }
+}
+
+#[async_trait]
+impl PublishPrepared for MemorySink {
+    async fn publish_prepared(&self, _events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        unreachable!("v0 endpoints publish events")
     }
 }
 
@@ -146,7 +154,6 @@ async fn setup_router_with_limits(
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         false,            // ai_events_overflow_enabled
@@ -1201,7 +1208,6 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         false,            // ai_events_overflow_enabled
@@ -1294,7 +1300,6 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         false,            // ai_events_overflow_enabled
@@ -1391,7 +1396,6 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         false,            // ai_events_overflow_enabled
@@ -1825,7 +1829,6 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         false,            // ai_events_overflow_enabled

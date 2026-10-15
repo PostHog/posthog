@@ -125,6 +125,10 @@ export const getOtelSessionIdStep = (ctx: OnboardingComponentsContext, config: O
                         to. Add a span processor that sets the \`$ai_session_id\` attribute as each span starts.
                         PostHog forwards span attributes it does not recognize onto the event, so the value arrives
                         as the \`$ai_session_id\` property.
+
+                        If your instrumentation already sets the \`gen_ai.conversation.id\` attribute, PostHog uses
+                        it as the session ID and you can skip this step. An explicit \`$ai_session_id\` takes
+                        priority.
                     `}
                 </Markdown>
 

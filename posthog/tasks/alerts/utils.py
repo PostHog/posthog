@@ -17,7 +17,6 @@ from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.facade.api import LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
 from products.alerts.backend.facade.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
@@ -27,7 +26,7 @@ from products.alerts.backend.facade.destinations import (
     produce_alert_internal_event,
     serialize_deliveries,
 )
-from products.alerts.backend.facade.email import send_alert_email
+from products.alerts.backend.facade.email import alert_email_recipients, send_alert_email
 from products.alerts.backend.insight_alert_state_machine import (
     apply_invalid_configuration,
     apply_outcome,
@@ -83,6 +82,7 @@ NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.BOLD_NUMBER,
     ChartDisplayType.ACTIONS_PIE,
     ChartDisplayType.ACTIONS_DONUT,
+    ChartDisplayType.ACTIONS_PROPORTION_BAR,
     ChartDisplayType.ACTIONS_BAR_VALUE,
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,
@@ -345,16 +345,7 @@ def next_scheduled_check_time(alert: AlertConfiguration) -> str | None:
 
 
 def get_alert_error_notification_recipients(alert: AlertConfiguration) -> list[tuple[int, str]]:
-    candidates = (
-        alert.team.all_users_with_access()
-        .filter(id__in=alert.subscribed_users.values_list("id", flat=True))
-        .only("id", "email")
-    )
-    return [
-        (user.id, user.email)
-        for user in candidates
-        if UserAccessControl(user, team=alert.team).check_access_level_for_object(alert.insight, "viewer")
-    ]
+    return alert_email_recipients(team_id=alert.team_id, alert_id=alert.id)
 
 
 def _inconclusive_is_suppressed(verdict: str | None, inconclusive_action: str | None) -> bool:

@@ -1011,11 +1011,11 @@ class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
             ("unbound_trial", "scout-trial:", "unbound", False, status.HTTP_404_NOT_FOUND),
             ("sibling_judge", "scout-trial-judge:", "other", False, status.HTTP_404_NOT_FOUND),
             ("ordinary_task", "", "other", False, status.HTTP_200_OK),
-            ("judge_token", "scout-trial-judge:", "own", True, status.HTTP_403_FORBIDDEN),
+            ("internal_scope_only", "scout-trial:", "own", True, status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_sandbox_thread_reads_respect_trial_task_binding(
-        self, _name: str, origin_prefix: str, binding: str, judge_token: bool, expected_status: int
+        self, _name: str, origin_prefix: str, binding: str, internal_scope_only: bool, expected_status: int
     ) -> None:
         task = Task.objects.create(
             team=self.team,
@@ -1046,7 +1046,9 @@ class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
             user=self.author,
             application=application,
             token=f"pha_thread_{uuid4().hex}",
-            scope=" ".join(resolve_scopes("signals_scout_judge" if judge_token else "signals_scout_experiment")),
+            scope="scout_experiment_internal:read"
+            if internal_scope_only
+            else " ".join(resolve_scopes("signals_scout_experiment")),
             expires=django_timezone.now() + timedelta(hours=1),
             scoped_teams=[self.team.id],
             sandbox_task_id=task.id if binding == "own" else self.task.id if binding == "other" else None,
