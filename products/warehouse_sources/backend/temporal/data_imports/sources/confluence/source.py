@@ -115,8 +115,6 @@ Only Confluence Cloud sites (`your-domain.atlassian.net`) are supported.""",
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # v2 list endpoints have no server-side timestamp filter, so every endpoint is
-        # full refresh only (no incremental fields -> supports_incremental/append False).
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
@@ -156,4 +154,7 @@ Only Confluence Cloud sites (`your-domain.atlassian.net`) are supported.""",
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            incremental_field=inputs.incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

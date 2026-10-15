@@ -149,6 +149,53 @@ class TestConfluenceSource:
     def test_partition_key_matches_endpoint(self, endpoint: str, expected_partition: str | None) -> None:
         assert CONFLUENCE_ENDPOINTS[endpoint].partition_key == expected_partition
 
+    @parameterized.expand(
+        [
+            (
+                "pages",
+                {"version": {"createdAt": "2026-10-01T12:00:00Z"}},
+                "2026-10-01T12:00:00Z",
+                "-modified-date",
+            ),
+            (
+                "blogposts",
+                {"version": {"createdAt": "2026-10-02T12:00:00Z"}},
+                "2026-10-02T12:00:00Z",
+                "-modified-date",
+            ),
+            (
+                "attachments",
+                {"version": {"createdAt": "2026-10-03T12:00:00Z"}},
+                "2026-10-03T12:00:00Z",
+                "-modified-date",
+            ),
+            (
+                "footer_comments",
+                {"version": {"createdAt": "2026-10-05T12:00:00Z"}},
+                "2026-10-05T12:00:00Z",
+                "-modified-date",
+            ),
+            (
+                "inline_comments",
+                {"version": {"createdAt": "2026-10-06T12:00:00Z"}},
+                "2026-10-06T12:00:00Z",
+                "-modified-date",
+            ),
+        ]
+    )
+    def test_normalizes_updated_at_for_incremental_endpoints(
+        self,
+        endpoint: str,
+        timestamp_fields: dict[str, Any],
+        expected_timestamp: str,
+        expected_sort: str | None,
+    ) -> None:
+        result = _driver().run(endpoint, [_response([{"id": "1", **timestamp_fields}])])
+
+        assert result.raised is None
+        assert result.rows[0]["updated_at"] == expected_timestamp
+        assert result.requests[0].param("sort") == expected_sort
+
 
 class TestPagination:
     def test_paginates_until_no_next_and_saves_state(self) -> None:
@@ -162,15 +209,43 @@ class TestPagination:
 
         assert result.raised is None
         assert [row["id"] for row in result.rows] == ["1", "2", "3"]
-        # First request hits the base path with the page limit; params carry limit only.
+        # First request hits the base path with a stable modified-date ordering.
         assert result.requests[0].path == "/wiki/api/v2/pages"
         assert result.requests[0].origin == "https://acme.atlassian.net"
-        assert result.queries[0] == {"limit": (str(CONFLUENCE_ENDPOINTS["pages"].limit),)}
+        assert result.queries[0] == {
+            "limit": (str(CONFLUENCE_ENDPOINTS["pages"].limit),),
+            "sort": ("-modified-date",),
+        }
         # State saved once, after the first page (which has a next cursor), pointing at the
         # relative next link resolved to an absolute site URL.
         assert result.saved_states == [
             ConfluenceResumeConfig(next_url="https://acme.atlassian.net/wiki/api/v2/pages?cursor=p2")
         ]
+
+    def test_incremental_modified_date_walk_stops_at_the_watermark(self) -> None:
+        result = _driver().run(
+            "pages",
+            [
+                _response(
+                    [{"id": "new", "version": {"createdAt": "2026-10-03T12:00:00Z"}}],
+                    next_path="/wiki/api/v2/pages?cursor=p2",
+                ),
+                _response(
+                    [
+                        {"id": "overlap", "version": {"createdAt": "2026-10-02T12:00:00Z"}},
+                        {"id": "old", "version": {"createdAt": "2026-10-01T12:00:00Z"}},
+                    ],
+                    next_path="/wiki/api/v2/pages?cursor=p3",
+                ),
+                _response([{"id": "unnecessarily-fetched", "version": {"createdAt": "2026-09-30T12:00:00Z"}}]),
+            ],
+            incremental_field="updated_at",
+            db_incremental_field_last_value="2026-10-02T12:00:00Z",
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["new", "overlap"]
+        assert len(result.requests) == 2
 
     @parameterized.expand(
         [

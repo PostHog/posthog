@@ -51,6 +51,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             ownerId="Account ID of the page's owner.",
             position="Position of the page among its siblings.",
             body="Body content of the page in the requested representation.",
+            updated_at="Date and time the page was last updated, derived from version.createdAt.",
         ),
     },
     "blogposts": {
@@ -60,6 +61,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             spaceId="ID of the space the blog post belongs to.",
             authorId="Account ID of the user who created the blog post.",
             body="Body content of the blog post in the requested representation.",
+            updated_at="Date and time the blog post was last updated, derived from version.createdAt.",
         ),
     },
     "attachments": {
@@ -74,6 +76,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             pageId="ID of the page the attachment is associated with, if any.",
             blogPostId="ID of the blog post the attachment is associated with, if any.",
             downloadLink="Relative URL to download the attachment.",
+            updated_at="Date and time the attachment was last updated, derived from version.createdAt.",
         ),
     },
     "tasks": {
@@ -116,6 +119,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "parentCommentId": "ID of the parent comment, if this is a threaded reply.",
             "body": "Body content of the comment.",
             "version": "Version metadata for the comment.",
+            "updated_at": "Date and time the comment was last updated, derived from version.createdAt.",
         },
     },
     "inline_comments": {
@@ -131,6 +135,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "resolutionStatus": "Resolution status of the inline comment.",
             "properties": "Inline comment properties, including the highlighted text it anchors to.",
             "version": "Version metadata for the comment.",
+            "updated_at": "Date and time the comment was last updated, derived from version.createdAt.",
         },
     },
 }
