@@ -1,5 +1,7 @@
 import posthog from 'posthog-js'
 
+import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+
 import { MultipleSurveyQuestion, Survey, SurveyQuestionType } from '~/types'
 
 type SurveyConfigurationProperties = {
@@ -13,7 +15,22 @@ type SurveyConfigurationProperties = {
     skipping_submit_button: boolean
 }
 
-export function getSurveyConfigurationProperties(survey: Survey): SurveyConfigurationProperties {
+type SurveyCreationSource = 'form_builder' | 'full_editor' | 'llm_analytics' | 'quick_create' | 'template' | 'wizard'
+
+type SurveyCreatedProperties = SurveyConfigurationProperties & {
+    source: 'web'
+    name: Survey['name']
+    id: Survey['id']
+    survey_type: Survey['type']
+    questions_length: number
+    question_types: SurveyQuestionType[]
+    is_duplicate: boolean
+    creation_source: SurveyCreationSource
+    created_from: SURVEY_CREATED_SOURCE | undefined
+    linked_insight_id: Survey['linked_insight_id']
+}
+
+function getSurveyConfigurationProperties(survey: Survey): SurveyConfigurationProperties {
     const questionsWithShuffledOptions = survey.questions.filter((question) => {
         return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
     })
@@ -41,6 +58,30 @@ export function getSurveyConfigurationProperties(survey: Survey): SurveyConfigur
     }
 }
 
+function getSurveyCreatedProperties(
+    survey: Survey,
+    isDuplicate?: boolean,
+    creationSource?: SurveyCreationSource,
+    createdFrom?: SURVEY_CREATED_SOURCE
+): SurveyCreatedProperties {
+    return {
+        // The web app is the only place this event is emitted from — there is no backend
+        // equivalent — so stamping the surface here is what puts surveys in a `source`
+        // breakdown at all, rather than showing up as unattributed.
+        source: 'web',
+        name: survey.name,
+        id: survey.id,
+        survey_type: survey.type,
+        questions_length: survey.questions.length,
+        question_types: survey.questions.map((question) => question.type),
+        is_duplicate: isDuplicate ?? false,
+        creation_source: creationSource ?? 'full_editor',
+        created_from: createdFrom,
+        linked_insight_id: survey.linked_insight_id,
+        ...getSurveyConfigurationProperties(survey),
+    }
+}
+
 export function reportSurveyEdited(survey: Survey): void {
     posthog.capture('survey edited', {
         name: survey.name,
@@ -49,4 +90,13 @@ export function reportSurveyEdited(survey: Survey): void {
         start_date: survey.start_date,
         ...getSurveyConfigurationProperties(survey),
     })
+}
+
+export function reportSurveyCreated(
+    survey: Survey,
+    isDuplicate?: boolean,
+    creationSource?: SurveyCreationSource,
+    createdFrom?: SURVEY_CREATED_SOURCE
+): void {
+    posthog.capture('survey created', getSurveyCreatedProperties(survey, isDuplicate, creationSource, createdFrom))
 }
