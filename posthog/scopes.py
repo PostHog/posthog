@@ -271,6 +271,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Both are needed together; every other replay_scanner and session_recording route stays PSAK-denied.
     ("replay_scanner", "write"),
     ("session_recording", "read"),
+    # Sends logs and traces to capture-logs in place of the public project token, which
+    # a frontend can expose. No logs viewset lists a PSAK action, so the logs API stays denied.
+    ("logs", "write"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope

@@ -94,6 +94,13 @@ export interface LogsIngestionConsumerDeps {
     dependencyRetry?: { retryCount: number; initialRetryDelayMs: number }
 }
 
+/**
+ * capture-logs forwards a project secret API key as the hash its row stores, never as the raw
+ * secret. A project token never starts with this prefix.
+ */
+const PROJECT_SECRET_KEY_HASH_PREFIX = 'sha256$'
+const PROJECT_SECRET_KEY_INGEST_SCOPE = 'logs:write'
+
 /** Ingestion default when `logs_settings.retention_days` is unset; must match `DEFAULT_LOGS_RETENTION_DAYS` in `posthog/models/team/logs_retention.py`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
@@ -1406,6 +1413,11 @@ export class LogsIngestionConsumer {
                         if (isDevEnv() && token === 'phc_local') {
                             // phc_local is a special token used in dev to refer to team 1
                             team = await this.deps.teamManager.getTeam(1)
+                        } else if (token.startsWith(PROJECT_SECRET_KEY_HASH_PREFIX)) {
+                            team = await this.deps.teamManager.getTeamByProjectSecretKey(
+                                token,
+                                PROJECT_SECRET_KEY_INGEST_SCOPE
+                            )
                         } else {
                             team = await this.deps.teamManager.getTeamByToken(token)
                         }
@@ -1427,6 +1439,10 @@ export class LogsIngestionConsumer {
                         return
                     }
 
+                    // Quota limits, usage, and the produced headers key on the project token, so a
+                    // message sent with a project secret key carries its team's token from here on.
+                    const teamToken = token.startsWith(PROJECT_SECRET_KEY_HASH_PREFIX) ? team.api_token : token
+
                     const bytesUncompressed = parseSizeHeader(headers.bytes_uncompressed)
                     const bytesUncompressedRecords = parseSizeHeader(headers.bytes_uncompressed_records)
                     const bytesCompressed = parseSizeHeader(headers.bytes_compressed)
@@ -1444,7 +1460,7 @@ export class LogsIngestionConsumer {
                             offset: message.offset,
                         })
                         await this.produceRawToDlq(message, new Error('invalid_size_headers'), {
-                            token,
+                            token: teamToken,
                             teamId: team.id,
                         })
                         return
@@ -1457,7 +1473,7 @@ export class LogsIngestionConsumer {
                     }
 
                     events.push({
-                        token,
+                        token: teamToken,
                         message,
                         teamId: team.id,
                         bytesUncompressed,

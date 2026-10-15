@@ -8,6 +8,7 @@ from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret, hash_key_value
+from posthog.test.api_keys import create_project_secret_api_key
 
 
 class TestProjectSecretAPIKeysAPIMember(APIBaseTest):
@@ -76,13 +77,14 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert data["last_used_at"] is None
         assert data["value"].startswith("phs_")
 
-    def test_create_feature_flag_read_scope(self):
+    @parameterized.expand([("feature_flag_read", "feature_flag:read"), ("logs_write", "logs:write")])
+    def test_create_with_allowed_scope(self, _name, scope):
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "local eval key", "scopes": ["feature_flag:read"]},
+            {"label": "service key", "scopes": [scope]},
         )
-        assert response.status_code == 201
-        assert response.json()["scopes"] == ["feature_flag:read"]
+        assert response.status_code == 201, response.json()
+        assert response.json()["scopes"] == [scope]
 
     def test_create_too_many_api_keys(self):
         for i in range(0, MAX_PROJECT_SECRET_API_KEYS_PER_TEAM):
@@ -720,3 +722,17 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
         assert response.status_code == 403, response.content
         key.refresh_from_db()
         assert key.secure_value == secure_value
+
+
+class TestLogsWriteProjectSecretAPIKey(APIBaseTest):
+    def test_logs_write_key_cannot_manage_logs_alerts(self):
+        self.client.logout()
+        _, token = create_project_secret_api_key(self.team, scopes=["logs:write"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/alerts/",
+            {"name": "page me"},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code in (401, 403), response.content
