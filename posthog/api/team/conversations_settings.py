@@ -186,10 +186,16 @@ def validate_conversations_settings(
 ) -> dict[str, Any]:
     """Run every check a conversations_settings write must pass, shared by the team and project serializers.
 
-    `existing` is the team's currently stored conversations_settings (or None), used for
-    merge-aware playbook validation. `team_id` is the team whose AI context gets validated.
+    `existing` is the team's currently stored conversations_settings (or None), used to skip
+    unchanged values and for merge-aware playbook validation. `team_id` is the team whose AI context gets validated.
     """
     strip_managed_conversations_settings(value)
+    # The web app sends back every stored setting on each save. A value stored before a check
+    # existed must not block an unrelated save or get cut down, so only changed values get checked.
+    stored = existing or {}
+    unchanged = {key: item for key, item in value.items() if key in stored and stored[key] == item}
+    for key in unchanged:
+        del value[key]
     # Filter out None values from widget_domains if present
     if "widget_domains" in value and value["widget_domains"] is not None:
         value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
@@ -290,4 +296,5 @@ def validate_conversations_settings(
 
     validate_playbook_conversations_settings(value, existing=existing)
     validate_ai_context_conversations_settings(value, team_id=team_id)
+    value.update(unchanged)
     return value

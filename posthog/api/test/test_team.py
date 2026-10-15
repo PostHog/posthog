@@ -4247,6 +4247,20 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
 _TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
 
 
+def _sixty_channel_ids() -> list[str]:
+    return [f"C{i}" for i in range(60)]
+
+
+def _validate_conversations_settings(
+    serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+    stored: dict[str, object] | None,
+    submitted: dict[str, object],
+) -> dict[str, object] | None:
+    team = Team(conversations_settings=stored)
+    instance = team if serializer_class is TeamSerializer else MagicMock(passthrough_team=team)
+    return serializer_class(instance=instance).validate_conversations_settings(submitted)
+
+
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
     @parameterized.expand([(None,), ({},), ({"widget_color": "#123456"},)])
     def test_conversations_settings_clear_without_managed_values(self, existing: dict[str, str] | None) -> None:
@@ -4372,41 +4386,76 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         assert cleaned is not None
         self.assertEqual(cleaned["ai_reply_modes"], expected_cleaned)
 
-    @parameterized.expand([(TeamSerializer,), (ProjectBackwardCompatSerializer,)])
-    def test_conversations_settings_ai_reply_modes_requires_an_object(
-        self, serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer]
-    ) -> None:
-        with self.assertRaises(serializers.ValidationError):
-            serializer_class().validate_conversations_settings({"ai_reply_modes": ["not", "a", "dict"]})
-
     @parameterized.expand(
         [
-            (serializer, name, slack_channel_ids, expected_cleaned)
+            (serializer, name, stored, submitted)
             for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
-            for name, slack_channel_ids, expected_cleaned in (
+            for name, stored, submitted in (
+                ("ai_reply_modes_must_be_an_object", None, {"ai_reply_modes": ["not", "a", "dict"]}),
                 (
-                    "dedupes_and_caps_at_50",
-                    ["a", "a", "b"] + [f"c{i}" for i in range(50)],
-                    ["a", "b"] + [f"c{i}" for i in range(48)],
+                    "changed_display_name_over_200_characters",
+                    {"slack_bot_display_name": "a" * 201},
+                    {"slack_bot_display_name": "b" * 201},
                 ),
-                ("null_clears_the_stored_list", None, None),
             )
         ]
     )
-    def test_conversations_settings_slack_channel_ids_cleans_up_values(
+    def test_conversations_settings_rejects_invalid_values(
         self,
         serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
         _name: str,
-        slack_channel_ids: list[str] | None,
-        expected_cleaned: list[str] | None,
+        stored: dict[str, object] | None,
+        submitted: dict[str, object],
+    ) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            _validate_conversations_settings(serializer_class, stored, submitted)
+
+    @parameterized.expand(
+        [
+            (serializer, name, stored, submitted, expected_cleaned)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for name, stored, submitted, expected_cleaned in (
+                (
+                    "dedupes_and_caps_at_50",
+                    None,
+                    {"slack_channel_ids": ["a", "a", "b"] + [f"c{i}" for i in range(50)]},
+                    {"slack_channel_ids": ["a", "b"] + [f"c{i}" for i in range(48)]},
+                ),
+                ("null_clears_the_stored_list", None, {"slack_channel_ids": None}, {"slack_channel_ids": None}),
+                (
+                    "unchanged_list_over_50_is_kept",
+                    {"slack_channel_ids": _sixty_channel_ids()},
+                    {"slack_channel_ids": _sixty_channel_ids()},
+                    {"slack_channel_ids": _sixty_channel_ids()},
+                ),
+                (
+                    "changed_list_over_50_is_capped",
+                    {"slack_channel_ids": _sixty_channel_ids()},
+                    {"slack_channel_ids": ["new", *_sixty_channel_ids()]},
+                    {"slack_channel_ids": ["new", *_sixty_channel_ids()[:49]]},
+                ),
+                (
+                    "unchanged_display_name_over_200_characters_is_kept",
+                    {"slack_bot_display_name": "a" * 201},
+                    {"slack_bot_display_name": "a" * 201},
+                    {"slack_bot_display_name": "a" * 201},
+                ),
+            )
+        ]
+    )
+    def test_conversations_settings_cleans_up_values(
+        self,
+        serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+        _name: str,
+        stored: dict[str, object] | None,
+        submitted: dict[str, object],
+        expected_cleaned: dict[str, object],
     ) -> None:
         # A PATCH that sends null must clear the stored list, not silently keep the old one:
         # merge_conversations_settings only overwrites keys present in the validated value, so
         # dropping the key here (instead of keeping it as None) would make the clear a no-op.
-        cleaned = serializer_class().validate_conversations_settings({"slack_channel_ids": slack_channel_ids})
-        assert cleaned is not None
-        self.assertIn("slack_channel_ids", cleaned)
-        self.assertEqual(cleaned["slack_channel_ids"], expected_cleaned)
+        cleaned = _validate_conversations_settings(serializer_class, stored, submitted)
+        self.assertEqual(cleaned, expected_cleaned)
 
     @parameterized.expand([(None,), (True,), (123,), ([],), ({},), ("a" * 201,)])
     def test_invalid_logs_json_attribute_key(self, key):
