@@ -731,6 +731,32 @@ export const FailedFetchOffersRetry: Story = {
     },
 }
 
+export const ForbiddenFetchExplainsAccess: Story = {
+    args: {
+        taxonomicFilterLogicKey: 'feature-flags-forbidden',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags],
+        groupType: TaxonomicFilterGroupType.FeatureFlags,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/feature_flags': () => [
+                    403,
+                    { detail: 'permission denied', code: 'permission_denied' },
+                ],
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: { waitForSelector: '.no-infinite-results' },
+        docs: {
+            description: {
+                story: 'When the list returns 403, the list explains the missing access and offers no retry, because a retry cannot succeed.',
+            },
+        },
+    },
+}
+
 export const CustomEventName: Story = {
     render: (args) => {
         const { setSearchQuery } = useActions(
