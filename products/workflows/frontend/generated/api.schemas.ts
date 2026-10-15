@@ -2075,6 +2075,8 @@ export interface DataSuggestionBuildRequestApi {
     suggestion_id: string
     /** Start a new build when the last one failed. Leave it false when asking for a running build's status. */
     retry?: boolean
+    /** Save the built draft in the project and return its workflow_id. Blank settings, like a webhook URL, stay blank and are listed in missing_inputs. Leave it false to get the workflow back without saving. */
+    save_draft?: boolean
 }
 
 /**
@@ -2091,17 +2093,33 @@ export const DataSuggestionBuildStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+export interface DataSuggestionMissingInputApi {
+    /** The id of the workflow step (action) the setting belongs to. */
+    step_id: string
+    /** The step's name, as the editor shows it. */
+    step_name: string
+    /** The setting to fill, like 'Webhook URL', 'Email sender' or 'Condition: Is on a paid plan'. */
+    field: string
+}
+
 export interface DataSuggestionBuildResponseApi {
-    /** ready when the draft is built, building while a background build runs (call build again to check), failed when the plan did not produce a valid workflow. A failed result is reported once, so the next call starts a new build.
+    /** ready when the draft is built, building while a background build runs (call build again to check), failed when the plan did not produce a valid workflow. A failed result stays until a call sends retry.
      *
      * * `ready` - Ready
      * * `building` - Building
      * * `failed` - Failed */
     status: DataSuggestionBuildStatusEnumApi
-    /** With status ready: a validated draft workflow (name, description, trigger, actions, edges, conversion, exit_condition) that the workflow create endpoint accepts from this caller. Nothing is saved by this call. Null otherwise. */
+    /** With status ready: a validated draft workflow (name, description, trigger, actions, edges, conversion, exit_condition) that the workflow create endpoint accepts from this caller. Saved only with save_draft. Null otherwise. */
     workflow: unknown
     /** Whether an email step reuses a saved email template. */
     uses_saved_template: boolean
+    /**
+     * With status ready and save_draft: the id of the saved draft workflow. Null otherwise.
+     * @nullable
+     */
+    workflow_id: string | null
+    /** With status ready: the settings the draft leaves blank, which must be filled before it is enabled. */
+    missing_inputs: DataSuggestionMissingInputApi[]
 }
 
 /**
@@ -2209,6 +2227,8 @@ export interface DataSuggestionsResponseApi {
     status: DataSuggestionsStatusEnumApi
     /** Up to 3 suggested workflows, ranked by lifecycle stage and then by weekly volume. */
     suggestions: DataSuggestionApi[]
+    /** Whether the project has a verified email sender. Without one, an email workflow can be saved as a draft but cannot send until a sending domain is added and verified. */
+    readonly email_sender_ready: boolean
 }
 
 export interface DataSuggestionGenerateRequestApi {
