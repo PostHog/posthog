@@ -243,16 +243,17 @@ def is_in_quiet_hours(schedule_restriction: dict | None, now: datetime, tz_name:
 
 
 def _snapshot(check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...]) -> AlertSnapshot:
+    instance = check.instance()
     return AlertSnapshot(
-        state=AlertState(check.state),
+        state=AlertState(instance.state),
         cooldown=timedelta(minutes=check.cooldown_minutes),
-        last_notified_at=check.last_notified_at,
-        snooze_until=check.snooze_until,
+        last_notified_at=instance.last_notified_at,
+        snooze_until=instance.snooze_until,
         consecutive_failures=check.consecutive_failures,
         evaluation_periods=check.evaluation_periods,
         datapoints_to_alarm=check.datapoints_to_alarm,
         recent_events_breached=prior_breached,
-        firing_started_at=check.firing_started_at,
+        firing_started_at=instance.firing_started_at,
     )
 
 
@@ -285,8 +286,9 @@ def _record_check_metrics(
         # The machine owns the snooze predicate, so the source's flag is what separates the two.
         mute_reason = MuteReason.QUIET_HOURS if muted_by_quiet_hours else MuteReason.SNOOZE
         safe_record(increment_notifications_muted, SourceKind.LOGS.value, mute_reason.value)
-    if check.state != new_state:
-        safe_record(increment_state_transition, SourceKind.LOGS.value, check.state, new_state)
+    previous_state = check.instance().state
+    if previous_state != new_state:
+        safe_record(increment_state_transition, SourceKind.LOGS.value, previous_state, new_state)
     if check.next_check_at is not None:
         lag_ms = int((now - check.next_check_at).total_seconds() * 1000)
         if lag_ms > 0:
@@ -405,7 +407,7 @@ def _request(
     """
     destination_alert_id = str(check.legacy_configuration_id)
     incident_action = decide_incident_action(
-        AlertState(check.state), outcome.new_state, policy=PLATFORM_LOGS_ALERT_POLICY
+        AlertState(check.instance().state), outcome.new_state, policy=PLATFORM_LOGS_ALERT_POLICY
     )
     if incident_action is not None and not _has_incident_destination(check.team_id, destination_alert_id):
         incident_action = None
@@ -626,13 +628,16 @@ def _as_configured_now(
                 logger.exception("Failed to bring a platform logs copy up to date", check_id=str(check.id))
                 current.append(check)
                 continue
-        current.append(replace(check, **{field: getattr(upsert, field) for field in _LIVE_FIELDS}))
+        # A logs mute lives on the configuration alone, so each instance takes the live one too.
+        instances = tuple(replace(instance, snooze_until=upsert.snooze_until) for instance in check.instances)
+        current.append(replace(check, instances=instances, **{field: getattr(upsert, field) for field in _LIVE_FIELDS}))
     return current, stopped
 
 
 def _stopped(check: PlatformAlertCheckInput, *, now: datetime) -> Decision:
     """A check whose logs alert no longer runs. It leaves the state alone and disables the copy."""
-    unchanged = ControlPlaneOutcome(new_state=AlertState(check.state), consecutive_failures=check.consecutive_failures)
+    state = check.instance().state
+    unchanged = ControlPlaneOutcome(new_state=AlertState(state), consecutive_failures=check.consecutive_failures)
     recorded = _recorded(
         check,
         outcome=unchanged,
@@ -643,7 +648,7 @@ def _stopped(check: PlatformAlertCheckInput, *, now: datetime) -> Decision:
         disable=True,
     )
     _record_check_metrics(
-        check, new_state=check.state, notification=NotificationAction.NONE, skip=SkipReason.SOURCE_RULE, now=now
+        check, new_state=state, notification=NotificationAction.NONE, skip=SkipReason.SOURCE_RULE, now=now
     )
     return recorded, None
 
