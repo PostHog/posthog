@@ -27,8 +27,7 @@ from posthog.temporal.ai_observability.team_capture import (
     HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
     CaptureEventDropped,
     capture_ai_internal_for_team,
-    raise_for_emit_attempt,
-    report_dropped_emit,
+    raise_emit_failure,
     workflow_event_uuid,
 )
 from posthog.temporal.common.base import PostHogWorkflow
@@ -589,25 +588,24 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
             event_name="$ai_tag",
             event_source="llm_analytics_tagger",
             distinct_id=event_data["distinct_id"],
-            # Ingestion dedup keys on the timestamp as well as the uuid, so a retried emit must
-            # resend the same one to collapse into the original.
+            # Not emit time: ingestion dedup keys on (timestamp, event, distinct_id, token), so only a
+            # stable timestamp lets a retried emit collapse into the original.
             timestamp=start_time,
             properties=properties,
-            # One workflow emits one $ai_tag.
             event_uuid=workflow_event_uuid("ai-tag"),
         )
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
-    except CaptureEventDropped as e:
-        report_dropped_emit(e, team_id=event_data["team_id"], event_name="$ai_tag")
+    except CaptureEventDropped:
+        return
     except CaptureInternalError as e:
         if e.is_billing_limit_exceeded:
             logger.info("Skipping tag event emission; team over billing quota", team_id=event_data["team_id"])
             return
-        raise_for_emit_attempt(e)
+        raise_emit_failure(e)
     except Exception as e:
-        raise_for_emit_attempt(e)
+        raise_emit_failure(e)
 
 
 @temporalio.activity.defn

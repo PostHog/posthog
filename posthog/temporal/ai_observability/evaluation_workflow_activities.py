@@ -25,12 +25,11 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE
 from posthog.temporal.ai_observability.evaluation_sentiment import run_sentiment_eval
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
+from posthog.temporal.ai_observability.retries import is_last_attempt
 from posthog.temporal.ai_observability.team_capture import (
     CaptureEventDropped,
-    TransientEmitError,
     capture_ai_internal_for_team,
-    raise_for_emit_attempt,
-    report_dropped_emit,
+    raise_emit_failure,
     workflow_event_uuid,
 )
 from posthog.temporal.common.errors import NonReportableApplicationError
@@ -352,12 +351,6 @@ def build_evaluation_event_properties(
     return properties
 
 
-def evaluation_event_uuid() -> str | None:
-    """One workflow emits one $ai_evaluation. A manual re-run mints a new workflow id (it embeds a
-    ms timestamp), so re-runs still get distinct events."""
-    return workflow_event_uuid("ai-evaluation")
-
-
 def capture_evaluation_run_usage(
     evaluation: Mapping[str, object],
     result: EvaluationActivityResult,
@@ -448,7 +441,7 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
                 else start_time
             ),
             properties=properties,
-            event_uuid=evaluation_event_uuid(),
+            event_uuid=workflow_event_uuid("ai-evaluation"),
         )
         # Completed LLM judge runs emit telemetry in the workflow's separate activity.
         if evaluation.get("evaluation_type", "llm_judge") != "llm_judge" or result.get("skipped"):
@@ -461,19 +454,18 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
         increment_emit_event_outcome("success")
-    except CaptureEventDropped as e:
+    except CaptureEventDropped:
         increment_emit_event_outcome("dropped_by_capture")
-        report_dropped_emit(e, team_id=event_data["team_id"], event_name="$ai_evaluation")
     except CaptureInternalError as e:
         if e.is_billing_limit_exceeded:
             increment_emit_event_outcome("dropped_billing_limited")
             logger.info("Skipping eval event emission; team over billing quota", team_id=event_data["team_id"])
             return
         increment_emit_event_outcome("failed")
-        raise_for_emit_attempt(e)
+        raise_emit_failure(e)
     except Exception as e:
         increment_emit_event_outcome("failed")
-        raise_for_emit_attempt(e)
+        raise_emit_failure(e)
 
 
 @temporalio.activity.defn
@@ -568,14 +560,9 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
                     backfill_id=inputs.backfill_id,
                 )
             )
-        except TransientEmitError as error:
-            raise NonReportableApplicationError(
-                "Failed to emit $ai_evaluation", type=EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE
-            ) from error
         except Exception as error:
             # Typed so the workflow counts one emit failure per run, after retries end.
-            raise ApplicationError(
-                "Failed to emit $ai_evaluation", type=EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE
-            ) from error
+            error_class = ApplicationError if is_last_attempt() else NonReportableApplicationError
+            raise error_class("Failed to emit $ai_evaluation", type=EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE) from error
         emitted = True
     return LocalEvaluationOutcome(evaluation=evaluation, result=result, emitted=emitted)

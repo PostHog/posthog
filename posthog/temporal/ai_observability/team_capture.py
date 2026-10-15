@@ -16,13 +16,13 @@ from http import HTTPStatus
 from typing import Any, NoReturn
 
 import structlog
-import posthoganalytics
 import temporalio.activity
 from temporalio.common import RetryPolicy
 
-from posthog.api.capture import CaptureInternalError, CaptureInternalResult, capture_ai_internal
+from posthog.api.capture import CaptureInternalError, capture_ai_internal
 from posthog.models.team import Team
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.ai_observability.retries import is_last_attempt
+from posthog.temporal.common.errors import NonReportableApplicationError
 
 logger = structlog.get_logger(__name__)
 
@@ -39,11 +39,10 @@ _AUTH_REJECTED_STATUSES = (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN)
 EMIT_EVENT_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=5),
     backoff_coefficient=2.0,
-    maximum_interval=timedelta(seconds=40),
     maximum_attempts=5,
 )
 # Each schedule_to_close budget fits every attempt running to its start_to_close timeout plus the
-# backoff, so the attempt count ends retries and `raise_for_emit_attempt` knows the final attempt.
+# backoff, so the attempt count ends retries and `raise_emit_failure` can tell the final attempt.
 EMIT_EVENT_START_TO_CLOSE_TIMEOUT = timedelta(seconds=30)
 EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(minutes=4)
 # For emits that first read their generation, which can run to several MiB.
@@ -59,41 +58,24 @@ class TeamNotFound(Exception):
 
 
 class CaptureEventDropped(CaptureInternalError):
-    """capture-ai answered and dropped the event on purpose. A retry gets the same verdict, so an
-    emit reports it once and returns instead of failing the activity."""
-
-
-class TransientEmitError(NonReportableError):
-    """An emit failure on an attempt that Temporal will retry. Only the final attempt's failure
-    reaches error tracking, so a short capture-ai blip that a retry absorbs files no issue."""
+    """capture-ai answered and dropped the event on purpose. A retry gets the same verdict."""
 
 
 def workflow_event_uuid(kind: str) -> str | None:
     """A workflow that emits one event derives that event's uuid from the workflow id, which
-    survives activity retries and workflow-level retries alike, so ingestion collapses a re-sent
-    event into the first one. A run under a new workflow id still gets a distinct event."""
+    survives activity retries and workflow-level retries alike. A manual re-run mints a new
+    workflow id (it embeds a ms timestamp), so re-runs still get distinct events."""
     if not temporalio.activity.in_activity():
         return None
     workflow_id = temporalio.activity.info().workflow_id
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://{kind}/{workflow_id}"))
 
 
-def raise_for_emit_attempt(error: Exception) -> NoReturn:
-    """Re-raise an emit failure, marked non-reportable while `EMIT_EVENT_RETRY_POLICY` has attempts left."""
-    if temporalio.activity.in_activity() and temporalio.activity.info().attempt < (
-        EMIT_EVENT_RETRY_POLICY.maximum_attempts or 0
-    ):
-        raise TransientEmitError(str(error)) from error
-    raise error
-
-
-def report_dropped_emit(error: CaptureEventDropped, *, team_id: int, event_name: str) -> None:
-    logger.warning("capture_dropped_ai_event", team_id=team_id, event_name=event_name, reason=str(error))
-    posthoganalytics.capture_exception(error, properties={"team_id": team_id, "event_name": event_name})
-
-
-def _only_dropped(result: CaptureInternalResult) -> bool:
-    return result.error is None and bool(result.dropped) and not result.retried and not result.unaccounted
+def raise_emit_failure(error: Exception) -> NoReturn:
+    """Re-raise an emit failure, kept out of error tracking while Temporal still has attempts left."""
+    if is_last_attempt():
+        raise error
+    raise NonReportableApplicationError(str(error), type=type(error).__name__) from error
 
 
 def get_team_api_token(team_id: int) -> str:
@@ -159,8 +141,10 @@ def capture_ai_internal_for_team(
             process_person_profile=process_person_profile,
             event_uuid=event_uuid,
         )
-        if _only_dropped(result):
-            raise CaptureEventDropped(f"capture dropped the event: {result.verdict_summary()}")
+        if result.dropped and result.error is None:
+            reason = result.verdict_summary()
+            logger.warning("capture_dropped_ai_event", team_id=team_id, event_name=event_name, reason=reason)
+            raise CaptureEventDropped(f"capture dropped the event: {reason}")
         result.raise_for_status()
     except CaptureInternalError as e:
         # Only an explicit auth rejection means the cached token is stale. Timeouts, 5xx, and
