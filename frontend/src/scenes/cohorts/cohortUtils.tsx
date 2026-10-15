@@ -167,6 +167,7 @@ export function createCohortFormData(
                           ).filters.properties,
                           id: undefined,
                       },
+                      filterTestAccounts: cohort.filters.filterTestAccounts,
                   }
         ),
     }
@@ -724,8 +725,12 @@ export function cohortBroadcastDisabledReason(cohort: CohortType): string | null
 }
 
 export function cohortBroadcastAudience(cohort: Pick<CohortType, 'id' | 'name'>): MessageAudience {
+    if (typeof cohort.id !== 'number') {
+        return { properties: [], source: 'cohort' }
+    }
     return {
-        properties: typeof cohort.id === 'number' ? cohortAudienceProperties({ id: cohort.id, name: cohort.name }) : [],
+        properties: cohortAudienceProperties({ id: cohort.id, name: cohort.name }),
         source: 'cohort',
+        draftSource: { source: 'cohort', source_id: String(cohort.id) },
     }
 }

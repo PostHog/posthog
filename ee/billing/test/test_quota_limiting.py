@@ -4,11 +4,11 @@ from uuid import uuid4
 
 import time_machine
 from posthog.test.base import BaseTest, FuzzyInt, _create_event, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from django.apps import apps
 from django.db import DatabaseError
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 from django.utils.timezone import now
 
@@ -16,9 +16,11 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
 from posthog.api.test.test_team import create_team
+from posthog.constants import FlagRequestType
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.usage_counters import UsageRecordTotal, UsageRecordTotals
 
 from ee.billing.quota_limiting import (
     INFORMATIONAL_USAGE_RESOURCES,
@@ -109,7 +111,30 @@ class TestQuotaLimiting(BaseTest):
         org_id = str(self.organization.id)
         flush_persons_and_events()
 
-        result = update_all_orgs_billing_quotas()
+        with (
+            self.settings(USAGE_COUNTER_REALTIME_MODES="events:both"),
+            patch(
+                "posthog.tasks.usage_report.get_usage_records_in_period",
+                return_value=UsageRecordTotals(
+                    totals=[
+                        UsageRecordTotal(team_id=self.team.id, organization_id=org_id, usage_key="events", quantity=3)
+                    ]
+                ),
+            ),
+            patch("posthog.usage_counters.logger.info") as counter_log,
+        ):
+            result = update_all_orgs_billing_quotas()
+        counter_log.assert_any_call(
+            "usage_counter_comparison",
+            caller="quota_limiting",
+            date="2021-01-25",
+            counter="event_count_in_period",
+            source="both",
+            legacy=ANY,
+            realtime=3,
+            differing_teams=ANY,
+            absolute_difference=ANY,
+        )
         # feature_enabled will be called for AI billing check and then for data retention flag
         patch_feature_enabled.assert_any_call(
             QUOTA_LIMIT_DATA_RETENTION_FLAG,
@@ -300,6 +325,42 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/survey_responses", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
+
+    @patch("posthoganalytics.capture")
+    def test_todays_usage_reads_every_legacy_row_shape(self, _capture) -> None:
+        def flag_requests(_begin, _end, request_type):
+            return [(str(self.team.id), 7 if request_type == FlagRequestType.DECIDE else 2)]
+
+        with (
+            self.settings(USE_TZ=False),
+            time_machine.travel("2021-01-25T00:00:00Z", tick=False),
+            patch(
+                "posthog.tasks.usage_report.get_teams_with_feature_flag_requests_count_in_period",
+                side_effect=flag_requests,
+            ),
+            patch(
+                "posthog.tasks.usage_report.get_teams_with_rows_synced_in_period",
+                return_value=[{"team_id": self.team.id, "total": 5}],
+            ),
+            patch(
+                "posthog.tasks.usage_report.get_teams_with_rows_exported_in_period",
+                return_value=[{"team_id": self.team.id, "total": 3}],
+            ),
+        ):
+            self.organization.usage = {
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+                "feature_flag_requests": {"usage": 0, "limit": None, "todays_usage": 0},
+                "rows_synced": {"usage": 0, "limit": None, "todays_usage": 0},
+                "rows_exported": {"usage": 0, "limit": None, "todays_usage": 0},
+            }
+            self.organization.save()
+            update_all_orgs_billing_quotas()
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["feature_flag_requests"]["todays_usage"] == 7 + 2 * 10
+        assert self.organization.usage["rows_synced"]["todays_usage"] == 5
+        assert self.organization.usage["rows_exported"]["todays_usage"] == 3
 
     @patch("posthoganalytics.capture")
     def test_billing_rate_limit(self, patch_capture) -> None:
@@ -2383,7 +2444,7 @@ _PERIOD = ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")
-class TestIdentifyRefreshCandidates(BaseTest):
+class TestIdentifyRefreshCandidates(SimpleTestCase):
     """Isolated unit coverage for `_identify_refresh_candidates`. The cron-loop
     integration tests above also exercise this function but conflate it with the rest
     of the run; these cases cover each candidate-selection branch in isolation."""
@@ -3184,7 +3245,7 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         )
         with (
             patch(
-                "ee.billing.quota_limiting.get_teams_with_signals_credits_used_in_period",
+                "posthog.tasks.usage_report.get_teams_with_signals_credits_used_in_period",
                 return_value=[(self.team.id, 100)],
             ),
             patch(
@@ -3234,7 +3295,7 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
 
         with (
             patch("ee.billing.quota_limiting.list_limited_team_attributes", side_effect=snapshot) as snapshot_mock,
-            patch("ee.billing.quota_limiting.get_teams_with_signals_credits_used_in_period", return_value=[]),
+            patch("posthog.tasks.usage_report.get_teams_with_signals_credits_used_in_period", return_value=[]),
             patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=0),
         ):
             update_all_orgs_billing_quotas()

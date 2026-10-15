@@ -11,6 +11,7 @@ import { accuracyStats, accuracySummary, percent } from '../onlinePerformance'
 import { eventName } from '../pipelineQuestion'
 import { ConfusionMatrixCard } from './ConfusionMatrixCard'
 import { EmptyTab } from './EmptyTab'
+import { LiveModelDrivers } from './LiveModelDrivers'
 import { MetricCard } from './MetricCard'
 import { RealizedAucChart } from './RealizedAucChart'
 import { ScoreNowButton } from './ScoreNowButton'
@@ -81,7 +82,12 @@ export function OnlinePerformanceTab(): JSX.Element {
     }
 
     if (!latestChampionPerformance || !pipeline) {
-        return <NotCheckedYet />
+        return (
+            <div className="space-y-6">
+                <NotCheckedYet />
+                <LiveModelDrivers />
+            </div>
+        )
     }
 
     const target = eventName(pipeline.target_event)
@@ -123,6 +129,8 @@ export function OnlinePerformanceTab(): JSX.Element {
                     <RealizedAucChart points={realizedAucPoints} holdoutAuc={champion?.holdout_score ?? null} />
                 </SectionCard>
             )}
+
+            <LiveModelDrivers />
 
             <LemonCollapse
                 className="bg-surface-primary"

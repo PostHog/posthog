@@ -7,7 +7,7 @@ should import this module — cross-product callers go through ``facade.api``.
 """
 
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
@@ -16,14 +16,39 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
+from posthog.constants import AvailableFeature
 from posthog.models import Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
+from .facade.contracts import NotebookContentEditNotAllowed
 from .markdown_conversion import get_markdown_notebook_markdown, is_markdown_notebook_content
 from .markdown_migration import to_markdown_notebook_content
 from .models import Notebook, ResourceNotebook
 from .sql_v2_state import validate_cell_count
+
+if TYPE_CHECKING:
+    from posthog.models import User
+
+
+def _validate_shared_notebook_edit(user: "User", notebook: Notebook, content: dict[str, Any]) -> None:
+    from posthog.api.sharing_publish_gate import (  # noqa: PLC0415 — keep query runners off the facade import path
+        blocked_access_in_notebook_edit,
+        is_publicly_shared,
+    )
+
+    if not notebook.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return
+    if UserAccessControl(user=user, team=notebook.team).is_organization_admin:
+        return
+    if not is_publicly_shared(notebook):
+        return
+    blocked = blocked_access_in_notebook_edit(user, notebook, content)
+    if blocked:
+        blocked_list = ", ".join(f"`{name}`" for name in blocked)
+        raise NotebookContentEditNotAllowed(
+            f"Can't save: you don't have access to {blocked_list}, and this notebook is publicly shared."
+        )
 
 
 def _base_queryset(team_id: int, *, include_deleted: bool = False) -> Any:
@@ -67,7 +92,7 @@ async def aupdate_notebook_content(
     content: dict[str, Any],
     title: str,
     text_content: str | None,
-    last_modified_by_id: int | None,
+    user: "User",
 ) -> Notebook | None:
     notebook = await aget_notebook(team_id, short_id, include_deleted=True)
     if notebook is None:
@@ -76,12 +101,13 @@ async def aupdate_notebook_content(
     # entirely (it is a queryset update, so no save() hook or signal fires either), and it is
     # how Max saves a notebook. A ceiling only the API respects is not a ceiling.
     validate_cell_count(notebook.content, content)
+    await sync_to_async(_validate_shared_notebook_edit)(user, notebook, content)
     await Notebook.objects.filter(pk=notebook.pk).aupdate(
         content=content,
         title=title,
         text_content=text_content,
         version=F("version") + 1,
-        last_modified_by_id=last_modified_by_id,
+        last_modified_by_id=user.id,
         last_modified_at=timezone.now(),
     )
     await notebook.arefresh_from_db()
@@ -93,7 +119,7 @@ async def aupsert_notebook(
     short_id: str,
     *,
     created_by_id: int | None,
-    last_modified_by_id: int | None,
+    user: "User",
     title: str,
     content: dict[str, Any],
     text_content: str | None = None,
@@ -108,17 +134,18 @@ async def aupsert_notebook(
         short_id=short_id,
         defaults={
             "created_by_id": created_by_id,
-            "last_modified_by_id": last_modified_by_id,
+            "last_modified_by_id": user.id,
             "title": title,
             "content": content,
             "text_content": text_content,
         },
     )
     if not created:
+        await sync_to_async(_validate_shared_notebook_edit)(user, notebook, content)
         notebook.content = content
         notebook.title = title
         notebook.version += 1
-        notebook.last_modified_by_id = last_modified_by_id
+        notebook.last_modified_by_id = user.id
         update_fields = ["content", "title", "version", "last_modified_by", "last_modified_at"]
         if text_content is not None:
             notebook.text_content = text_content

@@ -44,6 +44,14 @@
         @include preview-swap-visible;
     }
 
+    &__if-enabled {
+        @include preview-swap-visible;
+    }
+
+    &__if-disabled {
+        @include preview-swap-hidden;
+    }
+
     &__head {
         display: flex;
         align-items: center;
@@ -72,13 +80,15 @@
         border-radius: var(--radius);
     }
 
-    &__row--hero {
+    &__row--hero,
+    &__row--toggle {
         cursor: pointer;
         user-select: none;
         transition: background-color 150ms ease;
     }
 
-    &__row--hero:hover {
+    &__row--hero:hover,
+    &__row--toggle:hover {
         background: var(--color-bg-fill-highlight-50);
     }
 
@@ -352,15 +362,15 @@
 
 // Pinned-on state (user clicked the flag row)
 
-.FlagPreview__checkbox:checked ~ * .FlagPreview__when-on {
+.FlagPreview__checkbox--hero:checked ~ * .FlagPreview__when-on {
     @include preview-swap-visible;
 }
 
-.FlagPreview__checkbox:checked ~ * .FlagPreview__when-off {
+.FlagPreview__checkbox--hero:checked ~ * .FlagPreview__when-off {
     @include preview-swap-hidden;
 }
 
-.FlagPreview__checkbox:checked ~ .FlagPreview__panel .FlagPreview__row--hero .FlagPreview__switch {
+.FlagPreview__checkbox--hero:checked ~ .FlagPreview__panel .FlagPreview__row--hero .FlagPreview__switch {
     background: var(--flag-preview-accent);
 
     &::after {
@@ -368,25 +378,56 @@
     }
 }
 
-.FlagPreview__checkbox:checked ~ .FlagPreview__panel .FlagPreview__bar-fill--hero {
+.FlagPreview__checkbox--hero:checked ~ .FlagPreview__panel .FlagPreview__bar-fill--hero {
     width: 100%;
 }
 
-.FlagPreview__checkbox:checked ~ .FlagPreview__app .FlagPreview__cta {
+.FlagPreview__checkbox--hero:checked ~ .FlagPreview__app .FlagPreview__cta {
     color: var(--color-bg-surface-primary);
     background: var(--flag-preview-accent);
 }
 
 // The checkbox stays keyboard-focusable while visually hidden, so the row it labels
 // needs a visible focus indicator (WCAG 2.4.7).
-.FlagPreview__checkbox:focus-visible ~ .FlagPreview__panel .FlagPreview__row--hero {
+.FlagPreview__checkbox--hero:focus-visible ~ .FlagPreview__panel .FlagPreview__row--hero {
+    outline: 2px solid var(--flag-preview-accent);
+    outline-offset: 1px;
+}
+
+// Supporting flags flip their own row only.
+
+.FlagPreview__checkbox--dark-mode:not(:checked) ~ .FlagPreview__panel .FlagPreview__row--dark-mode,
+.FlagPreview__checkbox--beta-invites:not(:checked) ~ .FlagPreview__panel .FlagPreview__row--beta-invites {
+    .FlagPreview__switch {
+        background: color-mix(in oklab, var(--color-text-secondary) 25%, var(--color-fill-secondary));
+
+        &::after {
+            transform: none;
+        }
+    }
+
+    .FlagPreview__bar-fill {
+        width: 0;
+    }
+
+    .FlagPreview__if-enabled {
+        @include preview-swap-hidden;
+    }
+
+    .FlagPreview__if-disabled {
+        @include preview-swap-visible;
+    }
+}
+
+.FlagPreview__checkbox--dark-mode:focus-visible ~ .FlagPreview__panel .FlagPreview__row--dark-mode,
+.FlagPreview__checkbox--beta-invites:focus-visible ~ .FlagPreview__panel .FlagPreview__row--beta-invites {
     outline: 2px solid var(--flag-preview-accent);
     outline-offset: 1px;
 }
 
 // Nudge attention at the hero switch until it's flipped.
 .FlagPreview:not(.FlagPreview--static)
-    .FlagPreview__checkbox:not(:checked)
+    .FlagPreview__checkbox--hero:not(:checked)
     ~ .FlagPreview__panel
     .FlagPreview__row--hero
     .FlagPreview__switch {

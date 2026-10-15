@@ -7,6 +7,8 @@ import { LemonCard } from '@posthog/lemon-ui'
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import type { TimelineMarkerColor } from 'lib/components/SessionTimeline/SessionTimeline'
+import { usableId } from 'lib/components/ViewTraceButton/usableId'
+import { ViewTraceButton } from 'lib/components/ViewTraceButton/ViewTraceButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
 
@@ -80,7 +82,7 @@ function ExceptionCardContent({
     label,
 }: ExceptionCardContentProps): JSX.Element {
     const { currentTab } = useValues(exceptionCardLogic)
-    const { sessionId } = useValues(errorPropertiesLogic)
+    const { sessionId, spanId, traceId } = useValues(errorPropertiesLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
     const logsEnabled = useFeatureFlag('LOGS_IN_ERROR_TRACKING')
     const headerRef = useRef<HTMLDivElement>(null)
@@ -123,13 +125,16 @@ function ExceptionCardContent({
             >
                 {/* Container query, not viewport: the card sits in a resizable split pane. At @xl and up,
                     symmetric 1fr gutters centre the tab bar; below it the gutters shrink to their content
-                    so the tab bar keeps the slack. The container wraps the header alone — inline-size
+                    so the tab bar keeps the slack. Just above @xl a 1fr share is narrower than two actions,
+                    so the right gutter never drops below its content and the tab bar sits off-centre until
+                    there is room; the left gutter keeps the logomark's 1.125rem (text-lg) so the tab bar
+                    scrolls before the logo is cut in half. The container wraps the header alone — inline-size
                     containment zeroes an element's intrinsic width contribution, and on the card as a
                     whole that collapses it to nothing inside a shrink-to-fit parent. */}
                 <div className="@container/exception-card shrink-0">
                     <div
                         ref={headerRef}
-                        className="grid h-10 w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b px-2 @xl/exception-card:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
+                        className="grid h-10 w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b px-2 @xl/exception-card:grid-cols-[minmax(1.125rem,1fr)_auto_minmax(max-content,1fr)]"
                     >
                         {/* min-w-0 lets this track collapse, so the cell must clip: an unclipped label draws
                         over the tab bar. */}
@@ -184,7 +189,14 @@ function ExceptionCardContent({
                                 </TabsTrigger>
                             )}
                         </TabsList>
-                        <div className="flex justify-end">
+                        <div className="flex justify-end gap-1">
+                            <ViewTraceButton
+                                traceId={usableId(traceId)}
+                                spanId={usableId(spanId)}
+                                timestamp={timestamp}
+                                size="xsmall"
+                                data-attr="error-tracking-view-trace"
+                            />
                             {sessionId && (currentTab === 'timeline' || currentTab === 'recording') ? (
                                 <ViewLogsButton
                                     sessionId={sessionId}

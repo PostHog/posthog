@@ -27,6 +27,7 @@ import type {
     DataWarehouseManagedViewSetUpdateResponseApi,
     DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams,
     DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
+    DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveParams,
     DataWarehouseRunningActivityRetrieveParams,
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryColumnAnnotationApi,
@@ -43,6 +44,7 @@ import type {
     ManagedWarehouseMonitoringSeriesResponseApi,
     ManagedWarehouseMonitoringSnapshotResponseApi,
     ManagedWarehouseSourceSchemasResponseApi,
+    ManagedWarehouseTrinoMonitoringSnapshotResponseApi,
     OnboardWarehouseTeamRequestApi,
     OnboardWarehouseTeamResponseApi,
     PaginatedDataModelingJobListApi,
@@ -551,6 +553,64 @@ export const dataWarehouseManagedWarehouseSourceSchemasRetrieve = async (
 ): Promise<ManagedWarehouseSourceSchemasResponseApi> => {
     return apiMutator<ManagedWarehouseSourceSchemasResponseApi>(
         getDataWarehouseManagedWarehouseSourceSchemasRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseManagedWarehouseTrinoMonitoringRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/managed-warehouse-trino-monitoring/`
+}
+
+/**
+ * Get tenant-safe live Trino query totals, limits, and in-flight queries for the current organization.
+ * @summary Get managed warehouse Trino monitoring snapshot
+ */
+export const dataWarehouseManagedWarehouseTrinoMonitoringRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ManagedWarehouseTrinoMonitoringSnapshotResponseApi> => {
+    return apiMutator<ManagedWarehouseTrinoMonitoringSnapshotResponseApi>(
+        getDataWarehouseManagedWarehouseTrinoMonitoringRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveUrl = (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/managed-warehouse-trino-monitoring-timeseries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/managed-warehouse-trino-monitoring-timeseries/`
+}
+
+/**
+ * Get one allow-listed Trino monitoring metric for the current organization and trailing time window.
+ * @summary Get managed warehouse Trino monitoring time series
+ */
+export const dataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieve = async (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveParams,
+    options?: RequestInit
+): Promise<ManagedWarehouseMonitoringSeriesResponseApi> => {
+    return apiMutator<ManagedWarehouseMonitoringSeriesResponseApi>(
+        getDataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveUrl(projectId, params),
         {
             ...options,
             method: 'GET',

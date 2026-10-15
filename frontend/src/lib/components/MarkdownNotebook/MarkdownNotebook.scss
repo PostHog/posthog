@@ -2662,23 +2662,11 @@ button.MarkdownNotebook__component-title:focus-visible {
 }
 
 .MarkdownNotebook__jupyter-add-cell {
-    display: block;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
     width: calc(100% - var(--jupyter-prompt-width));
-    padding: 0.625rem 0.75rem;
     margin: 0.5rem 0 0 var(--jupyter-prompt-width);
-    font-size: 0.75rem;
-    color: var(--color-text-secondary);
-    text-align: left;
-    cursor: pointer;
-    user-select: none;
-    background: none;
-    border: 1px solid transparent;
-    border-radius: 2px;
-
-    &:hover {
-        background: var(--jupyter-editor-background);
-        border-color: var(--jupyter-editor-border);
-    }
 }
 
 // Holds focus while a markdown cell is in command mode. Text never takes focus itself (the

@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KapaAISource(ResumableSource[KapaAISourceConfig, KapaResumeConfig]):
+    codebase_detection = detect(
+        env=("^(KAPA_AI|KAPAAI)_",),
+        script_hosts=("widget.kapa.ai",),
+        npm=("@kapaai/react-sdk", "@kapaai/agent-react", "@kapaai/agent-core"),
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.kapa.ai/api/reference"
 
