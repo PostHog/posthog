@@ -1,9 +1,12 @@
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.db import IntegrityError
+from django.db import IntegrityError, connections
 
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
+
+from posthog.redis import get_client
 
 from products.data_modeling.backend.facade.models import (
     DAG,
@@ -375,17 +378,59 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
         for schema in schemas:
             self._create_table_for_schema(schema)
 
-        self.managed_viewset.sync_views()
-        count_after_first = len(self._get_saved_queries())
+        # The MRR view query embeds the sync time, so a moving clock changes it on every sync.
+        with time_machine.travel("2026-01-15 12:00:00", tick=False):
+            self.managed_viewset.sync_views()
+            count_after_first = len(self._get_saved_queries())
 
-        self.managed_viewset.sync_views()
-        count_after_second = len(self._get_saved_queries())
+            self.managed_viewset.sync_views()
+            count_after_second = len(self._get_saved_queries())
 
-        self.managed_viewset.sync_views()
+            with patch.object(
+                DataWarehouseSavedQuery, "save", autospec=True, side_effect=DataWarehouseSavedQuery.save
+            ) as save:
+                self.managed_viewset.sync_views()
         count_after_third = len(self._get_saved_queries())
 
         self.assertEqual(count_after_first, count_after_second)
         self.assertEqual(count_after_second, count_after_third)
+        save.assert_not_called()
+
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_sync_views_does_not_wait_when_another_sync_holds_the_lock(self, _):
+        rerun_key = self.managed_viewset._rerun_request_key()
+        get_client().delete(rerun_key)
+        other = connections.create_connection("default")
+        try:
+            with other.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_lock(hashtext(%s)::bigint)", [self.managed_viewset._sync_lock_key()])
+            self.managed_viewset.sync_views()
+        finally:
+            other.close()
+
+        self.assertEqual(self._get_saved_queries(), [])
+        self.assertTrue(get_client().delete(rerun_key))
+
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_sync_views_runs_again_for_a_sync_that_skipped(self, _):
+        rerun_key = self.managed_viewset._rerun_request_key()
+        get_client().set(rerun_key, 1)
+        schemas = self._create_schemas_without_tables()
+        added_schema = schemas[0]
+
+        def create_table_after_first_run(*args, **kwargs):
+            if added_schema.table is None:
+                self._create_table_for_schema(added_schema)
+
+        with patch(
+            "products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag",
+            side_effect=create_table_after_first_run,
+        ):
+            self.managed_viewset.sync_views()
+
+        saved_query = next(q for q in self._get_saved_queries() if added_schema.name.lower() in q.name)
+        self.assertQueryIsNotEmpty(saved_query)
+        self.assertFalse(get_client().exists(rerun_key))
 
     @patch(SCHEDULE_MATERIALIZATION)
     def test_partial_sync_only_creates_real_queries_for_available_tables(self, _):

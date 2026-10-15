@@ -21,6 +21,7 @@ from posthog.hogql.database.models import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
+from posthog.redis import get_client
 
 from products.data_modeling.backend.facade.managed_viewset_hooks import get_expected_views_provider
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
@@ -30,6 +31,10 @@ from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 logger = structlog.get_logger(__name__)
+
+# Bounds the reruns one caller does for syncs that skipped while it held the lock.
+MAX_SYNC_VIEWS_RUNS = 3
+SYNC_VIEWS_RERUN_TTL_SECONDS = 60 * 60
 
 
 @dataclass
@@ -74,7 +79,51 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         Updates managed_viewset_id on all created/updated views.
         Deletes views that are no longer referenced.
         Materializes views by default.
+
+        When another sync for the same team+kind holds the lock, this call does not wait. It asks
+        the lock holder to run once more, so the holder picks up any state that changed after it
+        computed its expected views.
         """
+        for _ in range(MAX_SYNC_VIEWS_RUNS):
+            if not self._sync_views_once():
+                return
+            if not self._take_rerun_request():
+                return
+
+    def _sync_lock_key(self) -> str:
+        return f"{self.team_id}_sync_views_{self.kind}"
+
+    def _rerun_request_key(self) -> str:
+        return f"managed_viewset_sync_views_rerun:{self._sync_lock_key()}"
+
+    def _acquire_sync_lock(self) -> bool:
+        """Take the transaction-scoped lock without a wait. Return False when another sync holds it
+        and a rerun request is recorded for that sync."""
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_try_advisory_xact_lock(hashtext(%s)::bigint)", [self._sync_lock_key()])
+            if cursor.fetchone()[0]:
+                return True
+
+            try:
+                get_client().set(self._rerun_request_key(), 1, ex=SYNC_VIEWS_RERUN_TTL_SECONDS)
+            except Exception as e:
+                # Without a recorded rerun request, a skip can lose changes, so wait for the lock instead.
+                capture_exception(e, {"managed_viewset_id": self.id})
+                cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", [self._sync_lock_key()])
+                return True
+
+        logger.info("sync_views_coalesced", team_id=self.team_id, kind=self.kind)
+        return False
+
+    def _take_rerun_request(self) -> bool:
+        try:
+            return bool(get_client().delete(self._rerun_request_key()))
+        except Exception as e:
+            capture_exception(e, {"managed_viewset_id": self.id})
+            return False
+
+    def _sync_views_once(self) -> bool:
+        """Run one sync. Return False when another sync holds the lock and this one did nothing."""
         # Deferred: schedule_reconcile pulls in temporalio; a module-level import would drag it onto django.setup()
         from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag  # noqa: PLC0415
         from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag  # noqa: PLC0415
@@ -143,11 +192,8 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             # Serialize concurrent sync_views calls for the same team+kind to prevent
             # deadlocks when multiple data source schemas complete simultaneously and
             # each tries to update the same set of saved queries.
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
-                    [f"{self.team_id}_sync_views_{self.kind}"],
-                )
+            if not self._acquire_sync_lock():
+                return False
 
             for view in expected_views:
                 # Get the one from the DB or create a new one if doesn't exist yet
@@ -165,16 +211,26 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                     )
                     created = True
 
-                # Do NOT use get_columns because it runs the query, and these are possibly heavy
-                saved_query.query = view.query
-                saved_query.set_columns(view.columns)
-                saved_query.external_tables = external_tables_by_view[view.name]
-                saved_query.is_materialized = view.materialized
                 # A non-materialized view is computed at query time — no sync schedule, and it never
                 # enters the schedule/DAG lists below.
-                saved_query.sync_frequency_interval = timedelta(hours=12) if view.materialized else None
-
-                saved_query.save()
+                sync_frequency_interval = timedelta(hours=12) if view.materialized else None
+                unchanged = (
+                    not created
+                    and saved_query.query == view.query
+                    and saved_query.columns == view.columns
+                    and saved_query.column_order == list(view.columns.keys())
+                    and saved_query.external_tables == external_tables_by_view[view.name]
+                    and saved_query.is_materialized == view.materialized
+                    and saved_query.sync_frequency_interval == sync_frequency_interval
+                )
+                if not unchanged:
+                    # Do NOT use get_columns because it runs the query, and these are possibly heavy
+                    saved_query.query = view.query
+                    saved_query.set_columns(view.columns)
+                    saved_query.external_tables = external_tables_by_view[view.name]
+                    saved_query.is_materialized = view.materialized
+                    saved_query.sync_frequency_interval = sync_frequency_interval
+                    saved_query.save()
                 if view.materialized:
                     saved_queries_to_schedule.append(saved_query)
 
@@ -269,6 +325,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             views_updated=views_updated,
             views_deleted=views_deleted,
         )
+        return True
 
     def delete_with_views(self) -> int:
         """
