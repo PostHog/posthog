@@ -9,6 +9,7 @@ import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { createTestTeamFixture } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
+import { HOG_FLOW_MASK_EXAMPLES } from '../_tests/examples'
 import { createCohortMembershipEvent, createKafkaMessage } from '../_tests/fixtures'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFlow } from '../types'
@@ -63,6 +64,28 @@ describe('CdpCohortMembershipTriggerConsumer', () => {
         expect(invocation.state.personId).toBe(change.person_id)
         expect(invocation.state.event.event).toBe(COHORT_MEMBERSHIP_CHANGED_EVENT)
         expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
+    })
+
+    it('starts one run per person when the workflow runs once per person', async () => {
+        const flow = cohortFlow(42, 'entered')
+        flow.trigger_masking = HOG_FLOW_MASK_EXAMPLES.onceEver.trigger_masking
+        await insertHogFlow(hub.postgres, flow)
+        const rejoiner = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+        const other = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+
+        const first = await processor.processBatch(await processor._parseKafkaBatch([createKafkaMessage(rejoiner)]))
+        await first.backgroundTask
+        const second = await processor.processBatch(
+            await processor._parseKafkaBatch([createKafkaMessage(rejoiner), createKafkaMessage(other)])
+        )
+        await second.backgroundTask
+
+        expect(
+            first.invocations.map((invocation) => (invocation as CyclotronJobInvocationHogFlow).state.personId)
+        ).toEqual([rejoiner.person_id])
+        expect(
+            second.invocations.map((invocation) => (invocation as CyclotronJobInvocationHogFlow).state.personId)
+        ).toEqual([other.person_id])
     })
 
     it('fails the batch when loading workflows fails, so the change is retried', async () => {
