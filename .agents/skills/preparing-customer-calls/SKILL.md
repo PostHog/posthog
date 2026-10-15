@@ -23,7 +23,8 @@ The data catalog metrics table is the only exception: it needs `hogli metabase:q
 ## 1. Get the two inputs
 
 You need the **customer** (organization name, brand, domain, or org id) and the **focus area**.
-If either is missing from the request, ask with `AskUserQuestion` before you query anything.
+If either is missing from the request, ask the user for it before you query anything.
+Use your harness's question tool when it has one (for example `AskUserQuestion` in Claude Code). Otherwise ask in chat and wait for the answer.
 Offer the common focus areas as options (data warehouse, product analytics, semantic layer, error tracking) and let "Other" cover the rest.
 Accept free text such as "MCP observability" or "data analysis".
 Map the focus area to its signals with [references/focus-areas.md](references/focus-areas.md).
