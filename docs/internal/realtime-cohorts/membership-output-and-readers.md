@@ -235,6 +235,26 @@ For `wait_until_condition` it is not: an unmatched wait with a maximum duration 
 No workflow save path compiles a cohort condition yet: the compiler rejects cohort filters in workflow conditions.
 This read path is therefore dormant.
 
+### Batch and scheduled audiences
+
+Behind `workflows-cohort-conditions`, a batch or scheduled audience can use a behavioral realtime cohort that has finished calculating.
+The audience does not read the Postgres table.
+It reads the ClickHouse table `realtime_cohort_membership`, because the audience query runs in ClickHouse over `persons`.
+A person is a member when `argMax(status, last_updated)` is `entered`.
+
+Only a cohort that the audience references directly reads this table.
+A cohort that wraps a realtime cohort is evaluated as a whole, so a save that uses one is rejected.
+
+The ClickHouse table can trail its Kafka feed.
+Before the first page of a send, Django measures the age of the oldest membership change that ClickHouse has not stored yet.
+It compares the committed offsets of the ClickHouse consumer group with the end of each partition.
+
+- Above `WORKFLOWS_REALTIME_COHORT_MAX_LAG_SECONDS` (default 300), or when the lag cannot be measured, the internal audience endpoint returns 503 with the code `realtime_membership_lagging`.
+- The batch resolver waits one minute and asks again, without using one of its retries.
+- After 30 minutes of lag, the run fails and its log says why.
+- Later pages of a run do not check again.
+- One measurement serves every send that starts within 30 seconds.
+
 ## Worked example
 
 Team 7 has cohort 42, "performed `$pageview` in the last 30 days", with its events readiness stamp set.
