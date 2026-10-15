@@ -2,6 +2,8 @@ import uuid
 from datetime import datetime
 from typing import cast
 
+from django.conf import settings
+
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -33,6 +35,9 @@ class ConnectedAppSerializer(serializers.Serializer):
             "Whether the user must choose to keep or disconnect this application, because it set up one of "
             "the user's organizations and PostHog has not verified it"
         )
+    )
+    is_setup_wizard = serializers.BooleanField(
+        help_text="Whether this is the PostHog setup wizard, which signs in to install the SDK, not to connect an agent"
     )
 
 
@@ -83,6 +88,7 @@ class ConnectedAppsViewSet(viewsets.ViewSet):
                 application_id__in=app_map.keys(), organization__membership__user=user
             ).values_list("application_id", flat=True)
         )
+        wizard_client_ids = {*settings.WIZARD_GATEWAY_CLIENT_IDS, settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID} - {""}
 
         results = []
         for app in applications:
@@ -99,6 +105,7 @@ class ConnectedAppsViewSet(viewsets.ViewSet):
                     "requires_access_confirmation": (
                         app.id in provisioner_ids and not app.is_verified and not app.is_first_party
                     ),
+                    "is_setup_wizard": app.client_id in wizard_client_ids,
                 }
             )
 

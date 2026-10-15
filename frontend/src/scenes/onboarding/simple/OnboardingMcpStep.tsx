@@ -10,14 +10,14 @@ import { WizardCommandBlock } from '../shared/wizard-sync/WizardCommandBlock'
 import { onboardingMcpStepLogic } from './onboardingMcpStepLogic'
 
 export function OnboardingMcpStep(): JSX.Element {
-    const { isMcpConnected } = useValues(onboardingMcpStepLogic)
+    const { hasConnectedAgent } = useValues(onboardingMcpStepLogic)
 
     return (
         <OnboardingStep
             title="Connect your AI agent"
             subtitle="The PostHog MCP server lets agents like Claude Code, Cursor, and Codex read your PostHog data and set up features for you."
             stepKey={OnboardingStepKey.MCP}
-            continueDisabledReason={isMcpConnected ? undefined : 'Connect your agent to PostHog to continue'}
+            continueDisabledReason={hasConnectedAgent ? undefined : 'Connect your agent to PostHog to continue'}
         >
             <div className="max-w-xl mx-auto mt-6 space-y-6">
                 <WizardCommandBlock
@@ -25,7 +25,7 @@ export function OnboardingMcpStep(): JSX.Element {
                     description="Run this in your terminal. It asks which agents to connect, then signs your agent in to PostHog."
                 />
                 <div className="flex items-center justify-center gap-2" aria-live="polite">
-                    {isMcpConnected ? (
+                    {hasConnectedAgent ? (
                         <>
                             <IconCheckCircle className="text-success text-lg" />
                             <span className="font-semibold">Your agent is connected</span>

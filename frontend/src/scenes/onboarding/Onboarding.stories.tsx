@@ -393,6 +393,7 @@ const CONNECTED_APP = {
     authorized_at: '2023-05-25T00:00:00Z',
     is_verified: true,
     is_first_party: false,
+    is_setup_wizard: false,
 }
 
 export const SimpleFlowConnectMcp: Story = {
