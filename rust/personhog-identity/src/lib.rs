@@ -4,3 +4,4 @@ pub mod lifecycle;
 pub mod pools;
 pub mod service;
 pub mod storage;
+pub mod warnings;

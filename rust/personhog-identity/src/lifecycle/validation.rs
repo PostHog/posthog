@@ -93,15 +93,22 @@ pub fn is_distinct_id_illegal(id: &str) -> bool {
         || CASE_SENSITIVE_ILLEGAL_IDS.contains(id)
 }
 
+pub fn is_distinct_id_unmergeable(id: &str) -> bool {
+    is_distinct_id_illegal(id) || is_distinct_id_oversized(id) || id.contains('\u{0000}')
+}
+
+/// Above i32::MAX the storage layer's `as i32` narrowing would wrap into
+/// another tenant's rows.
+pub fn is_team_id_valid(team_id: i64) -> bool {
+    team_id > 0 && team_id <= i32::MAX as i64
+}
+
 // tonic Status is a large Err variant; boxing here would diverge from the
 // tonic handler signatures these feed into.
 #[allow(clippy::result_large_err)]
 /// Validates the request and returns the parsed op_id.
 pub fn validate_delete_persons(request: &DeletePersonsRequest) -> Result<Uuid, Status> {
-    // The persons DB stores team_id as int4 and the storage layer narrows
-    // with `as i32` — an unchecked value above i32::MAX would wrap and read
-    // or write another tenant's rows.
-    if request.team_id <= 0 || request.team_id > i32::MAX as i64 {
+    if !is_team_id_valid(request.team_id) {
         return Err(rejected(
             "team_id",
             "team_id must be a positive 32-bit integer",
@@ -135,7 +142,7 @@ pub fn validate_delete_persons(request: &DeletePersonsRequest) -> Result<Uuid, S
 /// errors — only the target's legality gates the whole call (nothing can
 /// merge into a bug).
 pub fn validate_merge_persons(request: &MergePersonsRequest) -> Result<(Uuid, i64), Status> {
-    if request.team_id <= 0 || request.team_id > i32::MAX as i64 {
+    if !is_team_id_valid(request.team_id) {
         return Err(rejected(
             "team_id",
             "team_id must be a positive 32-bit integer",

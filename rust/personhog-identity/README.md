@@ -49,6 +49,27 @@ See `rust/pgcollector/docs/query-tags.md` for the key vocabulary.
 
 A lifecycle op parks when the leader answers a semantic refusal after the point of no return: retrying a definitive refusal cannot succeed, so the op holds its fences and only an explicit retry under the same op id resumes it (the sweeper is barred). Refusals before the point of no return abort instead, recording `skipped_refused` for their sources and releasing fences in the same settlement. The sweeper re-drives interrupted sagas to a terminal state and defaults on; a fleet that disables it converts every orphaned saga into fences an operator must clear. The surface is the `personhog_lifecycle_ops_parked` gauge and the park's ERROR log carrying the op id and reason; resolution is a retry with the recorded op id.
 
+## Ingestion warnings
+
+The service publishes in-product ingestion warnings for the merge verdicts it settles, straight to the warnings topic as finished v2 rows (`source = "personhog-identity"`), through the shared `common-ingestion-warnings` crate's direct-row transport (`src/warnings.rs`).
+A verdict warns here when it is final under retry and decided by this service alone; the ingestion consumer keeps the warnings that depend on its own retries or merge-mode policy.
+
+| Verdict | Warning | Emitted from |
+| --- | --- | --- |
+| source illegal, oversized, or NUL-bearing (`skipped_illegal`) | `cannot_merge_with_illegal_distinct_id` | entrance |
+| target illegal, oversized, or NUL-bearing (request rejected) | `cannot_merge_with_illegal_distinct_id`, one per source | entrance |
+| `skipped_already_identified` | `cannot_merge_already_identified` | entrance (inline) or saga terminal record |
+| `skipped_refused`, `error` | `merge_settled_failure` | saga terminal record |
+| `skipped_conflict` replayed as settled by a recorded op | `merge_race_condition` | saga terminal record |
+| `skipped_conflict` in a claim abort, `skipped_move_limit`, call failures | none here; the caller's | - |
+
+Saga warnings emit once per committed terminal record, so an op the sweeper finishes warns exactly as one the RPC drove, and a retry that attaches to a finished op emits nothing new.
+Inline verdicts re-emit when a retry re-classifies, the same at-least-once the response has; the producer throttles per team, warning type, and source distinct id (one an hour), with a per-pod per-type budget behind it.
+
+`INGESTION_WARNINGS_ENABLED` (default `false`) turns the producer on; `INGESTION_WARNINGS_KAFKA_HOSTS`, `INGESTION_WARNINGS_KAFKA_TLS`, and `INGESTION_WARNINGS_TOPIC` (default `clickhouse_ingestion_warnings`) name the destination, a cluster separate from any event producer with a fixed fire-and-forget policy (leader ack, no retries, bounded queue).
+Keep it off until the ingestion consumer stops emitting the same verdicts itself, or customers see each refusal twice.
+Health reads from `ingestion_warnings_emitter_enabled{reason}` (absent when off, `0` when enabled but unusable) and `ingestion_warnings_total{source="personhog-identity",outcome}` (`emitted`, `throttled`, `delivered`, `delivery_failed`, ...).
+
 ## Delete retries must present a byte-stable request
 
 A same-op-id delete retry is compared byte-for-byte against the frozen request, so the caller must present the identical `person_ids` list (same order, same duplicates) on every retry; a mismatch is refused `op_id_reused` and the deletion must be reissued under a fresh op id.

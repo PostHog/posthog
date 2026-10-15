@@ -10,6 +10,8 @@ personhog-coordination = { path = "../personhog-coordination" }
 personhog-proto = { path = "../personhog-proto" }
 assignment-coordination = { path = "../common/assignment-coordination" }
 common-database = { path = "../common/database" }
+common-ingestion-warnings = { path = "../common/ingestion_warnings" }
+common-kafka = { path = "../common/kafka" }
 common-alloc = { path = "../common/alloc" }
 common-metrics = { path = "../common/metrics" }
 common-sqlx-macros = { path = "../common/sqlx-macros" }
@@ -35,6 +37,8 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+metrics-util = { workspace = true }
+rstest = "0.26"
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

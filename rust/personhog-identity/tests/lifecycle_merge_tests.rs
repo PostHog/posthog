@@ -16,6 +16,8 @@ use std::sync::Arc;
 use chrono::Utc;
 use common::sim_leader::{LeaderCall, Rpc, SimLeader, FENCED_METADATA_KEY};
 use common::TestContext;
+use common_ingestion_warnings::test_support::{CollectingRowEmitter, EmittedRow};
+use common_ingestion_warnings::WarningType;
 use personhog_common::grpc::semantic_refusal;
 use personhog_common::persons::{person_uuid, COOKIELESS_SENTINEL_VALUE};
 use serde_json::json;
@@ -33,6 +35,7 @@ use personhog_identity::lifecycle::merge::{
     OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT,
     OUTCOME_SKIPPED_MOVE_LIMIT,
 };
+use personhog_identity::warnings::{MergeWarnings, MERGE_ENTRANCE, MERGE_SAGA};
 use personhog_proto::personhog::types::v1::LifecycleOpType;
 
 struct MergeHarness {
@@ -41,6 +44,7 @@ struct MergeHarness {
     leader: Arc<SimLeader>,
     driver: MergeDriver,
     drives: DetachedDrives,
+    warnings: Arc<CollectingRowEmitter>,
 }
 
 impl MergeHarness {
@@ -52,18 +56,49 @@ impl MergeHarness {
         let ctx = TestContext::new_with_tables(tables).await;
         let engine = ctx.engine();
         let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.clone()));
+        let warnings = Arc::new(CollectingRowEmitter::new());
         let driver = MergeDriver::new(
             leader.clone(),
             ctx.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
-        );
+        )
+        .with_warnings(MergeWarnings::new(warnings.clone()));
         Self {
             ctx,
             engine,
             leader,
             driver,
             drives: DetachedDrives::new(common::FAN_OUT_CONCURRENCY),
+            warnings,
         }
+    }
+
+    fn merge_warnings(&self) -> MergeWarnings {
+        MergeWarnings::new(self.warnings.clone())
+    }
+
+    /// Every warning emitted so far as `(type, scope)`, in emission order.
+    fn warned(&self) -> Vec<(WarningType, String)> {
+        self.warnings
+            .rows()
+            .into_iter()
+            .map(|row| (row.warning, row.scope))
+            .collect()
+    }
+
+    fn warning_rows(&self) -> Vec<EmittedRow> {
+        self.warnings.rows()
+    }
+
+    async fn person_uuid_of(&self, person_id: i64) -> Uuid {
+        sqlx::query_scalar(&format!(
+            "SELECT uuid FROM {} WHERE id = $1",
+            self.ctx.tables.person
+        ))
+        .bind(person_id)
+        .fetch_one(&self.ctx.pool)
+        .await
+        .expect("person exists")
     }
 
     async fn execute(
@@ -1216,6 +1251,63 @@ async fn the_sweeper_drives_an_abandoned_merge_to_completion() {
     h.ctx.cleanup().await.expect("cleanup");
 }
 
+/// An op the RPC abandoned still owes its warnings: they belong to the
+/// terminal record, so whoever commits it emits them.
+#[tokio::test]
+async fn the_sweeper_warns_for_the_verdicts_it_settles() {
+    let h = MergeHarness::new().await;
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("sweep-warn-source")
+        .await;
+    h.ctx
+        .insert_person_with_distinct_id("sweep-warn-target")
+        .await;
+    h.leader.set_sealed_identified(source, true);
+
+    let op_id = Uuid::now_v7();
+    let request = merge_request("sweep-warn-target", &["sweep-warn-source"]);
+    h.create(op_id, &request).await;
+    sqlx::query("UPDATE lifecycle_op SET created_at = now() - interval '2 hours' WHERE op_id = $1")
+        .bind(op_id)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("backdate the abandoned op");
+    assert!(h.warned().is_empty(), "creation alone warns nothing");
+
+    let sweep_engine = Engine::new(
+        h.ctx.pools.clone(),
+        personhog_identity::lifecycle::engine::EngineConfig {
+            lease: std::time::Duration::from_secs(3600),
+            execute_timeout: std::time::Duration::from_secs(10),
+            poll_interval: std::time::Duration::from_millis(25),
+            attempt_alert_threshold: 5,
+            gc_batch_limit: 10_000,
+        },
+        h.ctx.tables.clone(),
+    );
+    let resumed = sweep_engine.sweep(&[&h.driver]).await.expect("sweep runs");
+    assert!(resumed >= 1);
+
+    let (step, _) = op_row_state(&h.ctx.pool, op_id).await;
+    assert_eq!(step, STEP_ABORTED);
+    let rows = h.warning_rows();
+    assert_eq!(
+        h.warned(),
+        vec![(
+            WarningType::CannotMergeAlreadyIdentified,
+            "sweep-warn-source".to_string()
+        )]
+    );
+    assert_eq!(rows[0].source, MERGE_SAGA);
+    assert_eq!(
+        rows[0].details()["eventUuid"],
+        request.sources[0].event_uuid
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
 #[tokio::test]
 async fn a_fold_without_a_live_target_mark_is_refused_and_the_op_aborts() {
     let h = MergeHarness::new().await;
@@ -1305,6 +1397,23 @@ async fn a_leader_refusal_at_fence_aborts_instead_of_parking() {
         .expect("the fenced sibling unfroze");
     assert!(h.leader.death_documents().is_empty());
 
+    assert_eq!(
+        h.warned(),
+        vec![
+            (WarningType::MergeSettledFailure, "sabort-a".to_string()),
+            (WarningType::MergeSettledFailure, "sabort-b".to_string()),
+        ]
+    );
+    for row in h.warning_rows() {
+        assert_eq!(row.source, MERGE_SAGA);
+        assert_eq!(row.details()["outcome"], "skipped_refused");
+        assert_eq!(row.details()["targetPersonDistinctId"], "sabort-target");
+    }
+    h.execute(op_id, &request)
+        .await
+        .expect("the retry replays the recorded abort");
+    assert_eq!(h.warned().len(), 2);
+
     h.ctx.cleanup().await.expect("cleanup");
 }
 
@@ -1370,6 +1479,17 @@ async fn claim_classification_settles_each_source_without_touching_it() {
     assert!(mergeable_deleted);
     assert_eq!(h.pdi_state("cls-mergeable").await.0, target);
 
+    assert_eq!(
+        h.warned(),
+        vec![
+            (WarningType::MergeRaceCondition, "cls-missing".to_string()),
+            (
+                WarningType::CannotMergeAlreadyIdentified,
+                "cls-identified".to_string()
+            ),
+        ]
+    );
+
     h.ctx.cleanup().await.expect("cleanup");
 }
 
@@ -1407,6 +1527,7 @@ async fn a_target_held_by_another_op_aborts_before_mutating_anything() {
     }
     assert_eq!(h.op_person_status(foreign_op, target).await, "marked");
     assert!(h.leader.calls().is_empty());
+    assert!(h.warned().is_empty());
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -1444,6 +1565,21 @@ async fn a_source_held_by_another_op_is_skipped_while_the_rest_merge() {
     assert!(free_deleted);
     assert_eq!(h.pdi_state("part-held").await.0, held);
     assert_eq!(h.pdi_state("part-free").await.0, target);
+
+    let rows = h.warning_rows();
+    assert_eq!(
+        h.warned(),
+        vec![(WarningType::MergeRaceCondition, "part-held".to_string())]
+    );
+    let details = rows[0].details();
+    assert_eq!(
+        details["personId"],
+        h.person_uuid_of(target).await.to_string()
+    );
+    assert_eq!(
+        details["otherPersonId"],
+        h.person_uuid_of(held).await.to_string()
+    );
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -1543,6 +1679,24 @@ async fn an_identified_source_detected_at_seal_time_drops_with_a_released_fence(
     let (target_deleted, _, _) = h.person_state(target).await;
     assert!(!target_deleted);
     assert_eq!(h.pdi_state("seal-source").await.0, source);
+
+    let rows = h.warning_rows();
+    assert_eq!(
+        h.warned(),
+        vec![(
+            WarningType::CannotMergeAlreadyIdentified,
+            "seal-source".to_string()
+        )]
+    );
+    assert_eq!(rows[0].source, MERGE_SAGA);
+    let details = rows[0].details();
+    assert_eq!(details["sourcePersonDistinctId"], "seal-source");
+    assert_eq!(details["targetPersonDistinctId"], "seal-target");
+    assert_eq!(
+        details["otherPersonId"],
+        h.person_uuid_of(source).await.to_string()
+    );
+    assert!(details.get("personId").is_none());
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -1759,10 +1913,12 @@ impl MergeHarness {
                         self.leader.clone(),
                         self.ctx.tables.clone(),
                         common::FAN_OUT_CONCURRENCY,
-                    ),
+                    )
+                    .with_warnings(self.merge_warnings()),
                     self.drives.clone(),
                 ),
-            ),
+            )
+            .with_warnings(self.merge_warnings()),
             common::FAN_OUT_CONCURRENCY,
         )
     }
@@ -1787,10 +1943,12 @@ impl MergeHarness {
                         self.leader.clone(),
                         self.ctx.tables.clone(),
                         common::FAN_OUT_CONCURRENCY,
-                    ),
+                    )
+                    .with_warnings(self.merge_warnings()),
                     self.drives.clone(),
                 ),
-            ),
+            )
+            .with_warnings(self.merge_warnings()),
             common::FAN_OUT_CONCURRENCY,
         )
     }
@@ -2052,6 +2210,7 @@ async fn the_rpc_runs_the_saga_and_a_retry_returns_the_recorded_answer() {
         calls_after_first,
         "a retry of a finished op re-runs nothing"
     );
+    assert!(h.warned().is_empty());
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -2278,6 +2437,21 @@ async fn inline_cases_settle_without_an_op_row_and_push_the_event_properties() {
     assert_eq!(h.pdi_state("inline-unresolved").await, (target, false, 1));
     let survivor = response.survivor.expect("survivor present");
     assert_eq!(survivor.id, target);
+    let rows = h.warning_rows();
+    assert_eq!(
+        h.warned(),
+        vec![(
+            WarningType::CannotMergeWithIllegalDistinctId,
+            "anonymous".to_string()
+        )]
+    );
+    assert_eq!(rows[0].source, MERGE_ENTRANCE);
+    assert_eq!(rows[0].team_id, h.ctx.team_id);
+    let details = rows[0].details();
+    assert_eq!(details["illegalDistinctId"], "anonymous");
+    assert_eq!(details["otherDistinctId"], "inline-target");
+    assert_eq!(details["distinctId"], "inline-target");
+    assert_eq!(details["eventUuid"], request.sources[1].event_uuid);
     // The survivor's created_at unit must not depend on which branch
     // produced it: the leader already answers epoch millis, so the
     // response must pass it through unscaled.
@@ -2543,6 +2717,29 @@ async fn invalid_merge_requests_are_rejected_before_any_work() {
         assert_eq!(status.code(), expected, "{label}");
     }
     assert!(h.leader.calls().is_empty());
+
+    let illegal_pairs: Vec<(String, String)> = h
+        .warning_rows()
+        .into_iter()
+        .map(|row| {
+            assert_eq!(row.warning, WarningType::CannotMergeWithIllegalDistinctId);
+            assert_eq!(row.source, MERGE_ENTRANCE);
+            let details = row.details();
+            (
+                details["illegalDistinctId"].as_str().unwrap().to_string(),
+                details["otherDistinctId"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        illegal_pairs,
+        vec![
+            ("anonymous".to_string(), "s".to_string()),
+            ("x".repeat(401), "s".to_string()),
+            ("nul\u{0000}target".to_string(), "s".to_string()),
+            ("nul\u{0000}source".to_string(), "t".to_string()),
+        ]
+    );
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -3224,6 +3421,10 @@ async fn a_move_limited_source_skips_while_the_rest_merge_through_the_rpc() {
     assert!(small_deleted);
     let (big_deleted, _, _) = h.person_state(big).await;
     assert!(!big_deleted, "a move-limited source must stay untouched");
+    assert!(
+        h.warned().is_empty(),
+        "the caller's merge-mode policy decides whether a limit skip is a drop"
+    );
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -3286,6 +3487,25 @@ async fn an_identified_source_settles_inline_and_still_delivers_the_events_write
         .await
         .expect("count op rows");
     assert_eq!(op_rows, 0);
+    let rows = h.warning_rows();
+    assert_eq!(
+        h.warned(),
+        vec![(
+            WarningType::CannotMergeAlreadyIdentified,
+            "rpc-ident-source".to_string()
+        )]
+    );
+    assert_eq!(rows[0].source, MERGE_ENTRANCE);
+    let details = rows[0].details();
+    assert_eq!(details["eventUuid"], request.sources[0].event_uuid);
+    assert_eq!(
+        details["personId"],
+        h.person_uuid_of(target).await.to_string()
+    );
+    assert_eq!(
+        details["otherPersonId"],
+        h.person_uuid_of(source).await.to_string()
+    );
 
     // Nothing is recorded, so a retry re-classifies and delivers again:
     // the same at-least-once semantics as every other inline answer.
@@ -3303,6 +3523,7 @@ async fn an_identified_source_settles_inline_and_still_delivers_the_events_write
         )]
     );
     assert_eq!(h.leader.calls().len(), 2);
+    assert_eq!(h.warned().len(), 2, "re-classification warns again");
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -3724,9 +3945,13 @@ async fn an_oversized_source_settles_per_source_instead_of_failing_the_request()
 
     assert_eq!(
         rpc_outcomes(&response),
-        vec![(oversized, MergeSourceOutcome::SkippedIllegal)]
+        vec![(oversized.clone(), MergeSourceOutcome::SkippedIllegal)]
     );
     assert_eq!(response.survivor.expect("survivor").id, target);
+    assert_eq!(
+        h.warned(),
+        vec![(WarningType::CannotMergeWithIllegalDistinctId, oversized)]
+    );
 
     h.ctx.cleanup().await.expect("cleanup");
 }

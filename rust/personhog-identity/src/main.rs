@@ -34,6 +34,7 @@ use personhog_identity::pools::{IdentityPools, Lane};
 use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::PersonHogIdentityService;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
+use personhog_identity::warnings;
 
 common_alloc::used!();
 
@@ -164,6 +165,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sweeper_handle = config
         .lifecycle_sweeper_enabled
         .then(|| manager.register("lifecycle_sweeper", ComponentOptions::new()));
+    let warnings_handle = config.ingestion_warnings_enabled.then(|| {
+        manager.register(
+            "ingestion_warnings",
+            ComponentOptions::new()
+                .with_liveness_deadline(Duration::from_secs(30))
+                .is_advisory(true),
+        )
+    });
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -230,6 +239,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let pools = create_pools(&config);
     let storage = Arc::new(PostgresIdentityStorage::new(pools.clone(), config.tables()));
+    let merge_warnings = warnings::install(&config.ingestion_warnings_settings(), warnings_handle);
 
     // Pre-warm the DB connection pools before accepting traffic.
     // connect_lazy() starts with zero connections; without this, the first
@@ -290,7 +300,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             property_writer.clone(),
             config.tables(),
             config.lifecycle_leader_call_concurrency,
-        );
+        )
+        .with_warnings(merge_warnings.clone());
         let sweeper_delete_driver = DeleteDriver::new(
             lifecycle_leader.clone(),
             config.tables(),
@@ -347,10 +358,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 property_writer.clone(),
                 config.tables(),
                 config.lifecycle_leader_call_concurrency,
-            ),
+            )
+            .with_warnings(merge_warnings.clone()),
             detached_drives.clone(),
         ),
-    );
+    )
+    .with_warnings(merge_warnings);
     let lifecycle_service = PersonHogLifecycleService::new(
         engine,
         lifecycle_leader,

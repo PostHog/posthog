@@ -223,6 +223,26 @@ pub struct Config {
     /// locks for long; the next pass continues.
     #[envconfig(default = "10000")]
     pub lifecycle_gc_batch_limit: i64,
+
+    /// Off until the ingestion consumer stops emitting the same merge
+    /// verdicts itself, or customers see each refusal twice.
+    #[envconfig(default = "false")]
+    pub ingestion_warnings_enabled: bool,
+
+    #[envconfig(default = "")]
+    pub ingestion_warnings_kafka_hosts: String,
+
+    #[envconfig(default = "false")]
+    pub ingestion_warnings_kafka_tls: bool,
+
+    #[envconfig(default = "clickhouse_ingestion_warnings")]
+    pub ingestion_warnings_topic: String,
+
+    #[envconfig(default = "16")]
+    pub ingestion_warnings_kafka_queue_mib: u32,
+
+    #[envconfig(default = "1048576")]
+    pub ingestion_warnings_kafka_message_max_bytes: u32,
 }
 
 /// The paired table set identity operates on: the person table plus the
@@ -413,6 +433,17 @@ impl Config {
 
     pub fn lifecycle_op_retention(&self) -> Duration {
         Duration::from_secs(self.lifecycle_op_retention_hours * 3600)
+    }
+
+    pub fn ingestion_warnings_settings(&self) -> crate::warnings::WarningsSettings {
+        crate::warnings::WarningsSettings {
+            enabled: self.ingestion_warnings_enabled,
+            kafka_hosts: self.ingestion_warnings_kafka_hosts.clone(),
+            kafka_tls: self.ingestion_warnings_kafka_tls,
+            topic: self.ingestion_warnings_topic.clone(),
+            kafka_queue_mib: self.ingestion_warnings_kafka_queue_mib,
+            kafka_message_max_bytes: self.ingestion_warnings_kafka_message_max_bytes,
+        }
     }
 }
 
