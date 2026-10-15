@@ -13,6 +13,7 @@ from django.db.models import F, Lookup, Q
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
@@ -25,6 +26,7 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
     SignalReportTask,
 )
+from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.task_run_artefacts import (
     NON_PR_BEARING_TASK_RUN_TYPES,
@@ -340,7 +342,7 @@ def implementation_pr_needed_by_another_report(*, team_id: int, report_id: str, 
             ),
         )
         .exclude(id=report_id)
-        .exclude(status__in=_FINISHED_REPORT_STATUSES)
+        .exclude(report_status_filter(_FINISHED_REPORT_STATUSES, team_id=team_id))
         .exists()
     )
 
@@ -439,7 +441,9 @@ def _close_implementation_pr(
             )
             return False
 
-        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+        github = GitHubIntegration.first_for_team_repository(
+            team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.CRITICAL
+        )
         if github is None:
             logger.info(
                 "close_implementation_pr_no_integration", report_id=str(report_id), repository=parsed.repository

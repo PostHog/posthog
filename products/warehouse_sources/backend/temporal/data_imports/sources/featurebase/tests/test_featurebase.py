@@ -8,6 +8,10 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase import featurebase
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.featurebase import (
     FeaturebaseResumeConfig,
@@ -509,23 +513,6 @@ class TestWebhookTableTransformer:
         assert _webhook_table_transformer(table).to_pylist() == []
 
 
-def _session_with(**methods: Any) -> MagicMock:
-    session = MagicMock()
-    for name, value in methods.items():
-        getattr(session, name).side_effect = value if isinstance(value, list) else [value]
-    return session
-
-
-def _json_response(payload: Any, status_code: int = 200) -> MagicMock:
-    response = MagicMock(status_code=status_code, ok=status_code < 400)
-    response.json.return_value = payload
-    if status_code >= 400:
-        response.raise_for_status.side_effect = requests.HTTPError(response=response)
-    else:
-        response.raise_for_status.return_value = None
-    return response
-
-
 class TestSessionSampleCapture:
     # Featurebase bodies carry free-form customer content (posts/comments HTML, admin-only
     # comments, contact PII) and the webhook create/list responses carry the whsec_ signing
@@ -566,104 +553,120 @@ class TestValidateCredentials:
         ]
     )
     def test_validate_credentials(self, _name: str, status: int, payload: dict, expected_valid: bool) -> None:
-        session = _session_with(get=_json_response(payload, status))
-        with patch.object(featurebase, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status, json=payload)]) as network:
             valid, error = validate_credentials("fb_test")
         assert valid is expected_valid
         if not expected_valid:
             assert error == "Invalid API Key"
+        assert [request.path for request in network.requests_log] == ["/v2/admins"]
+        assert network.requests_log[0].headers["authorization"] == "Bearer fb_test"
 
 
 class TestWebhookManagement:
     def test_create_webhook_captures_signing_secret(self) -> None:
-        session = _session_with(post=_json_response({"id": "wh1", "secret": "whsec_abc"}))
-        with patch.object(featurebase, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(json={"id": "wh1", "secret": "whsec_abc"})]) as network:
             result = create_webhook("fb_test", "https://us.posthog.com/webhook")
 
         assert result.success is True
         assert result.extra_inputs == {"signing_secret": "whsec_abc"}
         assert result.pending_inputs == []
-        payload = session.post.call_args.kwargs["json"]
+        assert network.requests_log[0].method == "POST"
+        assert network.requests_log[0].path == "/v2/webhooks"
+        payload = network.requests_log[0].json()
         assert payload["url"] == "https://us.posthog.com/webhook"
         assert "post.created" in payload["topics"] and "changelog.published" in payload["topics"]
 
     def test_create_webhook_surfaces_org_limit_error(self) -> None:
         # Featurebase caps webhooks per org and 400s at the cap — the user needs the reason,
         # not a retry loop.
-        session = _session_with(post=_json_response({"message": "Webhook limit reached"}, 400))
-        with patch.object(featurebase, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=400, json={"message": "Webhook limit reached"})]) as network:
             result = create_webhook("fb_test", "https://us.posthog.com/webhook")
 
         assert result.success is False
         assert result.error == "Webhook limit reached"
+        assert [request.method for request in network.requests_log] == ["POST"]
 
     def test_delete_webhook_matches_by_url(self) -> None:
-        session = _session_with(
-            get=_json_response({"data": [{"id": "wh1", "url": "https://us.posthog.com/webhook"}], "nextCursor": None}),
-            delete=_json_response({"id": "wh1", "deleted": True}),
-        )
-        with patch.object(featurebase, "make_tracked_session", return_value=session):
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json={"data": [{"id": "wh1", "url": "https://us.posthog.com/webhook"}], "nextCursor": None}
+                ),
+                ScriptedResponse(json={"id": "wh1", "deleted": True}),
+            ]
+        ) as network:
             result = delete_webhook("fb_test", "https://us.posthog.com/webhook")
 
         assert result.success is True
-        assert "/webhooks/wh1" in session.delete.call_args.args[0]
+        assert [(request.method, request.path) for request in network.requests_log] == [
+            ("GET", "/v2/webhooks"),
+            ("DELETE", "/v2/webhooks/wh1"),
+        ]
 
     def test_sync_webhook_events_patches_drifted_topics(self) -> None:
-        session = _session_with(
-            get=_json_response(
-                {
-                    "data": [{"id": "wh1", "url": "https://us.posthog.com/webhook", "topics": ["post.created"]}],
-                    "nextCursor": None,
-                }
-            ),
-            patch=_json_response({"id": "wh1"}),
-        )
-        with patch.object(featurebase, "make_tracked_session", return_value=session):
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json={
+                        "data": [{"id": "wh1", "url": "https://us.posthog.com/webhook", "topics": ["post.created"]}],
+                        "nextCursor": None,
+                    }
+                ),
+                ScriptedResponse(json={"id": "wh1"}),
+            ]
+        ) as network:
             result = sync_webhook_events("fb_test", "https://us.posthog.com/webhook", ["post.created", "post.updated"])
 
         assert result.success is True
-        assert session.patch.call_args.kwargs["json"] == {"topics": ["post.created", "post.updated"]}
+        assert [(request.method, request.path) for request in network.requests_log] == [
+            ("GET", "/v2/webhooks"),
+            ("PATCH", "/v2/webhooks/wh1"),
+        ]
+        assert network.requests_log[1].json() == {"topics": ["post.created", "post.updated"]}
 
     def test_sync_webhook_events_noop_when_topics_match(self) -> None:
-        session = _session_with(
-            get=_json_response(
-                {
-                    "data": [{"id": "wh1", "url": "https://us.posthog.com/webhook", "topics": ["post.created"]}],
-                    "nextCursor": None,
-                }
-            )
-        )
-        with patch.object(featurebase, "make_tracked_session", return_value=session):
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json={
+                        "data": [{"id": "wh1", "url": "https://us.posthog.com/webhook", "topics": ["post.created"]}],
+                        "nextCursor": None,
+                    }
+                )
+            ]
+        ) as network:
             result = sync_webhook_events("fb_test", "https://us.posthog.com/webhook", ["post.created"])
         assert result.success is True
-        session.patch.assert_not_called()
+        assert [(request.method, request.path) for request in network.requests_log] == [("GET", "/v2/webhooks")]
 
     def test_get_external_webhook_info(self) -> None:
-        session = _session_with(
-            get=_json_response(
-                {
-                    "data": [
-                        {
-                            "id": "wh1",
-                            "url": "https://us.posthog.com/webhook",
-                            "topics": ["post.created"],
-                            "status": "active",
-                            "createdAt": "2026-01-01T00:00:00.000Z",
-                        }
-                    ],
-                    "nextCursor": None,
-                }
-            )
-        )
-        with patch.object(featurebase, "make_tracked_session", return_value=session):
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {
+                                "id": "wh1",
+                                "url": "https://us.posthog.com/webhook",
+                                "topics": ["post.created"],
+                                "status": "active",
+                                "createdAt": "2026-01-01T00:00:00.000Z",
+                            }
+                        ],
+                        "nextCursor": None,
+                    }
+                )
+            ]
+        ) as network:
             info = get_external_webhook_info("fb_test", "https://us.posthog.com/webhook")
 
         assert info.exists is True
         assert info.status == "active"
         assert info.enabled_events == ["post.created"]
+        assert [(request.method, request.path) for request in network.requests_log] == [("GET", "/v2/webhooks")]
 
     def test_get_external_webhook_info_not_found(self) -> None:
-        session = _session_with(get=_json_response({"data": [], "nextCursor": None}))
-        with patch.object(featurebase, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(json={"data": [], "nextCursor": None})]) as network:
             info = get_external_webhook_info("fb_test", "https://us.posthog.com/webhook")
         assert info.exists is False
+        assert [(request.method, request.path) for request in network.requests_log] == [("GET", "/v2/webhooks")]

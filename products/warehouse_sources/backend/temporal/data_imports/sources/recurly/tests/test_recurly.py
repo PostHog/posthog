@@ -1,24 +1,28 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from requests import Response
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recurly import (
+    RecurlySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.recurly import (
     RecurlyPaginator,
     RecurlyResumeConfig,
     _extract_cursor,
     _format_datetime,
     get_resource,
-    recurly_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.settings import RECURLY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.source import RecurlySource
 
 INCREMENTAL_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if e.supports_incremental]
 NO_LIST_PARAMS_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if not e.supports_list_params]
@@ -115,24 +119,13 @@ class TestGetResource:
         assert resource["write_disposition"] == "replace"
 
 
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid",
         [(200, True), (401, False), (403, False), (500, False)],
     )
     def test_status_code_mapping(self, status_code, expected_valid):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.recurly.recurly.make_tracked_session"
-        ) as mock_session:
-            mock_session.return_value.get.return_value = _make_http_response({}, status_code=status_code)
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
             is_valid, message = validate_credentials("key", "us")
 
         assert is_valid is expected_valid
@@ -140,10 +133,7 @@ class TestValidateCredentials:
             assert message
 
     def test_connection_error_is_invalid(self):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.recurly.recurly.make_tracked_session"
-        ) as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
+        with scripted_network(always(ConnectionError("boom"))):
             is_valid, message = validate_credentials("key", "us")
 
         assert is_valid is False
@@ -151,69 +141,36 @@ class TestValidateCredentials:
 
 
 class TestRecurlySourceResumeBehavior:
-    def _drive(self, endpoint: str, manager: MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = recurly_source(
-                api_key="test-key",
-                region="us",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=None,
-                should_use_incremental_field=False,
-            )
-            list(cast(Iterable[Any], resource))
-            return sent_params
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(RecurlySource(), RecurlySourceConfig(api_key="test-key", region="us"))
 
     def test_fresh_run_saves_cursor_after_each_non_terminal_page(self):
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "accounts",
+            [
+                ScriptedResponse(json=_list_body([{"id": "a1"}], has_more=True, next_path="/accounts?cursor=cur-1")),
+                ScriptedResponse(json=_list_body([{"id": "a2"}], has_more=True, next_path="/accounts?cursor=cur-2")),
+                ScriptedResponse(json=_list_body([{"id": "a3"}], has_more=False)),
+            ],
+        )
 
-        responses = [
-            _make_http_response(_list_body([{"id": "a1"}], has_more=True, next_path="/accounts?cursor=cur-1")),
-            _make_http_response(_list_body([{"id": "a2"}], has_more=True, next_path="/accounts?cursor=cur-2")),
-            _make_http_response(_list_body([{"id": "a3"}], has_more=False)),
-        ]
-        sent_params = self._drive("accounts", manager, responses)
-
-        assert [p.get("cursor") for p in sent_params] == [None, "cur-1", "cur-2"]
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert result.params("cursor") == [None, "cur-1", "cur-2"]
+        assert result.saved_states == [
             RecurlyResumeConfig(next_cursor="cur-1"),
             RecurlyResumeConfig(next_cursor="cur-2"),
         ]
 
     def test_resume_seeds_paginator_with_saved_cursor(self):
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = RecurlyResumeConfig(next_cursor="cur-resumed")
+        result = self._driver().run(
+            "accounts",
+            [ScriptedResponse(json=_list_body([{"id": "a4"}], has_more=False))],
+            resume_state=RecurlyResumeConfig(next_cursor="cur-resumed"),
+        )
 
-        responses = [_make_http_response(_list_body([{"id": "a4"}], has_more=False))]
-        sent_params = self._drive("accounts", manager, responses)
+        assert result.params("cursor") == ["cur-resumed"]
 
-        assert [p.get("cursor") for p in sent_params] == ["cur-resumed"]
-        manager.load_state.assert_called_once()
+    def test_does_not_resume_when_there_is_no_saved_state(self):
+        result = self._driver().run("accounts", [ScriptedResponse(json=_list_body([{"id": "a"}], has_more=False))])
 
-    def test_does_not_load_state_when_cannot_resume(self):
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response(_list_body([{"id": "a"}], has_more=False))]
-        self._drive("accounts", manager, responses)
-
-        manager.load_state.assert_not_called()
+        assert result.params("cursor") == [None]

@@ -18,6 +18,7 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -63,6 +64,10 @@ const CORE_TEMPLATE_TYPES: Record<SurveyTemplateMode, SurveyTemplateType[]> = {
 
 function templateMatchesMode(template: SurveyTemplate, mode: SurveyTemplateMode): boolean {
     return !template.modes || template.modes.includes(mode)
+}
+
+function errorDetailOr(error: unknown, fallback: string): string {
+    return (error instanceof ApiError && error.detail) || fallback
 }
 
 export interface SurveyWizardLogicProps {
@@ -449,6 +454,11 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 ? {
                       displayThankYouMessage: template.appearance.displayThankYouMessage,
                       thankYouMessageHeader: template.appearance.thankYouMessageHeader,
+                      displayIntroScreen: template.appearance.displayIntroScreen,
+                      introScreenHeader: template.appearance.introScreenHeader,
+                      introScreenDescription: template.appearance.introScreenDescription,
+                      introScreenDescriptionContentType: template.appearance.introScreenDescriptionContentType,
+                      introScreenButtonText: template.appearance.introScreenButtonText,
                       position: template.appearance.position,
                       shuffleQuestions: template.appearance.shuffleQuestions,
                       surveyPopupDelaySeconds: template.appearance.surveyPopupDelaySeconds,
@@ -503,7 +513,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 actions.launchSurveySuccess(createdSurvey)
             } catch (e) {
                 actions.launchSurveyFailure(String(e))
-                lemonToast.error('Failed to create survey')
+                lemonToast.error(errorDetailOr(e, 'Failed to create survey'))
             }
         },
         launchSurveySuccess: ({ survey }) => {
@@ -534,7 +544,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 actions.saveDraftSuccess(createdSurvey)
             } catch (e) {
                 actions.saveDraftFailure(String(e))
-                lemonToast.error('Failed to save draft')
+                lemonToast.error(errorDetailOr(e, 'Failed to save draft'))
             }
         },
         saveDraftSuccess: ({ survey }) => {
@@ -557,7 +567,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 actions.updateSurveySuccess(updatedSurvey)
             } catch (e) {
                 actions.updateSurveyFailure(String(e))
-                lemonToast.error('Failed to update survey')
+                lemonToast.error(errorDetailOr(e, 'Failed to update survey'))
             }
         },
         updateSurveySuccess: ({ survey }) => {

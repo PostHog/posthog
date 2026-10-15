@@ -34,10 +34,11 @@ from typing import Any, cast
 from django.conf import settings
 
 from asgiref.sync import async_to_sync
-from temporalio.client import WorkflowExecutionStatus
-from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.client import WorkflowExecutionStatus, WorkflowQueryRejectedError
+from temporalio.common import QueryRejectCondition, RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import sync_connect
 
@@ -86,6 +87,37 @@ def probe_workflow(workflow_id: str, rpc_timeout: timedelta | None = None) -> Wo
     if description.status == WorkflowExecutionStatus.RUNNING:
         return WorkflowProbe.RUNNING
     return WorkflowProbe.NOT_RUNNING
+
+
+@frozen
+class QueuedReviewHeads:
+    """The heads the PR's review queue still has to review. None is a request for the live head."""
+
+    # The request whose turn runs now, or waits for a resolution run to end before it starts.
+    active: tuple[str | None, ...] = ()
+    pending: tuple[str | None, ...] = ()
+
+
+def queued_review_heads(workflow_id: str, rpc_timeout: timedelta | None = None) -> QueuedReviewHeads:
+    """The heads the PR's review queue still has to review. Empty when no queue runs.
+
+    Raises when Temporal does not answer, so a caller cannot read an outage as "nothing queued".
+    """
+    try:
+        client = sync_connect()
+        handle = client.get_workflow_handle(workflow_id)
+        # async_to_sync erases query's overloads, so mypy binds the wrong one.
+        query = cast(Callable[..., Any], async_to_sync(handle.query))
+        heads: dict[str, list[str | None]] = query(
+            "requested_heads", reject_condition=QueryRejectCondition.NOT_OPEN, rpc_timeout=rpc_timeout
+        )
+    except WorkflowQueryRejectedError:
+        return QueuedReviewHeads()
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return QueuedReviewHeads()
+        raise
+    return QueuedReviewHeads(active=tuple(heads["active"]), pending=tuple(heads["pending"]))
 
 
 def workflow_running(workflow_id: str) -> bool:

@@ -2,8 +2,10 @@ from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -64,6 +66,13 @@ class ChatwootSource(
     ResumableSource[ChatwootSourceConfig, ChatwootResumeConfig],
     WebhookSource[ChatwootSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^CHATWOOT_",),
+        script_hosts=("app.chatwoot.com",),
+        npm=("@chatwoot/react-native-widget",),
+        pub=("chatwoot_sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

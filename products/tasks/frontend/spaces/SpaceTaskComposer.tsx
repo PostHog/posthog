@@ -1,4 +1,4 @@
-import { EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
+import { type ComposerPrefillRequest, EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
 
 import { ChannelDTOApi } from '../generated/api.schemas'
 import { SpaceComposerRepositoryConfig } from './spaceSceneLogic'
@@ -17,6 +17,7 @@ export interface SpaceTaskComposerProps {
     repositoryConfig: SpaceComposerRepositoryConfig
     onTaskCreated: (sessionId: string) => void
     focusRequest?: number
+    prefillRequest?: ComposerPrefillRequest | null
 }
 
 /** The new-session composer that files into a space, on the space's activity tab and on the new session page. */
@@ -26,6 +27,7 @@ export function SpaceTaskComposer({
     repositoryConfig,
     onTaskCreated,
     focusRequest,
+    prefillRequest,
 }: SpaceTaskComposerProps): JSX.Element {
     return (
         <EmbeddedTaskComposer
@@ -37,6 +39,7 @@ export function SpaceTaskComposer({
             onTaskCreated={onTaskCreated}
             focusRequest={focusRequest}
             autoFocus={false}
+            prefillRequest={prefillRequest}
             fallback={<SpaceTaskComposerSkeleton />}
         />
     )

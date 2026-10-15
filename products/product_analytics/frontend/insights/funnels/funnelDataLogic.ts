@@ -15,7 +15,9 @@ import {
 } from 'scenes/dashboard/dashboardBreakdownColors'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
-import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { cleanSeriesNodes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
+import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import type { QuerySourceUpdate } from 'scenes/insights/insightVizDataLogic'
@@ -29,8 +31,7 @@ import {
 } from 'scenes/insights/utils'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
-import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelExclusionSteps } from '~/queries/schema/schema-general'
+import { FunnelExclusion, FunnelExclusionEventsNode, FunnelExclusionSteps } from '~/queries/schema/schema-general'
 import { FunnelsFilter, FunnelsQuery, FunnelsQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import type {
     AnyDataWarehouseNode,
@@ -68,9 +69,10 @@ import {
     InsightLogicProps,
     StepOrderValue,
     TrendResult,
-    FilterType,
 } from '~/types'
 import type { BreakdownKeyType, FunnelStep, IntervalType, LabelGroupType } from '~/types'
+
+import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'products/product_analytics/frontend/insights/shared/aggregationTargetUtils'
 
 import {
     TIME_INTERVAL_BOUNDS,
@@ -301,7 +303,6 @@ export interface funnelDataLogicValues {
     conversionWindowUnit: FunnelConversionWindowTimeUnit | null
     disableFunnelBreakdownBaseline: boolean
     exclusionDefaultStepRange: FunnelExclusionSteps
-    exclusionFilters: FilterType
     flattenedBreakdowns: FlattenedFunnelStepByBreakdown[]
     funnelVizType: FunnelVizType
     getFunnelsColor: (dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics) => string
@@ -348,6 +349,7 @@ export interface funnelDataLogicValues {
     isStepsFunnel: boolean | null
     isTimeToConvertFunnel: boolean | null
     isTrendsFunnel: boolean | null
+    newExclusionDefaults: Partial<FunnelExclusionEventsNode>
     numericBinCount: number
     querySource: FunnelsQuery | null
     resultCustomizations: Record<string, ResultCustomizationByValue> | undefined
@@ -393,6 +395,9 @@ export interface funnelDataLogicActions {
     }
     toggleLegendBreakdownVisibility: (breakdown: string) => {
         breakdown: string
+    }
+    updateExclusions: (exclusions: SeriesNode[]) => {
+        exclusions: SeriesNode[]
     }
 }
 
@@ -578,7 +583,7 @@ export interface funnelDataLogicMeta {
         isFunnelWithEnoughSteps: (series: FunnelsQuerySeriesNodeUnion[] | null) => boolean
         isFunnelWithIncompleteDataWarehouseStep: (series: FunnelsQuerySeriesNodeUnion[] | null) => boolean
         exclusionDefaultStepRange: (querySource: FunnelsQuery | null) => FunnelExclusionSteps
-        exclusionFilters: (funnelsFilter: FunnelsFilter | null | undefined) => FilterType
+        newExclusionDefaults: (exclusionDefaultStepRange: FunnelExclusionSteps) => Partial<FunnelExclusionEventsNode>
     }
 }
 
@@ -637,6 +642,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             funnelWindowIntervalUnit,
         }),
         commitConversionWindow: true,
+        updateExclusions: (exclusions: SeriesNode[]) => ({ exclusions }),
     }),
 
     reducers({
@@ -1497,20 +1503,22 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 funnelToStep: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
             }),
         ],
-        exclusionFilters: [
-            (s) => [s.funnelsFilter],
-            (funnelsFilter: FunnelsFilter | null | undefined): FilterType => ({
-                events: funnelsFilter?.exclusions?.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
-                    funnel_from_step: funnelFromStep,
-                    funnel_to_step: funnelToStep,
-                    order: index,
-                    ...seriesNodeToFilter(rest),
-                })),
+        newExclusionDefaults: [
+            (s) => [s.exclusionDefaultStepRange],
+            (exclusionDefaultStepRange: FunnelExclusionSteps): Partial<FunnelExclusionEventsNode> => ({
+                event: '$pageview',
+                name: '$pageview',
+                ...exclusionDefaultStepRange,
             }),
         ],
     })),
 
     listeners(({ actions, values }) => ({
+        updateExclusions: ({ exclusions }) => {
+            actions.updateInsightFilter({
+                exclusions: cleanSeriesNodes(exclusions, MathAvailability.None) as FunnelExclusion[],
+            })
+        },
         setHiddenLegendBreakdowns: ({ hiddenLegendBreakdowns }) => {
             actions.updateInsightFilter({ hiddenLegendBreakdowns })
         },

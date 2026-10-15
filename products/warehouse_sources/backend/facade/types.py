@@ -1451,6 +1451,9 @@ class ExternalDataSourceType(LabeledStrEnum):
     STACKADAPT = "StackAdapt", "StackAdapt"
     CHECKHQ = "CheckHQ", "CheckHQ"
     RAINFORESTPAY = "RainforestPay", "RainforestPay"
+    WISE = "Wise", "Wise"
+    LARAVELCLOUD = "LaravelCloud", "LaravelCloud"
+    NORTHBEAM = "Northbeam", "Northbeam"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:

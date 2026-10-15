@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatPercentage } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { labColor, modelColors } from '../colors'
 import { McpDateFilter } from '../components/McpDateFilter'
 import { McpSharedFilters } from '../components/McpSharedFilters'
 import { ActivityChart } from '../dashboard/ActivityChart'
@@ -17,7 +18,6 @@ import { formatMsAsSeconds } from '../dashboard/formatters'
 import { HarnessBarChart } from '../dashboard/HarnessBarChart'
 import { KpiTiles } from '../dashboard/KpiTiles'
 import { ModelBarChart } from '../dashboard/ModelBarChart'
-import { modelColor } from '../dashboard/modelColors'
 import { NotableSessionsTable } from '../dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from '../dashboard/ToolErrorRateChart'
 import { mcpDashboardOverviewLogic } from '../mcpDashboardOverviewLogic'
@@ -42,7 +42,6 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         activityRowsLoading,
         harnessRows,
         harnessRowsLoading,
-        modelRows,
         kpis,
         kpisLoading,
         users,
@@ -66,7 +65,10 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         leaderboardLoading,
         scoreboardMetric,
         scoreboardShares,
+        leaderboardModelRows,
         modelSeries,
+        pageModels,
+        modelRowLabelMap,
         labSeries,
         protocolVersionSeries,
         reliabilitySeries,
@@ -78,7 +80,9 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
 
     const failedFacet = (...keys: FacetKey[]): boolean => keys.some((key) => facets.failedFacets.includes(key))
 
-    const modelColorOf = useCallback((label: string) => modelColor(theme, label), [theme])
+    const pageModelColors = useMemo(() => modelColors(theme, pageModels), [theme, pageModels])
+    const modelColorOf = useCallback((label: string) => pageModelColors.get(label), [pageModelColors])
+    const labColorOf = useCallback((label: string) => labColor(theme, label), [theme])
     const paletteColorOf = useCallback(
         (label: string, index: number) =>
             label === 'Other' ? theme.axisColor : theme.colors[index % theme.colors.length],
@@ -162,12 +166,18 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         interval={interval}
                         colorOf={modelColorOf}
                     />
-                    {modelRowsLoading && modelRows.length === 0 ? (
+                    {leaderboardModelRows.length === 0 && (facetsLoading || modelRowsLoading) ? (
                         <Card title="Share of calls by model" className="min-w-0">
                             <Skeleton className="h-48 w-full" />
                         </Card>
                     ) : (
-                        <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} />
+                        <ModelBarChart
+                            rows={leaderboardModelRows}
+                            theme={theme}
+                            filters={queryFilters}
+                            colorOf={modelColorOf}
+                            rowLabels={modelRowLabelMap}
+                        />
                     )}
                 </TwoColumns>
                 <TwoColumns>
@@ -180,7 +190,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         theme={theme}
                         timezone={timezone}
                         interval={interval}
-                        colorOf={paletteColorOf}
+                        colorOf={labColorOf}
                     />
                     <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
                 </TwoColumns>

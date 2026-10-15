@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,21 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTrailResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_CLOUD_TRAIL|AWSCLOUDTRAIL)_",),
+        npm=("@aws-sdk/client-cloudtrail",),
+        cargo=("aws-sdk-cloudtrail", "aws-sdk-cloudtraildata"),
+        go=("github.com/aws/aws-sdk-go-v2/service/cloudtrail",),
+        maven=(
+            "software.amazon.awssdk:cloudtrail",
+            "com.amazonaws:aws-java-sdk-cloudtrail",
+            "com.amazonaws:aws-cloudtrail-processing-library",
+            "com.amazonaws:aws-java-sdk-cloudtraildata",
+            "software.amazon.awssdk:cloudtraildata",
+        ),
+        rubygems=("aws-sdk-cloudtrail",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (CLOUDTRAIL_API_VERSION,)
     default_version = CLOUDTRAIL_API_VERSION

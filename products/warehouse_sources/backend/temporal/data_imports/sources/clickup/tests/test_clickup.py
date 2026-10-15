@@ -1,11 +1,7 @@
-import json
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
-from unittest import mock
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.clickup import (
     TIME_ENTRIES_HISTORY_FLOOR,
@@ -13,76 +9,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.cl
     ClickUpResumeConfig,
     _ms_to_iso,
     _to_epoch_ms,
-    clickup_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.settings import (
     CLICKUP_ENDPOINTS,
     ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the clickup module.
-CLICKUP_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.clickup.clickup.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.source import ClickUpSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickup import (
+    ClickUpSourceConfig,
 )
 
 
-def _response(payload: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(payload).encode()
-    return resp
-
-
-def _make_manager(resume_state: ClickUpResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's url + params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _wire_repeating(session: mock.MagicMock, first: list[Response], then: Any) -> list[dict[str, Any]]:
-    """Like `_wire`, but answers every request past `first` by calling `then()` for a fresh response.
-
-    A full-refresh window walk issues one request per window back to the history floor, far more
-    than a fixed list can hold.
-    """
-    remaining = list(first)
-
-    def _send(*args: Any, **kwargs: Any) -> Response:
-        return remaining.pop(0) if remaining else then()
-
-    snapshots = _wire(session, [])
-    session.send.side_effect = _send
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    return clickup_source("pk", "9", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(ClickUpSource(), ClickUpSourceConfig(api_key="pk_token", workspace_id="9"))
 
 
 class TestMsToIso:
@@ -119,39 +66,36 @@ class TestToEpochMs:
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid",
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
+        [(200, True), (401, False), (403, False), (500, False)],
     )
-    @mock.patch(CLICKUP_SESSION_PATCH)
-    def test_status_mapping(self, mock_session: mock.MagicMock, status_code: int, expected_valid: bool) -> None:
-        mock_session.return_value.get.return_value = _response({"teams": [{"id": "9"}]}, status_code=status_code)
-        valid, _ = validate_credentials("pk_token", workspace_id=None)
+    def test_status_mapping(self, status_code: int, expected_valid: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={"teams": [{"id": "9"}]}))) as network:
+            valid, _ = validate_credentials("pk_token", workspace_id=None)
+
         assert valid is expected_valid
+        assert {request.path for request in network.requests_log} == {"/api/v2/team"}
+        assert network.requests_log[0].headers["authorization"] == "pk_token"
 
-    @mock.patch(CLICKUP_SESSION_PATCH)
-    def test_workspace_must_be_accessible(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _response({"teams": [{"id": "9"}]})
+    def test_workspace_must_be_accessible(self) -> None:
+        with scripted_network([ScriptedResponse(json={"teams": [{"id": "9"}]})]) as network:
+            ok, _ = validate_credentials("pk_token", workspace_id="9")
 
-        ok, _ = validate_credentials("pk_token", workspace_id="9")
+        with scripted_network([ScriptedResponse(json={"teams": [{"id": "9"}]})]) as second_network:
+            bad, message = validate_credentials("pk_token", workspace_id="404")
+
         assert ok is True
-
-        bad, message = validate_credentials("pk_token", workspace_id="404")
         assert bad is False
         assert message is not None and "can't access this workspace" in message
+        assert [request.path for request in network.requests_log] == ["/api/v2/team"]
+        assert [request.path for request in second_network.requests_log] == ["/api/v2/team"]
 
     @pytest.mark.parametrize(
         "workspace_id",
         ["https://app.clickup.com/9/settings/team/9/general", "app.clickup.com/9/home", " 9 "],
     )
-    @mock.patch(CLICKUP_SESSION_PATCH)
-    def test_pasted_workspace_url_resolves_to_its_id(self, mock_session: mock.MagicMock, workspace_id: str) -> None:
-        mock_session.return_value.get.return_value = _response({"teams": [{"id": "9"}]})
-
-        valid, message = validate_credentials("pk_token", workspace_id=workspace_id)
+    def test_pasted_workspace_url_resolves_to_its_id(self, workspace_id: str) -> None:
+        with scripted_network([ScriptedResponse(json={"teams": [{"id": "9"}]})]):
+            valid, message = validate_credentials("pk_token", workspace_id=workspace_id)
 
         assert (valid, message) == (True, None)
 
@@ -159,82 +103,68 @@ class TestValidateCredentials:
         "workspace_id",
         ["https://app.clickup.com/t/86abc123", "my-workspace", "https://evil.com/app.clickup.com/9"],
     )
-    @mock.patch(CLICKUP_SESSION_PATCH)
-    def test_non_numeric_workspace_is_rejected_before_calling_clickup(
-        self, mock_session: mock.MagicMock, workspace_id: str
-    ) -> None:
-        valid, message = validate_credentials("pk_token", workspace_id=workspace_id)
+    def test_non_numeric_workspace_is_rejected_before_calling_clickup(self, workspace_id: str) -> None:
+        with scripted_network([]) as network:
+            valid, message = validate_credentials("pk_token", workspace_id=workspace_id)
 
         assert valid is False
         assert message is not None and "Paste that URL or enter just the number" in message
         assert workspace_id not in message
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
-    @mock.patch(CLICKUP_SESSION_PATCH)
-    def test_request_exception_returns_error(self, mock_session: mock.MagicMock) -> None:
-        import requests
+    def test_request_exception_returns_error(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            valid, message = validate_credentials("pk_token", workspace_id=None)
 
-        mock_session.return_value.get.side_effect = requests.exceptions.ConnectionError("boom")
-        valid, message = validate_credentials("pk_token", workspace_id=None)
         assert valid is False
-        assert message == "boom"
+        assert message is not None and "boom" in message
+        assert {request.path for request in network.requests_log} == {"/api/v2/team"}
 
 
 class TestTasks:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_short_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_paginates_until_short_page(self) -> None:
         full_page = {"tasks": [{"id": str(i), "date_updated": "1567785250202"} for i in range(100)]}
         short_page = {"tasks": [{"id": "100", "date_updated": "1567785250202"}]}
-        snapshots = _wire(session, [_response(full_page), _response(short_page)])
+        result = _driver().run("tasks", [ScriptedResponse(json=full_page), ScriptedResponse(json=short_page)])
 
-        manager = _make_manager()
-        rows = _rows(_source("tasks", manager))
-
-        assert session.send.call_count == 2
-        assert len(rows) == 101
+        assert result.raised is None
+        assert len(result.requests) == 2
+        assert len(result.rows) == 101
         # Date fields normalized to ISO on the way out.
-        assert rows[0]["date_updated"].startswith("2019-09-06T")
-        assert snapshots[0]["params"]["page"] == 0
-        assert snapshots[1]["params"]["page"] == 1
+        assert result.rows[0]["date_updated"].startswith("2019-09-06T")
+        assert result.params("page") == ["0", "1"]
         # Checkpoint the page just yielded so a crash re-fetches it (merge dedupes). The final short
         # page has no next page, so no checkpoint follows it.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == ClickUpResumeConfig(page=0)
+        assert result.saved_states == [ClickUpResumeConfig(page=0)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"tasks": []})])
+    def test_empty_first_page_yields_nothing(self) -> None:
+        result = _driver().run("tasks", [ScriptedResponse(json={"tasks": []})])
 
-        manager = _make_manager()
-        rows = _rows(_source("tasks", manager))
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert result.rows == []
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"tasks": [{"id": "1"}]})])
-
-        _rows(_source("tasks", _make_manager(ClickUpResumeConfig(page=4))))
-        assert snapshots[0]["params"]["page"] == 4
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_adds_date_updated_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"tasks": [{"id": "1"}]})])
-
-        _rows(
-            _source(
-                "tasks",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2019, 9, 6, 15, 54, 10, 202000, tzinfo=UTC),
-            )
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run(
+            "tasks",
+            [ScriptedResponse(json={"tasks": [{"id": "1"}]})],
+            resume_state=ClickUpResumeConfig(page=4),
         )
-        assert snapshots[0]["params"]["date_updated_gt"] == 1567785250202
+
+        assert result.raised is None
+        assert result.params("page") == ["4"]
+
+    def test_incremental_adds_date_updated_filter(self) -> None:
+        result = _driver().run(
+            "tasks",
+            [ScriptedResponse(json={"tasks": [{"id": "1"}]})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2019, 9, 6, 15, 54, 10, 202000, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.params("date_updated_gt") == ["1567785250202"]
 
 
 class TestTimeEntries:
@@ -243,80 +173,72 @@ class TestTimeEntries:
     def _entries(self, *ids: str) -> dict[str, Any]:
         return {"data": [{"id": entry_id, "start": "1567785250202"} for entry_id in ids]}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_the_saved_window(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_resumes_from_the_saved_window(self) -> None:
         resume_start = round((datetime.now(tz=UTC) - timedelta(days=10)).timestamp() * 1000)
-        snapshots = _wire(session, [_response(self.TEAMS), _response(self._entries("e1"))])
-
-        _rows(
-            _source(
-                "time_entries",
-                _make_manager(ClickUpResumeConfig(window_start=resume_start)),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime.now(tz=UTC) - timedelta(days=365),
-            )
+        result = _driver().run(
+            "time_entries",
+            [ScriptedResponse(json=self.TEAMS), ScriptedResponse(json=self._entries("e1"))],
+            resume_state=ClickUpResumeConfig(window_start=resume_start),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime.now(tz=UTC) - timedelta(days=365),
         )
 
+        assert result.raised is None
         # The saved window wins over the watermark, so a resumed sync doesn't re-walk a year.
-        assert snapshots[1]["params"]["start_date"] == resume_start
+        assert result.requests[1].param("start_date") == str(resume_start)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_starts_at_the_history_floor(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire_repeating(session, [_response(self.TEAMS)], lambda: _response({"data": []}))
+    def test_full_refresh_starts_at_the_history_floor(self) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            return ScriptedResponse(json=self.TEAMS if request.path == "/api/v2/team" else {"data": []})
 
-        _rows(_source("time_entries", _make_manager(), should_use_incremental_field=False))
+        result = _driver().run("time_entries", answer, should_use_incremental_field=False)
 
+        assert result.raised is None
         # No watermark means the whole history, which the endpoint only returns when asked,
         # because without an explicit start_date it answers with the last 30 days.
-        assert snapshots[1]["params"]["start_date"] == round(TIME_ENTRIES_HISTORY_FLOOR.timestamp() * 1000)
+        assert result.requests[1].param("start_date") == str(round(TIME_ENTRIES_HISTORY_FLOOR.timestamp() * 1000))
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fails_when_no_members_resolve(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_fails_when_no_members_resolve(self) -> None:
+        result = _driver().run(
+            "time_entries",
+            [ScriptedResponse(json={"teams": [{"id": "404", "members": [{"user": {"id": 11}}]}]})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime.now(tz=UTC) - timedelta(days=1),
+        )
+
         # A token that can see other workspaces but not the configured one.
-        _wire(session, [_response({"teams": [{"id": "404", "members": [{"user": {"id": 11}}]}]})])
-
         # Syncing without `assignee` would fill a workspace-wide table with one user's time, and
         # nothing downstream could tell that from a workspace where only one person tracks time.
-        with pytest.raises(ValueError, match="no members for workspace 9"):
-            _rows(
-                _source(
-                    "time_entries",
-                    _make_manager(),
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=datetime.now(tz=UTC) - timedelta(days=1),
-                )
-            )
+        assert isinstance(result.raised, ValueError)
+        assert "no members for workspace 9" in str(result.raised)
 
 
 class TestTaskTimeInStatus:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_batches_at_the_endpoint_cap(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_batches_at_the_endpoint_cap(self) -> None:
         first_batch = [str(i) for i in range(TIME_IN_STATUS_BATCH_SIZE)]
-        snapshots = _wire(
-            session,
+        result = _driver().run(
+            "task_time_in_status",
             [
-                _response({"tasks": [{"id": task_id} for task_id in first_batch]}),
-                _response({task_id: {"current_status": {}, "status_history": []} for task_id in first_batch}),
-                _response({"tasks": [{"id": "last"}]}),
-                _response({"last": {"current_status": {}, "status_history": []}}),
+                ScriptedResponse(json={"tasks": [{"id": task_id} for task_id in first_batch]}),
+                ScriptedResponse(
+                    json={task_id: {"current_status": {}, "status_history": []} for task_id in first_batch}
+                ),
+                ScriptedResponse(json={"tasks": [{"id": "last"}]}),
+                ScriptedResponse(json={"last": {"current_status": {}, "status_history": []}}),
             ],
         )
 
-        rows = _rows(_source("task_time_in_status", _make_manager()))
-
-        assert len(rows) == TIME_IN_STATUS_BATCH_SIZE + 1
+        assert result.raised is None
+        assert len(result.rows) == TIME_IN_STATUS_BATCH_SIZE + 1
         # The batch is flushed as soon as it fills, before the next task page is fetched.
-        assert [snapshot["url"].rsplit("/", 1)[-1] for snapshot in snapshots] == [
-            "task",
-            "task_ids",
-            "task",
-            "task_ids",
+        assert result.paths == [
+            "/api/v2/team/9/task",
+            "/api/v2/task/bulk_time_in_status/task_ids",
+            "/api/v2/team/9/task",
+            "/api/v2/task/bulk_time_in_status/task_ids",
         ]
-        assert snapshots[3]["params"]["task_ids"] == ["last"]
+        assert result.requests[1].query["task_ids"] == tuple(first_batch)
+        assert result.requests[3].param("task_ids") == "last"
 
 
 class TestListChildren:
@@ -329,39 +251,50 @@ class TestListChildren:
         {"lists": [{"id": "l2"}]},
     ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_skips_a_list_that_stops_serving_its_fields(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_skips_a_list_that_stops_serving_its_fields(self) -> None:
+        result = _driver().run(
+            "list_custom_fields",
             [
-                _response(self.LISTS_WALK[0]),
-                _response(self.LISTS_WALK[1]),
-                _response({"err": "List not found"}, status_code=404),
-                _response(self.LISTS_WALK[2]),
-                _response(self.LISTS_WALK[3]),
-                _response(self.LISTS_WALK[4]),
-                _response({"fields": [{"id": "cf2"}]}),
+                ScriptedResponse(json=self.LISTS_WALK[0]),
+                ScriptedResponse(json=self.LISTS_WALK[1]),
+                ScriptedResponse(status=404, json={"err": "List not found"}),
+                ScriptedResponse(json=self.LISTS_WALK[2]),
+                ScriptedResponse(json=self.LISTS_WALK[3]),
+                ScriptedResponse(json=self.LISTS_WALK[4]),
+                ScriptedResponse(json={"fields": [{"id": "cf2"}]}),
             ],
         )
 
-        rows = _rows(_source("list_custom_fields", _make_manager()))
-
         # An archived or deleted list must not take the whole table down with it.
-        assert [(row["_list_id"], row["id"]) for row in rows] == [("l2", "cf2")]
+        assert result.raised is None
+        assert [(row["_list_id"], row["id"]) for row in result.rows] == [("l2", "cf2")]
 
 
 class TestClickUpSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = CLICKUP_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
+        answer = ScriptedResponse(
+            json={
+                "teams": [{"id": "9", "members": [{"user": {"id": 11}}]}],
+                "spaces": [],
+                "folders": [],
+                "lists": [],
+                "tasks": [],
+                "goals": [],
+                "data": [],
+                "fields": [],
+            }
+        )
+        result = _driver().run(endpoint, always(answer))
 
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == config.primary_keys
         if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
+            assert result.response.partition_mode == "datetime"
+            assert result.response.partition_keys == [config.partition_key]
         else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
+            assert result.response.partition_mode is None
+            assert result.response.partition_keys is None

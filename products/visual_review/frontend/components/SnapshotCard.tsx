@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import type { BaselineEntryApi, BaselineQuarantineSummaryApi } from '../generated/api.schemas'
 import { parseArea, parseTheme } from '../lib/parseIdentifier'
+import { splitRepoFullName } from '../lib/repoPaths'
 
 // Drift is shown as a percentage with one decimal — anything less is sub-pixel
 // noise and not actionable; anything more on a thumbnail-sized card is illegible.
@@ -85,11 +86,11 @@ const DRIFT_WARNING_THRESHOLD_PCT = 1
 export const RECENT_DRIFT_WINDOW = 10
 
 export function SnapshotCard({
-    repoId,
+    repoFullName,
     entry,
     thumbnailBasePath,
 }: {
-    repoId: string
+    repoFullName: string
     entry: BaselineEntryApi
     thumbnailBasePath: string | null
 }): JSX.Element {
@@ -106,7 +107,7 @@ export function SnapshotCard({
         thumbnailBasePath && entry.thumbnail_hash
             ? `${thumbnailBasePath}/${encodeURIComponent(entry.identifier)}/`
             : null
-    const href = urls.visualReviewSnapshotHistory(repoId, entry.run_type, entry.identifier)
+    const href = urls.visualReviewSnapshotHistory(...splitRepoFullName(repoFullName), entry.run_type, entry.identifier)
     const hasMeta = driftVisible || tolerateCount > 0 || variantCount > 0 || entry.baseline_change_count > 0
 
     const quarantine = entry.quarantine ?? null

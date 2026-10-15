@@ -75,6 +75,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
     EXTRACT_BATCH_MAX_BYTES,
     fetch_row_batches,
+    page_rows_after_worker_deaths,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SQLSourceImplementation,
@@ -327,6 +328,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # ("password authentication failed", "SASL authentication failed"), and exclude the volatile
     # millisecond value.
     "authentication did not complete within",
+    # A Neon-style proxy reports its own internal round trip to the control plane (used to route,
+    # authenticate, or wake the compute while establishing the connection) failing with the bare,
+    # generic "ERROR: Control plane request failed" — unlike the specific, actionable control-plane
+    # rejections already handled in `get_non_retryable_errors` (exceeded quota, allow-listed IP,
+    # disabled branch, ...), which all carry their own detailed wording. The generic form means the
+    # round trip itself broke (a transient blip reaching the control plane), not that it returned a
+    # customer-fixable rejection, so a fresh connect after backoff typically succeeds — the same
+    # transient class as the scale-to-zero wake timeout above.
+    "control plane request failed",
     # Supavisor authenticates a tenant with no static user record by running an `auth_query` against
     # the tenant's own backend database to fetch/cache the password secret used to validate the
     # client's credentials. If that secret isn't cached yet (e.g. right after Supavisor starts
@@ -3633,6 +3643,7 @@ def postgres_source(
     is_xmin: bool = False,
     xmin_cursor: Optional[SourceCursorManager[XminCursor]] = None,
     activity_attempt: int = 1,
+    worker_deaths: int = 0,
     resumable_source_manager: Optional[ResumableSourceManager[KeysetResumeState]] = None,
 ) -> SourceResponse:
     table_name = table_names[0]
@@ -4433,10 +4444,18 @@ def postgres_source(
                 try:
                     # A page is one statement and it is resident in full, so it is sized like any
                     # other fetch. A batch then spans as many pages as its byte budget holds.
+                    # A seek page is also a round trip, so only a run of wide rows shrinks it, and
+                    # a worker death halves it. A LIMIT/OFFSET walk is the fallback on a replica
+                    # that cancels reads, and it scans its whole offset on every page, so it keeps
+                    # the more careful sizing and its page.
+                    seeks = keyset_primary_keys is not None
                     for rows in fetch_row_batches(
                         fetch_page,
                         max_rows=chunk_size,
-                        max_page_rows=fetch_page_rows,
+                        max_page_rows=(
+                            page_rows_after_worker_deaths(fetch_page_rows, worker_deaths) if seeks else fetch_page_rows
+                        ),
+                        size_pages_by_average=seeks,
                     ):
                         batch_last_key = keyset_key_of(rows[-1]) if keyset_primary_keys is not None else None
 

@@ -528,7 +528,20 @@ def _iter_funnel_steps(
             "to_date": end_date.isoformat(),
             "unit": "day",
         }
-        response = _request("GET", url, username=username, secret=secret, logger=logger, params=params)
+        try:
+            response = _request("GET", url, username=username, secret=secret, logger=logger, params=params)
+        except requests.HTTPError as e:
+            # Mixpanel rejects some saved funnels outright (e.g. deleted since the funnel list
+            # was fetched) with a 400 tied to that funnel_id alone, not the request shape. Without
+            # this, one such funnel would raise every attempt and the resume cursor would never
+            # advance past it, permanently blocking every funnel after it in the sort order.
+            if e.response is None or e.response.status_code != 400:
+                raise
+            logger.warning(f"Mixpanel funnel_steps: Mixpanel rejected funnel {funnel_id}; skipping it")
+            manager.save_state(MixpanelResumeConfig(funnel_id=funnel_id))
+            manager.safe_point()
+            continue
+
         rows = _flatten_funnel_steps(funnel, response.json())
 
         manager.save_state(MixpanelResumeConfig(funnel_id=funnel_id))

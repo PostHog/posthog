@@ -9,7 +9,7 @@ import { experimentHealthDebugLogic } from './experimentHealthDebugLogic'
 import type { HealthDebugCheck, HealthDebugFact } from './healthDebugReport'
 
 export function HealthDebugTables(): JSX.Element {
-    const { experiment, experimentId, healthFindings } = useValues(experimentLogic)
+    const { experimentHealth, experimentId, healthFindings } = useValues(experimentLogic)
     const { healthDebugChecks: checks, healthDebugFacts: facts } = useValues(
         experimentHealthDebugLogic({ experimentId })
     )
@@ -47,11 +47,7 @@ export function HealthDebugTables(): JSX.Element {
                 ]}
             />
             <CodeSnippet language={Language.JSON} thing="health debug data" maxLinesWithoutExpansion={12}>
-                {JSON.stringify(
-                    { health: experiment.health ?? null, panelFindings: healthFindings, checks, facts },
-                    null,
-                    2
-                )}
+                {JSON.stringify({ health: experimentHealth, panelFindings: healthFindings, checks, facts }, null, 2)}
             </CodeSnippet>
         </div>
     )

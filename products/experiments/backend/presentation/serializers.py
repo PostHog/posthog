@@ -6,9 +6,8 @@ All serializer classes and custom field classes live here.
 ViewSet remains in experiments.py.
 """
 
-import logging
 from copy import deepcopy
-from typing import Annotated, Any, Final, TypeGuard
+from typing import Annotated, Any, TypeGuard
 
 from django.utils import timezone
 
@@ -40,12 +39,10 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH, TaggedItemSerializerMixin
 from posthog.models.team.team import Team
-from posthog.permissions import posthog_feature_flag_enabled
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.facade.api import get_experiment_health_findings
 from products.experiments.backend.facade.contracts import (
     CreateExperimentInput,
     ExperimentHealthFindingActionKind,
@@ -94,9 +91,6 @@ from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 tracer = trace.get_tracer(__name__)
-logger = logging.getLogger(__name__)
-
-EXPERIMENT_HEALTH_FINDINGS_FLAG: Final = "experiment-health-findings"
 
 
 class _ExperimentApiMetricsList(PydanticRootModel):
@@ -576,9 +570,9 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     )
     health = serializers.SerializerMethodField(
         help_text=(
-            "Health check diagnostics for this experiment: problems in its configuration and its feature "
-            "flag that keep it from producing trustworthy results, each with a fix. Read `findings` first "
-            "when you diagnose an experiment. Null where health checks are not enabled yet."
+            "Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: "
+            "problems in this experiment's configuration and its feature flag that keep it from producing "
+            "trustworthy results, each with a fix."
         ),
     )
     version = serializers.IntegerField(
@@ -718,31 +712,8 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     @extend_schema_field(ExperimentHealthSerializer(allow_null=True))
     def get_health(self, obj: Experiment) -> dict[str, Any] | None:
-        if not self._health_findings_enabled(obj.team):
-            return None
-        return ExperimentHealthSerializer(
-            {"findings": get_experiment_health_findings(team_id=obj.team_id, experiment_id=obj.id)}
-        ).data
-
-    def _health_findings_enabled(self, team: Team) -> bool:
-        request = self.context.get("request")
-        user = getattr(request, "user", None)
-        distinct_id = getattr(user, "distinct_id", None)
-        email = getattr(user, "email", None)
-        try:
-            # Local evaluation keeps a network call off every experiment read. A flag that targets
-            # by email still matches, because the email goes in as a person property.
-            return posthog_feature_flag_enabled(
-                EXPERIMENT_HEALTH_FINDINGS_FLAG,
-                str(distinct_id or team.uuid),
-                organization_id=team.organization_id,
-                team_id=team.id,
-                person_properties={"email": email} if email else None,
-                only_evaluate_locally=True,
-            )
-        except Exception:
-            logger.warning("Failed to evaluate the experiment health findings flag", exc_info=True)
-            return False
+        # The `health` action serves the findings, so the experiment read stays fast as checks are added.
+        return None
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
@@ -2985,10 +2956,11 @@ class ExperimentSetupPreviousExperimentSerializer(serializers.Serializer):
     outcome = ExperimentSetupOutcomeSerializer(
         allow_null=True,
         help_text=(
-            "From the completed result that covers the latest data in the experiment's current run. A funnel or "
-            "a mean primary metric is chosen over a retention or a ratio one, because only its samples are the "
-            "analyzed population. Null when no result exists for that run, which is also the case for older "
-            "metric definitions that results are never stored for."
+            "From the completed result that covers the latest data under the experiment's current configuration. "
+            "A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples "
+            "are the analyzed population. Null when no result exists for that configuration, for example after a "
+            "relaunch or a settings edit until the results are recalculated, and for older metric definitions that "
+            "results are never stored for."
         ),
     )
 
