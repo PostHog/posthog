@@ -211,6 +211,28 @@ function pushSendError(platform: PushPlatform, err: NormalizedPushError, retryAf
     return new PushSendError(message, platform, err.reason, err.level, err.retriable, err.code, retryAfterMs)
 }
 
+// Apple sometimes rejects a token that the rest of the fleet keeps sending with, and the refresh limit can
+// block a new token for 20 minutes. A key that delivered recently works, so retry instead of failing the send.
+class ApnsTokenRejectionError extends PushSendError {
+    constructor(message: string, code: string, retryAfterMs: number | undefined) {
+        super(message, 'apns', 'auth_error', 'warn', true, code, retryAfterMs)
+    }
+}
+
+function retriableTokenRejection(error: PushSendError): PushSendError {
+    if (!error.code || !APNS_REJECTED_TOKEN_CODES.has(error.code)) {
+        return error
+    }
+    return new ApnsTokenRejectionError(
+        `APNs rejected the provider token, although this key delivered notifications in the last 20 minutes, so the integration credentials are likely fine. [${error.code}]`,
+        error.code,
+        error.retryAfterMs
+    )
+}
+
+// apnsAcceptedKeys holds a short prefix of each key fingerprint, never key material.
+type PushQueueMetadata = { tries?: number; apnsAcceptedKeys?: string[] }
+
 export type PushNotificationFetchUtils = {
     trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string; teamId?: number }) => Promise<{
         fetchError: Error | null
@@ -240,6 +262,8 @@ export class PushNotificationService {
     // fleet normally shares one token per key.
     private apnsJwtLocalCache = new Map<string, { jwt: string; expiresAtMs: number }>()
     private apnsJwtInFlight = new Map<string, Promise<string>>()
+    // Last time APNs accepted a send signed with each key, so a token rejection for a key that works can be retried.
+    private apnsKeyAcceptedAtMs = new Map<string, number>()
 
     @instrumented('push-notification.executeSendPushNotification')
     async executeSendPushNotification(
@@ -266,7 +290,7 @@ export class PushNotificationService {
 
         // How many times this send has already been rescheduled after a transient failure, carried on the
         // invocation's queue metadata across reschedules.
-        const metadata = (invocation.queueMetadata as { tries?: number }) || {}
+        const metadata = (invocation.queueMetadata as PushQueueMetadata) || {}
         const tries = metadata.tries ?? 0
 
         // Business metrics are emitted once, at the terminal outcome below, rather than per channel — a
@@ -310,6 +334,8 @@ export class PushNotificationService {
         // Which providers took delivery. Only its emptiness is read, to decide whether there is a
         // delivered notification worth capturing.
         const deliveredPlatforms = new Set<string>()
+        // Filled before device failures collapse into one error per channel, so a retry carries every key that works.
+        const apnsAcceptedKeys = new Set(metadata.apnsAcceptedKeys ?? [])
         for (const integrationId of integrationIds) {
             try {
                 const integration = await this.integrationManager.get(integrationId)
@@ -321,7 +347,7 @@ export class PushNotificationService {
                 if (integration.kind === 'firebase') {
                     sent = await this.executeFcm(result, params, integration, invocation)
                 } else if (integration.kind === 'apns') {
-                    sent = await this.executeApns(result, params, integration, invocation)
+                    sent = await this.executeApns(result, params, integration, invocation, apnsAcceptedKeys)
                 } else {
                     throw new Error(`Unsupported push integration kind: ${integration.kind}`)
                 }
@@ -363,7 +389,12 @@ export class PushNotificationService {
             // routes on an undefined queue type and resumes the hog VM instead of re-running this send,
             // which pops an empty stack and throws a bytecode error, dropping the notification.
             result.invocation.queueParameters = invocation.queueParameters
-            result.invocation.queueMetadata = { ...metadata, tries: nextTries }
+            // A retry can land on a pod that has not delivered with this key yet, so carry the evidence that the key works.
+            result.invocation.queueMetadata = {
+                ...metadata,
+                tries: nextTries,
+                ...(apnsAcceptedKeys.size > 0 ? { apnsAcceptedKeys: [...apnsAcceptedKeys] } : {}),
+            }
             result.invocation.queuePriority = nextTries
             // Retrying re-attempts every failed channel, so wait out the LONGEST Retry-After any channel
             // asked for; fall back to exponential backoff when none provided one.
@@ -569,7 +600,8 @@ export class PushNotificationService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
         integration: IntegrationType,
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        apnsAcceptedKeys: Set<string>
     ): Promise<boolean> {
         const addLog = createAddLogFunction(result.logs)
 
@@ -591,6 +623,8 @@ export class PushNotificationService {
         }
 
         let jwt = await this.generateApnsJwt(appleTeamId, keyId, signingKey)
+        const keyFingerprint = this.apnsKeyFingerprint(appleTeamId, keyId, signingKey)
+        const keyRef = keyFingerprint.slice(0, 16)
         const apnsHost =
             integration.config.environment === 'sandbox' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com'
         const templateId = result.invocation.hogFunction.template_id ?? 'unknown'
@@ -627,12 +661,18 @@ export class PushNotificationService {
             }
             if (outcome.sent) {
                 delivered++
+                this.rememberApnsKeyAccepted(keyFingerprint)
             } else if (outcome.unregistered) {
                 this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKeys, 'apns')
                 addLog('warn', `APNs: ${outcome.message}`)
             } else if (outcome.error) {
-                failures.push(outcome.error)
-                retriableFailure = longestRetriableFailure(retriableFailure, outcome.error)
+                const keyAccepted = apnsAcceptedKeys.has(keyRef) || this.apnsKeyAcceptedRecently(keyFingerprint)
+                const error = keyAccepted ? retriableTokenRejection(outcome.error) : outcome.error
+                if (error instanceof ApnsTokenRejectionError) {
+                    apnsAcceptedKeys.add(keyRef)
+                }
+                failures.push(error)
+                retriableFailure = longestRetriableFailure(retriableFailure, error)
             }
         }
 
@@ -864,6 +904,22 @@ export class PushNotificationService {
         }
         this.rememberApnsJwtLocally(cacheKey, jwt)
         return jwt
+    }
+
+    private rememberApnsKeyAccepted(fingerprint: string): void {
+        this.apnsKeyAcceptedAtMs.delete(fingerprint)
+        this.apnsKeyAcceptedAtMs.set(fingerprint, Date.now())
+        if (this.apnsKeyAcceptedAtMs.size > APNS_JWT_LOCAL_CACHE_MAX) {
+            const oldest = this.apnsKeyAcceptedAtMs.keys().next().value
+            if (oldest !== undefined) {
+                this.apnsKeyAcceptedAtMs.delete(oldest)
+            }
+        }
+    }
+
+    private apnsKeyAcceptedRecently(fingerprint: string): boolean {
+        const acceptedAtMs = this.apnsKeyAcceptedAtMs.get(fingerprint)
+        return acceptedAtMs !== undefined && Date.now() - acceptedAtMs < APNS_JWT_REFRESH_WINDOW_SECONDS * 1000
     }
 
     private rememberApnsJwtLocally(cacheKey: string, jwt: string): void {

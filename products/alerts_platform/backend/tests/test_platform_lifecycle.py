@@ -14,6 +14,7 @@ from products.alerts_platform.backend.facade.api import (
     disable_configurations,
     due_checks,
     record_outcomes,
+    take_ownership,
     upsert_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -21,8 +22,10 @@ from products.alerts_platform.backend.facade.contracts import (
     FiringEpisode,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
+    PlatformOwnershipHandover,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
 
@@ -79,6 +82,54 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             at=self.cutoff + timedelta(hours=1),
         )
         assert self._alert().firing_started_at is None
+
+    def test_a_check_that_started_before_a_handover_records_nothing(self) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                legacy_configuration_id=legacy_id
+            )
+        take_ownership(
+            PlatformOwnershipHandover(
+                legacy_configuration_id=legacy_id,
+                team_id=self.team.id,
+                state=PlatformAlertState.NOT_FIRING,
+                last_notified_at=None,
+                consecutive_failures=0,
+                next_check_at=self.cutoff + timedelta(minutes=2),
+                at=self.cutoff + timedelta(seconds=30),
+            )
+        )
+
+        self._record()
+
+        assert self._alert().state == "not_firing"
+
+    def test_a_copy_inside_its_own_firing_is_not_taken_over(self) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                legacy_configuration_id=legacy_id
+            )
+            PlatformAlert.objects.create(
+                team=self.team, configuration=self.configuration, state="firing", firing_started_at=self.cutoff
+            )
+
+        taken = take_ownership(
+            PlatformOwnershipHandover(
+                legacy_configuration_id=legacy_id,
+                team_id=self.team.id,
+                state=PlatformAlertState.NOT_FIRING,
+                last_notified_at=None,
+                consecutive_failures=0,
+                next_check_at=self.cutoff + timedelta(minutes=2),
+                at=self.cutoff,
+            )
+        )
+
+        assert not taken
+        self.configuration.refresh_from_db()
+        assert (self.configuration.owner, self._alert().state) == ("source", "firing")
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)

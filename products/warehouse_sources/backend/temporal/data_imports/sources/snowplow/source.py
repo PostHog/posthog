@@ -127,7 +127,7 @@ class SnowplowSource(ResumableSource[SnowplowSourceConfig, SnowplowResumeConfig]
         pub=("snowplow_tracker",),
         rubygems=("snowplow-tracker",),
         swiftpm=("github.com/snowplow/snowplow-ios-tracker", "github.com/snowplow/snowplow-objc-tracker"),
-        competes_with=(ProductKey.PRODUCT_ANALYTICS,),
+        alternative_to=(ProductKey.PRODUCT_ANALYTICS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

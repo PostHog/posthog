@@ -112,7 +112,7 @@ class UnleashSource(ResumableSource[UnleashSourceConfig, UnleashResumeConfig]):
             "github.com/unleash/unleash-ios-sdk",
             "github.com/unleash/unleash-openfeature-swift-provider",
         ),
-        competes_with=(ProductKey.FEATURE_FLAGS,),
+        alternative_to=(ProductKey.FEATURE_FLAGS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
