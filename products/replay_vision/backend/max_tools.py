@@ -1,3 +1,4 @@
+from collections import Counter
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.db import transaction
@@ -229,9 +230,6 @@ class ReplayVisionGatesMixin:
         Observations inherit the scanner's RBAC, and an experiment scanner also needs access to its
         targeted experiment, so either miss reads as not-found.
         """
-        # A model-supplied non-UUID would raise ValidationError deeper in the ORM (alert noise).
-        if not is_uuid(scanner_id):
-            return None
         scanner = scanner_for_reading_observations(self._team.id, scanner_id)
         if (
             scanner is None
@@ -681,13 +679,10 @@ def _no_recording_sentence(count: int) -> str:
     )
 
 
-def _scan_summary(
-    started: int, results: list[dict[str, str]], unanswered: list[ReplayObservation] | None = None
-) -> str:
+def _scan_summary(started: int, results: list[dict[str, str]], unanswered: list[ReplayObservation]) -> str:
     counts: dict[str, int] = {}
     for result in results:
         counts[result["scan_outcome"]] = counts.get(result["scan_outcome"], 0) + 1
-    unanswered = unanswered or []
     parts = [f"Started {started} scan(s)."]
     if counts.get("no_recording"):
         parts.append(_no_recording_sentence(counts["no_recording"]))
@@ -839,12 +834,25 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
         self, sessions: list[str], prompt: str | None, scanner_id: str | None, scanner_type: str
     ) -> tuple[str, dict[str, Any]]:
         scanner: ReplayScanner | None = None
+        inline_config: dict[str, str] = {}
+        inline_type = ScannerType.MONITOR
         if scanner_id:
             scanner = self._scanner_for(scanner_id)
             if scanner is None:
                 return f"Scanner {scanner_id} not found.", {"error": "not_found"}
-        elif not prompt or not prompt.strip():
-            return "Pass either a prompt or a scanner_id.", {"error": "no_prompt"}
+        else:
+            if not prompt or not prompt.strip():
+                return "Pass either a prompt or a scanner_id.", {"error": "no_prompt"}
+            # Only the two types whose whole config is a prompt. A classifier or scorer would need tags or
+            # a scale, which this tool's schema deliberately doesn't take, and would fail validation with a
+            # message about a field the model was never offered.
+            inline_type = ScannerType(scanner_type) if scanner_type in _INLINE_SCAN_TYPES else ScannerType.MONITOR
+            inline_config = {"prompt": prompt.strip()}
+            # Length and shape, through the validator the API uses. This config persists on the scanner and
+            # is copied into every observation snapshot, so an unbounded prompt would live on both.
+            message = scanner_config_error(inline_type, inline_config)
+            if message is not None:
+                return message, {"error": "invalid_config"}
 
         # Checked here, not left to the workflow: it marks a missing recording ineligible only after this
         # reply says the scan started.
@@ -858,41 +866,27 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
             }
 
         if scanner is not None:
-            started, results = scan_existing_scanner(scanner=scanner, session_ids=sessions, user=self._user)
-            if any(result["scan_outcome"] == "skipped_scanner_limit" for result in results):
+            started, scanned = scan_existing_scanner(scanner=scanner, session_ids=sessions, user=self._user)
+            if any(result["scan_outcome"] == "skipped_scanner_limit" for result in scanned):
                 record_scanner_limit_reached("max_tool")
-            return _scan_summary(started, results + missing_results, _unanswered_reused(scanner, results)), {
-                "scan_id": str(scanner.id),
-                "results": results + missing_results,
-            }
-
-        assert prompt is not None
-        # Only the two types whose whole config is a prompt. A classifier or scorer would need tags or
-        # a scale, which this tool's schema deliberately doesn't take, and would fail validation with a
-        # message about a field the model was never offered.
-        resolved_type = scanner_type if scanner_type in _INLINE_SCAN_TYPES else ScannerType.MONITOR
-        config = {"prompt": prompt.strip()}
-        # Length and shape, through the validator the API uses. This config persists on the scanner and
-        # is copied into every observation snapshot, so an unbounded prompt would live on both.
-        message = scanner_config_error(ScannerType(resolved_type), config)
-        if message is not None:
-            return message, {"error": "invalid_config"}
-        scan = run_inline_scan(
-            team=self._team,
-            user=self._user,
-            session_ids=sessions,
-            scanner_type=ScannerType(resolved_type),
-            scanner_config=config,
-            model=DEFAULT_SCAN_MODEL,
-        )
-        if scan.scanner is None:
-            return (
-                "Nothing started: this project's monthly Replay Vision credits are used up.",
-                {"error": "quota_exhausted"},
+        else:
+            scan = run_inline_scan(
+                team=self._team,
+                user=self._user,
+                session_ids=sessions,
+                scanner_type=inline_type,
+                scanner_config=inline_config,
+                model=DEFAULT_SCAN_MODEL,
             )
-        results = scan.results + missing_results
-        return _scan_summary(scan.started, results, _unanswered_reused(scan.scanner, scan.results)), {
-            "scan_id": str(scan.scanner.id),
+            if scan.scanner is None:
+                return (
+                    "Nothing started: this project's monthly Replay Vision credits are used up.",
+                    {"error": "quota_exhausted"},
+                )
+            scanner, started, scanned = scan.scanner, scan.started, scan.results
+        results = scanned + missing_results
+        return _scan_summary(started, results, _unanswered_reused(scanner, scanned)), {
+            "scan_id": str(scanner.id),
             "results": results,
         }
 
@@ -941,15 +935,13 @@ class GetReplayVisionScanResultsTool(ReplayVisionGatesMixin, MaxTool):
         if session_ids is not None:
             observations = observations.filter(session_id__in=session_ids)
         rows = list(
-            accessible_observations(self.user_access_control, self._team.id, observations).order_by("-created_at")[
-                :MAX_SESSIONS_PER_SCAN
-            ]
+            accessible_observations(self.user_access_control, self._team.id, observations)
+            .only("id", "session_id", "status", "error_reason", "scanner_result", "created_at")
+            .order_by("-created_at")[:MAX_SESSIONS_PER_SCAN]
         )
 
         lines: list[str] = []
-        counts: dict[str, int] = {}
         for observation in rows:
-            counts[observation.status] = counts.get(observation.status, 0) + 1
             if observation.status in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
                 lines.append(_unanswered_line(observation))
             elif observation.status == ObservationStatus.SUCCEEDED and (output := read_output(observation)):
@@ -962,11 +954,12 @@ class GetReplayVisionScanResultsTool(ReplayVisionGatesMixin, MaxTool):
         if not lines:
             return "This scan has no recordings yet.", {"result_count": 0}
 
-        header = ", ".join(f"{count} {status}" for status, count in sorted(counts.items()))
+        counts = Counter(str(observation.status) for observation in rows)
+        header = [f"{count} {status}" for status, count in sorted(counts.items())]
         if not_scanned:
-            header = f"{header}, {len(not_scanned)} not scanned" if header else f"{len(not_scanned)} not scanned"
-        content = f"Scan results ({header}).\n\n" + as_untrusted_data("observations", lines)
-        return content, {"result_count": len(rows), "status_counts": counts}
+            header.append(f"{len(not_scanned)} not scanned")
+        content = f"Scan results ({', '.join(header)}).\n\n" + as_untrusted_data("observations", lines)
+        return content, {"result_count": len(rows), "status_counts": dict(counts)}
 
 
 QUOTA_TOOL_DESCRIPTION = """
