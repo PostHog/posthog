@@ -70,7 +70,8 @@ A channel names it with a reference: a comment names the pull request it sits on
 - How to reach the subject, such as a GitHub client for a pull request.
 - The facts a handler gets, and the refusals before it runs, such as a closed pull request or a fork.
 
-For an error tracking issue, the project is the one in its URL, and only a URL of this instance counts, because project ids repeat across regions.
+For an error tracking issue, the URL names the issue by id, or by fingerprint as error tracking's Slack alerts link it, and the fingerprint resolves to whichever issue owns it now.
+The project is the one in the URL, and only a URL of this instance counts, because project ids repeat across regions.
 Its reply never repeats the issue's name, because the name comes from captured exception text that people outside the organization can write.
 
 The dispatcher, the identity step and the access step only use the subject through that module.

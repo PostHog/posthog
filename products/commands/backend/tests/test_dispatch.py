@@ -46,7 +46,7 @@ from products.commands.backend.logic.schema import LoopArgs, QaArgs
 from products.commands.backend.receivers import on_review_finished
 from products.commands.backend.tasks.tasks import deliver_follow_up, run_slack_command
 from products.error_tracking.backend.facade.api import get_issue
-from products.error_tracking.backend.facade.testing import create_issue
+from products.error_tracking.backend.facade.testing import create_issue, create_issue_fingerprint
 from products.review_hog.backend.facade.finished_review_hooks import FinishedReview
 from products.review_hog.backend.facade.reviews import (
     RUN_MODE_FLASH,
@@ -627,20 +627,30 @@ class TestDispatchCommentCommand(BaseTest):
 
     @parameterized.expand(
         [
-            ("resolve", "resolve", "Resolved [the issue]", "resolved", None),
-            ("assign", "assign", "Assigned [the issue]", "active", "user"),
+            ("resolve", "resolve", False, "Resolved [the issue]", "resolved", None),
+            ("assign", "assign", False, "Assigned [the issue]", "active", "user"),
+            # Error tracking's Slack alerts link the issue by its fingerprint.
+            ("resolve_by_fingerprint", "resolve", True, "Resolved [the issue]", "resolved", None),
             # A pull request command answers instead of acting on an issue.
-            ("pull_request_command", "review", "`review` doesn't run on error tracking issues.", "active", None),
+            ("pull_request_command", "review", False, "`review` doesn't run on error tracking issues.", "active", None),
         ]
     )
     def test_a_slack_command_acts_on_an_error_tracking_issue_url(
-        self, _name: str, verb: str, expected_answer: str, expected_status: str, expected_assignee: str | None
+        self,
+        _name: str,
+        verb: str,
+        by_fingerprint: bool,
+        expected_answer: str,
+        expected_status: str,
+        expected_assignee: str | None,
     ) -> None:
         issue_id = create_issue(team_id=self.team.id, name="TypeError: boom")
+        create_issue_fingerprint(team_id=self.team.id, issue_id=issue_id, fingerprint="fp-1")
         slack = Integration.objects.create(
             team=self.team, kind="slack", integration_id="T1", config={}, sensitive_config={"access_token": "xoxb-x"}
         )
-        url = f"{settings.SITE_URL}/project/{self.team.id}/error_tracking/{issue_id}"
+        path = "error-tracking/fingerprint/fp-1" if by_fingerprint else f"error_tracking/{issue_id}"
+        url = f"{settings.SITE_URL}/project/{self.team.id}/{path}"
         mention = self._slack_mention(verb, (str(self.organization.id),), integration_id=slack.id, url=url)
 
         with (

@@ -78,14 +78,21 @@ class ErrorTrackingIssueSubject:
         self._ref = ref
 
     def facts(self, declaration: CommandDeclaration[Any]) -> ErrorTrackingIssueFacts | Answer:
-        issue = error_tracking.get_issue_basics(self._ref.team_id, self._ref.issue_id)
+        not_found = Answer(outcome="issue_not_found", message="I couldn't find this issue in error tracking.")
+        issue_id = self._ref.issue_id
+        if not issue_id:
+            owner = error_tracking.get_issue_id_for_fingerprint(self._ref.team_id, self._ref.fingerprint)
+            if owner is None:
+                return not_found
+            issue_id = str(owner)
+        issue = error_tracking.get_issue_basics(self._ref.team_id, issue_id)
         if issue is None:
-            return Answer(outcome="issue_not_found", message="I couldn't find this issue in error tracking.")
+            return not_found
         return ErrorTrackingIssueFacts(
             team_id=self._ref.team_id,
-            issue_id=self._ref.issue_id,
+            issue_id=issue_id,
             status=str(issue.status),
-            url=absolute_uri(f"/project/{self._ref.team_id}/error_tracking/{self._ref.issue_id}"),
+            url=absolute_uri(f"/project/{self._ref.team_id}/error_tracking/{issue_id}"),
         )
 
 
@@ -153,7 +160,7 @@ def subject_payload(ref: SubjectRef) -> dict[str, str | int]:
                 "number": ref.number,
             }
         case ErrorTrackingIssueRef():
-            return {"kind": ref.kind, "team_id": ref.team_id, "issue_id": ref.issue_id}
+            return {"kind": ref.kind, "team_id": ref.team_id, "issue_id": ref.issue_id, "fingerprint": ref.fingerprint}
         case _:
             assert_never(ref)
 
@@ -167,5 +174,9 @@ def subject_from_payload(payload: dict[str, str | int]) -> SubjectRef:
             number=int(payload["number"]),
         )
     if kind == "error_tracking_issue":
-        return ErrorTrackingIssueRef(team_id=int(payload["team_id"]), issue_id=str(payload["issue_id"]))
+        return ErrorTrackingIssueRef(
+            team_id=int(payload["team_id"]),
+            issue_id=str(payload["issue_id"]),
+            fingerprint=str(payload.get("fingerprint", "")),
+        )
     raise ValueError(f"Unknown subject kind {kind!r}")

@@ -63,3 +63,10 @@ def test_reads_an_issue_url_only_from_this_instance(_name: str, origin: str, acc
 
     expected = ErrorTrackingIssueUrl(team_id=2, issue_id=ISSUE_ID) if accepted else None
     assert (command.subject if command else None) == expected
+
+
+@override_settings(SITE_URL="https://us.posthog.com")
+def test_reads_the_fingerprint_link_an_alert_posts() -> None:
+    command = parse_slack_command("resolve https://us.posthog.com/project/2/error-tracking/fingerprint/abc%2Fdef")
+
+    assert command is not None and command.subject == ErrorTrackingIssueUrl(team_id=2, fingerprint="abc/def")

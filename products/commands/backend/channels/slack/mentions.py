@@ -95,7 +95,7 @@ def _subject_ref(url: SubjectUrl, organization_ids: Collection[str]) -> SubjectR
                 return None
             return PullRequestRef(installation_id=installation_id, repository=url.repository, number=url.number)
         case ErrorTrackingIssueUrl():
-            return ErrorTrackingIssueRef(team_id=url.team_id, issue_id=url.issue_id)
+            return ErrorTrackingIssueRef(team_id=url.team_id, issue_id=url.issue_id, fingerprint=url.fingerprint)
         case _:
             assert_never(url)
 

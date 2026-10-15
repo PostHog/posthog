@@ -71,15 +71,20 @@ class PullRequestRef:
 
 @frozen
 class ErrorTrackingIssueRef:
-    """An error tracking issue as a PostHog URL names it, before anything about it is checked."""
+    """An error tracking issue as a PostHog URL names it, before anything about it is checked.
+
+    The URL names the issue by id, or by a fingerprint that follows the issue through merges, as the
+    links in error tracking's Slack alerts do. Exactly one of the two is set.
+    """
 
     kind: ClassVar[SubjectKind] = "error_tracking_issue"
 
     team_id: int
-    issue_id: str
+    issue_id: str = ""
+    fingerprint: str = ""
 
     def describe(self) -> str:
-        return f"error tracking issue {self.issue_id}"
+        return f"error tracking issue {self.issue_id}" if self.issue_id else "error tracking issue by fingerprint"
 
 
 SubjectRef = PullRequestRef | ErrorTrackingIssueRef
