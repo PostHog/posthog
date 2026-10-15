@@ -696,8 +696,10 @@ def _label_cooldown_message(trigger_label: str, cooldown_ends_at: Any) -> str:
     if isinstance(cooldown_ends_at, bool) or not isinstance(cooldown_ends_at, int | float):
         when = f"in up to {STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS // 60} minutes"
     else:
-        ends_at = datetime.fromtimestamp(cooldown_ends_at, tz=UTC)
-        minutes_left = max(1, math.ceil((cooldown_ends_at - timezone.now().timestamp()) / 60))
+        # Rounded up so relabeling at the stated minute never lands inside the cooldown.
+        ends_at_seconds = math.ceil(cooldown_ends_at / 60) * 60
+        ends_at = datetime.fromtimestamp(ends_at_seconds, tz=UTC)
+        minutes_left = max(1, math.ceil((ends_at_seconds - timezone.now().timestamp()) / 60))
         when = f"at {ends_at:%H:%M} UTC (in about {minutes_left} minute{'s' if minutes_left != 1 else ''})"
     return (
         f"**No review started.** stamphog started a review of this pull request less than "
@@ -717,6 +719,17 @@ def _reject_label_in_cooldown(repo_config: StamphogRepoConfig, pr: dict[str, Any
     """
     pr_number = pr["number"]
     try:
+        # A delayed delivery of the label add that armed the cooldown must not remove a newer label.
+        incoming_updated_at = parse_datetime(pr.get("updated_at") or "")
+        stored_updated_at = (
+            PullRequest.objects.for_team(repo_config.team_id)
+            .using(router.db_for_write(PullRequest))
+            .filter(repo_config=repo_config, pr_number=pr_number)
+            .values_list("payload_updated_at", flat=True)
+            .first()
+        )
+        if incoming_updated_at and stored_updated_at and incoming_updated_at <= stored_updated_at:
+            return
         cooldown_ends_at = cache.get(_label_cooldown_key(repo_config, pr_number))
         client = StamphogGitHubClient(repo_config.installation_id)
         client.remove_pr_label(repo_config.repository, pr_number, repo_config.trigger_label)

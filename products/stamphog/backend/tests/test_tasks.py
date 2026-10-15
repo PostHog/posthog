@@ -391,27 +391,40 @@ def test_review_mode_gates_events(team, repo_config, review_mode, payload_kwargs
         mock_execute.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "retrigger_updated_at,expect_label_removed",
+    [("2026-10-15T14:03:30Z", True), ("2026-10-15T14:00:20Z", False)],
+    ids=["fresh_relabel_rejected", "redelivered_trigger_left_alone"],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_labeled_rereview_cooldown_skips_rapid_retrigger(team, repo_config):
+def test_labeled_rereview_cooldown_skips_rapid_retrigger(
+    team, repo_config, retrigger_updated_at: str, expect_label_removed: bool
+):
     # Removing and re-adding the trigger label within the cooldown must not queue a second sandbox +
     # LLM run — the cheap re-review spam the cooldown exists for.
     with team_scope(team.id):
         repo_config.review_mode = ReviewMode.LABEL
         repo_config.save()
 
-    payload = _pr_payload(action="labeled", labels=["stamphog"], added_label="stamphog")
-    with time_machine.travel("2026-10-15T14:00:00Z", tick=False):
-        first = _run_task(payload, "delivery-label-1", team.id)
+    def labeled(updated_at: str) -> dict:
+        return _pr_payload(action="labeled", labels=["stamphog"], added_label="stamphog", updated_at=updated_at)
+
+    with time_machine.travel("2026-10-15T14:00:20Z", tick=False):
+        first = _run_task(labeled("2026-10-15T14:00:20Z"), f"delivery-label-1-{uuid.uuid4()}", team.id)
     with time_machine.travel("2026-10-15T14:03:30Z", tick=False):
-        mock_execute = _run_task(payload, "delivery-label-2", team.id)
+        mock_execute = _run_task(labeled(retrigger_updated_at), f"delivery-label-2-{uuid.uuid4()}", team.id)
 
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 1
     mock_execute.assert_not_called()
     first.github.remove_pr_label.assert_not_called()
+    if not expect_label_removed:
+        mock_execute.github.remove_pr_label.assert_not_called()
+        mock_execute.github.upsert_sticky_comment.assert_not_called()
+        return
     mock_execute.github.remove_pr_label.assert_called_once_with(REPO, 42, "stamphog")
     _, _, body = mock_execute.github.upsert_sticky_comment.call_args.args
-    assert "14:10 UTC (in about 7 minutes)" in body
+    assert "14:11 UTC (in about 8 minutes)" in body
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
