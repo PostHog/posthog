@@ -41,6 +41,7 @@ from products.review_hog.backend.temporal.activities import (
     TrackReviewFailedInput,
     TrackReviewStartedInput,
     _gate_push,
+    _notify_review_finished,
     _track_review_completed,
     _track_review_completed_safe,
     _track_review_failed,
@@ -210,6 +211,22 @@ class TestTrackReviewCompleted(BaseTest):
         assert 90 <= props["duration_seconds"] < 600
         assert props["reviewhog_version"] == "reviewhog-full-9-9"
         assert props["reviewhog_fingerprint"] == "abc1234"
+
+        hooks = (MagicMock(side_effect=RuntimeError("callback down")), MagicMock())
+        with patch("products.review_hog.backend.temporal.activities.get_finished_review_hooks", return_value=hooks):
+            _notify_review_finished(
+                team_id=self.team.id,
+                report_id=report_id,
+                run_index=1,
+                head_sha="sha1",
+                review_mode="full",
+                failed=False,
+                published=published,
+            )
+        finished = hooks[1].call_args.args[0]
+        assert (finished.repository, finished.pr_number, finished.findings_count) == ("o/r", 7, 1)
+        assert (finished.failed, finished.published) == (False, published)
+        assert finished.review_url.endswith(f"/project/{self.team.id}/code-review?review={report_id}")
 
     def test_single_agent_turn_reports_its_finding_funnel_and_sessions(self) -> None:
         # The cap, the dedup calls, and the lens sessions are only measurable through these

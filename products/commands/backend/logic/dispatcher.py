@@ -29,7 +29,15 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import UserAccessControl
 
-from .commands import SUBJECT_NAMES, Answer, CommandContext, CommandRequest, DispatchOutcome, ProjectMember
+from .commands import (
+    SUBJECT_NAMES,
+    Answer,
+    CommandContext,
+    CommandRequest,
+    DispatchOutcome,
+    FollowUpAddress,
+    ProjectMember,
+)
 from .identity import Requester, resolve_requester
 from .registry import COMMANDS, CommandSpec, Invocation, help_text
 from .schema import HELP_VERB, ArgumentError, ResourceAccess, resolve_verb, usage
@@ -60,6 +68,8 @@ class CommandChannel(Protocol):
     name: str
     request: CommandRequest
     unlinked_message: str
+    # Where the result of work that finishes later goes. None when the work reports it itself.
+    follow_up: FollowUpAddress | None
 
     def admit(self) -> Admission | Answer | DispatchOutcome:
         """The channel's own checks. A bare outcome refuses in silence, and an ``Answer`` refuses
@@ -165,7 +175,7 @@ class CommandDispatcher:
                     outcome="access_denied",
                     message=f"You need {access.level} access to {access.resource} in PostHog to use `{declaration.verb}`.",
                 )
-        return CommandContext(request=request, subject=subject, members=members)
+        return CommandContext(request=request, subject=subject, members=members, follow_up=self._channel.follow_up)
 
     def _run(self, command: Invocation[Any], admission: Admission) -> DispatchOutcome:
         """Builds the context and runs the handler. A failure in either answers the requester."""

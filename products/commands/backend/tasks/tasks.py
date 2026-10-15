@@ -4,7 +4,7 @@ from celery import shared_task
 
 from ..channels.github.comments import dispatch_comment_command
 from ..channels.github.intake import CommentCommandRequest
-from ..channels.slack.mentions import SlackCommandRequest, dispatch_slack_command
+from ..channels.slack.mentions import SlackCommandRequest, SlackThread, dispatch_slack_command, post_in_thread
 from ..logic.subjects import subject_from_payload
 
 
@@ -72,3 +72,11 @@ def run_slack_command(
             user_ids=tuple(user_ids),
         )
     )
+
+
+@shared_task(ignore_result=True, max_retries=0)
+def deliver_follow_up(*, address: dict[str, str | int], message: str) -> None:
+    """Posts the result of a command's work where the command came from. Slack is the only channel
+    that asks for one."""
+    if address.get("channel") == "slack":
+        post_in_thread(SlackThread.from_address(address), message)

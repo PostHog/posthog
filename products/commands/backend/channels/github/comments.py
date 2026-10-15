@@ -29,7 +29,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
 from ...logic.admission import claim, release, rolled_out_team_ids, within_rate_limit
-from ...logic.commands import Answer, CommandRequest, DispatchOutcome, PullRequestRef
+from ...logic.commands import Answer, CommandRequest, DispatchOutcome, FollowUpAddress, PullRequestRef
 from ...logic.dispatcher import Admission, CommandDispatcher
 from ...logic.github import CommandGitHub, GitHubCallFailed, InstallationGitHub, Reaction
 from ...logic.subjects import open_subject
@@ -64,6 +64,8 @@ def _linked_users(github_user_id: int) -> list[User]:
 
 class GitHubCommentChannel:
     name = "github"
+    # The work posts its result on the pull request the comment sits on.
+    follow_up: FollowUpAddress | None = None
     unlinked_message = (
         "Your GitHub account is not linked to a PostHog account, so I can't tell who to run this as. "
         "Connect GitHub in your PostHog personal settings, then comment again."
