@@ -222,7 +222,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         presetChartHeight: scenePresetChartHeight,
     } = useValues(dataVisualizationLogic)
 
-    const presetChartHeight = !props.embedded && scenePresetChartHeight
+    const presetChartHeight =
+        !props.embedded &&
+        scenePresetChartHeight &&
+        !(query.kind === NodeKind.BIVisualizationNode && props.context?.visualizationSettingsPanel)
     const drilldownProps = {
         key: dataVisualizationProps.key,
         query,
@@ -406,6 +409,26 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         )
     } else if (
         query.kind === NodeKind.BIVisualizationNode &&
+        'results' in response &&
+        Array.isArray(response.results) &&
+        response.results.length === 0
+    ) {
+        component = (
+            <div className="flex flex-1 items-center justify-center p-4 text-secondary">
+                No results match these filters.
+            </div>
+        )
+    } else if (
+        query.kind === NodeKind.BIVisualizationNode &&
+        getBIResultDimensions(query.config).some(({ column }) => !columns.some((result) => result.name === column))
+    ) {
+        component = (
+            <LemonBanner type="warning">
+                The returned columns do not match this worksheet. Run the query again or check the selected fields.
+            </LemonBanner>
+        )
+    } else if (
+        query.kind === NodeKind.BIVisualizationNode &&
         (query.config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
             (query.config.compareFilter?.compare &&
                 [ChartDisplayType.ActionsTable, ChartDisplayType.BoldNumber, ChartDisplayType.Metric].includes(
@@ -566,7 +589,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     </LemonBanner>
                 ) : null}
                 {component}
-                {canDrill ? <BIDrilldownModal logicProps={drilldownProps} /> : null}
+                {canDrill ? (
+                    <BIDrilldownModal
+                        logicProps={drilldownProps}
+                        onNavigate={
+                            props.editMode && !props.inSharedMode ? props.context?.onDrillBIHierarchy : undefined
+                        }
+                    />
+                ) : null}
             </>
         )
     }
