@@ -16,5 +16,17 @@ registerActionNodeCategory({
             description: 'Post a comment on an issue or pull request.',
             config: { template_id: 'template-github-create-comment', inputs: {} },
         },
+        {
+            type: 'function',
+            name: 'Add labels',
+            description: 'Add labels to an issue or pull request.',
+            config: { template_id: 'template-github-add-labels', inputs: {} },
+        },
+        {
+            type: 'function',
+            name: 'Remove label',
+            description: 'Remove a label from an issue or pull request.',
+            config: { template_id: 'template-github-remove-label', inputs: {} },
+        },
     ],
 })

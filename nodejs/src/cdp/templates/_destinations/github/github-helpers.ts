@@ -42,6 +42,10 @@ fun githubJsonHeaders(installation) {
 
 fun githubErrorMessage(response) {
   return response.body.message ?? response.body
+}
+
+fun githubSplitList(value) {
+  return arrayFilter(item -> notEmpty(item), arrayMap(item -> trim(item), splitByString(',', toString(value ?? ''))))
 }`
 
 export const githubIssueInputs: HogFunctionInputSchemaType[] = [
