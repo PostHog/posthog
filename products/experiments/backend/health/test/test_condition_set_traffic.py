@@ -187,7 +187,7 @@ class TestLoadConditionSetTraffic(BaseTest):
     def test_failed_query_is_unknown_and_not_retried_on_the_next_load(
         self, _name: str, error: Exception, reported: bool, queries_two_hours_later: int
     ) -> None:
-        with patch("products.experiments.backend.health.condition_set_traffic.capture_exception") as capture:
+        with patch("products.experiments.backend.health.exposure_gate.capture_exception") as capture:
             traffic, _ = self._load(error)
         next_load, next_query = self._load(TRAFFIC)
         with time_machine.travel(timezone.now() + timedelta(hours=2)):

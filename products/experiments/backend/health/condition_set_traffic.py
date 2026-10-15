@@ -38,7 +38,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
@@ -48,7 +47,7 @@ from products.experiments.backend.health.checks.forced_variant import (
     needs_condition_set_traffic,
 )
 from products.experiments.backend.health.context import ConditionSetTraffic, HealthContext
-from products.experiments.backend.health.exposure_gate import TOO_EXPENSIVE_ERRORS
+from products.experiments.backend.health.exposure_gate import UNKNOWN, cache_failed_scan
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
@@ -64,10 +63,6 @@ _ANSWER_CACHE_SECONDS = int(timedelta(days=1).total_seconds())
 # Too few people to grade usually means that the window started recently, at launch or at a save of the flag.
 # It fills up, so the answer is asked again sooner.
 _TOO_FEW_PEOPLE_CACHE_SECONDS = int(timedelta(hours=1).total_seconds())
-# A scan too large for a request stays too large, so it waits a day. Another error can be brief, so it waits an hour.
-_TOO_EXPENSIVE_CACHE_SECONDS = int(timedelta(days=1).total_seconds())
-_FAILED_CACHE_SECONDS = int(timedelta(hours=1).total_seconds())
-_UNKNOWN = "unknown"
 _MATCHED_REASON = "^Matched condition set ([0-9]+)$"
 # The scan runs without the reader, so it can't apply a reader's property access rules. A reader denied one of
 # these gets no share instead of counts derived from it.
@@ -184,7 +179,7 @@ def _load_condition_set_traffic(experiment: Experiment, ctx: HealthContext) -> C
     cached = cache.get(cache_key)
     if isinstance(cached, dict):
         return ConditionSetTraffic(**cached)
-    if cached == _UNKNOWN:
+    if cached == UNKNOWN:
         return None
 
     now = timezone.now()
@@ -192,13 +187,7 @@ def _load_condition_set_traffic(experiment: Experiment, ctx: HealthContext) -> C
     try:
         traffic = query_condition_set_traffic(experiment, window_start=window_start, window_end=now)
     except Exception as error:
-        # The page calls the endpoint on every load, so a scan that fails must not run again on every load.
-        # Cluster memory pressure subclasses the per-query memory error, but it says nothing about this scan.
-        transient = isinstance(error, CH_TRANSIENT_ERRORS)
-        too_expensive = not transient and isinstance(error, TOO_EXPENSIVE_ERRORS)
-        if not transient and not too_expensive:
-            capture_exception(error)
-        cache.set(cache_key, _UNKNOWN, _TOO_EXPENSIVE_CACHE_SECONDS if too_expensive else _FAILED_CACHE_SECONDS)
+        cache_failed_scan(cache_key, error)
         return None
     cache.set(
         cache_key,
