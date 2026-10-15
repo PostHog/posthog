@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from prometheus_client import REGISTRY
+
 from posthog.hogql.query_stats import query_stats_scope
 
 from posthog.clickhouse.client.connection import (
@@ -15,8 +17,13 @@ from posthog.clickhouse.client.connection import (
     get_default_clickhouse_workload_type,
 )
 from posthog.clickhouse.client.execute import query_with_columns, sync_execute
-from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
-from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
+from posthog.clickhouse.client.limit import (
+    ConcurrencyLimitExceeded,
+    ConcurrencySlot,
+    RateLimit,
+    get_llm_analytics_rate_limiter,
+)
+from posthog.clickhouse.query_tagging import AccessMethod, Product, TemporalTags, tags_context
 
 
 @pytest.fixture
@@ -132,6 +139,44 @@ def test_llm_analytics_queries_take_a_concurrency_slot(client_from_pool, llm_ana
         sync_execute("SELECT 1", flush=False)
 
     assert llm_analytics_slots.call_count == expected_slots
+
+
+@pytest.mark.parametrize("rejected", [False, True])
+def test_llm_analytics_slot_metrics_carry_the_activity(client_from_pool, rejected):
+    labels = {"activity_type": "fetch_and_format_activity"}
+
+    def sample_count(metric: str, **extra: str) -> float:
+        return REGISTRY.get_sample_value(f"{metric}_count", {**labels, **extra}) or 0
+
+    outcome = "rejected" if rejected else "acquired"
+    wait_before = sample_count("posthog_clickhouse_llm_analytics_slot_wait_seconds", outcome=outcome)
+    hold_before = sample_count("posthog_clickhouse_llm_analytics_slot_hold_seconds")
+
+    limiter = get_llm_analytics_rate_limiter()
+    use = (
+        {"side_effect": ConcurrencyLimitExceeded("full")}
+        if rejected
+        else {"return_value": ConcurrencySlot(running_tasks_key="key", task_id="task")}
+    )
+    with (
+        patch.object(limiter, "applicable", lambda *args, **kwargs: True),
+        patch.object(RateLimit, "use", **use),
+        patch.object(RateLimit, "release"),
+        tags_context(
+            product=Product.LLM_ANALYTICS,
+            kind="temporal",
+            id="llma-trace-summarization",
+            temporal=TemporalTags(activity_type="fetch_and_format_activity"),
+        ),
+    ):
+        if rejected:
+            with pytest.raises(ConcurrencyLimitExceeded):
+                sync_execute("SELECT 1", flush=False)
+        else:
+            sync_execute("SELECT 1", flush=False)
+
+    assert sample_count("posthog_clickhouse_llm_analytics_slot_wait_seconds", outcome=outcome) == wait_before + 1
+    assert sample_count("posthog_clickhouse_llm_analytics_slot_hold_seconds") == hold_before + (0 if rejected else 1)
 
 
 def _fake_query_info(rows: int, elapsed_ns: int) -> SimpleNamespace:

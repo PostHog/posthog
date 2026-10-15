@@ -17,7 +17,7 @@ import sqlparse
 import structlog
 from clickhouse_driver import Client as SyncClient
 from opentelemetry import trace
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 
 from posthog.hogql import query_stats
 
@@ -31,7 +31,7 @@ from posthog.clickhouse.client.connection import (
     get_default_clickhouse_workload_type,
 )
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.clickhouse.client.limit import get_llm_analytics_rate_limiter
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, get_llm_analytics_rate_limiter
 from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
 from posthog.clickhouse.query_tagging import (
     Feature,
@@ -65,6 +65,22 @@ QUERY_ERROR_COUNTER = Counter(
     "clickhouse_query_failure",
     "Query execution failure signal is dispatched when a query fails.",
     labelnames=["exception_type", "query_type", "workload", "chargeable"],
+)
+
+# activity_type is the Temporal activity that issued the query, so its cardinality is bounded by the
+# activities registered on the AI observability workers.
+LLM_ANALYTICS_SLOT_WAIT_HISTOGRAM = Histogram(
+    "posthog_clickhouse_llm_analytics_slot_wait_seconds",
+    "Time spent waiting for an AI observability ClickHouse slot, by whether the slot was acquired.",
+    labelnames=["activity_type", "outcome"],
+    buckets=(0.01, 0.1, 0.5, 1, 2.5, 5, 10, 30),
+)
+
+LLM_ANALYTICS_SLOT_HOLD_HISTOGRAM = Histogram(
+    "posthog_clickhouse_llm_analytics_slot_hold_seconds",
+    "Time an AI observability ClickHouse slot stays held, which includes the query and the result read.",
+    labelnames=["activity_type"],
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600),
 )
 
 InsertParams = Union[list, tuple, types.GeneratorType]
@@ -353,7 +369,9 @@ class ClickHouseExternalTable(TypedDict):
 
 
 @contextmanager
-def _llm_analytics_concurrency_slot(ch_user: ClickHouseUser, team_id: Optional[int]) -> Iterator[None]:
+def _llm_analytics_concurrency_slot(
+    ch_user: ClickHouseUser, team_id: Optional[int], activity_type: str
+) -> Iterator[None]:
     """Hold one of AI observability's ClickHouse slots, and nothing for every other user.
 
     Acquired here rather than at the call sites because the ch_user routing above is tag-based and
@@ -365,8 +383,24 @@ def _llm_analytics_concurrency_slot(ch_user: ClickHouseUser, team_id: Optional[i
         yield
         return
 
-    with get_llm_analytics_rate_limiter().run(team_id=team_id):
-        yield
+    wait_start = perf_counter()
+    try:
+        with get_llm_analytics_rate_limiter().run(team_id=team_id):
+            hold_start = perf_counter()
+            LLM_ANALYTICS_SLOT_WAIT_HISTOGRAM.labels(activity_type=activity_type, outcome="acquired").observe(
+                hold_start - wait_start
+            )
+            try:
+                yield
+            finally:
+                LLM_ANALYTICS_SLOT_HOLD_HISTOGRAM.labels(activity_type=activity_type).observe(
+                    perf_counter() - hold_start
+                )
+    except ConcurrencyLimitExceeded:
+        LLM_ANALYTICS_SLOT_WAIT_HISTOGRAM.labels(activity_type=activity_type, outcome="rejected").observe(
+            perf_counter() - wait_start
+        )
+        raise
 
 
 @patchable
@@ -590,7 +624,9 @@ def sync_execute(
             chargeable=str(tags.chargeable or "0"),
         ).inc()
         with (
-            _llm_analytics_concurrency_slot(ch_user, team_id),
+            _llm_analytics_concurrency_slot(
+                ch_user, team_id, (tags.temporal.activity_type if tags.temporal else None) or "none"
+            ),
             sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
         ):
             query_info_before = getattr(client, "last_query", None)
