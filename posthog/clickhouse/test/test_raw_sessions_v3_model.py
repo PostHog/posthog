@@ -450,6 +450,26 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
 
         assert f"ttclid={expected}" in result[0]["entry_ad_ids_set"]
 
+    def test_ad_id_url_param_with_undecodable_bytes_is_normalized(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$current_url": "https://example.com/?ttclid=%FF",
+            },
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        # Without toValidUTF8 this value comes back as bytes, which breaks text readers.
+        assert "ttclid=\ufffd" in result[0]["entry_ad_ids_set"]
+
     def test_channel_type_properties(self):
         distinct_id = create_distinct_id()
         session_id = create_session_id()

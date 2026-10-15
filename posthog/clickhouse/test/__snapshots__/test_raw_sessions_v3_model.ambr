@@ -17,6 +17,15 @@
     AND team_id = 99999
   '''
 # ---
+# name: TestRawSessionsModel.test_ad_id_url_param_with_undecodable_bytes_is_normalized
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
 # name: TestRawSessionsModel.test_ad_ids_fall_back_to_url_params_0_gad_campaignid
   '''
   
