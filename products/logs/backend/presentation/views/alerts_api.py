@@ -270,7 +270,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         min_value=0,
         help_text=(
             "Minimum minutes between notifications. The alert notifies once when it starts firing and once "
-            "when it resolves. It does not notify again on each check while it stays firing. 0 means no minimum."
+            "when it resolves. It does not notify again on each check while it stays firing. A fire or resolve "
+            "notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. "
+            "0 means no minimum."
         ),
     )
     schedule_restriction = ScheduleRestrictionField(
@@ -774,7 +776,7 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     cooldown_minutes = serializers.IntegerField(
         default=0,
         min_value=0,
-        help_text="Minimum minutes between notifications. 0 means no minimum.",
+        help_text="Minimum minutes between notifications. A fire or resolve notification inside the cooldown is skipped. 0 means no minimum.",
     )
     date_from = serializers.CharField(
         help_text="Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d').",
