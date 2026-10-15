@@ -58,6 +58,7 @@ RUN_SUMMARY_FIELDS = (
     "emitted_report_ids",
     "edited_report_ids",
     "metadata",
+    "total_spend",
     "task_run__id",
     "task_run__task_id",
     "task_run__status",
@@ -86,7 +87,7 @@ CRON_GAP_SAMPLES = 4
 
 # Part of every `runs_version`. Bump it when `_to_summary` changes its output, so a client that
 # holds a body in the old shape fetches the new one.
-RUNS_VERSION_SCHEMA = 1
+RUNS_VERSION_SCHEMA = 2
 
 # Runaway guard on the fan-out of the per-scout probe. Deliberately a limit on *scouts* rather than
 # on rows: capping rows after the per-scout ranking would drop the slowest scouts' history, which is
@@ -159,6 +160,7 @@ class RunSummary:
     # harness-computed run flags written at finalize. Empty for default-model runs that never
     # finalized, and for rows predating the column.
     metadata: dict[str, Any] = field(default_factory=dict)
+    total_spend: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -203,6 +205,7 @@ class RunDetail:
     # harness-computed run flags written at finalize. Empty for default-model runs that never
     # finalized, and for rows predating the column.
     metadata: dict[str, Any] = field(default_factory=dict)
+    total_spend: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -657,6 +660,7 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         error=error,
         failure_reason=failure_reason,
         metadata=metadata,
+        total_spend=float(row.total_spend) if row.total_spend is not None else None,
     )
 
 
