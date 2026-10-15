@@ -109,8 +109,8 @@ returns, and use it wherever the queries below filter for fails:
 
 | Evaluation                                       | `<fail predicate>`                                                    |
 | ------------------------------------------------ | --------------------------------------------------------------------- |
-| `boolean`, `true_is_failure` false or unset      | `properties.$ai_evaluation_result = false`                            |
-| `boolean`, `true_is_failure: true` (detector)    | `properties.$ai_evaluation_result = true`                             |
+| `boolean`, `true_is_failure` false or unset      | `properties.$ai_evaluation_result = 'false'`                          |
+| `boolean`, `true_is_failure: true` (detector)    | `properties.$ai_evaluation_result = 'true'`                           |
 | `numeric`, `passing_rule` `gte` threshold `T`    | `toFloat(properties.$ai_evaluation_numeric_result) < T`               |
 | `numeric`, `passing_rule` `lte` threshold `T`    | `toFloat(properties.$ai_evaluation_numeric_result) > T`               |
 | `categorical`, `passing_rule.categories` `[a,b]` | `NOT (notEmpty(<cats>) AND hasAll(['a', 'b'], <cats>))`               |
@@ -118,8 +118,9 @@ returns, and use it wherever the queries below filter for fails:
 | `numeric` or `categorical` with no passing rule  | None. Read the score or categories directly, there is no pass or fail |
 
 `<cats>` is `JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)')`.
-Always add `coalesce(properties.$ai_evaluation_skipped, false) != true`, because a skipped run can still
-store `result = false`.
+Always add `(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')`, because a skipped run can still store
+`result = false`. Compare these properties to the strings `'true'` and `'false'`: a project without Boolean
+property definitions reads them as strings, and a comparison to a bare `true` or `false` then fails.
 
 ## Workflow: investigate why an evaluation is failing
 
@@ -149,13 +150,13 @@ before assuming the failure is in the generation.
 ```sql
 posthog:execute-sql
 SELECT
-    countIf(properties.$ai_evaluation_applicable = false) AS na_count,
-    countIf(coalesce(properties.$ai_evaluation_applicable, true) != false AND NOT (<fail predicate>)) AS pass_count,
-    countIf(coalesce(properties.$ai_evaluation_applicable, true) != false AND (<fail predicate>)) AS fail_count
+    countIf(properties.$ai_evaluation_applicable = 'false') AS na_count,
+    countIf((isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false') AND NOT (<fail predicate>)) AS pass_count,
+    countIf((isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false') AND (<fail predicate>)) AS fail_count
 FROM events
 WHERE event = '$ai_evaluation'
     AND properties.$ai_evaluation_id = '<evaluation_uuid>'
-    AND coalesce(properties.$ai_evaluation_skipped, false) != true
+    AND (isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')
     AND timestamp >= now() - INTERVAL 7 DAY
 ```
 
@@ -179,8 +180,8 @@ FROM events
 WHERE event = '$ai_evaluation'
     AND properties.$ai_evaluation_id = '<evaluation_uuid>'
     AND (<fail predicate>)
-    AND coalesce(properties.$ai_evaluation_applicable, true) != false
-    AND coalesce(properties.$ai_evaluation_skipped, false) != true
+    AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false')
+    AND (isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')
     AND timestamp >= now() - INTERVAL 7 DAY
 ORDER BY timestamp DESC
 LIMIT 25
@@ -355,8 +356,8 @@ identical.
    WHERE event = '$ai_evaluation'
        AND properties.$ai_evaluation_id = '<uuid>'
        AND (<fail predicate>)
-       AND coalesce(properties.$ai_evaluation_applicable, true) != false
-       AND coalesce(properties.$ai_evaluation_skipped, false) != true
+       AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false')
+       AND (isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')
        AND timestamp >= now() - INTERVAL 30 DAY
    GROUP BY day
    ORDER BY day
@@ -402,7 +403,7 @@ SELECT
 FROM events
 WHERE event = '$ai_evaluation'
     AND properties.$ai_evaluation_id = '<evaluation_uuid>'
-    AND properties.$ai_evaluation_applicable = false
+    AND properties.$ai_evaluation_applicable = 'false'
     AND timestamp >= now() - INTERVAL 7 DAY
 ORDER BY timestamp DESC
 LIMIT 25

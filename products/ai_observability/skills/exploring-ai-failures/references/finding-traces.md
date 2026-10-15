@@ -87,14 +87,14 @@ posthog:llma-evaluation-list { "enabled": true }
 SELECT toDate(timestamp) AS day, count() AS fails
 FROM events
 WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<uuid>'
-    AND (<fail predicate>) AND coalesce(properties.$ai_evaluation_skipped, false) != true
-    AND coalesce(properties.$ai_evaluation_applicable, true) != false
+    AND (<fail predicate>) AND (isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')
+    AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false')
     AND timestamp >= now() - INTERVAL 30 DAY
 GROUP BY day ORDER BY day
 ```
 
 Build `<fail predicate>` from the eval's output type and config, as in the fail predicate table in
-`exploring-llm-evaluations`. `$ai_evaluation_result = false` only fits a pass/fail eval that is not a detector.
+`exploring-llm-evaluations`. `$ai_evaluation_result = 'false'` only fits a pass/fail eval that is not a detector.
 
 `exploring-llm-evaluations` covers reading eval results in depth.
 
