@@ -12,7 +12,7 @@ Use the PostHog host for the project's region (or the user's proxy). The project
 
 - `linked_flag_key`, when set, must be enabled for the person. If `conditions.linkedFlagVariant` is set, the flag must return that variant.
 - `targeting_flag_key`, when set, must be enabled.
-- `internal_targeting_flag_key` must be enabled, unless the survey can show repeatedly (`schedule` is `always`, or `conditions.events.repeatedActivation` is true with events set). It turns off for people who already responded, dismissed, or saw a survey within the wait period, based on the person properties below.
+- `internal_targeting_flag_key` must be enabled, unless the survey can show repeatedly (`schedule` is `always`, or `conditions.events.repeatedActivation` is true with events set) or the person has a partial submission in progress that they are finishing. It turns off for people who already responded, dismissed, or saw a survey within the wait period, based on the person properties below.
 
 Skip any flag that is null. URL, selector and device conditions describe a browser page, so apply them in your own routing if the survey uses them.
 
@@ -70,7 +70,7 @@ function interactionKey(survey, kind) {
 }
 ```
 
-This matches how posthog-js builds the key. A repeating survey has a null `current_iteration` only briefly after launch, before its first iteration starts.
+This matches how posthog-js builds the key.
 
 ## Browser rendering a server-sent survey
 

@@ -27,7 +27,7 @@ Before writing UI, find:
 
 - The framework and the existing component library or design system. Build the survey from those components, not a generic modal.
 - Where PostHog is initialized, and the installed SDK and version (`package.json` or lockfile, or the server language's manifest).
-- Where the survey should appear. Pick one owner for the trigger. Either keep the survey's own `conditions` (events, URL, selector), and `getActiveMatchingSurveys` returns it only once they match, or leave those conditions empty and decide in app code. Doing both hides the survey.
+- Where the survey should appear. Let the app own the trigger: leave the survey's event, URL and selector `conditions` empty, and run the lookup below at the moment the survey should appear. `getActiveMatchingSurveys` only returns a survey with event conditions after that event fires, and nothing runs the lookup again at that point.
 
 Pick the path:
 
@@ -38,22 +38,26 @@ Pick the path:
 
 Require posthog-js 1.249.2 or newer. Older versions do not set the person properties and seen state on capture. Tell the user to upgrade rather than adding them by hand.
 
-Fetch the survey after flags load, because targeting is evaluated with flags. `onFeatureFlags` runs again on every flag reload (after `identify`, and after each response), so guard against rendering twice.
+Look the survey up once flags have loaded, because targeting is evaluated with flags. `onFeatureFlags` runs its callback right away when flags are ready, and again on every flag reload (after `identify`, and after each response), so guard against rendering twice.
 
 ```js
 let rendered = false
-posthog.onFeatureFlags(() => {
+
+function showSurveyIfEligible() {
   if (rendered) return
-  posthog.getActiveMatchingSurveys((surveys) => {
-    const survey = surveys.find((s) => s.id === SURVEY_ID)
-    if (!survey || rendered) return
-    rendered = true
-    renderSurvey(survey)
+  posthog.onFeatureFlags(() => {
+    if (rendered) return
+    posthog.getActiveMatchingSurveys((surveys) => {
+      const survey = surveys.find((s) => s.id === SURVEY_ID)
+      if (!survey || rendered) return
+      rendered = true
+      renderSurvey(survey)
+    })
   })
-})
+}
 ```
 
-`SURVEY_ID` is the id from step 1. `renderSurvey` mounts the component you build from the app's own UI, and that component calls the handlers below. `getActiveMatchingSurveys` applies the survey's targeting for this person, so render only what it returns.
+Call `showSurveyIfEligible()` from the app's trigger, such as after a checkout completes, or on page load if the survey belongs there. `SURVEY_ID` is the id from step 1. `renderSurvey` mounts the component you build from the app's own UI, and that component calls the handlers below. `getActiveMatchingSurveys` applies the survey's targeting for this person, so render only what it returns.
 
 Capture three events. `answers` maps each question id to its answer, and holds every answer given so far in this submission. Exact property names and value shapes are in [event-contract.md](references/event-contract.md).
 
