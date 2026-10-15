@@ -26,6 +26,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.person.divergence.team_scan import (
     PLAN_FILE,
     SUMMARY_FILE,
+    IdRange,
     ScanError,
     create_plan,
     finalize,
@@ -47,13 +48,13 @@ def _positive_int(value: str) -> int:
     return number
 
 
-def _id_range(value: str) -> tuple[int, int]:
+def _id_range(value: str) -> IdRange:
     start, _, end = value.partition(":")
     try:
-        bounds = int(start), int(end)
+        bounds = IdRange(start=int(start), end=int(end))
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"{value} is not START:END") from exc
-    if not 1 <= bounds[0] < bounds[1]:
+    if not 1 <= bounds.start < bounds.end:
         raise argparse.ArgumentTypeError(f"{value} must have 1 <= START < END")
     return bounds
 
