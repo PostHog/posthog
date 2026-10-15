@@ -219,7 +219,7 @@ class TestRegroup(SimpleTestCase):
             ),
         ]
     )
-    def test_cross_key_groups(self, _name: str, rows: list[dict[str, Any]], expected: dict[str, tuple[Any, Any]]):
+    def test_cross_key_groups(self, _name: str, rows: list[dict[str, Any]], expected: dict[str, tuple[Any, Any, Any]]):
         plan = team_scan.ScanPlan(
             version=team_scan.PLAN_VERSION,
             team_id=1,
