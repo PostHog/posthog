@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.schema import NodeKind
 
 from posthog.api.services.query import ExecutionMode
+from posthog.errors import CHQueryErrorNoCommonType, CHQueryErrorS3FileChangedDuringRead
 from posthog.hogql_queries.query_failure_handling import build_failure_exception
 from posthog.query_cache.failures import QueryFailureRecord
 
@@ -34,8 +35,8 @@ class _Extractor:
         return self._outcome
 
 
-def _run(outcome: Exception | ExtractionResult) -> ExtractionResult:
-    return run_extractor(_Extractor(outcome), MagicMock(), MagicMock(), {}, IF_STALE)
+def _run(outcome: Exception | ExtractionResult, query: dict | None = None) -> ExtractionResult:
+    return run_extractor(_Extractor(outcome), MagicMock(), MagicMock(), query or {}, IF_STALE)
 
 
 def _breaker_replay() -> Exception:
@@ -67,6 +68,31 @@ def test_a_breaker_replay_keeps_the_ordinary_failure_path() -> None:
     replay = _breaker_replay()
     with pytest.raises(type(replay)):
         _run(replay)
+
+
+def test_a_sql_query_clickhouse_rejects_becomes_an_extraction_error() -> None:
+    error = CHQueryErrorNoCommonType(
+        "Code: 386. DB::Exception: There is no supertype for types DateTime64(6, 'UTC'), String. Stack trace: ...",
+        code=386,
+        code_name="no_common_type",
+    )
+    with pytest.raises(
+        AlertExtractionError, match=r"^There is no supertype for types DateTime64\(6, 'UTC'\), String\.$"
+    ):
+        _run(error, {"kind": NodeKind.HOG_QL_QUERY, "query": "select 1"})
+
+
+@pytest.mark.parametrize(
+    "error,query",
+    [
+        (CHQueryErrorNoCommonType("no supertype", code=386), {"kind": NodeKind.TRENDS_QUERY, "series": []}),
+        (CHQueryErrorS3FileChangedDuringRead("file changed", code=36), {"kind": NodeKind.HOG_QL_QUERY}),
+    ],
+    ids=["posthog_built_query", "transient_error"],
+)
+def test_a_clickhouse_error_outside_the_owners_sql_keeps_the_ordinary_failure_path(error, query) -> None:
+    with pytest.raises(type(error)):
+        _run(error, query)
 
 
 def test_a_successful_extraction_passes_through() -> None:
