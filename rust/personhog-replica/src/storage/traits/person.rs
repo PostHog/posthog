@@ -157,11 +157,13 @@ pub trait PersonLookup: Send + Sync {
         floors: &[(Uuid, i64)],
     ) -> StorageResult<Vec<PersonVersionFloorResult>>;
 
-    /// One page of a team's persons, live and tombstoned, with id above `after_person_id`, in id order.
+    /// One page of a team's persons, live and tombstoned, with id above `after_person_id` and below
+    /// `before_person_id` when given, in id order.
     async fn list_persons_for_team(
         &self,
         team_id: i64,
         after_person_id: i64,
+        before_person_id: Option<i64>,
         limit: i64,
     ) -> StorageResult<Vec<PersonListEntry>>;
 }

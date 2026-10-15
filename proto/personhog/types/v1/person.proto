@@ -665,6 +665,8 @@ message ListPersonsForTeamRequest {
   // Persons per page. 0 means 1000; at most 10000.
   int64 limit = 3;
   ReadOptions read_options = 4;
+  // When set, return only persons with id < before_person_id, so a caller can scan id ranges in parallel.
+  optional int64 before_person_id = 5;
 }
 
 message ListPersonsForTeamResponse {

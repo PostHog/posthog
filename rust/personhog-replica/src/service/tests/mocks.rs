@@ -185,6 +185,7 @@ impl storage::PersonLookup for FailingStorage {
         &self,
         _team_id: i64,
         _after_person_id: i64,
+        _before_person_id: Option<i64>,
         _limit: i64,
     ) -> storage::StorageResult<Vec<storage::types::PersonListEntry>> {
         Err(self.error.clone())
@@ -622,6 +623,7 @@ impl storage::PersonLookup for SuccessStorage {
         &self,
         _team_id: i64,
         _after_person_id: i64,
+        _before_person_id: Option<i64>,
         _limit: i64,
     ) -> storage::StorageResult<Vec<storage::types::PersonListEntry>> {
         Ok(Vec::new())
@@ -1118,6 +1120,7 @@ impl storage::PersonLookup for PopulatedStorage {
         &self,
         _team_id: i64,
         _after_person_id: i64,
+        _before_person_id: Option<i64>,
         _limit: i64,
     ) -> storage::StorageResult<Vec<storage::types::PersonListEntry>> {
         Ok(Vec::new())
@@ -1590,6 +1593,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         &self,
         _team_id: i64,
         _after_person_id: i64,
+        _before_person_id: Option<i64>,
         _limit: i64,
     ) -> storage::StorageResult<Vec<storage::types::PersonListEntry>> {
         Ok(Vec::new())

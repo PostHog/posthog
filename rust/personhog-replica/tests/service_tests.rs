@@ -1909,6 +1909,7 @@ async fn test_list_persons_for_team_pages_in_id_order_with_tombstones() {
                 after_person_id,
                 limit: 2,
                 read_options: None,
+                before_person_id: None,
             }))
             .await
             .expect("RPC failed")
@@ -1933,6 +1934,22 @@ async fn test_list_persons_for_team_pages_in_id_order_with_tombstones() {
     assert_eq!(page_sizes, vec![2, 1]);
     assert_eq!(listed, expected);
 
+    let bounded = ctx
+        .service
+        .list_persons_for_team(Request::new(ListPersonsForTeamRequest {
+            team_id: ctx.team_id,
+            after_person_id: 0,
+            limit: 0,
+            read_options: None,
+            before_person_id: Some(expected[2].0),
+        }))
+        .await
+        .expect("RPC failed")
+        .into_inner();
+    let bounded_ids: Vec<i64> = bounded.persons.iter().map(|p| p.id).collect();
+    assert_eq!(bounded_ids, vec![expected[0].0, expected[1].0]);
+    assert_eq!(bounded.next_after_person_id, None);
+
     ctx.cleanup().await.ok();
 }
 
@@ -1954,6 +1971,7 @@ async fn test_list_persons_for_team_rejects_bad_requests(
             after_person_id: 0,
             limit,
             read_options: read_options(strong),
+            before_person_id: None,
         }))
         .await
         .expect_err("rejected");

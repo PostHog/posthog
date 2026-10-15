@@ -1413,6 +1413,7 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         after_person_id: i64,
+        before_person_id: Option<i64>,
         limit: i64,
     ) -> StorageResult<Vec<PersonListEntry>> {
         let labels = [
@@ -1435,13 +1436,14 @@ impl PersonLookup for PostgresStorage {
                        WHERE d.team_id = p.team_id AND d.person_id = p.id AND d.is_deleted = false
                    ) as "has_live_distinct_ids!"
             FROM posthog_person p
-            WHERE p.team_id = $1 AND p.id > $2
+            WHERE p.team_id = $1 AND p.id > $2 AND ($4::bigint IS NULL OR p.id < $4)
             ORDER BY p.id
             LIMIT $3
             "#,
             team_id as i32,
             after_person_id,
-            limit
+            limit,
+            before_person_id
         )
         .fetch_all(&mut *conn)
         .await?

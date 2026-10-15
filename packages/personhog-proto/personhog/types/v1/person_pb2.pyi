@@ -1025,21 +1025,24 @@ class PersonListEntry(_message.Message):
     ) -> None: ...
 
 class ListPersonsForTeamRequest(_message.Message):
-    __slots__ = ("team_id", "after_person_id", "limit", "read_options")
+    __slots__ = ("team_id", "after_person_id", "limit", "read_options", "before_person_id")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     AFTER_PERSON_ID_FIELD_NUMBER: _ClassVar[int]
     LIMIT_FIELD_NUMBER: _ClassVar[int]
     READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    BEFORE_PERSON_ID_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     after_person_id: int
     limit: int
     read_options: _common_pb2.ReadOptions
+    before_person_id: int
     def __init__(
         self,
         team_id: _Optional[int] = ...,
         after_person_id: _Optional[int] = ...,
         limit: _Optional[int] = ...,
         read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+        before_person_id: _Optional[int] = ...,
     ) -> None: ...
 
 class ListPersonsForTeamResponse(_message.Message):
