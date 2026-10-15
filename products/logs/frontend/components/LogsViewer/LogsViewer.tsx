@@ -52,6 +52,8 @@ export interface LogsViewerProps {
     defaultFacetRailCollapsed?: boolean
     // Same, for the volume chart. Panels embedded in a short pane start without it.
     defaultSparklineCollapsed?: boolean
+    // A panel embedded under other keyboard controls leaves focus where it is.
+    autoFocusSearch?: boolean
 }
 
 export function LogsViewer({
@@ -64,6 +66,7 @@ export function LogsViewer({
     sessionId,
     defaultFacetRailCollapsed,
     defaultSparklineCollapsed,
+    autoFocusSearch = true,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId, sessionId }}>
@@ -79,6 +82,7 @@ export function LogsViewer({
                                     <LogsViewerContent
                                         showFullScreenButton={showFullScreenButton}
                                         showSavedViewsButton={showSavedViewsButton}
+                                        autoFocusSearch={autoFocusSearch}
                                         scope={{ initialFilters, pinnedFilters, personId, sessionId }}
                                     />
                                 </BindLogic>
@@ -102,10 +106,12 @@ function ConnectedLogsSparkline(props: Omit<LogsViewerSparklineProps, 'visibleRo
 function LogsViewerContent({
     showFullScreenButton,
     showSavedViewsButton,
+    autoFocusSearch,
     scope,
 }: {
     showFullScreenButton: boolean
     showSavedViewsButton: boolean
+    autoFocusSearch: boolean
     scope: LogsViewerScope
 }): JSX.Element {
     const {
@@ -415,6 +421,7 @@ function LogsViewerContent({
             <LogsQueryBar
                 showSavedViewsButton={showSavedViewsButton}
                 showFullScreenButton={showFullScreenButton}
+                autoFocusSearch={autoFocusSearch}
                 scope={scope}
             />
             {sparklineSection}

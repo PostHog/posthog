@@ -153,7 +153,7 @@ export function addLogsValueFilter(
     return mergeFilterIntoValues(currentValues, newPropertyFilter)
 }
 
-export const LogsFilterSearch = (): JSX.Element => {
+export const LogsFilterSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
     const { utcDateRange, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { focusFilter } = useActions(logsViewerFiltersLogic)
@@ -215,6 +215,7 @@ export const LogsFilterSearch = (): JSX.Element => {
                 <TaxonomicFilterSearchInput
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
+                    autoFocus={autoFocus}
                     onClose={() => onClose()}
                     onChange={() => setVisible(true)}
                 />
