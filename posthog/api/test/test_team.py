@@ -1203,7 +1203,36 @@ def team_api_test_factory():
             self._patch_linked_flag_config(None)
             self._assert_linked_flag_config(None)
 
-        @parameterized.expand(["missing", "soft_deleted", "other_project"])
+        @parameterized.expand([["viewable", "current-key"], ["access_denied", "stale-key"]])
+        def test_moves_a_trigger_group_flag_sent_with_an_id_to_the_flags_current_key(
+            self, case: str, expected_key: str
+        ) -> None:
+            flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="current-key")
+            if case == "access_denied":
+                self._deny_flag_access(flag)
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "group-1",
+                        "sampleRate": 1.0,
+                        "conditions": {"matchType": "any", "flag": {"id": flag.id, "key": "stale-key"}},
+                    }
+                ],
+            }
+
+            response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_trigger_groups": trigger_groups}
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            response = self.client.get("/api/environments/@current/")
+            assert response.json()["session_recording_trigger_groups"]["groups"][0]["conditions"]["flag"] == {
+                "id": flag.id,
+                "key": expected_key,
+            }
+
+        @parameterized.expand(["missing", "soft_deleted", "other_project", "access_denied"])
         def test_rejects_a_linked_flag_that_cannot_gate_recording(self, case: str) -> None:
             flag_team = Team.objects.create(organization=self.organization) if case == "other_project" else self.team
             flag = FeatureFlag.objects.create(
@@ -1212,12 +1241,13 @@ def team_api_test_factory():
             flag_id = flag.id
             if case == "missing":
                 flag.delete()
+            if case == "access_denied":
+                self._deny_flag_access(flag)
 
-            response = self.client.patch(
-                "/api/environments/@current/", {"session_recording_linked_flag": {"id": flag_id, "key": "gate"}}
+            response = self._patch_linked_flag_config(
+                {"id": flag_id, "key": "gate"}, expected_status=status.HTTP_400_BAD_REQUEST
             )
 
-            assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert response.json()["detail"] == (
                 f"Feature flag {flag_id} doesn't exist in this project or has been deleted. Choose a different flag."
             )
@@ -1945,6 +1975,20 @@ def team_api_test_factory():
             self, config: dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
         ) -> HttpResponse:
             return self._patch_config("session_replay_config", config, expected_status)
+
+        def _deny_flag_access(self, flag: FeatureFlag) -> None:
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            # A flag's creator can always view it, so the flag needs a different creator.
+            flag.created_by = self._create_user("flag-owner@posthog.com")
+            flag.save()
+            AccessControl.objects.create(
+                team=self.team, resource="feature_flag", resource_id=str(flag.id), access_level="none"
+            )
 
         def _assert_linked_flag_config(self, expected_config: dict | None) -> HttpResponse:
             response = self.client.get("/api/environments/@current/")

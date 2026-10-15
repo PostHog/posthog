@@ -122,6 +122,7 @@ from posthog.utils import (
     safe_cache_set,
 )
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -1722,7 +1723,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def validate_session_recording_linked_flag(self, value: Any) -> dict | None:
         project_id = self.instance.project_id if self.instance is not None else self.context.get("project_id")
-        return validate_team_session_recording_linked_flag(value, project_id=project_id)
+        return validate_team_session_recording_linked_flag(
+            value, project_id=project_id, user_access_control=self.user_access_control
+        )
 
     @staticmethod
     def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:
@@ -2450,7 +2453,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
         # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
         # bouncing freshly onboarded users back into onboarding.
-        with locked_replay_gate_write(instance, validated_data):
+        with locked_replay_gate_write(instance, validated_data, self.user_access_control):
             other_team_fields = [attr for attr in validated_data if attr not in LOCKED_CONVERSATIONS_COLUMNS]
             for attr in other_team_fields:
                 setattr(instance, attr, validated_data[attr])
@@ -3329,7 +3332,9 @@ MANAGED_CONVERSATIONS_SETTINGS = (
 LOCKED_CONVERSATIONS_COLUMNS = ("conversations_settings", "conversations_enabled")
 
 
-def validate_team_session_recording_linked_flag(value: Any, *, project_id: int | None) -> dict | None:
+def validate_team_session_recording_linked_flag(
+    value: Any, *, project_id: int | None, user_access_control: UserAccessControl | None
+) -> dict | None:
     """Shared by the team and project serializers, because both endpoints can PATCH the link.
 
     `project_id` is None when the request creates the project, so it has no flags to link yet.
@@ -3364,7 +3369,8 @@ def validate_team_session_recording_linked_flag(value: Any, *, project_id: int |
 
     # The SDKs treat a flag they cannot resolve as "do not record", so a link to a missing,
     # deleted, or other-project flag turns replay off for the team without an error.
-    if project_id is None or not flag_exists_in_project(flag_id, project_id):
+    # A flag that the user cannot view gets the same error, so the error does not reveal that it exists.
+    if project_id is None or not flag_exists_in_project(flag_id, project_id, user_access_control):
         raise exceptions.ValidationError(
             f"Feature flag {flag_id} doesn't exist in this project or has been deleted. Choose a different flag."
         )

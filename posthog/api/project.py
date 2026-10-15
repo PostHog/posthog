@@ -1105,7 +1105,9 @@ class ProjectBackwardCompatSerializer(
 
     def validate_session_recording_linked_flag(self, value: Any) -> dict | None:
         return validate_team_session_recording_linked_flag(
-            value, project_id=self.instance.id if self.instance is not None else None
+            value,
+            project_id=self.instance.id if self.instance is not None else None,
+            user_access_control=self.user_access_control,
         )
 
     @staticmethod
@@ -1381,7 +1383,7 @@ class ProjectBackwardCompatSerializer(
         # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
         # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
         # bouncing freshly onboarded users back into onboarding.
-        with locked_replay_gate_write(team, validated_data):
+        with locked_replay_gate_write(team, validated_data, self.user_access_control):
             updated_team_fields = []
             updated_project_fields = []
             for attr, value in validated_data.items():

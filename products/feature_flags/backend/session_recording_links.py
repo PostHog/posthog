@@ -16,7 +16,7 @@ matcher here is project-scoped.
 from collections import defaultdict
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -31,6 +31,9 @@ from posthog.models import Team
 
 from products.feature_flags.backend.field_snapshots import capture_fields_before_save, snapshot_if_changed
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
 
@@ -235,7 +238,12 @@ def rewritten_linked_flag(linked_flag: Any, *, flag_id: int, new_key: str) -> di
     return {**linked_flag, "key": new_key}
 
 
-def current_flag_keys(flag_ids: Iterable[int], *, project_id: int | None = None) -> dict[int, str]:
+def current_flag_keys(
+    flag_ids: Iterable[int],
+    *,
+    project_id: int | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> dict[int, str]:
     """Each flag's key as it stands right now. A flag absent from the result has been hard-deleted.
 
     The query includes soft-deleted flags, so a team follows a soft delete onto the tombstone key
@@ -243,15 +251,30 @@ def current_flag_keys(flag_ids: Iterable[int], *, project_id: int | None = None)
     for a new flag to claim. A team left on the original key would gate recording on a flag it
     never linked.
 
-    With `project_id`, a flag in another project is absent from the result too.
+    With `project_id`, a flag in another project is absent from the result too. With
+    `user_access_control`, a flag that the user cannot view is absent from the result too.
     """
     flags = FeatureFlag.objects_including_soft_deleted.filter(pk__in=set(flag_ids))
     if project_id is not None:
         flags = flags.filter(team__project_id=project_id)
-    return dict(flags.values_list("pk", "key"))
+    return dict(_visible_flags(flags, user_access_control).values_list("pk", "key"))
 
 
-def rewrite_to_current_flag_keys(linked_flag: Any, trigger_groups: Any, *, project_id: int) -> ReplayGateRewrite:
+def _visible_flags(
+    flags: QuerySet[FeatureFlag], user_access_control: "UserAccessControl | None"
+) -> QuerySet[FeatureFlag]:
+    if user_access_control is None:
+        return flags
+    return user_access_control.filter_queryset_by_access_level(flags, include_all_if_admin=True)
+
+
+def rewrite_to_current_flag_keys(
+    linked_flag: Any,
+    trigger_groups: Any,
+    *,
+    project_id: int,
+    user_access_control: "UserAccessControl | None" = None,
+) -> ReplayGateRewrite:
     """Point every reference that stores a flag id at that flag's current key.
 
     A Team API write replaces the gate columns with values a client sent. A client that loaded
@@ -261,8 +284,15 @@ def rewrite_to_current_flag_keys(linked_flag: Any, trigger_groups: Any, *, proje
     Scoped to the project because flag ids are global. Without the scope, a reference holding
     another project's flag id would copy that flag's key into this team's settings. A reference
     whose id names no flag in the project stays as sent.
+
+    A reference to a flag that the user cannot view also stays as sent. Otherwise a client could
+    send any id and read that flag's key back from the response.
     """
-    keys = current_flag_keys(referenced_flag_ids(linked_flag, trigger_groups), project_id=project_id)
+    keys = current_flag_keys(
+        referenced_flag_ids(linked_flag, trigger_groups),
+        project_id=project_id,
+        user_access_control=user_access_control,
+    )
     linked_flag_id = stored_flag_id(linked_flag)
     refs = trigger_group_flag_refs(trigger_groups)
 
@@ -287,7 +317,9 @@ def referenced_flag_ids(linked_flag: Any, trigger_groups: Any) -> set[int]:
 
 
 @contextmanager
-def locked_replay_gate_write(team: Team, validated_data: dict[str, Any]) -> Iterator[None]:
+def locked_replay_gate_write(
+    team: Team, validated_data: dict[str, Any], user_access_control: "UserAccessControl | None"
+) -> Iterator[None]:
     """Hold a lock on the team row while a Team API write saves the replay gate columns.
 
     On entry, this rewrites `validated_data` in place: every reference that stores a flag id
@@ -309,14 +341,17 @@ def locked_replay_gate_write(team: Team, validated_data: dict[str, Any]) -> Iter
 
     with transaction.atomic():
         Team.objects.select_for_update(no_key=True).only("id").get(pk=team.pk)
-        rewrite = rewrite_to_current_flag_keys(linked_flag, trigger_groups, project_id=team.project_id)
+        rewrite = rewrite_to_current_flag_keys(
+            linked_flag, trigger_groups, project_id=team.project_id, user_access_control=user_access_control
+        )
         validated_data.update(rewrite.changed_columns())
         yield
 
 
-def flag_exists_in_project(flag_id: int, project_id: int) -> bool:
-    """Whether the project has a flag with this id. A soft-deleted flag does not count."""
-    return FeatureFlag.objects.filter(pk=flag_id, team__project_id=project_id).exists()
+def flag_exists_in_project(flag_id: int, project_id: int, user_access_control: "UserAccessControl | None") -> bool:
+    """Whether the project has a flag with this id that the user can view. A soft-deleted flag does not count."""
+    flags = FeatureFlag.objects.filter(pk=flag_id, team__project_id=project_id)
+    return _visible_flags(flags, user_access_control).exists()
 
 
 def rewritten_trigger_groups(trigger_groups: Any, renames: Mapping[int, str]) -> dict[str, Any] | None:
@@ -367,9 +402,9 @@ def save_replay_gate_rewrites(team_id: int, compute: Callable[[Team], ReplayGate
         # `no_key=True` because this writes no key column, so the lock does not block the
         # `KEY SHARE` that a foreign key check on this Team row takes. Two `FOR NO KEY UPDATE`
         # locks still conflict, so two calls to this function for one team stay serialized.
-        # The Team API takes the same lock through `locked_replay_gate_write` before it writes
-        # either column. A bare trigger-group key carries no id, so a Team API write can still
-        # store a bare key from before a rename.
+        # A Team API write that stores a flag id in either column takes the same lock through
+        # `locked_replay_gate_write`. A write that stores only bare trigger-group keys takes no
+        # lock, so it can still store a key from before a rename.
         team = Team.objects.select_for_update(no_key=True).filter(pk=team_id).first()
         if team is None:
             return

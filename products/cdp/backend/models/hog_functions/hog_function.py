@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
@@ -383,7 +383,8 @@ def action_saved(sender, instance: Action, created, **kwargs):
 def team_saved(sender, instance: Team, created, **kwargs):
     from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
-    refresh_affected_hog_functions.delay(team_id=instance.id)
+    team_id = instance.id
+    transaction.on_commit(lambda: refresh_affected_hog_functions.delay(team_id=team_id))
 
 
 @receiver(post_save, sender="cohorts.Cohort")
