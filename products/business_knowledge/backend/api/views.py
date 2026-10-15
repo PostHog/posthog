@@ -330,6 +330,13 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except KnowledgeSource.DoesNotExist:
             raise exceptions.NotFound()
 
+        # Membership changes project-wide library search, so a grant on one source is not enough.
+        if "library_ids" in request.data and not self.user_access_control.check_access_level_for_resource(
+            "business_knowledge", "editor"
+        ):
+            raise exceptions.PermissionDenied(
+                detail="You need editor access to business knowledge to change libraries."
+            )
         # Validate before the type update runs, so a bad id cannot leave a half-applied PATCH.
         library_ids = _requested_library_ids(self.team_id, request)
         if library_ids is None:

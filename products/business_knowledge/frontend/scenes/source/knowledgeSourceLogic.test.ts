@@ -180,6 +180,24 @@ describe('knowledgeSourceLogic', () => {
         expect(logic.values.sourceDocumentsLoaded).toBe(true)
     })
 
+    it('keeps saved libraries when an older source read lands after the save', async () => {
+        const libraryId = '22222222-2222-2222-2222-222222222222'
+        await expectLogic(logic).toFinishAllListeners()
+        let resolveRead: (source: KnowledgeSourceApi) => void = () => {}
+        mockedApi.getSource.mockReturnValue(new Promise((resolve) => (resolveRead = resolve)))
+        mockedApi.updateSource.mockResolvedValue({ ...MOCK_SOURCE, library_ids: [libraryId] })
+
+        logic.actions.loadSource()
+        await expectLogic(logic, () => {
+            logic.actions.saveSourceLibraries([libraryId])
+        }).toDispatchActions(['finishLibrarySave'])
+        expect(logic.values.source?.library_ids).toEqual([libraryId])
+        resolveRead(MOCK_SOURCE)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.source?.library_ids).toEqual([libraryId])
+    })
+
     it('keeps the source when the indexed page list fails', async () => {
         logic.unmount()
         mockedApi.getSource.mockResolvedValue({

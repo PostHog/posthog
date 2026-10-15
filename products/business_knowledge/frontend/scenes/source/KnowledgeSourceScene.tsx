@@ -94,7 +94,7 @@ export function KnowledgeSourceScene(): JSX.Element {
     if (!source) {
         return (
             <SceneContent>
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSource }}>
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadSource() }}>
                     Couldn't load this knowledge source. Try again.
                 </LemonBanner>
             </SceneContent>

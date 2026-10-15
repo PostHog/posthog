@@ -177,8 +177,7 @@ def connect_github(team: Team, integration_id: int) -> dict[str, Any]:
     if config.github_integration_id != integration.id:
         config.github_repos = []
     config.github_integration_id = integration.id
-    config.save(update_fields=["github_integration_id", "github_repos"])
-    _prune_library_repos(team)
+    _save_allowlist(team, config, ["github_integration_id", "github_repos"])
     return connection_status(team)
 
 
@@ -187,8 +186,7 @@ def disconnect_github(team: Team) -> dict[str, Any]:
     if config is not None:
         config.github_integration_id = None
         config.github_repos = []
-        config.save(update_fields=["github_integration_id", "github_repos"])
-    _prune_library_repos(team)
+    _save_allowlist(team, config, ["github_integration_id", "github_repos"])
     return connection_status(team)
 
 
@@ -198,8 +196,7 @@ def select_github_repos(team: Team, repos: list[str]) -> dict[str, Any]:
         raise GithubReposError("Connect GitHub before choosing repositories.")
     validated = _validate_against_installation(team.id, config.github_integration_id, repos)
     config.github_repos = validated
-    config.save(update_fields=["github_repos"])
-    _prune_library_repos(team)
+    _save_allowlist(team, config, ["github_repos"])
     integration_id = config.github_integration_id
 
     def enqueue() -> None:
@@ -403,13 +400,20 @@ def _restrict_to_library(team: Team, allowed: list[str], library_id: UUID | None
     return [full_name for full_name in allowed if full_name in members]
 
 
-def _prune_library_repos(team: Team) -> None:
+def _save_allowlist(team: Team, config: TeamBusinessKnowledgeConfig | None, update_fields: list[str]) -> None:
     from .libraries import (  # noqa: PLC0415 — libraries is not on the import path
+        lock_libraries,
         project_allowed_repos,
         prune_repository_links,
     )
 
-    prune_repository_links(team.id, project_allowed_repos(team))
+    # Environments of a project share library links. Without one lock, a prune can read another environment's
+    # allowlist before that environment saves it and delete links the new allowlist keeps.
+    with transaction.atomic():
+        lock_libraries(team.id)
+        if config is not None:
+            config.save(update_fields=update_fields)
+        prune_repository_links(team.id, project_allowed_repos(team))
 
 
 def _targets(allowed: list[str], repo: str | None) -> list[str]:

@@ -52,13 +52,19 @@ def _normalize_repo(repo: str) -> str:
     return repo.strip().lower()
 
 
-def _lock_membership(team_id: int) -> None:
-    # Transaction-scoped. A per-library and a per-source replace edit the same link rows, so both take this one lock.
+def _lock_libraries(team_id: int) -> None:
+    # Transaction-scoped. Every library write takes it before any row lock, so two writes never lock rows in opposite
+    # orders, and the library count check cannot race another create.
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-            [f"business_knowledge_library_membership:{team_id}"],
+            [f"business_knowledge_libraries:{team_id}"],
         )
+
+
+def lock_libraries(team_id: int) -> None:
+    """Take the project's library lock for a write outside this module. Call it inside `transaction.atomic()`."""
+    _lock_libraries(resolve_effective_team_id(team_id))
 
 
 def _require_library_locked(team_id: int, library_id: UUID) -> None:
@@ -110,6 +116,7 @@ def create_library(team_id: int, name: str) -> KnowledgeLibrary:
     team_id = resolve_effective_team_id(team_id)
     cleaned = _clean_name(name)
     with transaction.atomic():
+        _lock_libraries(team_id)
         if KnowledgeLibrary.objects.filter(team_id=team_id).count() >= MAX_LIBRARIES_PER_TEAM:
             raise LibraryRejected({"name": f"This project already has {MAX_LIBRARIES_PER_TEAM} libraries."})
         if KnowledgeLibrary.objects.filter(team_id=team_id, name__iexact=cleaned).exists():
@@ -126,18 +133,20 @@ def create_library(team_id: int, name: str) -> KnowledgeLibrary:
 @with_team_scope()
 def rename_library(team_id: int, library_id: UUID, name: str) -> KnowledgeLibrary:
     team_id = resolve_effective_team_id(team_id)
-    library = get_library(team_id, library_id)
     cleaned = _clean_name(name)
-    if cleaned == library.name:
-        return library
-    if KnowledgeLibrary.objects.filter(team_id=team_id, name__iexact=cleaned).exclude(id=library.id).exists():
-        raise LibraryRejected({"name": "A library with this name already exists."})
-    library.name = cleaned
-    try:
-        with transaction.atomic():
-            library.save(update_fields=["name", "updated_at"])
-    except IntegrityError:
-        raise LibraryRejected({"name": "A library with this name already exists."}) from None
+    with transaction.atomic():
+        _lock_libraries(team_id)
+        library = get_library(team_id, library_id)
+        if cleaned == library.name:
+            return library
+        if KnowledgeLibrary.objects.filter(team_id=team_id, name__iexact=cleaned).exclude(id=library.id).exists():
+            raise LibraryRejected({"name": "A library with this name already exists."})
+        library.name = cleaned
+        try:
+            with transaction.atomic():
+                library.save(update_fields=["name", "updated_at"])
+        except IntegrityError:
+            raise LibraryRejected({"name": "A library with this name already exists."}) from None
     return library
 
 
@@ -146,7 +155,7 @@ def delete_library(team_id: int, library_id: UUID) -> None:
     team_id = resolve_effective_team_id(team_id)
     library = get_library(team_id, library_id)
     with transaction.atomic():
-        _lock_membership(team_id)
+        _lock_libraries(team_id)
         library.delete()
 
 
@@ -196,7 +205,7 @@ def replace_library_sources(team_id: int, library_id: UUID, source_ids: list[UUI
         raise LibraryRejected({"source_ids": "One or more sources were not found."})
     after = [str(source_id) for source_id in requested]
     with transaction.atomic():
-        _lock_membership(team_id)
+        _lock_libraries(team_id)
         _require_library_locked(team_id, library.id)
         before = _source_ids_for_library(team_id, library.id)
         if before == sorted(after):
@@ -237,7 +246,7 @@ def replace_library_repos(
             requested.append(normalized)
     requested_set = set(requested)
     with transaction.atomic():
-        _lock_membership(team_id)
+        _lock_libraries(team_id)
         _require_library_locked(team_id, library.id)
         current_visible = set(
             KnowledgeLibraryRepository.objects.filter(
@@ -300,7 +309,7 @@ def replace_source_libraries(
     team_id = resolve_effective_team_id(team_id)
     requested = list(dict.fromkeys(library_ids))
     with transaction.atomic():
-        _lock_membership(team_id)
+        _lock_libraries(team_id)
         if skip_missing:
             existing = set(
                 KnowledgeLibrary.objects.filter(team_id=team_id, id__in=requested).values_list("id", flat=True)
@@ -334,33 +343,21 @@ def ensure_default_library(team_id: int) -> KnowledgeLibrary | None:
     existing = KnowledgeLibrary.objects.filter(team_id=team_id, is_default=True).first()
     if existing is not None:
         return existing
-    named = KnowledgeLibrary.objects.filter(team_id=team_id, name__iexact=DEFAULT_LIBRARY_NAME).first()
-    if named is not None:
-        named.is_default = True
-        named.save(update_fields=["is_default", "updated_at"])
-        return named
-    if KnowledgeLibrary.objects.filter(team_id=team_id).count() >= MAX_LIBRARIES_PER_TEAM:
-        # A learned document must still land. It stays unfiled until a library is removed.
-        logger.warning("business_knowledge.default_library_skipped_at_cap", team_id=team_id)
-        return None
-    try:
-        with transaction.atomic():
-            return KnowledgeLibrary.objects.create(
-                team_id=team_id,
-                name=DEFAULT_LIBRARY_NAME,
-                is_default=True,
-            )
-    except IntegrityError:
+    with transaction.atomic():
+        _lock_libraries(team_id)
         existing = KnowledgeLibrary.objects.filter(team_id=team_id, is_default=True).first()
         if existing is not None:
             return existing
         named = KnowledgeLibrary.objects.filter(team_id=team_id, name__iexact=DEFAULT_LIBRARY_NAME).first()
-        if named is None:
-            raise
-        if not named.is_default:
+        if named is not None:
             named.is_default = True
             named.save(update_fields=["is_default", "updated_at"])
-        return named
+            return named
+        if KnowledgeLibrary.objects.filter(team_id=team_id).count() >= MAX_LIBRARIES_PER_TEAM:
+            # A learned document must still land. It stays unfiled until a library is removed.
+            logger.warning("business_knowledge.default_library_skipped_at_cap", team_id=team_id)
+            return None
+        return KnowledgeLibrary.objects.create(team_id=team_id, name=DEFAULT_LIBRARY_NAME, is_default=True)
 
 
 @with_team_scope()

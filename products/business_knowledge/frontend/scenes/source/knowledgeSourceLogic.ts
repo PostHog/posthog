@@ -144,7 +144,7 @@ export interface knowledgeSourceLogicActions {
         libraries: KnowledgeLibraryApi[]
         payload?: any
     }
-    loadSource: () => any
+    loadSource: (_: void) => void
     loadSourceDocuments: (_: void) => void
     loadSourceDocumentsFailure: (
         error: string,
@@ -169,10 +169,10 @@ export interface knowledgeSourceLogicActions {
     }
     loadSourceSuccess: (
         source: KnowledgeSourceApi | null,
-        payload?: any
+        payload?: void
     ) => {
         source: KnowledgeSourceApi | null
-        payload?: any
+        payload?: void
     }
     loadSourceText: () => any
     loadSourceTextFailure: (
@@ -369,13 +369,20 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
             },
         ],
     }),
-    loaders(({ actions, props }) => ({
+    loaders(({ actions, props, values, cache }) => ({
         source: [
             null as KnowledgeSource | null,
             {
-                loadSource: async () => {
+                loadSource: async (_: void, breakpoint) => {
+                    const librarySaves = cache.librarySaves ?? 0
                     try {
-                        return await getSource(props.id)
+                        const source = await getSource(props.id)
+                        breakpoint()
+                        // A library save publishes its own response, which is newer than a read that started before it.
+                        if ((cache.librarySaves ?? 0) !== librarySaves) {
+                            return values.source
+                        }
+                        return source
                     } catch (error: unknown) {
                         // Catch 404 here so initKea does not toast. The scene renders NotFound.
                         if ((error as { status?: number } | null)?.status === 404) {
@@ -498,6 +505,7 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
         saveSourceLibraries: async ({ libraryIds }) => {
             try {
                 const source = await updateSource(props.id, { library_ids: libraryIds })
+                cache.librarySaves = (cache.librarySaves ?? 0) + 1
                 actions.loadSourceSuccess(source)
                 posthog.capture('business knowledge source libraries changed', { library_count: libraryIds.length })
             } catch (error: any) {

@@ -20,7 +20,12 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 from products.business_knowledge.backend.api.serializers import BusinessKnowledgeSettingsUpdateSerializer
 from products.business_knowledge.backend.api.settings import BusinessKnowledgeSettingsViewSet
-from products.business_knowledge.backend.models import KnowledgeSource, TeamBusinessKnowledgeConfig
+from products.business_knowledge.backend.libraries import create_library, replace_library_sources
+from products.business_knowledge.backend.models import (
+    KnowledgeLibrarySource,
+    KnowledgeSource,
+    TeamBusinessKnowledgeConfig,
+)
 
 SUPPORT_OFF_ERROR = "Turn on Support to learn from resolved tickets."
 
@@ -300,6 +305,7 @@ class TestBusinessKnowledgeSettingsResourceLevelAccess(APIBaseTest):
             organization_member=membership,
         )
         self.membership = membership
+        self.source = source
         self.client.force_login(member)
 
     @parameterized.expand([("get", "GET"), ("patch", "PATCH")])
@@ -311,6 +317,21 @@ class TestBusinessKnowledgeSettingsResourceLevelAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).learn_from_support_enabled is False
+
+    def test_a_grant_on_one_source_does_not_change_its_libraries(self, _ff) -> None:
+        library = create_library(self.team.id, "Docs")
+        replace_library_sources(self.team.id, library.id, [self.source.id])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/business_knowledge/sources/{self.source.id}/",
+            {"library_ids": []},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert (
+            KnowledgeLibrarySource.objects.unscoped().filter(library_id=library.id, source_id=self.source.id).exists()
+        )
 
     @parameterized.expand([("get", "GET"), ("patch", "PATCH")])
     def test_a_child_environment_grant_does_not_open_the_parent_setting(self, _ff, _name: str, method: str) -> None:
