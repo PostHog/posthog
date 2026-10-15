@@ -37,17 +37,14 @@ _UNKNOWN = ClassifiedAlertError(
 )
 
 
-SERVER_BUSY = ClassifiedAlertError(
-    code="server_busy",
-    user_message="PostHog is temporarily busy. The alert check will retry automatically.",
-)
-
-
 def classify(exc: Exception) -> ClassifiedAlertError:
     category = classify_query_error(exc)
 
     if category == QueryErrorCategory.RATE_LIMITED:
-        return SERVER_BUSY
+        return ClassifiedAlertError(
+            code="server_busy",
+            user_message="PostHog is temporarily busy. The alert check will retry automatically.",
+        )
 
     if category == QueryErrorCategory.QUERY_PERFORMANCE_ERROR:
         return ClassifiedAlertError(
