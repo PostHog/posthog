@@ -26,9 +26,6 @@ where a ``$mcp_tools_list`` catalog was observed, how often agents discover the
 tool when it is advertised.
 """
 
-# PEP 810: Python 3.15+ loads these modules at first use. Earlier versions ignore this list.
-__lazy_modules__ = ["sklearn.cluster"]
-
 import math
 import asyncio
 import hashlib

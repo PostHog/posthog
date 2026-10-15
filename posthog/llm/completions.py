@@ -1,6 +1,3 @@
-# PEP 810: Python 3.15+ loads these modules at first use. Earlier versions ignore this list.
-__lazy_modules__ = ["openai", "posthoganalytics.ai.openai"]
-
 import os
 from functools import cache
 from typing import Any, Optional
