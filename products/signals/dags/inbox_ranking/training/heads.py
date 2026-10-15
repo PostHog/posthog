@@ -136,16 +136,18 @@ class Head:
 
 HEADS: tuple[Head, ...] = (
     # Which reports got opened by anyone? Cohort is every report: opens from a deeplink, the desktop
-    # app or any other surface count, and those often have no list impression.
-    Head(name="open", cohort=everyone, label=opened, horizon_days=3, min_holdout_positives=50),
+    # app or any other surface count, and those often have no list impression. Many opens land after
+    # the first few days, so 7 days labels fewer late opens as negatives than 3 did.
+    Head(name="open", cohort=everyone, label=opened, horizon_days=7, min_holdout_positives=50),
     # Which reports did someone act on, from any surface? The cohort is everyone, because a report
     # worked from Slack, the desktop app or an agent was often never impressed in the cloud list.
     # The label reads the status stream (a reasoned resolve), so it needs the provenance check.
+    # Many actions land in the second week, so 14 days labels fewer late actions as negatives than 7 did.
     Head(
         name="action",
         cohort=everyone,
         label=acted,
-        horizon_days=7,
+        horizon_days=14,
         min_holdout_positives=30,
         label_columns=ACTION_LABEL_COLUMNS,
         status_labels=True,
@@ -176,12 +178,13 @@ HEADS: tuple[Head, ...] = (
     ),
     # Which reports flagged a real problem that then got fixed, by anyone and on any surface? Reads
     # only the status stream: a tracked PR merge, a hand-marked fix, or a dismissal as already
-    # fixed all count. 21 days because fixes marked by hand arrive about two weeks after birth.
+    # fixed all count. Fixes marked by hand arrive about two weeks after birth and many land later,
+    # so 30 days labels fewer late fixes as negatives than 21 did.
     Head(
         name="fixed",
         cohort=everyone,
         label=fixed,
-        horizon_days=21,
+        horizon_days=30,
         min_holdout_positives=30,
         label_columns=("fixed_count",),
         status_labels=True,

@@ -853,20 +853,20 @@ Note: Diffed against the upstream swagger spec (82 paths). PostHog's deployment_
 
 ## Asaas — **thin**
 
-Today (9): `Customers`, `FinancialTransactions`, `Installments`, `Invoices`, `Payments`, `PixTransactions`, `ReceivedSplits`, `Subscriptions`, `Transfers`
+Today (13): `BillPayments`, `Customers`, `FinancialTransactions`, `Installments`, `Invoices`, `PaymentDunningHistory`, `PaymentDunnings`, `PaymentLinks`, `Payments`, `PixTransactions`, `ReceivedSplits`, `Subscriptions`, `Transfers`
 
 Diffed against: <https://docs.asaas.com/reference/llms.txt>
 
-- [ ] `Payment links (GET /v3/paymentLinks)` — resolves paymentLink IDs in Payments and identifies the checkout offers that produced revenue (high)
+- [x] `Payment links (GET /v3/paymentLinks)` — resolves paymentLink IDs in Payments and identifies the checkout offers that produced revenue (high)
 - [x] `Pix transactions (GET /v3/pix/transactions)` — resolves pixTransaction IDs in Payments and supports reconciliation of incoming and outgoing Pix transfers (high)
 - [x] `Financial statement (GET /v3/financialTransactions)` — reconciles account credits, debits, and fees to calculate cash movements (high)
 - [x] `Invoices (GET /v3/invoices)` — connects fiscal invoice status and tax details to customers and payments (high)
 - [x] `Received splits (GET /v3/payments/splits/received)` — measures marketplace revenue received from payments created by other accounts (high)
 - [ ] `Anticipations (GET /v3/anticipations)` — measures receivable advances, financing costs, and their effects on cash flow (medium)
 - [ ] `Paid splits (GET /v3/payments/splits/paid)` — adds settlement dates and account relationships beyond the split details embedded in Payments (medium)
-- [ ] `Bill payments (GET /v3/bill)` — tracks outgoing bill payments and their status for cash flow analysis (medium)
-- [ ] `Payment dunnings (GET /v3/paymentDunnings)` — tracks debt recovery requests and outcomes for overdue receivables (medium)
-- [ ] `Dunning event history (GET /v3/paymentDunnings/{id}/history)` — shows debt recovery progress and time spent in each state (medium)
+- [x] `Bill payments (GET /v3/bill)` — tracks outgoing bill payments and their status for cash flow analysis (medium)
+- [x] `Payment dunnings (GET /v3/paymentDunnings)` — tracks debt recovery requests and outcomes for overdue receivables (medium)
+- [x] `Dunning event history (GET /v3/paymentDunnings/{id}/history)` — shows debt recovery progress and time spent in each state (medium)
 
 Note: Used the official reference index and parsed embedded OpenAPI JSON from its linked operation pages. Compared Payments response schemas with nested resources before selecting gaps. Refunds and chargebacks already appear in Payments; paid split reads add settlement detail, while received splits cover other accounts. Dunning history needs parent requests; excluded API keys, webhooks, document uploads, and settings.
 
@@ -1218,14 +1218,14 @@ Note: Compared the official botocore operation model with the static endpoint ma
 
 ## AWS Inspector — gaps
 
-Today (3): `coverage`, `coverage_statistics`, `findings`
+Today (7): `cis_scan_result_details`, `cis_scans`, `clusters_for_image`, `coverage`, `coverage_statistics`, `findings`, `members`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/inspector2/2020-06-08/service-2.json>
 
-- [ ] `Members (ListMembers, POST /members/list)` — links account IDs in findings and coverage to delegated administrators and membership status (high)
-- [ ] `CIS scans (ListCisScans, POST /cis/scan/list)` — tracks benchmark scan history and failed check counts beyond vulnerability findings (high)
-- [ ] `CIS scan result details (GetCisScanResultDetails, POST /cis/scan-result/details/get)` — provides individual benchmark check outcomes and remediation guidance for each scanned resource (high)
-- [ ] `Clusters for image (GetClustersForImage, POST /cluster/get)` — links vulnerable container images to running clusters for workload exposure analysis (medium)
+- [x] `Members (ListMembers, POST /members/list)` — links account IDs in findings and coverage to delegated administrators and membership status (high)
+- [x] `CIS scans (ListCisScans, POST /cis/scan/list)` — tracks benchmark scan history and failed check counts beyond vulnerability findings (high)
+- [x] `CIS scan result details (GetCisScanResultDetails, POST /cis/scan-result/details/get)` — provides individual benchmark check outcomes and remediation guidance for each scanned resource (high)
+- [x] `Clusters for image (GetClustersForImage, POST /cluster/get)` — links vulnerable container images to running clusters for workload exposure analysis (medium)
 - [ ] `Usage totals (ListUsageTotals, POST /usage/list)` — reports scanning usage and estimated cost by account over the last 30 days (medium)
 
 Note: Compared the official Inspector V2 botocore operation model with the static endpoint map and extraction code. CIS details require scan discovery, target traversal through ListCisScanResultsAggregatedByTargetResource, and calls for each target and account. Image associations require ECR resource IDs from synced findings; membership reads require administrator permissions. Scan configuration, filters, integration setup, and asynchronous exports were excluded.
@@ -1236,10 +1236,10 @@ Today (4): `buckets`, `classification_jobs`, `findings`, `members`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/macie2/2020-01-01/service-2.json>
 
-- [ ] `Resource sensitivity profiles (GetResourceProfile, GET /resource-profiles)` — counts analyzed, sensitive, and skipped objects, which bucket inventory and findings cannot reconstruct (high)
-- [ ] `Resource profile detections (ListResourceProfileDetections, GET /resource-profiles/detections)` — shows sensitive data types and occurrence counts for each bucket (high)
-- [ ] `Resource profile artifacts (ListResourceProfileArtifacts, GET /resource-profiles/artifacts)` — shows selected objects and analysis outcomes, including skipped objects and objects without sensitive data (medium)
-- [ ] `Usage statistics (GetUsageStatistics, POST /usage/statistics)` — reports classification usage, quotas, and estimated costs by account (medium)
+- [x] `Resource sensitivity profiles (GetResourceProfile, GET /resource-profiles)` — counts analyzed, sensitive, and skipped objects, which bucket inventory and findings cannot reconstruct (high)
+- [x] `Resource profile detections (ListResourceProfileDetections, GET /resource-profiles/detections)` — shows sensitive data types and occurrence counts for each bucket (high)
+- [x] `Resource profile artifacts (ListResourceProfileArtifacts, GET /resource-profiles/artifacts)` — shows selected objects and analysis outcomes, including skipped objects and objects without sensitive data (medium)
+- [x] `Usage statistics (GetUsageStatistics, POST /usage/statistics)` — reports classification usage, quotas, and estimated costs by account (medium)
 
 Note: Compared the official Macie V2 botocore operation model with the static endpoint map and extraction code. Findings already call GetFindings; bucket inventory already includes sensitivity scores, so scores alone are not a gap. Profile endpoints require bucket ARN traversal and automated discovery; artifacts expose a limited sample rather than a complete object inventory. Classification jobs currently contain list summaries; raw sensitive data retrieval, filters, and setup endpoints were excluded.
 
@@ -1281,24 +1281,24 @@ Today (4): `coverage_daily`, `savings_plans`, `utilization_daily`, `utilization_
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/savingsplans/2019-06-28/service-2.json>
 
-- [ ] `Savings Plans offerings (DescribeSavingsPlansOfferings, POST /DescribeSavingsPlansOfferings)` — resolve offeringId on synced plans to service, usage type, and offering properties (high)
-- [ ] `Savings Plan rates (DescribeSavingsPlanRates, POST /DescribeSavingsPlanRates)` — compare contracted rates by service, usage type, operation, and billing unit (medium)
-- [ ] `Savings Plans purchase recommendations (GetSavingsPlansPurchaseRecommendation, POST / on Cost Explorer)` — evaluate recommended commitments and expected savings against current utilization and coverage (medium)
-- [ ] `Savings Plan purchase recommendation details (GetSavingsPlanPurchaseRecommendationDetails, POST / on Cost Explorer)` — analyze hourly cost, coverage, and utilization estimates behind each recommendation (medium)
+- [x] `Savings Plans offerings (DescribeSavingsPlansOfferings, POST /DescribeSavingsPlansOfferings)` — resolve offeringId on synced plans to service, usage type, and offering properties (high)
+- [x] `Savings Plan rates (DescribeSavingsPlanRates, POST /DescribeSavingsPlanRates)` — compare contracted rates by service, usage type, operation, and billing unit (medium)
+- [x] `Savings Plans purchase recommendations (GetSavingsPlansPurchaseRecommendation, POST / on Cost Explorer)` — evaluate recommended commitments and expected savings against current utilization and coverage (medium)
+- [x] `Savings Plan purchase recommendation details (GetSavingsPlanPurchaseRecommendationDetails, POST / on Cost Explorer)` — analyze hourly cost, coverage, and utilization estimates behind each recommendation (medium)
 - [ ] `Savings Plans offering rates (DescribeSavingsPlansOfferingRates, POST /DescribeSavingsPlansOfferingRates)` — compare prospective contract prices with current plan rates before a purchase (medium)
 
 Note: The Savings Plans SDK model was compared with the static table map. The official ce/2017-10-25/service-2.json model also verifies both missing recommendation operations. Daily coverage and utilization already include the core savings metrics; plan rates require a request for each plan. Recommendations must already exist, while generation, purchase, cancellation, and tagging operations are excluded.
 
 ## AWS Security Hub — gaps
 
-Today (4): `enabled_standards`, `findings`, `insights`, `standards`
+Today (8): `enabled_standards`, `findings`, `insights`, `members`, `products`, `security_control_definitions`, `standards`, `standards_controls`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/securityhub/2018-10-26/service-2.json>
 
-- [ ] `Security control definitions (GET /securityControls/definitions)` — resolve SecurityControlId in findings to control titles, severity, descriptions, and remediation guidance (high)
-- [ ] `Standards controls (GET /standards/controls/{StandardsSubscriptionArn+})` — connect enabled standards to individual controls, enablement status, severity, and disablement reasons (high)
-- [ ] `Products (GET /products)` — resolve ProductArn in findings to vendor names and product descriptions (high)
-- [ ] `Member accounts (GET /members)` — resolve finding account IDs to member account details and analyze security coverage across accounts (high)
+- [x] `Security control definitions (GET /securityControls/definitions)` — resolve SecurityControlId in findings to control titles, severity, descriptions, and remediation guidance (high)
+- [x] `Standards controls (GET /standards/controls/{StandardsSubscriptionArn+})` — connect enabled standards to individual controls, enablement status, severity, and disablement reasons (high)
+- [x] `Products (GET /products)` — resolve ProductArn in findings to vendor names and product descriptions (high)
+- [x] `Member accounts (GET /members)` — resolve finding account IDs to member account details and analyze security coverage across accounts (high)
 - [ ] `Finding history (POST /findingHistory/get)` — measure remediation progress and changes in severity, compliance, and workflow status (high)
 - [ ] `Security Hub V2 findings (GetFindingsV2, POST /findingsv2)` — analyze findings from the newer Security Hub surface that legacy CSPM GetFindings does not provide (high)
 - [ ] `Security Hub V2 resources (GetResourcesV2, POST /resourcesv2)` — analyze resource risk and connect newer findings to a separate resource inventory (medium)
