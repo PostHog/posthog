@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { LemonBanner, LemonButton, LemonDivider, LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
@@ -18,6 +18,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
+import { workflowLogic } from '../Workflows/workflowLogic'
 import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
 import { WorkflowRevisions } from '../Workflows/WorkflowRevisions'
 import { MakeTransactionalPrompt } from './MakeTransactionalPrompt'
@@ -116,6 +117,48 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 />
             )}
         </div>
+    )
+
+    const tabs = (
+        <LemonTabs
+            activeKey={transactionalTab}
+            onChange={setTransactionalTab}
+            className="flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow"
+            tabs={[
+                // Unmounting the editor would drop a canvas edit it hasn't exported yet.
+                { key: 'design', label: 'Design', content: editor, keepMounted: true },
+                transactionalHogFlowId
+                    ? {
+                          key: 'metrics',
+                          label: 'Metrics',
+                          content: <WorkflowMetrics id={transactionalHogFlowId} />,
+                      }
+                    : null,
+                transactionalHogFlowId
+                    ? {
+                          key: 'sends',
+                          label: 'Sends',
+                          content: <WorkflowInvocations id={transactionalHogFlowId} />,
+                      }
+                    : null,
+                transactionalHogFlowId
+                    ? {
+                          key: 'versions',
+                          label: 'Versions',
+                          content: <WorkflowRevisions id={transactionalHogFlowId} />,
+                      }
+                    : null,
+                {
+                    key: 'api',
+                    label: 'API',
+                    content: transactionalHogFlowId ? (
+                        <TransactionalEmailApiExample templateId={props.id} />
+                    ) : (
+                        <MakeTransactionalPrompt {...props} />
+                    ),
+                },
+            ]}
+        />
     )
 
     return (
@@ -252,47 +295,15 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     </LemonBanner>
                 )}
 
-                {showTransactional ? (
-                    <LemonTabs
-                        activeKey={transactionalTab}
-                        onChange={setTransactionalTab}
-                        className="flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow"
-                        tabs={[
-                            { key: 'design', label: 'Design', content: editor },
-                            transactionalHogFlowId
-                                ? {
-                                      key: 'metrics',
-                                      label: 'Metrics',
-                                      content: <WorkflowMetrics id={transactionalHogFlowId} />,
-                                  }
-                                : null,
-                            transactionalHogFlowId
-                                ? {
-                                      key: 'sends',
-                                      label: 'Sends',
-                                      content: <WorkflowInvocations id={transactionalHogFlowId} />,
-                                  }
-                                : null,
-                            transactionalHogFlowId
-                                ? {
-                                      key: 'versions',
-                                      label: 'Versions',
-                                      content: <WorkflowRevisions id={transactionalHogFlowId} />,
-                                  }
-                                : null,
-                            {
-                                key: 'api',
-                                label: 'API',
-                                content: transactionalHogFlowId ? (
-                                    <TransactionalEmailApiExample templateId={props.id} />
-                                ) : (
-                                    <MakeTransactionalPrompt {...props} />
-                                ),
-                            },
-                        ]}
-                    />
-                ) : (
+                {!showTransactional ? (
                     editor
+                ) : transactionalHogFlowId ? (
+                    // The reused workflow tabs read workflowLogic without props, so bind it to this email's workflow.
+                    <BindLogic logic={workflowLogic} props={{ id: transactionalHogFlowId }}>
+                        {tabs}
+                    </BindLogic>
+                ) : (
+                    tabs
                 )}
             </SceneContent>
         </Form>
