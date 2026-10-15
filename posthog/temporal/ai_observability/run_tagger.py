@@ -41,7 +41,7 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
-from products.ai_observability.backend.text_repr.formatters import truncate_by_line_sampling
+from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS, truncate_by_line_sampling
 
 logger = structlog.get_logger(__name__)
 
@@ -55,9 +55,6 @@ LLM_TAGGER_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(seconds=60),
     backoff_coefficient=2.0,
 )
-
-# Same cap as the LLM judge (JUDGE_EVENT_MAX_CHARS).
-TAGGER_EVENT_MAX_CHARS = 150_000
 
 TAGGER_DISABLED_ERROR_TYPE = "tagger_disabled"
 TAGGER_PARSE_ERROR_TYPE = "tagger_parse_error"
@@ -113,6 +110,18 @@ def build_tag_result_schema(tag_names: list[str], min_tags: int = 0, max_tags: i
     DynamicTagResult.__name__ = "TagResult"
     DynamicTagResult.__qualname__ = "TagResult"
     return DynamicTagResult
+
+
+def _render_tagger_user_prompt(input_data: str, output_data: str) -> str:
+    return f"Input: {input_data}\n\nOutput: {output_data}"
+
+
+def build_tagger_user_prompt(input_data: str, output_data: str) -> str:
+    budget = EVENT_TEXT_MAX_CHARS - len(_render_tagger_user_prompt("", ""))
+    # Budget each side separately, because sampling the joined text can drop a short output at its end.
+    output_data = truncate_by_line_sampling(output_data, max(budget // 2, budget - len(input_data)))
+    input_data = truncate_by_line_sampling(input_data, budget - len(output_data))
+    return _render_tagger_user_prompt(input_data, output_data)
 
 
 def build_tagger_system_prompt(prompt: str, tags: list[dict[str, str]], min_tags: int, max_tags: int | None) -> str:
@@ -287,10 +296,7 @@ def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
     tag_names = [tag["name"] for tag in tags]
     response_format = build_tag_result_schema(tag_names, min_tags, max_tags)
 
-    user_prompt = f"""Input: {input_data}
-
-Output: {output_data}"""
-    user_prompt = truncate_by_line_sampling(user_prompt, TAGGER_EVENT_MAX_CHARS)
+    user_prompt = build_tagger_user_prompt(input_data, output_data)
 
     config = None
 

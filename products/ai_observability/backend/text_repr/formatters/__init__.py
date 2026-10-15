@@ -16,6 +16,7 @@ Main entry points:
 
 from .event_formatter import format_event_text_repr, format_event_text_repr_from_ai_events_row
 from .message_formatter import (
+    EVENT_TEXT_MAX_CHARS,
     FormatterOptions,
     RenderBudgetExceeded,
     add_line_numbers,
@@ -26,6 +27,7 @@ from .message_formatter import (
 from .trace_formatter import format_trace_text_repr, llm_trace_to_formatter_format
 
 __all__ = [
+    "EVENT_TEXT_MAX_CHARS",
     "FormatterOptions",
     "RenderBudgetExceeded",
     "add_line_numbers",

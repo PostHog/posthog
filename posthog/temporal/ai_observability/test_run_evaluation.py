@@ -55,6 +55,7 @@ from products.ai_observability.backend.models.evaluation_config import Evaluatio
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
+from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS
 
 from . import run_evaluation as run_evaluation_module
 from .evaluation_errors import (
@@ -65,7 +66,6 @@ from .evaluation_errors import (
 )
 from .evaluation_event_io import GENERATION_NOT_FOUND_RETRY_DELAY, hydrate_event_reference
 from .evaluation_llm_judge import (
-    JUDGE_EVENT_MAX_CHARS,
     NumericWithNAEvalResult,
     TransientJudgeError,
     _build_errored_trace_result,
@@ -1348,7 +1348,7 @@ class TestRunEvaluationWorkflow:
 
             sent_prompt = mock_client.complete.call_args.args[0].messages[0]["content"]
             raw_size = sum(len(message["content"]) for message in oversized_input)
-            assert len(sent_prompt) <= JUDGE_EVENT_MAX_CHARS
+            assert len(sent_prompt) <= EVENT_TEXT_MAX_CHARS
             assert len(sent_prompt) < raw_size
 
     @pytest.mark.parametrize(

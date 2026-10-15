@@ -27,10 +27,10 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
+from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS
 
 from .run_tagger import (
     SKIPPED_RESULT_ERROR_TYPES,
-    TAGGER_EVENT_MAX_CHARS,
     EmitTaggerEventInputs,
     ExecuteTaggerInputs,
     RunTaggerInputs,
@@ -239,7 +239,7 @@ class TestRunTaggerWorkflow:
                 assert called_on_event_loop == [False]
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_tagger_truncates_oversized_prompt(self, setup_data):
+    def test_execute_tagger_truncates_oversized_prompt(self, setup_data: SetupData) -> None:
         team = setup_data["team"]
         tagger = {
             "id": str(setup_data["tagger"].id),
@@ -270,8 +270,8 @@ class TestRunTaggerWorkflow:
             execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
 
         user_prompt = mock_complete.call_args.args[0].messages[0]["content"]
-        assert len(long_input) > TAGGER_EVENT_MAX_CHARS
-        assert len(user_prompt) <= TAGGER_EVENT_MAX_CHARS
+        assert len(user_prompt) <= EVENT_TEXT_MAX_CHARS
+        assert user_prompt.endswith("Output: assistant: Short reply.")
 
     @pytest.mark.django_db(transaction=True)
     def test_execute_tagger_strips_unknown_tags(self, setup_data):
