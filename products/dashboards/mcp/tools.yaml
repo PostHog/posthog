@@ -687,3 +687,9 @@ tools:
                 cast: string-int
             offset:
                 cast: string-int
+    dashboards-stream-query-results-retrieve:
+        operation: dashboards_stream_query_results_retrieve
+        enabled: false
+        disabled_reason:
+            Browser-only experimental SSE refresh transport. MCP consumers use dashboard-insights-run for a bounded
+            JSON response instead of holding an interactive dashboard refresh stream.

@@ -137,7 +137,19 @@ Every `SharingQuery` carries a caller-validated context key. Compiler preparatio
 
 `SharingQuery.sharing_enabled` defaults to `False`. Compiler preparation populates it from `hogql-query-sharing`; the planner excludes disabled inputs from every sharing rule. Synthetic fixtures and syntax-only planning explicitly opt in without consulting a project flag. They do not execute against application tables.
 
-This path remains a local experimental comparison. It does not change dashboard loading, caching, cancellation, retries or error isolation. A shared execution failure propagates to the comparison; the future dashboard adapter must provide independent scheduling and guarded fallback.
+The standalone comparison propagates shared execution failures. It does not exercise dashboard caching, cancellation, or retries.
+
+### Experimental dashboard integration
+
+Authenticated dashboard refreshes can opt into shared execution behind `hogql-query-sharing`, checked by both the browser and backend. The flag is off by default. Public/shared dashboards, embedded placements, and refreshes outside 2–32 insight tiles keep the existing loading path.
+
+The dashboard sends one streaming request with its effective filters and variable overrides. Up to four workers use the existing insight serializer and query runner, preserving per-insight permissions, cache keys, refresh modes, and rate limits. Cached tiles return without entering the planner. Eligible SQL queries wait up to 50 ms for a compatible partner; unsupported queries execute immediately. Matching is opportunistic within that window, not a global optimization across every tile.
+
+The adapter supports the planner's same-aggregation top-N pairs and scalar `count()` / `count(column)` pairs. It removes positive pagination limits only from supported scalar counts, which always return one row. Paginated daily counts remain separate. Other insight types continue through their normal query runners.
+
+Each tile streams as soon as it completes. A failed or incomplete shared query falls back to the original queries independently, and one tile's query error does not fail its siblings. A broken stream retries only undelivered tiles through the existing refresh path. Disconnecting or starting another refresh cancels queued work and requests ClickHouse cancellation for that batch.
+
+Monitor `posthog_dashboard_sharing_executions_total` for separate executions, shared groups, and fallback groups. Sharing reduces duplicate work only when compatible, uncached queries meet during the matching window; it does not guarantee lower dashboard latency.
 
 ## Pattern matching during query preparation
 
