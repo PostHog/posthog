@@ -49,15 +49,14 @@ export function useCreateTask() {
       // is read by the sidebar to brand a task's icon by id membership, so
       // seeding a freshly created, non-slack task into it would make that task
       // briefly render as a Slack task until the list refetches. Origin-less
-      // lists, by contrast, should mirror every new task.
+      // lists, by contrast, should mirror every new task. A new task is never
+      // pinned, so the pinned list is skipped too.
       queryClient.setQueriesData<Task[]>(
         {
           queryKey: taskKeys.lists(),
           predicate: (query) => {
-            const isOriginScopedList = Boolean(
-              taskKeys.filtersOf(query.queryKey)?.originProduct,
-            );
-            return !isOriginScopedList;
+            const filters = taskKeys.filtersOf(query.queryKey);
+            return !filters?.originProduct && !filters?.pinned;
           },
         },
         (old) => insertTaskDedup(old, newTask),

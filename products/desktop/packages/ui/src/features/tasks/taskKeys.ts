@@ -3,6 +3,7 @@ interface TaskListFilters {
   createdBy?: number;
   originProduct?: string;
   internal?: boolean;
+  pinned?: boolean;
 }
 
 export const taskKeys = {

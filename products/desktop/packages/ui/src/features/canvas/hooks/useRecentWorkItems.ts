@@ -25,6 +25,7 @@ export interface RecentWorkItem {
 export function selectRecentWorkItems({
   dashboards,
   tasks,
+  pinnedTasks,
   lastViewedByCanvasId,
   meUuid,
   archivedTaskIds,
@@ -33,6 +34,7 @@ export function selectRecentWorkItems({
 }: {
   dashboards: readonly DashboardRecord[];
   tasks: readonly Task[];
+  pinnedTasks: readonly Task[];
   lastViewedByCanvasId: Record<string, number>;
   meUuid: string | null;
   archivedTaskIds: ReadonlySet<string>;
@@ -45,12 +47,16 @@ export function selectRecentWorkItems({
       (meUuid != null && canvas.createdByUuid === meUuid),
   );
   const canvasChannelId = new Map(mine.map((c) => [c.id, c.channelId]));
+  const taskIds = new Set(tasks.map((task) => task.id));
   // The order is the items' own activity time. Opening an item is not activity,
   // so the local "viewed" time stays out of it and only says which canvases
   // belong to this list.
   return buildChannelItems({
     dashboards: mine,
-    feedTasks: tasks,
+    feedTasks: [
+      ...tasks,
+      ...pinnedTasks.filter((task) => !taskIds.has(task.id)),
+    ],
     archivedTaskIds,
     pinnedTaskIds,
     ownedBy: null,
@@ -72,6 +78,11 @@ export function useRecentWorkItems(): {
   isLoading: boolean;
 } {
   const { data: tasks = [], isLoading: tasksLoading } = useTasks();
+  // A pin can be on any task, also one older than the recent list reaches.
+  const { data: pinnedTasks = [] } = useTasks({
+    pinned: true,
+    showAllUsers: true,
+  });
   const { dashboards, isLoading: canvasesLoading } = useAllCanvases();
   const lastViewedByCanvasId = useCanvasViewedStore(
     (state) => state.lastViewedAtByCanvasId,
@@ -88,6 +99,7 @@ export function useRecentWorkItems(): {
       selectRecentWorkItems({
         dashboards,
         tasks,
+        pinnedTasks,
         lastViewedByCanvasId,
         meUuid,
         archivedTaskIds,
@@ -99,6 +111,7 @@ export function useRecentWorkItems(): {
       lastViewedByCanvasId,
       meUuid,
       tasks,
+      pinnedTasks,
       archivedTaskIds,
       pinnedTaskIds,
       sessionFacts,

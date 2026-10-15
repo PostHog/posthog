@@ -46,6 +46,7 @@ function select(
   return selectRecentWorkItems({
     dashboards: [],
     tasks: [],
+    pinnedTasks: [],
     lastViewedByCanvasId: {},
     meUuid: ME,
     archivedTaskIds: new Set(),
@@ -99,6 +100,23 @@ describe("selectRecentWorkItems", () => {
       case: "drops a canvas somebody else made that the user never opened",
       over: { dashboards: [canvas({ createdByUuid: "other-uuid" })] },
       expected: [],
+    },
+    {
+      case: "lists a pinned task the recent fetch did not return",
+      over: {
+        pinnedTasks: [task({ id: "task-pinned" })],
+        pinnedTaskIds: new Set(["task-pinned"]),
+      },
+      expected: ["task:task-pinned"],
+    },
+    {
+      case: "lists a pinned task once when both fetches return it",
+      over: {
+        tasks: [task()],
+        pinnedTasks: [task()],
+        pinnedTaskIds: new Set(["task-new"]),
+      },
+      expected: ["task:task-new"],
     },
   ])("$case", ({ over, expected }) => {
     expect(keys(over)).toEqual(expected);
