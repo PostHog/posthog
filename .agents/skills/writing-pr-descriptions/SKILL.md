@@ -1,10 +1,14 @@
 ---
 name: writing-pr-descriptions
 description: >-
-  Shapes PR descriptions around the actor's need, visible behavior, and reviewable evidence.
-  Use ALWAYS before writing or editing a PR description, before `gh pr create` or `gh pr edit --body`, and when asked to improve an existing description.
-  Covers preserving existing content, leading with product intent, choosing formats, cutting detail, checking wording and claims, and scanning the title, Problem, and Changes.
-  Not for commit messages (see AGENTS.md, "Commit types") or user-facing product copy (see `/writing-user-facing-copy`).
+  Shapes a PR body so a reviewer can understand the problem and change quickly.
+  Use ALWAYS before writing or editing a PR description, before `gh pr create` or `gh pr edit --body`, or when asked to improve a description.
+  States the actor's need in Problem, then the visible effect and mechanism in Changes.
+  Selects bullets, tables, diagrams, screenshots, or collapsed blocks for each fact.
+  Removes unnecessary detail and checks one fact per bullet, sentences under 25 words, active voice, and no idioms.
+  Keeps the body complete without the diff, scales its length to the change, and links evidence or marks claims as unchecked.
+  Checks the title and first lines of Problem and Changes.
+  Not for commit messages (see AGENTS.md, "Commit types") or product copy (see `/writing-user-facing-copy`).
 ---
 
 # Writing PR descriptions
@@ -98,9 +102,9 @@ Prose is the slowest form on the page. Before writing a sentence, ask what carri
 
 | The fact you have                                                                    | The form that carries it                                  |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
-| A visual change (any UI a person sees)                                               | Screenshot, before and after. Mandatory, not optional     |
+| A visual change (any UI a person sees, including a flow through screens)             | Screenshot, before and after. Mandatory, not optional     |
 | A new action and its effect, which one screenshot cannot show                        | A feature reel in place of the "after" screenshot         |
-| A change to a flow or topology (CI wiring, pipelines, state machines, request paths) | Two branded `flowchart` blocks, before first              |
+| An architecture or topology change one sentence cannot carry (defined under Mermaid) | Two branded `flowchart` blocks, before first              |
 | Several values compared across the same dimensions                                   | A markdown table                                          |
 | A config or setting change                                                           | A fenced `diff` block                                     |
 | Existing code a reviewer needs to see                                                | A line-range permalink, which GitHub renders as a snippet |
@@ -131,6 +135,13 @@ Upload with `hogli pr:upload-image <file>` and paste the markdown it prints. The
 Touching UI code without a visible change is common, and the mandate has to be dischargeable. When nothing looks different, say so in one line. A reviewer cannot tell that case from a missing screenshot, and silence reads as the second.
 
 ### Mermaid
+
+Draw a diagram only for an architecture or topology change that one sentence cannot carry.
+Architecture and topology mean CI wiring, pipelines, services and the calls between them, or module and package boundaries.
+They also mean a state machine with several states, or a request path across systems.
+A UI flow or a linear sequence of screens is not a topology.
+It gets screenshots or a reel, not a diagram.
+When one sentence states the whole change, such as one step added to a straight chain, write the sentence instead.
 
 Keep diagrams simple. A syntax error renders as an error block. Pick `TD` for tall pipelines, `LR` for wide paths. Mermaid cannot read CSS vars, so use the hex directly, and pair every `fill` with a text `color` so nodes stay legible in GitHub light and dark.
 
@@ -285,7 +296,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 11. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
 12. Does the PR change anything a person sees? Include before-and-after screenshots, or say why nothing looks different.
 13. Did you rewrite an existing body? Every image, video, link and ticked box a person put there still appears.
-14. Does the PR change a flow or topology? Include branded before-and-after diagrams.
+14. Does the PR change architecture or topology in a way one sentence cannot carry, as defined under Mermaid? Include branded before-and-after diagrams. Delete any diagram of a UI flow or of what one sentence says.
 15. Does prose compare several values across the same dimensions? Replace it with a table.
 16. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
 17. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.

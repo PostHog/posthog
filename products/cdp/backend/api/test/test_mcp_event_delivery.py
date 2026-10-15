@@ -2,27 +2,29 @@ import json
 import base64
 from copy import deepcopy
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import cast
+from uuid import UUID
 
+from posthog.test.base import ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 from pydantic import JsonValue
-
-if TYPE_CHECKING:
-    pass
-
 from rest_framework.exceptions import PermissionDenied
 
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition, Team
+from posthog.models.event.util import create_event
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.mcp_event_test_utils import MCPEventServiceTestCase
+from products.cdp.backend.facade.mcp_events import MCPEventSubscriptionsAPI
 from products.cdp.backend.mcp_events import MCPEventSubscriptions
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.mcp_event_subscription import MCPEventSubscription
 from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
@@ -236,6 +238,20 @@ class TestMCPEventDelivery(MCPEventServiceTestCase):
         assert subscription.hog_function is not None
         assert subscription.hog_function.filters is not None
         queued_bytecode = deepcopy(subscription.hog_function.filters["bytecode"])
+        historical_functions: list[HogFunction] = []
+        if source == "child_action":
+            original_url = self.callback_url
+            for status in ("stopped", "expired"):
+                self.callback_url = f"https://example.com/{status}"
+                historical = self.subscribe()
+                assert historical.hog_function is not None
+                historical_functions.append(historical.hog_function)
+                if status == "stopped":
+                    self.unsubscribe()
+                else:
+                    historical.expires_at = timezone.now() - timedelta(seconds=1)
+                    historical.save(update_fields=["expires_at"])
+            self.callback_url = original_url
         if source in ("action", "child_action"):
             action.steps_json = [{"event": "example_event", "properties": updated}]
             action.save()
@@ -246,6 +262,10 @@ class TestMCPEventDelivery(MCPEventServiceTestCase):
                 assert parent_subscription.hog_function is not None
                 assert parent_subscription.hog_function.filters is not None
                 self.assertNotEqual(parent_subscription.hog_function.filters["bytecode"], queued_bytecode)
+                for function in historical_functions:
+                    function.refresh_from_db()
+                    assert function.filters is not None
+                    self.assertEqual(function.filters["bytecode"], queued_bytecode)
         else:
             self.team.test_account_filters = updated
             self.team.save()
@@ -269,3 +289,69 @@ class TestMCPEventDelivery(MCPEventServiceTestCase):
         PropertyAccessControl.objects.create(team=self.team, property_definition=next_definition, access_level="none")
         with self.assertRaises(PermissionDenied):
             self.authorize(subscription)
+
+
+class TestMCPEventPreview(ClickhouseTestMixin, MCPEventServiceTestCase):
+    def test_preview_filters_limits_orders_and_redacts_without_creating_subscription(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        for name in ("plan", "$groups.organization"):
+            definition = PropertyDefinition.objects.create(
+                team=self.team, name=name, property_type="String", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
+        self.enterContext(
+            patch(
+                "products.cdp.backend.mcp_event_properties.get_group_types_for_project",
+                return_value=[{"group_type_index": 0, "group_type": "organization"}],
+            )
+        )
+        now = timezone.now()
+        matching_ids = [UUID(int=index + 1) for index in range(7)]
+        rows = [
+            (event_id, "example_event", 2, now - timedelta(minutes=index + 1))
+            for index, event_id in enumerate(matching_ids)
+        ]
+        rows.extend(
+            [
+                (UUID(int=100), "example_event", 5, now),
+                (UUID(int=101), "other_event", 2, now),
+                (UUID(int=102), "example_event", 2, now - timedelta(days=8)),
+            ]
+        )
+        for event_uuid, event, rating, timestamp in rows:
+            create_event(
+                event_uuid=event_uuid,
+                event=event,
+                team=self.team,
+                distinct_id="sample-user",
+                timestamp=timestamp,
+                properties={
+                    "rating": rating,
+                    "plan": "enterprise",
+                    "$groups": {"organization": "hidden"},
+                    "$group_0": "hidden",
+                },
+            )
+        with (
+            tags_context(product=None, feature=None),
+            patch("posthog.clickhouse.client.execute.DEBUG", True),
+            patch("posthog.clickhouse.client.execute.TEST", False),
+        ):
+            result = MCPEventSubscriptionsAPI(team=self.team, user=self.user, principal=self.principal).preview(
+                {
+                    "events": [{"id": "example_event", "type": "events"}],
+                    "properties": [{"key": "rating", "type": "event", "operator": "lt", "value": 3}],
+                }
+            )
+        examples = cast(list[dict[str, JsonValue]], result["examples"])
+        self.assertEqual([example["eventId"] for example in examples], [str(event_id) for event_id in matching_ids[:5]])
+        for example in examples:
+            data = cast(dict[str, JsonValue], example["data"])
+            self.assertEqual(data["properties"], {"rating": 2, "$groups": {}})
+            self.assertIsNone(example["cursor"])
+        self.assertEqual(result["sample_limit"], 5)
+        self.assertEqual(result["lookback_days"], 7)
+        self.assertFalse(MCPEventSubscription.objects.for_team(self.team.pk).exists())

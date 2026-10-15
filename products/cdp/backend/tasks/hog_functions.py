@@ -35,7 +35,10 @@ def refresh_affected_hog_functions(
         affected_hog_functions = list(
             HogFunction.objects.select_related("team")
             .filter(team_id__in=project_team_ids)
-            .filter(Q(team_id=action.team_id) | Q(mcp_event_subscription__isnull=False))
+            .filter(
+                Q(team_id=action.team_id)
+                | Q(mcp_event_subscription__active=True, mcp_event_subscription__expires_at__gt=timezone.now())
+            )
             .filter(filters__contains={"actions": [{"id": str(action_id)}]})
         )
     elif cohort_id:

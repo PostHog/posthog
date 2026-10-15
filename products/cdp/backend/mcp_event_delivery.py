@@ -36,8 +36,17 @@ def signing_key(secret: str) -> bytes:
 
 
 def validate_callback_url(url: str) -> str:
-    parsed = urlsplit(url)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        raise ValidationError({"url": "Use an HTTPS callback URL without credentials or a fragment."}) from None
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
         raise ValidationError({"url": "Use an HTTPS callback URL without credentials or a fragment."})
     return url
 
@@ -59,6 +68,7 @@ def signed_headers(
 
 
 def verify_callback(*, subscription_id: str, url: str, secret: str) -> None:
+    validate_callback_url(url)
     challenge = secrets.token_urlsafe(32)
     body = json.dumps({"type": "verification", "challenge": challenge}, separators=(",", ":"))
     headers = signed_headers(
@@ -78,6 +88,8 @@ def verify_callback(*, subscription_id: str, url: str, secret: str) -> None:
             echoed = result.get("challenge") if isinstance(result, dict) else None
             if not isinstance(echoed, str) or not hmac.compare_digest(echoed.encode(), challenge.encode()):
                 raise MCPCallbackError("challenge_failed")
+    except httpx.InvalidURL:
+        raise MCPCallbackError("connection_failed") from None
     except httpx.TimeoutException:
         raise MCPCallbackError("timeout") from None
     except httpx.DecodingError:
