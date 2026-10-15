@@ -24,7 +24,6 @@ from products.workflows.backend.facade.contracts import (
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.services.batch_jobs import create_batch_job
-from products.workflows.backend.services.cohort_usage import get_active_hog_flows_using_realtime_cohort
 from products.workflows.backend.services.default_email_sender import (
     clear_default_email_sender,
     set_default_email_sender_if_unset,
@@ -224,6 +223,11 @@ def get_active_workflows_using_integration(*, team_id: int, integration_id: int)
 
 
 def get_active_workflows_using_realtime_cohort(*, team_id: int, cohort_id: int) -> list[WorkflowSummary]:
+    # Deferred to keep the cdp filter compiler, and the HogQL schema it loads, off the django.setup() path.
+    from products.workflows.backend.services.cohort_usage import (  # noqa: PLC0415
+        get_active_hog_flows_using_realtime_cohort,
+    )
+
     return [
         WorkflowSummary(id=str(flow.id), name=flow.name or "", status=flow.status)
         for flow in get_active_hog_flows_using_realtime_cohort(team_id=team_id, cohort_id=cohort_id)
