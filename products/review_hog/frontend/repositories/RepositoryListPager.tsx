@@ -21,8 +21,7 @@ export function RepositoryListPager(): JSX.Element | null {
                 <span translate="no">
                     {first}-{last} of {overview.total}
                 </span>{' '}
-                repositories. Nothing is saved for a repository unless it is selected, has an exception, or has a
-                personal choice.
+                repositories
             </span>
             <span className="flex gap-1">
                 <LemonButton

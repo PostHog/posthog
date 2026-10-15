@@ -46,15 +46,18 @@ export function RepositoryMyCell({
         const note = myChoiceNote(entry)
         content = (
             <div className="flex min-w-0 flex-col items-start gap-1">
-                <LemonSelect<MyChoiceValue>
-                    size="small"
-                    aria-label={`My choice for ${name}`}
-                    value={value}
-                    options={myChoiceOptions(entry)}
-                    onChange={(picked) => setMyChoice(entry, picked)}
-                    disabledReason={busyReason}
-                    data-attr="review-hog-my-choice"
-                />
+                <div className="flex max-w-full min-w-0 items-center gap-2">
+                    <LemonSelect<MyChoiceValue>
+                        size="small"
+                        aria-label={`My choice for ${name}`}
+                        value={value}
+                        options={myChoiceOptions(entry)}
+                        onChange={(picked) => setMyChoice(entry, picked)}
+                        disabledReason={busyReason}
+                        data-attr="review-hog-my-choice"
+                    />
+                    <YouMark shown={hasChoice} />
+                </div>
                 {note && <span className="text-xs text-secondary">{note}</span>}
             </div>
         )
@@ -65,15 +68,9 @@ export function RepositoryMyCell({
             <span className="text-xxs font-semibold uppercase tracking-wide text-secondary @min-[48rem]:hidden">
                 My choice
             </span>
-            <div className="flex items-start gap-1">
-                {/* Lines the mark up with the select, not with the note under it. */}
-                <span className="pt-1.5">
-                    <YouMark shown={hasChoice} />
-                </span>
-                {content}
-            </div>
+            {content}
             {hasChoice && !entry.in_project && (
-                <div className="flex flex-wrap items-center gap-1 pl-10 text-xs text-secondary">
+                <div className="flex flex-wrap items-center gap-1 text-xs text-secondary">
                     Your saved choice applies if this repository joins this project.
                     <LemonButton
                         size="xsmall"

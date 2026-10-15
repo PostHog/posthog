@@ -80,24 +80,17 @@ export function RepositoriesPanes(): JSX.Element {
                     <span className="flex flex-wrap items-center gap-2 text-sm font-semibold">
                         This project
                         <LemonTag type="success" size="small">
-                            {canEdit ? 'You can edit: project admin' : 'Project admins edit'}
+                            {canEdit ? 'Admin' : 'Admin access required'}
                         </LemonTag>
                     </span>
                     <span className="text-xs text-secondary">
-                        Where everyone starts. Each person can still choose for their own PRs. Changes go to the
-                        activity log.
+                        Defaults for everyone. Your preferences take priority.
                     </span>
                 </div>
                 <div className={`flex flex-col gap-0.5 px-4 py-3 ${PANE_RIGHT} ${PANE_ROW} @min-[48rem]:border-t-0`}>
-                    <span className="flex flex-wrap items-center gap-2 text-sm font-semibold">
-                        My pull requests
-                        <LemonTag type="highlight" size="small">
-                            Only you
-                        </LemonTag>
-                    </span>
+                    <span className="flex flex-wrap items-center gap-2 text-sm font-semibold">My pull requests</span>
                     <span className="text-xs text-secondary">
-                        Decided in this order: your choice for a repository, your default, the repository's exception,
-                        the project rule. A "you" mark shows where you set your own value.
+                        Your repository choices take priority over your default below.
                     </span>
                 </div>
                 <ProjectRuleCell className={`${PANE_LEFT} ${PANE_ROW}`} />
