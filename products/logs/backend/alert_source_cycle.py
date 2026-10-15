@@ -20,13 +20,16 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from itertools import batched
 from typing import Final, cast
-from uuid import UUID
+from uuid import UUID, uuid4
+
+from django.conf import settings
 
 import structlog
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.facade.destinations import configured_destination_template_ids
@@ -106,6 +109,14 @@ BATCH_QUERY_BUDGET_SECONDS = 25
 MAX_QUERY_SECONDS = 20
 # Below this there is no point starting another query; the cohort keeps its due time instead.
 MIN_QUERY_SECONDS = 2
+# With the cohort budget this keeps every query of a batch inside `BATCH_SLOT_LEASE_SECONDS`, so a
+# query never runs after its slot frees for another batch.
+CHECKPOINT_QUERY_SECONDS = 10
+
+INFLIGHT_KEY = "alerts:platform:logs:batches:inflight"
+# Taken inside the evaluation activity, so it only has to outlast that activity's start-to-close. Short
+# enough that a worker that dies mid-batch frees its slot within a minute.
+BATCH_SLOT_LEASE_SECONDS = 60
 
 
 @frozen
@@ -705,6 +716,29 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     if not checks:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
 
+    # One slot per batch, because a batch runs its cohort queries one after another, so the batches
+    # in flight bound the parallel run's concurrent queries across the fleet. A batch the pool turns
+    # away records nothing, so its checks stay due and a later tick finds them again.
+    # Unique per execution: a redispatch of a batch whose old query still runs must hold its own slot.
+    member = f"{team_id}:{slot}:{uuid4().hex}"
+    held_until = hold_evaluation_slot(
+        member,
+        limit=settings.ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES,
+        lease_seconds=BATCH_SLOT_LEASE_SECONDS,
+        key=INFLIGHT_KEY,
+    )
+    if held_until is None:
+        logger.info("Deferred a platform logs batch over the pool limit", team_id=team_id, slot=slot)
+        return SourceBatchEvaluation(outcomes=(), deliveries=(), omitted=len(checks))
+    try:
+        return _evaluate_admitted(team_id, slot, cutoff, checks, started_at=started_at)
+    finally:
+        release_evaluation_slot(member, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def _evaluate_admitted(
+    team_id: int, slot: str, cutoff: datetime, checks: Sequence[PlatformAlertCheckInput], *, started_at: float
+) -> SourceBatchEvaluation:
     team = Team.objects.filter(id=team_id).first()
     if team is None:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
@@ -719,7 +753,9 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     # One checkpoint for the pass, matching the production discovery activity. A failure falls
     # back to wall-clock rather than ending the batch.
     try:
-        checkpoint = fetch_live_logs_checkpoint(team, ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS)
+        checkpoint = fetch_live_logs_checkpoint(
+            team, ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS, max_execution_time=CHECKPOINT_QUERY_SECONDS
+        )
     except Exception as error:
         logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock", error=str(error))
         checkpoint = None
