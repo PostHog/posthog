@@ -69,6 +69,7 @@ export type DeepPartialHogFunctionInvocationGlobals = {
     person?: Partial<HogFunctionInvocationGlobals['person']>
     source?: Partial<HogFunctionInvocationGlobals['source']>
     request?: HogFunctionInvocationGlobals['request']
+    variables?: HogFunctionInvocationGlobals['variables']
 }
 
 const compileObject = async (
