@@ -9,7 +9,6 @@ export type RefreshTrigger = 'focus' | 'foreground' | 'button' | 'pull' | 'range
 export type BlockedReason = 'bulk_floor' | 'dashboard_floor' | 'item_window'
 export type PinSource = 'header' | 'row_menu' | 'swipe' | 'search'
 export type RangeMethod = 'chip' | 'more' | 'custom' | 'step' | 'reset'
-export type ChartContext = 'pin' | 'view' | 'fullscreen'
 
 export function trackViewsOpened(props: { pinnedCount: number; fromCache: boolean }): void {
     track('mobile_views_opened', { pinned_count: props.pinnedCount, from_cache: props.fromCache })
@@ -133,30 +132,6 @@ export function trackDateRangeCompared(props: { viewType: ViewKind; enabled: boo
     track('mobile_date_range_compared', { view_type: props.viewType, enabled: props.enabled })
 }
 
-export function trackChartPointSelected(props: {
-    method: 'tap' | 'drag' | 'hold' | 'accessibility'
-    chartKind: string
-    seriesCount: number
-    context: ChartContext
-}): void {
-    track('mobile_chart_point_selected', {
-        method: props.method,
-        chart_kind: props.chartKind,
-        series_count: props.seriesCount,
-        context: props.context,
-    })
-}
-
-export function trackChartTooltipDismissed(props: {
-    reason: 'tap_again' | 'outside' | 'other_chart' | 'scrolled' | 'back' | 'data'
-}): void {
-    track('mobile_chart_tooltip_dismissed', { reason: props.reason })
-}
-
-export function trackChartRangeCompared(props: { chartKind: string }): void {
-    track('mobile_chart_range_compared', { chart_kind: props.chartKind })
-}
-
 export function trackChartPointSheetOpened(props: { entry: 'tooltip' | 'more' | 'accessibility' }): void {
     track('mobile_chart_point_sheet_opened', { entry: props.entry })
 }
@@ -177,10 +152,6 @@ export type FullScreenEntry = 'button' | 'legend_more' | 'rows_more' | 'accessib
 
 export function trackChartFullScreenOpened(props: { entry: FullScreenEntry; display: string }): void {
     track('mobile_chart_fullscreen_opened', { entry: props.entry, display: props.display })
-}
-
-export function trackChartLegendToggled(props: { action: 'toggle' | 'solo' | 'restore' }): void {
-    track('mobile_chart_legend_toggled', { action: props.action })
 }
 
 export function trackViewsReauthShown(props: {
