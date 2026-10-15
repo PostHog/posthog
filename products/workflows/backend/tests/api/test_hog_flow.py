@@ -7453,6 +7453,7 @@ class TestExtractActionValidation(APIBaseTest):
         [
             ("no_fields", {}, "actions__1__inputs__fields"),
             ("name_starts_with_a_digit", {"1st": "The first thing"}, "actions__1__inputs__fields"),
+            ("name_with_surrounding_spaces", {" pr_url ": "The URL"}, "actions__1__inputs__fields"),
             ("blank_instruction", {"pr_url": "  "}, "actions__1__inputs__fields"),
             ("instruction_is_not_text", {"pr_url": 42}, "actions__1__inputs__fields"),
             ("too_many_fields", {f"f{i}": "x" for i in range(21)}, "actions__1__inputs__fields"),
