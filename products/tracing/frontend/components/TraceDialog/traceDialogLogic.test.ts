@@ -165,7 +165,7 @@ describe('traceDialogLogic', () => {
             nextOffset: null,
         })
         await expectLogic(logic, () => {
-            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'A1' })
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'A1' }, { entryPoint: 'log_details' })
         }).toDispatchActions(['loadTraceSpansSuccess'])
 
         logic.actions.toggleSpanCollapsed('A')
