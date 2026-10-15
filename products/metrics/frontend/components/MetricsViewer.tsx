@@ -15,6 +15,8 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
+
 import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
 import { MetricsHistogramQueryNode } from '../nodes/MetricsHistogramQueryNode'
 import { MetricsPanel } from '../panels/MetricsPanel'
@@ -94,6 +96,7 @@ export const MetricsViewer = (): JSX.Element => {
     )
     const insightEditorDisabledReason = getMetricsInsightEditorDisabledReason()
     const noQueryReason = hasQuery ? undefined : language === 'builder' ? 'Pick a metric first' : 'Write a query first'
+    const openTraceDialog = useOpenTraceDialog()
     const tracingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Tracing,
         AccessControlLevel.Viewer
@@ -114,15 +117,16 @@ export const MetricsViewer = (): JSX.Element => {
             : traceExemplars.map((exemplar) => ({
                   timeMs: dayjs(exemplar.timestamp).valueOf(),
                   tooltipLabel: `Traced emission at ${dayjs(exemplar.timestamp).tz(timezone).format('D MMM HH:mm:ss')}. Click to view the trace.`,
-                  onClick: () => {
+                  onClick: (event) => {
                       exemplarDotClicked(!!exemplar.spanId)
-                      router.actions.push(
-                          traceUrl({
-                              traceId: exemplar.traceId,
-                              spanId: exemplar.spanId || null,
-                              ts: exemplar.timestamp,
-                          })
-                      )
+                      const trace = {
+                          traceId: exemplar.traceId,
+                          spanId: exemplar.spanId || null,
+                          ts: exemplar.timestamp,
+                      }
+                      if (!openTraceDialog(event, trace, { entryPoint: 'metric_exemplar' })) {
+                          router.actions.push(traceUrl(trace))
+                      }
                   },
               }))
         const spikeMarkers: MetricsExemplar[] =
@@ -141,6 +145,7 @@ export const MetricsViewer = (): JSX.Element => {
         traceExemplars,
         tracingDisabledReason,
         exemplarDotClicked,
+        openTraceDialog,
         errorSpikes,
         errorOverlaysEnabled,
         errorTrackingDisabledReason,
