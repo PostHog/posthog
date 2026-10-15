@@ -47,14 +47,13 @@ pub struct RestoreResult {
 pub enum DistinctIdWriteAction {
     Insert,
     Raise,
-    Tombstone,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DistinctIdWrite {
     pub distinct_id: String,
     pub action: DistinctIdWriteAction,
-    /// The insert target, or the row's expected owner for raise and tombstone.
+    /// The insert target, or the row's expected owner for raise.
     pub person_uuid: Uuid,
     pub min_version: i64,
     pub expected_version: Option<i64>,

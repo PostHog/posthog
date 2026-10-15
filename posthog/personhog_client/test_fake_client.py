@@ -862,7 +862,6 @@ class TestFakePersonHogClientRepairWrites:
     def test_write_distinct_ids_applies_each_write_only_from_its_expected_state(self):
         insert = person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT
         raise_ = person_pb2.DISTINCT_ID_WRITE_ACTION_RAISE
-        tombstone = person_pb2.DISTINCT_ID_WRITE_ACTION_TOMBSTONE
         applied = person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
         failed = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
         not_live = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE
@@ -873,7 +872,7 @@ class TestFakePersonHogClientRepairWrites:
             ("dead-did", insert, self.TOMB, 5),
             ("live-did", raise_, self.LIVE, 3),
             ("other-did-2", raise_, self.LIVE, 3),
-            ("stray-did", tombstone, self.TOMB, 0),
+            ("dead-did-raise", raise_, self.TOMB, 3),
         )
         assert [
             (
@@ -888,7 +887,7 @@ class TestFakePersonHogClientRepairWrites:
             ("dead-did", not_live, None),
             ("live-did", applied, (1, 3, False)),
             ("other-did-2", failed, None),
-            ("stray-did", applied, (3, 1, True)),
+            ("dead-did-raise", not_live, None),
         ]
 
     def test_rejects_the_whole_batch_before_any_write(self):
