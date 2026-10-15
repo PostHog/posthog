@@ -43,10 +43,8 @@ pub struct Config {
     #[envconfig(from = "SESSION_RECORDING_ML_V4_WRITE_ENABLED", default = "false")]
     pub write_enabled: bool,
 
-    #[envconfig(
-        from = "AI_RESEARCH_REPLAY_V4_KEY_TABLE",
-        default = "ai-research-replay-v4-keys"
-    )]
+    /// Resource names come from the deployment, as the v3 mirror's do.
+    #[envconfig(from = "AI_RESEARCH_REPLAY_V4_KEY_TABLE", default = "")]
     pub key_table: String,
 
     #[envconfig(from = "AI_RESEARCH_REPLAY_V4_KMS_KEY_ARN", default = "")]
