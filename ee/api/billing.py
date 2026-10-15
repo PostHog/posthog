@@ -1,6 +1,7 @@
 import re
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any, Literal, NoReturn, Optional, cast
 from uuid import UUID
@@ -40,7 +41,12 @@ from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
-from ee.billing.billing_manager import BillingManager, http_session, raise_if_billing_managed_by_partner
+from ee.billing.billing_manager import (
+    BillingManager,
+    BillingServiceResponseError,
+    http_session,
+    raise_if_billing_managed_by_partner,
+)
 from ee.billing.billing_types import USAGE_TYPE_VALUES
 from ee.billing.exports import (  # noqa: F401
     _EXPORT_STREAMS,
@@ -116,6 +122,29 @@ class BillingServiceError(APIException):
     status_code = status.HTTP_502_BAD_GATEWAY
     default_code = "billing_service_error"
     default_detail = "Billing could not answer this request. Try again in a moment."
+
+
+class BillingManagedByProviderError(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "billing_managed_by_provider"
+    default_detail = "Billing for this organization is managed outside PostHog. Contact support to change your plan."
+    default_type = "invalid_request"
+
+
+@contextmanager
+def translate_managed_by_provider_refusal() -> Iterator[None]:
+    try:
+        yield
+    except BillingServiceResponseError as error:
+        body = error.body
+        if (
+            error.status_code != status.HTTP_400_BAD_REQUEST
+            or not isinstance(body, dict)
+            or body.get("code") != BillingManagedByProviderError.default_code
+        ):
+            raise
+        message = body.get("error")
+        raise BillingManagedByProviderError(message if isinstance(message, str) and message else None) from error
 
 
 class BillingExportThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -283,6 +312,19 @@ class BillingNotManagedByPartner(permissions.BasePermission):
 def billing_managed_by_partner(organization: Organization | None) -> dict[str, str] | None:
     partner = get_billing_lock_partner(organization) if organization else None
     return {"partner_name": partner.name} if partner else None
+
+
+def vercel_invoices_url(organization: Organization | None) -> str | None:
+    if organization is None:
+        return None
+    vercel_integration = OrganizationIntegration.objects.filter(
+        organization=organization,
+        kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+    ).first()
+    if not vercel_integration or not vercel_integration.integration_id:
+        return None
+    account_url = vercel_integration.config.get("account", {}).get("url", "")
+    return f"{account_url}/invoices" if account_url else None
 
 
 class BillingSerializer(serializers.Serializer):
@@ -657,15 +699,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             query["include_forecasting"] = str(include_forecasting).lower()
         response = billing_manager.get_billing(org, query)
 
-        vercel_integration = OrganizationIntegration.objects.filter(
-            organization=org,
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-        ).first()
-
-        if vercel_integration and vercel_integration.integration_id:
-            account_url = vercel_integration.config.get("account", {}).get("url", "")
-            if account_url:
-                response["external_billing_provider_invoices_url"] = f"{account_url}/invoices"
+        invoices_url = vercel_invoices_url(org)
+        if invoices_url:
+            response["external_billing_provider_invoices_url"] = invoices_url
 
         response["billing_managed_by_partner"] = billing_managed_by_partner(org)
 
@@ -766,7 +802,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = BillingActivationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = {key: value for key, value in serializer.validated_data.items() if key != "organization_id"}
-        res = billing_manager.activate_subscription(organization, data)
+        with translate_managed_by_provider_refusal():
+            res = billing_manager.activate_subscription(organization, data)
         return Response(res, status=status.HTTP_200_OK)
 
     class DeactivateSerializer(serializers.Serializer):
@@ -834,7 +871,14 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         organization = self._get_org_required()
 
         billing_manager = self.get_billing_manager()
-        res = billing_manager._get_stripe_portal_url(organization)
+        try:
+            with translate_managed_by_provider_refusal():
+                res = billing_manager._get_stripe_portal_url(organization)
+        except BillingManagedByProviderError:
+            invoices_url = vercel_invoices_url(organization)
+            if invoices_url is None:
+                raise
+            return redirect(invoices_url)
         return redirect(res)
 
     @action(methods=["GET"], detail=False)
@@ -954,7 +998,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        res = billing_manager.authorize(organization)
+        with translate_managed_by_provider_refusal():
+            res = billing_manager.authorize(organization)
         return Response(res, status=status.HTTP_200_OK)
 
     @extend_schema(
