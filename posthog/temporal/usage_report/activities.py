@@ -72,6 +72,7 @@ SQS_POINTER_VERSION = 2
 # One aggregation runs at a time in each worker process. Each run holds every query result and
 # all membership counts in memory, so parallel runs multiply peak memory. The executor is also
 # separate from the shared thread that quota limiting uses.
+# Keep this cap while pre-patch workflows can still aggregate on the main billing queue.
 _AGGREGATION_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="usage-report-aggregation")
 
 # Separate SQS queue for v2 messages so the existing per-org `usage_reports`

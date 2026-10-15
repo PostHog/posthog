@@ -24,6 +24,7 @@ from posthog.tasks.usage_report import (
     apply_usage_counter_metadata,
     iter_reports_with_usage_counter_metadata,
 )
+from posthog.temporal.tests.usage_report.test_aggregate_activity import _instance_metadata
 from posthog.temporal.usage_report.aggregator import (
     add_pre_sandbox_compute_patch_defaults,
     build_manifest,
@@ -417,7 +418,13 @@ def test_chunks_stream_reports_and_preserve_counts(active_orgs: int) -> None:
 
     def reports() -> Iterator[OrgReport]:
         for index in range(active_orgs + 1):
-            report = _empty_org_report(str(index), event_count_in_period=int(index < active_orgs))
+            report = _empty_org_report(
+                str(index),
+                event_count_in_period=int(index < active_orgs),
+                dashboard_count=10,
+                usage_sources={"cdp_billable_invocations_in_period": "both"},
+                counter_comparisons={"cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 50}},
+            )
             references.append(weakref.ref(report))
             yield report
 

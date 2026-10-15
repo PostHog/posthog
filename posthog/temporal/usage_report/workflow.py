@@ -19,6 +19,8 @@ import uuid
 import asyncio
 from datetime import UTC, datetime, time, timedelta
 
+from django.conf import settings
+
 from temporalio import common, workflow
 from temporalio.exceptions import ApplicationError
 
@@ -53,6 +55,7 @@ SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
 SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
 USAGE_COUNTER_SERVICE_PATCH_ID = "usage-report-counter-service-2026-09"
 PARALLEL_COUNTER_QUERIES_PATCH_ID = "usage-report-parallel-counter-queries-2026-10"
+AGGREGATION_QUEUE_PATCH_ID = "usage-report-aggregation-queue-2026-10"
 
 
 def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
@@ -174,6 +177,12 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             agg = await workflow.execute_activity(
                 aggregate_and_chunk_org_reports,
                 AggregateInputs(ctx=ctx, query_results=query_results, counter_result=counter_result),
+                # Wait for capacity in Temporal, before the activity's start-to-close timer begins.
+                task_queue=(
+                    settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE
+                    if workflow.patched(AGGREGATION_QUEUE_PATCH_ID)
+                    else None
+                ),
                 start_to_close_timeout=timedelta(minutes=60),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=2,
