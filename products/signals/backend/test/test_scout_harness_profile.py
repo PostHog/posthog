@@ -1231,7 +1231,35 @@ class TestGetProjectProfile(BaseTest):
             assert surfaces == stored
         else:
             assert {entry["source"] for entry in surfaces.values()} == {"deferred"}
-        mock_delay.assert_called_once_with(self.team.id)
+        mock_delay.assert_called_once()
+        assert mock_delay.call_args.args[0] == self.team.id
+
+    def test_background_build_fills_surfaces_on_the_read_row_and_skips_a_duplicate(self) -> None:
+        cache.clear()
+        with patch("products.signals.backend.tasks.build_signal_project_profile.delay") as mock_delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                read = get_project_profile(team_id=self.team.id)
+            assert read is not None
+            build_signal_project_profile(*mock_delay.call_args.args)
+        row = SignalProjectProfile.objects.get(team=self.team)
+        assert str(row.id) == read.profile_id
+        assert "deferred" not in {entry["source"] for entry in row.payload["inventory"]["surfaces"].values()}
+        with patch(f"{BUILDERS}.run_precheck_query", side_effect=AssertionError("duplicate surface query")):
+            build_signal_project_profile(*mock_delay.call_args.args)
+
+    @parameterized.expand([("queued", None), ("broker_down", ConnectionError("broker down"))])
+    def test_cache_hit_with_deferred_surfaces_queues_a_build_without_failing_the_read(
+        self, _name: str, delay_error: Exception | None
+    ) -> None:
+        cache.clear()
+        cached = compute_project_profile(team=self.team, defer_surfaces=True)
+        cache.clear()
+        with patch(
+            "products.signals.backend.tasks.build_signal_project_profile.delay", side_effect=delay_error
+        ) as mock_delay:
+            result = get_project_profile(team_id=self.team.id)
+        assert result is not None and result.profile_id == cached.profile_id
+        mock_delay.assert_called_once()
 
     @parameterized.expand([("fresh", timedelta(minutes=30), False), ("expired", -timedelta(days=1), True)])
     def test_lazy_build_false_returns_newest_row_whatever_its_age(

@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from django.core.cache import cache
@@ -1025,9 +1025,16 @@ _PROFILE_BUILD_DEDUPE_SECONDS = 5 * 60
 
 
 def enqueue_project_profile_build(team_id: int) -> None:
-    """Queue one `build_signal_project_profile` per team per dedupe window."""
-    if cache.add(f"signals_project_profile_build/{team_id}", "1", timeout=_PROFILE_BUILD_DEDUPE_SECONDS):
-        build_signal_project_profile.delay(team_id)
+    """Queue one `build_signal_project_profile` per team per dedupe window.
+
+    A read calls this after it has its profile, so a cache or broker failure is reported and
+    does not fail the read.
+    """
+    try:
+        if cache.add(f"signals_project_profile_build/{team_id}", "1", timeout=_PROFILE_BUILD_DEDUPE_SECONDS):
+            build_signal_project_profile.delay(team_id, timezone.now().isoformat())
+    except Exception as exc:
+        capture_exception(exc, {"team_id": team_id})
 
 
 @shared_task(
@@ -1036,19 +1043,19 @@ def enqueue_project_profile_build(team_id: int) -> None:
     max_retries=0,
 )
 @with_team_scope()
-def build_signal_project_profile(team_id: int) -> None:
-    """Build the team's full project profile off the request path, with the surface queries.
+def build_signal_project_profile(team_id: int, requested_at: str | None = None) -> None:
+    """Run the surface queries off the request path, and build the profile if the team has none.
 
-    A read caller that found no profile queues this, and so does a read that built a profile
-    without the surface queries. The build always writes a row, because the newest row can be
-    fresh but carry old surface entries. The dedupe window in `enqueue_project_profile_build`
-    bounds how often this runs.
+    A read caller that found no profile queues this, and so does a read whose profile has no
+    current surface entries. `requested_at` lets a duplicate skip the queries when another
+    build already ran them.
     """
     # The `tools` package imports this module through `slack_delivery_queue`.
-    from products.signals.backend.scout_harness.tools.profile import compute_project_profile  # noqa: PLC0415
+    from products.signals.backend.scout_harness.tools.profile import refresh_project_profile_surfaces  # noqa: PLC0415
 
-    team = Team.objects.get(id=team_id)
-    compute_project_profile(team=team, force=True)
+    refresh_project_profile_surfaces(
+        team_id=team_id, requested_at=datetime.fromisoformat(requested_at) if requested_at else None
+    )
 
 
 @shared_task(

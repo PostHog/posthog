@@ -2910,7 +2910,8 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         second = self.client.get(self._list_url())
         assert first.status_code == second.status_code == status.HTTP_404_NOT_FOUND
         assert "retry" in first.json()["detail"]
-        mock_delay.assert_called_once_with(self.team.id)
+        mock_delay.assert_called_once()
+        assert mock_delay.call_args.args[0] == self.team.id
         # No row written as a side effect of the GET.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
 
