@@ -383,6 +383,9 @@ const ADA: UserBasicType = {
     email: 'ada@example.com',
 }
 
+// The logged-in mock user has another id than MOCK_DEFAULT_BASIC_USER, and the rule chips mark only the viewer with "(you)".
+const VIEWER: UserBasicType = { ...MOCK_DEFAULT_BASIC_USER, id: MOCK_DEFAULT_USER.id }
+
 const members: OrganizationMemberType[] = [
     MOCK_DEFAULT_ORGANIZATION_MEMBER,
     { ...MOCK_DEFAULT_ORGANIZATION_MEMBER, id: 'member-rose', user: MOCK_SECOND_BASIC_USER },
@@ -477,7 +480,7 @@ function initialRows(): Record<string, StoryRepositoryRow> {
             id: 'repo-web',
             selected: true,
             flash_for: 'everyone',
-            people: [person(MOCK_SECOND_BASIC_USER, 'excepted'), person(MOCK_DEFAULT_BASIC_USER, 'excepted')],
+            people: [person(MOCK_SECOND_BASIC_USER, 'excepted'), person(VIEWER, 'excepted')],
         },
         'example-org/api': {
             id: 'repo-api',
@@ -510,8 +513,7 @@ function inherited(name: string, { withDefault = true }: { withDefault?: boolean
     const flashFor = exception ?? storyState.project.flash_for ?? 'off'
     const people = exception ? row.people : storyState.project.people
     const scope = exception ? 'repository' : 'project'
-    const listed = (kind: string): boolean =>
-        people.some((entry) => entry.kind === kind && entry.user.id === MOCK_DEFAULT_BASIC_USER.id)
+    const listed = (kind: string): boolean => people.some((entry) => entry.kind === kind && entry.user.id === VIEWER.id)
     const decision = (flash: boolean, rule: string): AutomaticReviewDecisionApi => ({
         flash,
         reason: `${scope}_${rule}` as AutomaticReviewReasonEnumApi,
@@ -647,15 +649,22 @@ const meta: Meta<typeof CodeReviewScene> = {
                         const view = params.get('view') ?? 'all'
                         const offset = Number(params.get('offset') ?? 0)
                         const limit = Number(params.get('limit') ?? 50)
-                        const entries = REPOSITORY_NAMES.filter((name) => name.includes(search))
-                            .map(overviewEntry)
-                            .filter(
-                                (entry) =>
-                                    view === 'all' ||
-                                    (view === 'in_project' && entry.in_project) ||
-                                    (view === 'exceptions' && entry.exception !== null) ||
-                                    (view === 'mine' && entry.my_choice !== null)
-                            )
+                        const matching = REPOSITORY_NAMES.filter((name) => name.includes(search)).map(overviewEntry)
+                        // Same rule as the server: this project's settings apply with no exception and no own choice.
+                        const follows = (entry: ReviewRepositoryOverviewEntryApi): boolean =>
+                            entry.owner === 'this_project' &&
+                            entry.in_project &&
+                            entry.exception === null &&
+                            entry.my_choice === null
+                        const entries = matching.filter(
+                            (entry) =>
+                                view === 'all' ||
+                                (view === 'in_project' && entry.in_project) ||
+                                (view === 'exceptions' && entry.exception !== null) ||
+                                (view === 'mine' && entry.my_choice !== null) ||
+                                (view === 'differs' && !follows(entry))
+                        )
+                        const folded = view === 'differs' ? matching.filter(follows) : []
                         const page = entries.slice(offset, offset + limit)
                         return [
                             200,
@@ -666,6 +675,9 @@ const meta: Meta<typeof CodeReviewScene> = {
                                 total: entries.length,
                                 has_more: offset + limit < entries.length,
                                 next_offset: offset + limit < entries.length ? offset + limit : null,
+                                folded: folded.length,
+                                folded_preview: folded.slice(0, 3).map((entry) => entry.full_name),
+                                folded_result: folded[0]?.my_result ?? null,
                                 my_choices_unlike_default: choicesUnlikeDefault(),
                             },
                         ]
