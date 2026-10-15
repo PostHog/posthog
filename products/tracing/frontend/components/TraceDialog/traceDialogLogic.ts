@@ -216,7 +216,7 @@ export interface traceDialogLogicMeta {
         serviceColorMap: (traceSpans: TraceDialogSpans | null) => Map<string, number>
         timeline: (traceSpans: TraceDialogSpans | null) => TraceDialogTimeline
         summary: (traceSpans: TraceDialogSpans | null) => TraceDialogSummary
-        openedAtUs: (trace: TraceLinkParams | null) => number | null
+        openedAtUs: (trace: TraceLinkParams | null, openedFrom: TraceDialogSource | null) => number | null
     }
 }
 
@@ -466,9 +466,10 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         // When the record that opened the dialog was written: a log's timestamp, so its span can show
         // when the log fired. Parsed to microseconds, like the timeline, so sub-millisecond spans place it right.
         openedAtUs: [
-            (s) => [s.trace],
-            (trace: TraceLinkParams | null): number | null =>
-                trace?.ts && dayjs(trace.ts).isValid() ? parseTimestampUs(trace.ts) : null,
+            (s) => [s.trace, s.openedFrom],
+            (trace: TraceLinkParams | null, openedFrom: TraceDialogSource | null): number | null =>
+                // Other links pass a time near the trace, not the moment anything happened in it.
+                openedFrom && trace?.ts && dayjs(trace.ts).isValid() ? parseTimestampUs(trace.ts) : null,
         ],
     }),
     listeners(({ values, actions, cache }) => ({

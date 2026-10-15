@@ -239,12 +239,17 @@ describe('traceDialogLogic', () => {
         await expectLogic(logic, open).toMatchValues({ isOpen: false })
     })
 
-    it('drops the log from a previous open, so a later open has no stale strip', async () => {
-        logic.actions.openTraceDialog({ traceId: 'abc123' }, { body: 'run_sql failed', severity: 'error' })
+    it('drops the log from a previous open, so a later open has no stale strip or marker', async () => {
+        logic.actions.openTraceDialog(
+            { traceId: 'abc123', ts: '2026-05-01T12:00:00.000Z' },
+            { body: 'run_sql failed', severity: 'error' }
+        )
+        expect(logic.values.openedAtUs).not.toBeNull()
 
+        // A metrics link passes a time near the trace, which is no point in it to mark.
         await expectLogic(logic, () => {
-            logic.actions.openTraceDialog({ traceId: 'def456' })
-        }).toMatchValues({ openedFrom: null })
+            logic.actions.openTraceDialog({ traceId: 'def456', ts: '2026-05-01T12:00:00.000Z' })
+        }).toMatchValues({ openedFrom: null, openedAtUs: null })
     })
 
     describe('span keys', () => {

@@ -20,7 +20,7 @@ export function TraceDialogShortcuts(): JSX.Element {
             </span>
             <span className="flex items-center gap-1">
                 <KeyboardShortcut command />
-                <span>Click View trace to open Tracing in a new tab</span>
+                <span>Click Open in Tracing for a new tab</span>
             </span>
         </div>
     )
