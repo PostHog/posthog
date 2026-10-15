@@ -19,6 +19,9 @@ const initResult = posthog.init(
         bootstrap: {
             featureFlags: {},
         },
+        // The web app imports toolbar modules, which creates this instance on every app page load.
+        // Only a mounted toolbar reads these flags, so `mountToolbar` loads them.
+        advanced_disable_feature_flags_on_first_load: true,
         autocapture: false,
         // The toolbar runs on customer pages and must not install global exception handlers.
         capture_exceptions: false,

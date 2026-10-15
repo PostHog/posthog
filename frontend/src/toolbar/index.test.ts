@@ -204,6 +204,22 @@ describe('Toolbar flag loading', () => {
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
     })
 
+    it('loads the toolbar instance flags when the toolbar mounts, not when the app imports toolbar code', async () => {
+        await import('./index')
+        const { default: posthog } = await import('posthog-js')
+
+        expect(posthog.init).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ advanced_disable_feature_flags_on_first_load: true }),
+            'ph_toolbar_internal'
+        )
+        expect(posthog.reloadFeatureFlags).not.toHaveBeenCalled()
+
+        await (window as any).ph_load_toolbar({ apiURL: 'http://localhost:8010', token: 'test-token' })
+
+        expect(posthog.reloadFeatureFlags).toHaveBeenCalledTimes(1)
+    })
+
     it('is idempotent — a repeat ph_load_toolbar keeps the live toolbar instead of remounting it', async () => {
         // On an SPA, posthog-js calls ph_load_toolbar again on client-side route changes.
         // Remounting resets the Kea context out from under the mounted React tree, so the toolbar

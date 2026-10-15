@@ -17,7 +17,7 @@ import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { canonicalizeApiHost } from '~/toolbar/toolbarConfigLogic'
 import { isToolbarMounted, posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { isToolbarRequestError } from '~/toolbar/toolbarRequestError'
 import { safeFetch, toError } from '~/toolbar/utils'
 import { ToolbarParams } from '~/types'
@@ -131,6 +131,8 @@ async function mountToolbar(toolbarParams: ToolbarParams, posthog?: PostHog): Pr
     // The loader script already stamps this before fetching the app module, so the measured
     // duration includes the chunk fetch — keep the earliest timestamp.
     ;(window as any).__posthog_toolbar_load_start ??= performance.now()
+
+    toolbarPosthogJS.reloadFeatureFlags()
 
     // If posthog and toolbarFlagsKey is present, fetch the feature flags from the backend
     if (posthog && toolbarParams.toolbarFlagsKey) {
