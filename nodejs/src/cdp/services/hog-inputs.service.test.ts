@@ -249,6 +249,7 @@ describe('Hog Inputs', () => {
             ['the function schema', 'function', 'event: "{{ event.event }}"'],
             ['the matching mapping schema', 'matching mapping', 'event: "{{ event.event }}"'],
             ['only a sibling mapping schema', 'sibling mapping', 'event: "test"'],
+            ['a mapping schema for an input the mapping does not supply', 'unsupplied mapping key', 'event: "test"'],
         ])('renders a liquid input by %s', async (_name, literalIn, expected) => {
             const schema = (templating: boolean): HogFunctionInputSchemaType => ({
                 key: 'liquid_templated',
@@ -258,25 +259,25 @@ describe('Hog Inputs', () => {
             })
             const { liquid_templated: liquidTemplated, ...otherInputs } = hogFunction.inputs!
             const liquid_templated = liquidTemplated!
+            let mappingInputs: Record<string, any> | undefined
             let mappingSchema: HogFunctionInputSchemaType[] | undefined
             if (literalIn === 'function') {
                 hogFunction.inputs_schema = [schema(false)]
+            } else if (literalIn === 'unsupplied mapping key') {
+                mappingInputs = {}
+                mappingSchema = [schema(false)]
             } else {
                 const activeIsLiteral = literalIn === 'matching mapping'
+                mappingInputs = { liquid_templated }
                 mappingSchema = [schema(!activeIsLiteral)]
                 hogFunction.inputs = otherInputs
                 hogFunction.mappings = [
-                    { inputs_schema: mappingSchema, inputs: { liquid_templated } },
+                    { inputs_schema: mappingSchema, inputs: mappingInputs },
                     { inputs_schema: [schema(activeIsLiteral)], inputs: { liquid_templated } },
                 ]
             }
 
-            const inputs = await hogInputsService.buildInputs(
-                hogFunction,
-                globals,
-                mappingSchema ? { liquid_templated } : undefined,
-                mappingSchema
-            )
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals, mappingInputs, mappingSchema)
 
             expect(inputs.liquid_templated).toEqual(expected)
         })

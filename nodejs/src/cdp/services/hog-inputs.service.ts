@@ -31,16 +31,18 @@ const signedAccessTokenPlaceholder = (base: string, signature: string): string =
 const untemplatedKeysOf = (schema: HogFunctionInputSchemaType[] | undefined): string[] =>
     (schema ?? []).filter((input) => input.templating === false).map((input) => input.key)
 
-// A mapping's inputs override the function's inputs of the same key, so its schema decides for those keys.
+// A mapping's inputs override the function's inputs of the same key, so its schema decides for exactly those keys.
 const literalInputKeys = (
     functionSchema: HogFunctionInputSchemaType[] | undefined,
     mappingInputs: Record<string, any> | undefined,
     mappingSchema: HogFunctionInputSchemaType[] | undefined
-): Set<string> =>
-    new Set([
-        ...untemplatedKeysOf(functionSchema).filter((key) => !(mappingInputs && key in mappingInputs)),
-        ...untemplatedKeysOf(mappingSchema),
+): Set<string> => {
+    const suppliedByMapping = (key: string): boolean => !!mappingInputs && key in mappingInputs
+    return new Set([
+        ...untemplatedKeysOf(functionSchema).filter((key) => !suppliedByMapping(key)),
+        ...untemplatedKeysOf(mappingSchema).filter(suppliedByMapping),
     ])
+}
 
 export class HogInputsService {
     constructor(
