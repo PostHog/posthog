@@ -63,6 +63,10 @@ do not guess it. Offer only the replies that are complete without it, or return 
 - Put the most likely reply first.
 - Write in the language of the answer.
 - Do not write replies that only say thanks or close the conversation.
+- If the answer offers to fix a bug or an error, use "Fix it, make no mistakes" as the label of the reply \
+that accepts the fix. Its reply starts with "Fix it, make no mistakes." and can add the step that the answer \
+names, for example "Fix it, make no mistakes. Open the pull request with the fix." Do not also offer a plain \
+"Yes, fix it" reply. If the answer is not in English, translate this reply.
 
 Each suggestion has two parts:
 - "label": the button text. Keep it under 30 characters, because Slack cuts longer labels.
