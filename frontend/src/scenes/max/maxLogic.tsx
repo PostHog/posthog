@@ -1106,6 +1106,17 @@ export const maxLogic = kea<maxLogicType>([
     }),
 ])
 
+/** The side panel chat logic. The first call mounts it for the rest of the session. */
+export function sidePanelMaxLogic(): ReturnType<typeof maxLogic.build> {
+    const mounted = maxLogic.findMounted({ panelId: SIDE_PANEL_PANEL_ID })
+    if (mounted) {
+        return mounted
+    }
+    const logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
+    logic.mount()
+    return logic
+}
+
 export function getScrollableContainer(element?: Element | null): HTMLElement | null {
     if (!element) {
         return null
