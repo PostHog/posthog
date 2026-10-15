@@ -42,7 +42,7 @@ Most empty searches are real words that exist somewhere else.
 
 ## 4. Failures that look like something else
 
-- **Signal:** `taxonomic filter fetch failed` ~0.2 times per 100 typed legacy queries (query 10).
+- **Signal:** `taxonomic filter fetch failed` ~0.2 times per 100 legacy search queries (query 10).
   One search can send several events, so this is not a share of failed searches.
   The health dashboard shows ~2%, but it divides every failure, first loads included, by timed searches, so it overstates the rate.
   Events, cohorts, person properties and flags fail most.

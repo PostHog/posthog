@@ -17,7 +17,7 @@ Use the PostHog MCP (`posthog:execute-sql`, dashboards, vision scanners, convers
 
 ## The health dashboard
 
-"Taxonomic filter health" (dashboard 1514607) tracks selection rate, position, empty results and recovery, latency, fetch failures, and the category-then-empty trap.
+The "Taxonomic filter health" dashboard tracks selection rate, position, empty results and recovery, latency, fetch failures, and the category-then-empty trap.
 
 - **Good for:** trends and spotting regressions after a deploy.
 - **Bad for:** causes.

@@ -93,7 +93,7 @@ Detail in [failure-modes](failure-modes.md).
 - Most empty searches are ordinary words in the wrong scope.
 - Recovery within 30s of an empty result fell from ~46% to ~39% (Jul to Oct 2026, health dashboard session tile) while the empty-result rate stayed flat.
   The tile pools both surfaces, so check each one with query 12 before you read it as a worse empty state.
-- About 0.2 fetch failure events per 100 typed legacy queries (query 10).
+- About 0.2 fetch failure events per 100 legacy search queries (query 10).
   One search can send several, so this is not a share of failed searches.
   The health dashboard shows ~2%, but it divides every failure, first loads included, by timed searches, so it overstates the rate.
   Cohorts, events, person properties and flags make up most of the failures.

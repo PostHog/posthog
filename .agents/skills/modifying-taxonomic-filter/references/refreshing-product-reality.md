@@ -6,7 +6,7 @@ Never commit absolute event or user counts.**
 
 Queries 1 to 7 use a 90-day window; keep that consistent so trends are comparable.
 Queries 8 to 12 use 7 days because they are heavier.
-Query 13 uses 90 days.
+Queries 13 and 14 use 90 days.
 
 Exclude staff when the question is about customers, for example with the project's test account filters.
 
@@ -266,8 +266,9 @@ Filter both sides to `legacy-pill` so the rate does not fall as rebuild use grow
 There is no honest rate per group: a list also fails while it feeds Suggested, and then the failure logs its own group but the search logs `suggested_filters`.
 Rank groups by share of failures, and report one overall rate.
 Failures also fire on the first load, when the query is empty, and no search event matches those.
-So the overall rate counts only failures with a typed query.
-It is failure events per typed query, not failed searches: on Suggested every list that feeds the tab can fail and send its own event for one search, and short queries that never reach a list still count in the base.
+So the overall rate counts only failures with a non-empty query.
+It is failure events per search query event, not failed searches.
+The failure event has no `inputMode`, so "search query" here covers typed and pasted input alike: on Suggested every list that feeds the tab can fail and send its own event for one search, and short queries that never reach a list still count in the base.
 There is no request ID to count failed searches exactly.
 The share ranking keeps first-load failures, because they show which groups fail.
 The health dashboard divides by timed searches instead, so its rate is higher.
@@ -277,7 +278,7 @@ WITH f AS (
   SELECT
     toString(properties.groupType) AS g,
     count() AS n,
-    countIf(length(trim(toString(properties.searchQuery))) > 0) AS typed_n
+    countIf(length(trim(toString(properties.searchQuery))) > 0) AS nonempty_n
   FROM events
   WHERE event = 'taxonomic filter fetch failed'
     AND properties.surface = 'legacy-pill'
@@ -294,7 +295,7 @@ s AS (
 SELECT
   f.g AS group_type,
   round(100 * f.n / sum(f.n) OVER (), 1) AS share_of_failures_pct,
-  round(100 * (SELECT sum(typed_n) FROM f) / (SELECT n FROM s), 2) AS failure_events_per_100_typed_queries
+  round(100 * (SELECT sum(nonempty_n) FROM f) / (SELECT n FROM s), 2) AS failure_events_per_100_typed_queries
 FROM f
 ORDER BY share_of_failures_pct DESC
 LIMIT 15
@@ -406,11 +407,29 @@ SELECT
     SELECT count() FROM events
     WHERE event = 'taxonomic_filter_search_query' AND properties.surface = 'legacy-pill'
       AND timestamp >= now() - INTERVAL 90 DAY
-  ), 1) AS empty_results_per_100_typed_queries
+  ), 1) AS empty_results_per_100_search_queries
 FROM events
 WHERE event = 'taxonomic filter closed'
   AND properties.surface = 'legacy-pill'
   AND timestamp >= now() - INTERVAL 90 DAY
+```
+
+### 14. Which tabs users open
+
+Share of category picks by tab, over 90 days.
+Backs the pseudo-category tabs row in [feature-inventory](feature-inventory.md).
+Read it with query 8: only a small share of opens pick a category at all, so a tab with a small share here is rarely opened.
+
+```sql
+SELECT
+  toString(properties.groupType) AS group_type,
+  round(100 * count() / sum(count()) OVER (), 1) AS share_of_category_picks_pct
+FROM events
+WHERE event = 'taxonomic filter category selected'
+  AND timestamp >= now() - INTERVAL 90 DAY
+GROUP BY group_type
+ORDER BY share_of_category_picks_pct DESC
+LIMIT 30
 ```
 
 ## Updating the doc
