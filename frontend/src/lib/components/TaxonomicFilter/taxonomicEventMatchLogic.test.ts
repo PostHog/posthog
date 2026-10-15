@@ -39,12 +39,16 @@ describe('taxonomicEventMatchLogic', () => {
     let matchRequests: Record<string, any>[]
     let status: number
     let matches: Record<string, any>[]
+    let outcome: string
+    let unsent: Record<string, any>[]
     let answerGate: Promise<void> | null
 
     beforeEach(() => {
         matchRequests = []
         status = 200
         matches = [AUTOCAPTURE]
+        outcome = 'matched'
+        unsent = []
         answerGate = null
         resetEventMatchMemoryForTests()
         useMocks({
@@ -57,7 +61,7 @@ describe('taxonomicEventMatchLogic', () => {
                     if (answerGate) {
                         await answerGate
                     }
-                    return status === 200 ? [200, { matches }] : [status, {}]
+                    return status === 200 ? [200, { matches, outcome, unsent }] : [status, {}]
                 },
             },
         })
@@ -77,9 +81,9 @@ describe('taxonomicEventMatchLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     }
 
-    const enroll = (enabled: boolean): void => {
+    const enroll = (variant: 'test' | 'control' | false): void => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH], {
-            [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: enabled,
+            [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: variant,
         })
     }
 
@@ -104,10 +108,11 @@ describe('taxonomicEventMatchLogic', () => {
 
     it.each([
         ['for a person outside the flag', (): typeof logic => (enroll(false), logic)],
+        ['for a person in the control arm', (): typeof logic => (enroll('control'), logic)],
         [
             'from a tab that never shows suggestions',
             (): typeof logic => {
-                enroll(true)
+                enroll('test')
                 const { allTabFilterLogic, allTabLogic } = mountAllTabPicker()
                 allTabFilterLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
                 allTabFilterLogic.actions.setSearchQuery('browser capture')
@@ -138,7 +143,7 @@ describe('taxonomicEventMatchLogic', () => {
             1,
         ],
     ])('drops the ask when another tab opens %s', async (_, waitBeforeSwitch, expectedRequests) => {
-        enroll(true)
+        enroll('test')
         const captureSpy = jest.spyOn(posthog, 'capture')
         const answer = holdAnswer()
         const { allTabFilterLogic, allTabLogic } = mountAllTabPicker()
@@ -156,7 +161,7 @@ describe('taxonomicEventMatchLogic', () => {
     })
 
     it('shows a loading state from the All tab until the answer arrives, and records the tab', async () => {
-        enroll(true)
+        enroll('test')
         const captureSpy = jest.spyOn(posthog, 'capture')
         const answer = holdAnswer()
         const { allTabFilterLogic, allTabLogic } = mountAllTabPicker()
@@ -181,7 +186,7 @@ describe('taxonomicEventMatchLogic', () => {
     })
 
     it('suggests the matched events for the current search only, and selects one on click', async () => {
-        enroll(true)
+        enroll('test')
         const captureSpy = jest.spyOn(posthog, 'capture')
 
         await search('browser capture')
@@ -208,7 +213,7 @@ describe('taxonomicEventMatchLogic', () => {
     })
 
     it('shows the remembered answer again when the empty state remounts for the same search', async () => {
-        enroll(true)
+        enroll('test')
         const captureSpy = jest.spyOn(posthog, 'capture')
         await search('browser capture')
         expect(matchRequests).toHaveLength(1)
@@ -236,7 +241,7 @@ describe('taxonomicEventMatchLogic', () => {
         excludingFilterLogic.mount()
         const excludingLogic = taxonomicEventMatchLogic(excludingProps)
         excludingLogic.mount()
-        enroll(true)
+        enroll('test')
         const captureSpy = jest.spyOn(posthog, 'capture')
 
         excludingFilterLogic.actions.setSearchQuery('browser capture')
@@ -257,7 +262,7 @@ describe('taxonomicEventMatchLogic', () => {
         excludingFilterLogic.mount()
         const excludingLogic = taxonomicEventMatchLogic(excludingProps)
         excludingLogic.mount()
-        enroll(true)
+        enroll('test')
         matches = [
             AUTOCAPTURE,
             { name: '$rageclick', display_name: 'Rageclick', probability: 0.9 },
@@ -277,7 +282,7 @@ describe('taxonomicEventMatchLogic', () => {
     })
 
     it('stops asking for the project after a 404', async () => {
-        enroll(true)
+        enroll('test')
         status = 404
 
         await search('browser capture')
@@ -293,7 +298,7 @@ describe('taxonomicEventMatchLogic', () => {
         [503, false],
         [500, true],
     ])('reports a %s failure to error tracking: %s', async (failureStatus, reported) => {
-        enroll(true)
+        enroll('test')
         status = failureStatus
         const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
 
@@ -305,5 +310,94 @@ describe('taxonomicEventMatchLogic', () => {
                 ? [[expect.anything(), { feature: 'taxonomic-event-match', projectId: MOCK_TEAM_ID, status: 500 }]]
                 : []
         )
+    })
+
+    it.each([['control'], ['test']] as const)(
+        'reports the %s arm as eligible once per search, after the pause',
+        async (variant) => {
+            enroll(variant)
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            await search('browser capture')
+            logic.unmount()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const eligible = captureSpy.mock.calls.filter(
+                ([event]) => event === 'taxonomic filter event match eligible'
+            )
+            expect(eligible).toEqual([
+                ['taxonomic filter event match eligible', { surface: 'legacy-pill', tab: 'events', variant }],
+            ])
+            expect(matchRequests).toHaveLength(variant === 'test' ? 1 : 0)
+        }
+    )
+
+    it('names the likely events the project never sent instead of suggesting them', async () => {
+        enroll('test')
+        matches = []
+        outcome = 'not_ingested'
+        unsent = [{ name: '$screen', display_name: 'Screen', probability: 0.85 }]
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        await search('mobile screen')
+
+        expect(logic.values.suggestedEvents).toEqual([])
+        expect(logic.values.hint).toEqual({ kind: 'unsent', events: unsent })
+        expect(captureSpy).toHaveBeenCalledWith('taxonomic filter event match hint shown', {
+            surface: 'legacy-pill',
+            tab: 'events',
+            hint: 'unsent',
+            unsentEvents: ['$screen'],
+        })
+    })
+
+    it('does not name an unsent event the picker excludes', async () => {
+        const excludingProps: TaxonomicFilterLogicProps = {
+            ...PROPS,
+            taxonomicFilterLogicKey: 'event-match-excluding-unsent-test',
+            excludedProperties: { [TaxonomicFilterGroupType.Events]: ['$screen'] },
+        }
+        const excludingFilterLogic = taxonomicFilterLogic(excludingProps)
+        excludingFilterLogic.mount()
+        const excludingLogic = taxonomicEventMatchLogic(excludingProps)
+        excludingLogic.mount()
+        enroll('test')
+        matches = []
+        outcome = 'not_ingested'
+        unsent = [{ name: '$screen', display_name: 'Screen', probability: 0.85 }]
+
+        excludingFilterLogic.actions.setSearchQuery('mobile screen')
+        await expectLogic(excludingLogic).toFinishAllListeners()
+
+        expect(excludingLogic.values.hint).toBeNull()
+    })
+
+    it('points a search made of values to the All tab', async () => {
+        enroll('test')
+        matches = []
+        outcome = 'only_values'
+        const { allTabFilterLogic, allTabLogic } = mountAllTabPicker()
+        allTabFilterLogic.actions.setActiveTab(TaxonomicFilterGroupType.Events)
+
+        allTabFilterLogic.actions.setSearchQuery('ada@example.com')
+        await expectLogic(allTabLogic).toFinishAllListeners()
+
+        expect(allTabLogic.values.hint).toEqual({ kind: 'value' })
+        expect(allTabLogic.values.canSearchAllCategories).toBe(true)
+
+        allTabLogic.actions.searchAllCategories()
+        expect(allTabFilterLogic.values.activeTab).toEqual(TaxonomicFilterGroupType.SuggestedFilters)
+        expect(allTabLogic.values.canSearchAllCategories).toBe(false)
+    })
+
+    it('shows no hint when the model simply found nothing likely', async () => {
+        enroll('test')
+        matches = []
+        outcome = 'nothing_likely'
+
+        await search('browser capture')
+
+        expect(logic.values.hint).toBeNull()
     })
 })
