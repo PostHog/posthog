@@ -23,7 +23,11 @@ import {
 import type { DataWarehouseSavedQuery, InsightShortId } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
-import { buildBIQuery, getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
+import {
+    buildBIQuery,
+    getBIResultDimensions,
+    getBIResultMeasureColumns,
+} from 'products/business_intelligence/frontend/biEditorTypes'
 import { biSceneLogic } from 'products/business_intelligence/frontend/biSceneLogic'
 
 import { expect, userEvent } from 'storybook/test'
@@ -1592,6 +1596,19 @@ export const BICatalogSource: Story = {
                     },
                 },
                 post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: [
+                            ...getBIResultDimensions(BI_WORKSHEET_CONFIG).map(({ column }) => column),
+                            ...getBIResultMeasureColumns(BI_WORKSHEET_CONFIG).map(({ column }) => column),
+                        ],
+                        types: ['DateTime', 'String', 'Float64'],
+                        results: [
+                            ['2026-06-01', 'purchase', 120],
+                            ['2026-06-02', 'purchase', 180],
+                            ['2026-06-03', 'purchase', 150],
+                        ],
+                        hasMore: false,
+                    },
                     '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
                         tables: {
                             events: {
@@ -1627,12 +1644,26 @@ export const BICatalogSnapshot: Story = {
                         display_name: 'Weekly revenue',
                         definition: {
                             kind: NodeKind.HogQLQuery,
-                            query: "SELECT sum(revenue) FROM events WHERE timestamp >= toDateTime('2026-06-01') AND timestamp < toDateTime('2026-06-08')",
+                            query: "SELECT sum(revenue) AS revenue FROM events WHERE timestamp >= toDateTime('2026-06-01') AND timestamp < toDateTime('2026-06-08')",
                         },
                     },
                     '/api/projects/:team_id/warehouse_expressions/': { results: [] },
                 },
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: ['revenue'],
+                        types: ['Float64'],
+                        results: [[450]],
+                        hasMore: false,
+                    },
+                },
             },
         },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByRole('link', { name: 'View catalog definition' }, { timeout: 15000 })
+        await userEvent.click(await canvas.findByRole('button', { name: 'Run', exact: true }))
+        await expect(canvas.findByText('450', { exact: true })).resolves.toBeVisible()
     },
 }
