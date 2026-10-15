@@ -4826,23 +4826,22 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
         self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
 
-    def test_copy_experiment_to_project_refuses_denied_flag_in_target(self) -> None:
+    @parameterized.expand([("eligible_flag", True), ("ineligible_flag", False)])
+    def test_copy_experiment_to_project_refuses_denied_flag_in_target(self, _name: str, eligible: bool) -> None:
         self._enable_access_control()
         target_team = Team.objects.create(organization=self.organization, name="Target Team")
+        # A denied flag that can't back an experiment must still 403, not 400 on its eligibility.
+        filters: dict = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        if eligible:
+            filters["multivariate"] = {
+                "variants": [
+                    {"key": "control", "name": "Control", "rollout_percentage": 50},
+                    {"key": "test", "name": "Test", "rollout_percentage": 50},
+                ]
+            }
+            filters["payloads"] = {"control": '{"secret": "control"}', "test": '{"secret": "test"}'}
         target_flag = FeatureFlag.objects.create(
-            team=target_team,
-            key="target-private-flag",
-            created_by=self.user,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ]
-                },
-                "payloads": {"control": '{"secret": "control"}', "test": '{"secret": "test"}'},
-            },
+            team=target_team, key="target-private-flag", created_by=self.user, filters=filters
         )
         AccessControl.objects.create(
             team=target_team, resource="feature_flag", resource_id=str(target_flag.id), access_level="none"
