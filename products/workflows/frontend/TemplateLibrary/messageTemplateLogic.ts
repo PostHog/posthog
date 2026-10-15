@@ -354,11 +354,6 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             () => [(_, props: MessageTemplateLogicProps) => props],
             (props: MessageTemplateLogicProps): MessageTemplateLogicProps => props,
         ],
-        // The saved state decides it: an unsaved template can't be transactional yet.
-        transactionalHogFlowId: [
-            (s) => [s.originalTemplate],
-            (originalTemplate: MessageTemplate): string | null => originalTemplate.transactional_hog_flow_id ?? null,
-        ],
     }),
     forms(({ actions }) => ({
         template: {
@@ -437,6 +432,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             },
         ],
     }),
+    selectors({
+        // The saved state decides it: an unsaved template can't be transactional yet.
+        transactionalHogFlowId: [
+            (s) => [s.originalTemplate],
+            (originalTemplate: MessageTemplate): string | null => originalTemplate.transactional_hog_flow_id ?? null,
+        ],
+    }),
     loaders(({ props }) => ({
         template: {
             loadTemplate: async () => {
@@ -508,10 +510,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     props.id,
                     {}
                 )
-                const hogFlowId = updated.transactional_hog_flow_id ?? null
-                actions.setOriginalTemplate({ ...values.originalTemplate, transactional_hog_flow_id: hogFlowId })
-                actions.setTemplateValue('transactional_hog_flow_id', hogFlowId)
-                actions.makeTransactionalDone(hogFlowId)
+                // A reload sets the form and the saved copy together, so the form doesn't read as edited.
+                actions.loadTemplate()
+                actions.makeTransactionalDone(updated.transactional_hog_flow_id ?? null)
                 lemonToast.success('Template is now transactional. You can send it over the API.')
             } catch (error: any) {
                 actions.makeTransactionalDone(null)
