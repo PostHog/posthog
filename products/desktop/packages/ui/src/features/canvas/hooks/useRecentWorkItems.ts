@@ -84,7 +84,11 @@ export function useRecentWorkItems({
   items: RecentWorkItem[];
   isLoading: boolean;
 } {
-  const { data: tasks = [], isLoading: tasksLoading } = useTasks({ sources });
+  // Nothing past the cap shows, so the page asks for no more than that.
+  const { data: tasks = [], isLoading: tasksLoading } = useTasks({
+    sources,
+    limit: RECENT_WORK_CAP,
+  });
   const { data: pinnedTasks = [], isLoading: pinnedLoading } =
     usePinnedTaskRecords();
   const { dashboards, isLoading: canvasesLoading } = useAllCanvases();
@@ -92,7 +96,7 @@ export function useRecentWorkItems({
     (state) => state.lastViewedAtByCanvasId,
   );
   const archivedTaskIds = useArchivedTaskIds();
-  const { pinnedTaskIds } = usePinnedTasks();
+  const { pinnedTaskIds, isLoading: pinIdsLoading } = usePinnedTasks();
   const sessionFacts = useChannelSessionFacts();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
@@ -124,6 +128,7 @@ export function useRecentWorkItems({
 
   return {
     items,
-    isLoading: tasksLoading || canvasesLoading || pinnedLoading,
+    isLoading:
+      tasksLoading || canvasesLoading || pinnedLoading || pinIdsLoading,
   };
 }

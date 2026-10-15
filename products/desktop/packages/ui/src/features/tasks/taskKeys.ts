@@ -5,6 +5,7 @@ interface TaskListFilters {
   internal?: boolean;
   pinned?: boolean;
   sources?: readonly string[];
+  limit?: number;
 }
 
 export const taskKeys = {

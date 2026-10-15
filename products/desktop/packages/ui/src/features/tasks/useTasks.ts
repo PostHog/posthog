@@ -25,6 +25,7 @@ export function useTasks(
     showAllUsers?: boolean;
     showInternal?: boolean;
     sources?: readonly string[];
+    limit?: number;
   },
   options?: { enabled?: boolean; subscribed?: boolean },
 ) {
@@ -41,6 +42,7 @@ export function useTasks(
       createdBy,
       internal,
       sources,
+      limit: filters?.limit,
     }),
     (client) =>
       client.getTasks({
@@ -48,6 +50,7 @@ export function useTasks(
         createdBy,
         internal,
         sources,
+        limit: filters?.limit,
         // The server cuts the list at a fixed length. By creation date, a session started last
         // week and still in use is already off the list when scheduled runs create many tasks.
         ordering: "-last_activity_at",
@@ -64,7 +67,9 @@ export function useTasks(
 }
 
 // A pin can be on any task the user can see, also one older than the recent list reaches. The
-// server cuts each page at 100 rows, so this reads every page to keep every pin.
+// server cuts each page at 100 rows, so this reads every page to keep every pin. It does not poll:
+// an active pinned task is also in the polled recent list, which wins the merge, and a pin change
+// refetches this list.
 export function usePinnedTaskRecords() {
   return useAuthenticatedQuery(
     taskKeys.list({ pinned: true }),
@@ -75,7 +80,6 @@ export function usePinnedTaskRecords() {
           { fetchAll: true },
         )
       ).tasks as unknown as Task[],
-    { refetchInterval: TASK_LIST_POLL_INTERVAL_MS },
   );
 }
 

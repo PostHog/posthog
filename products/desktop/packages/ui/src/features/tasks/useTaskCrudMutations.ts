@@ -1,3 +1,4 @@
+import { taskSources } from "@posthog/core/canvas/channelItems";
 import {
   SESSION_SERVICE,
   type SessionService,
@@ -50,13 +51,19 @@ export function useCreateTask() {
       // seeding a freshly created, non-slack task into it would make that task
       // briefly render as a Slack task until the list refetches. Origin-less
       // lists, by contrast, should mirror every new task. A new task is never
-      // pinned, so the pinned list is skipped too.
+      // pinned, so the pinned list is skipped too, and a source-filtered list
+      // takes it only when it shows the new task's source.
       queryClient.setQueriesData<Task[]>(
         {
           queryKey: taskKeys.lists(),
           predicate: (query) => {
             const filters = taskKeys.filtersOf(query.queryKey);
-            return !filters?.originProduct && !filters?.pinned;
+            if (filters?.originProduct || filters?.pinned) return false;
+            const { sources } = filters ?? {};
+            return (
+              !sources ||
+              taskSources([newTask]).some((source) => sources.includes(source))
+            );
           },
         },
         (old) => insertTaskDedup(old, newTask),
