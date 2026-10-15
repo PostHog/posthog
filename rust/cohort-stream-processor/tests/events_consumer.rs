@@ -683,6 +683,81 @@ async fn trickled_events_are_never_silently_dropped() {
     );
 }
 
+/// A durable-restore boot runs the eager pending-transfer redrive on the poll where the assignment
+/// settles. Every event of that poll's batch must still fold: one event per person makes a dropped
+/// event a missing member, and the backlog is several batches deep so the boot batch is never empty.
+#[tokio::test]
+#[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
+async fn durable_boot_redrive_keeps_every_event_of_the_boot_batch() {
+    const N: usize = 400;
+
+    let suffix = Uuid::new_v4();
+    let topic = format!("cohort_stream_events_boot_batch_{suffix}");
+    let group = format!("cohort-stream-processor-boot-batch-{suffix}");
+
+    create_topic(&topic).await;
+    let total = produce_events_trickle(&topic, N, Duration::ZERO).await;
+
+    let dir = TempDir::new().unwrap();
+    let store = CohortStore::open(&StoreConfig {
+        path: dir.path().join("db"),
+        ..StoreConfig::default()
+    })
+    .expect("open store");
+    let catalog = behavioral_catalog();
+    let lsk = behavioral_lsk(&catalog);
+
+    let verifier: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap_servers())
+        .set("group.id", &group)
+        .set("enable.auto.commit", "false")
+        .create()
+        .expect("create verifier consumer");
+
+    let mut manager = Manager::builder("boot-batch-itest")
+        .with_trap_signals(false)
+        .build();
+    let handle = manager.register(
+        "consumer",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+    );
+    let shutdown_handle = handle.clone();
+    let _monitor = manager.monitor_background();
+
+    let consumer = build_consumer_with_restore(
+        &topic,
+        &group,
+        store.clone(),
+        catalog,
+        handle,
+        Arc::new(CaptureSink::new()),
+        Duration::from_millis(250),
+        true,
+    );
+    let task = tokio::spawn(consumer.process());
+
+    let start = Instant::now();
+    while committed_sum(&verifier, &topic) != total as i64 {
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "timed out waiting for committed offsets to reach {total}; last sum {}",
+            committed_sum(&verifier, &topic),
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    shutdown_handle.request_shutdown();
+    task.await.expect("consumer task panicked");
+
+    assert_eq!(
+        entered_persons_range(&store, lsk, N),
+        N,
+        "every event of the boot batch must fold; a skipped batch leaves its persons out while the commit moves past them",
+    );
+
+    delete_topic(&topic).await;
+}
+
 /// Blocks its first flush until released, preventing the worker from marking its offset.
 struct BarrierSink {
     entered: Arc<tokio::sync::Notify>,
