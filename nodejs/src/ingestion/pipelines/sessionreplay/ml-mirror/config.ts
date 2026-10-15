@@ -52,7 +52,7 @@ export type MlMirrorConfig = {
 
     /**
      * Produce collected original images to the scrub topic. Enabling changes the mirrored JSONL
-     * shape: image fields carry `image:<teamId>:<hash>` refs instead of blurred data URIs, so
+     * shape: image fields carry `image:<teamId>:<hash>` refs instead of blank images, so
      * both the scrub consumer lane AND ref-aware downstream readers must be live first.
      */
     SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: boolean

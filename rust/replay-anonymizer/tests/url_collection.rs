@@ -6,7 +6,7 @@
 //! copy is still stashed alongside.
 
 use posthog_replay_anonymizer::{
-    anonymize_kafka_payload_collecting, AllowLists, AnonymizeOpts, ImagePolicy, UrlCollection,
+    anonymize_kafka_payload_collecting, AllowLists, AnonymizeOpts, UrlCollection,
 };
 use serde_json::{json, Value};
 
@@ -46,10 +46,7 @@ fn collect_urls_of(tag: &str, attrs: Value) -> Vec<String> {
         let msg = anonymize_kafka_payload_collecting(
             &allow,
             &mut bytes,
-            AnonymizeOpts {
-                byte_walk,
-                image_policy: ImagePolicy::Inline,
-            },
+            AnonymizeOpts { byte_walk },
             None,
             None,
             Some(UrlCollection {
@@ -159,10 +156,7 @@ fn picture_source_srcset_is_collected_when_its_parent_is_known() {
         let message = anonymize_kafka_payload_collecting(
             &AllowLists::default(),
             &mut bytes,
-            AnonymizeOpts {
-                byte_walk,
-                image_policy: ImagePolicy::Inline,
-            },
+            AnonymizeOpts { byte_walk },
             None,
             None,
             Some(UrlCollection {
@@ -218,10 +212,7 @@ fn run(attrs: Value, collect: bool) -> Vec<(String, Value)> {
         let msg = anonymize_kafka_payload_collecting(
             &allow,
             &mut bytes,
-            AnonymizeOpts {
-                byte_walk,
-                image_policy: ImagePolicy::Inline,
-            },
+            AnonymizeOpts { byte_walk },
             None,
             None,
             collection,
@@ -397,10 +388,7 @@ fn an_escaped_or_repeated_dimension_key_still_declines_a_hidden_pixel() {
             let message = anonymize_kafka_payload_collecting(
                 &AllowLists::default(),
                 &mut bytes,
-                AnonymizeOpts {
-                    byte_walk,
-                    image_policy: ImagePolicy::Inline,
-                },
+                AnonymizeOpts { byte_walk },
                 None,
                 None,
                 Some(UrlCollection {
@@ -661,10 +649,7 @@ fn monthly_refs_survive_compressed_snapshot_fields() {
         let output = anonymize_kafka_payload_collecting(
             &AllowLists::default(),
             &mut payload,
-            AnonymizeOpts {
-                byte_walk,
-                image_policy: ImagePolicy::Inline,
-            },
+            AnonymizeOpts { byte_walk },
             None,
             Some(ImageCollection::new(
                 namespace.to_string(),

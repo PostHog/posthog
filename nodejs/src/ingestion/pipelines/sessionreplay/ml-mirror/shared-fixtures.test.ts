@@ -450,7 +450,7 @@ describeAddon('native image collection', () => {
                     16
                 ),
         ],
-    ])('collects nothing %s and blurs inline instead', async (_case, anonymize) => {
+    ])('collects nothing %s and blanks the image instead', async (_case, anonymize) => {
         rustAddon!.initAnonymizer({ text: [], url: [] })
         const result = await anonymize()
         expect(result.failed).toBe(false)

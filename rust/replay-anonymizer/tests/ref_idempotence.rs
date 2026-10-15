@@ -13,7 +13,6 @@
 
 use posthog_replay_anonymizer::{
     anonymize_kafka_payload_opts, anonymize_line_with_ctx, AllowLists, AnonymizeOpts, Ctx,
-    ImagePolicy,
 };
 use serde_json::{json, Value};
 
@@ -92,10 +91,7 @@ fn scrub_ingestion(line: &Value, byte_walk: bool) -> String {
     let out = anonymize_kafka_payload_opts(
         &AllowLists::default(),
         &mut bytes,
-        AnonymizeOpts {
-            byte_walk,
-            image_policy: ImagePolicy::Parallel,
-        },
+        AnonymizeOpts { byte_walk },
         None,
     )
     .expect("anonymize should succeed");

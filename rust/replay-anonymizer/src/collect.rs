@@ -1,12 +1,12 @@
 //! Collect original image bytes for the out-of-band scrub lane.
 //!
 //! With collection enabled (an [`ImageCollection`] on the anonymize call), each inlined image is
-//! replaced by a stable content reference, `image:<teamId>:<hash>`, instead of the native
-//! blur, and the original bytes ride back to the caller on the message. The caller produces them
-//! to the `session_replay_image_scrub` Kafka topic keyed by the ref; the scrub consumer trusts the
-//! ref (this producer is the only writer), blurs the bytes out of process, and writes them to the
-//! ML bucket indexed by `(team_id, hash)`, so the ref embedded in the mirrored lines is the
-//! join key.
+//! replaced by a stable content reference, `image:<teamId>:<hash>`, and the original bytes ride
+//! back to the caller on the message. An image the lane cannot take is blanked instead. The caller
+//! produces them to the `session_replay_image_scrub` Kafka topic keyed by the ref; the scrub
+//! consumer trusts the ref (this producer is the only writer), scrubs the bytes out of process, and
+//! writes them to the ML bucket indexed by `(team_id, hash)`, so the ref embedded in the mirrored
+//! lines is the join key.
 //!
 //! The hash is a *keyed* HMAC, not a plain digest: the ML bucket is unencrypted, and a plain
 //! content hash would let any bucket reader confirm whether specific known bytes appeared in a
@@ -118,21 +118,23 @@ fn is_ref_hash(hash: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-/// Default per-image cap. Bigger images stay on the inline blur path.
+/// Default per-image cap. A bigger image is blanked.
 pub const MAX_IMAGE_BYTES: usize = 900 * 1024;
-/// Per-message caps bound what one payload can pin in memory and fan out onto the scrub topic;
-/// images past them stay on the inline blur path. The count cap is sized so the byte cap is the
-/// binding constraint for realistic payloads (only sub-64 KB average images can hit it first, and
-/// pages with hundreds of tiny icons dedup heavily) — an image-heavy but ordinary snapshot should
-/// never fall back on count alone.
-///
-/// Memory sizing: collection peaks at ~2x the byte cap in Rust per in-flight message (collector
-/// vec + packed FFI buffer), and the mirror anonymizes up to its configured concurrency of
-/// messages at once. Once produced, only the producer's bounded queue retains copies (the ack
-/// closures deliberately capture refs, not bytes), so the cap never compounds into producer-side
-/// backlog.
-pub const MAX_IMAGES_PER_MESSAGE: usize = 512;
-pub const MAX_TOTAL_BYTES_PER_MESSAGE: usize = 32 * 1024 * 1024;
+/// Per-message caps bound what one payload can pin in memory and fan out onto the scrub topic.
+/// Capture refuses messages over 64 MB, so the byte cap only binds on a payload that cv nesting
+/// expanded past that. Collection peaks at about twice the byte cap per in-flight message
+/// (collector vec plus the packed FFI buffer).
+pub const MAX_IMAGES_PER_MESSAGE: usize = 4096;
+pub const MAX_TOTAL_BYTES_PER_MESSAGE: usize = 64 * 1024 * 1024;
+
+/// Why an image did not reach the scrub lane. Each one is blanked and counted under this reason.
+pub(crate) const DROP_COLLECTION_OFF: &str = "image_collection_off";
+pub(crate) const DROP_NOT_RASTER: &str = "image_not_base64_raster";
+pub(crate) const DROP_SVG: &str = "image_svg";
+pub(crate) const DROP_BMP: &str = "image_bmp";
+pub(crate) const DROP_AVIF: &str = "image_avif";
+pub(crate) const DROP_TOO_LARGE: &str = "image_too_large";
+pub(crate) const DROP_MESSAGE_CAP: &str = "image_message_cap";
 
 /// Enables collection for one anonymize call.
 #[derive(Debug, Clone)]
@@ -200,20 +202,18 @@ impl ImageCollector {
         removed
     }
 
-    /// Collect decoded image bytes and return their ref, or `None` when a cap says this image must
-    /// stay on the inline blur path.
-    pub fn collect(&mut self, bytes: Vec<u8>) -> Option<String> {
+    pub fn collect(&mut self, bytes: Vec<u8>) -> Result<String, &'static str> {
         if bytes.len() > self.max_image_bytes {
-            return None;
+            return Err(DROP_TOO_LARGE);
         }
         let hash = hash_image_bytes(self.content_key.as_bytes(), &bytes);
         if self.seen.contains(&hash) {
-            return Some(image_ref(&self.team_id, &hash));
+            return Ok(image_ref(&self.team_id, &hash));
         }
         if self.images.len() >= MAX_IMAGES_PER_MESSAGE
             || self.total_bytes + bytes.len() > MAX_TOTAL_BYTES_PER_MESSAGE
         {
-            return None;
+            return Err(DROP_MESSAGE_CAP);
         }
         self.total_bytes += bytes.len();
         self.seen.insert(hash.clone());
@@ -221,7 +221,7 @@ impl ImageCollector {
             hash: hash.clone(),
             bytes,
         });
-        Some(image_ref(&self.team_id, &hash))
+        Ok(image_ref(&self.team_id, &hash))
     }
 
     /// Drain, sorted by hash — a deterministic order that cannot depend on which scrub engine
@@ -235,8 +235,7 @@ impl ImageCollector {
 /// Raster subtypes preserved on a collected canvas blob's `type` field — downstream replay
 /// reassembly uses it as the format hint for the image behind the ref. Anything else (unknown
 /// subtypes, parameters — where client-controlled text could ride through unscrubbed) normalizes
-/// to `image/png`. Exact matches only: the old blur path re-encoded and overwrote this field, so
-/// no client string ever survived; the ref path must not weaken that.
+/// to `image/png`. Exact matches only, so no client string survives in this field.
 const COLLECTED_MIME_ALLOWLIST: &[&str] = &["image/png", "image/jpeg", "image/gif", "image/webp"];
 
 pub fn normalize_collected_mime(mime: &str) -> &'static str {
@@ -248,38 +247,53 @@ pub fn normalize_collected_mime(mime: &str) -> &'static str {
         .unwrap_or("image/png")
 }
 
-/// Decode the collectable payload of an image data URI. `None` (not collectable) for anything but
-/// a base64 raster image: SVG is a text format whose PII must stay on the inline scrub path, and
-/// non-base64 payloads mirror `blur_image_data_uri`'s refusal. MIME types are case-insensitive,
-/// so the checks run on a lowercased meta — `image/SVG+xml` must not dodge the SVG exclusion.
-pub fn collectable_data_uri_bytes(uri: &str, max_image_bytes: usize) -> Option<Vec<u8>> {
-    let rest = uri.strip_prefix("data:")?;
-    let (meta, payload) = rest.split_once(',')?;
+/// Decode the collectable payload of an image data URI, or name why it is not one: only a base64
+/// raster image the scrub can decode qualifies. MIME types are case-insensitive, so the checks run
+/// on a lowercased meta — `image/SVG+xml` must not dodge the SVG exclusion.
+pub fn collectable_data_uri_bytes(
+    uri: &str,
+    max_image_bytes: usize,
+) -> Result<Vec<u8>, &'static str> {
+    let (meta, payload) = uri
+        .strip_prefix("data:")
+        .and_then(|rest| rest.split_once(','))
+        .ok_or(DROP_NOT_RASTER)?;
     let meta = meta.to_ascii_lowercase();
     if !meta.starts_with("image/") || !meta.contains("base64") {
-        return None;
+        return Err(if meta.starts_with("image/svg") {
+            DROP_SVG
+        } else {
+            DROP_NOT_RASTER
+        });
     }
     let mime_type = meta
         .split_once(';')
         .map_or(meta.as_str(), |(mime_type, _)| mime_type);
-    if mime_type.starts_with("image/svg") || mime_type.contains("bmp") || mime_type.contains("avif")
-    {
-        return None;
+    if mime_type.starts_with("image/svg") {
+        return Err(DROP_SVG);
+    }
+    if mime_type.contains("bmp") {
+        return Err(DROP_BMP);
+    }
+    if mime_type.contains("avif") {
+        return Err(DROP_AVIF);
     }
     // An encoded payload that can't decode under the per-image cap would be decoded here only to
-    // be rejected by `collect` (and then decoded again by the blur fallback) — bail on the
-    // encoded length instead.
+    // be rejected by `collect` — bail on the encoded length instead.
     if payload.len() > max_image_bytes.div_ceil(3) * 4 {
-        return None;
+        return Err(DROP_TOO_LARGE);
     }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(payload.as_bytes())
-        .ok()?;
-    // An ISO-BMFF container (AVIF, HEIC) under any label: the scrub refuses it, so a ref would dangle.
-    if bytes.starts_with(b"BM") || bytes.get(4..8) == Some(b"ftyp") {
-        return None;
+        .map_err(|_| DROP_NOT_RASTER)?;
+    if bytes.starts_with(b"BM") {
+        return Err(DROP_BMP);
     }
-    Some(bytes)
+    // An ISO-BMFF container (AVIF, HEIC) under any label: the scrub refuses it, so a ref would dangle.
+    if bytes.get(4..8) == Some(b"ftyp") {
+        return Err(DROP_AVIF);
+    }
+    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -287,7 +301,7 @@ mod tests {
     use super::*;
 
     fn collectable(uri: &str) -> Option<Vec<u8>> {
-        collectable_data_uri_bytes(uri, MAX_IMAGE_BYTES)
+        collectable_data_uri_bytes(uri, MAX_IMAGE_BYTES).ok()
     }
 
     const TEST_KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
@@ -348,7 +362,10 @@ mod tests {
     #[test]
     fn collect_rejects_oversized_image() {
         let mut c = collector();
-        assert!(c.collect(vec![0u8; MAX_IMAGE_BYTES + 1]).is_none());
+        assert_eq!(
+            c.collect(vec![0u8; MAX_IMAGE_BYTES + 1]),
+            Err(DROP_TOO_LARGE)
+        );
         assert!(c.into_images().is_empty());
     }
 
@@ -356,19 +373,19 @@ mod tests {
     fn collect_stops_at_the_per_message_count_cap_but_still_refs_seen_images() {
         let mut c = collector();
         for i in 0..MAX_IMAGES_PER_MESSAGE {
-            assert!(c.collect(i.to_le_bytes().to_vec()).is_some());
+            assert!(c.collect(i.to_le_bytes().to_vec()).is_ok());
         }
-        assert!(c.collect(b"one too many".to_vec()).is_none());
+        assert_eq!(c.collect(b"one too many".to_vec()), Err(DROP_MESSAGE_CAP));
         // A repeat of an already-collected image still resolves to its ref.
-        assert!(c.collect(0usize.to_le_bytes().to_vec()).is_some());
+        assert!(c.collect(0usize.to_le_bytes().to_vec()).is_ok());
         assert_eq!(c.into_images().len(), MAX_IMAGES_PER_MESSAGE);
     }
 
     #[test]
     fn into_images_sorts_by_hash() {
         let mut c = collector();
-        c.collect(b"bbb".to_vec());
-        c.collect(b"aaa".to_vec());
+        c.collect(b"bbb".to_vec()).unwrap();
+        c.collect(b"aaa".to_vec()).unwrap();
         let images = c.into_images();
         assert!(images[0].hash < images[1].hash);
     }

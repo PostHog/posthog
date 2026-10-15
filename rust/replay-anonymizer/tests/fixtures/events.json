@@ -410,7 +410,7 @@
           { "property": "clearRect", "args": [0, 0, 8, 8] },
           {
             "property": "drawImage",
-            "args": [{ "rr_type": "ImageBitmap", "args": [{ "rr_type": "Blob", "type": "image/png", "data": [{ "rr_type": "ArrayBuffer", "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" }] }] }, 0, 0]
+            "args": [{ "rr_type": "ImageBitmap", "args": [{ "rr_type": "Blob", "type": "image/png", "data": [{ "rr_type": "ArrayBuffer", "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNgAAIAAAUAAen63NgAAAAASUVORK5CYII=" }] }] }, 0, 0]
           }
         ]
       }

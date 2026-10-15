@@ -130,7 +130,7 @@ export class MlMirrorMetrics {
 
     private static readonly mlImageTeamIdInvalid = new Counter({
         name: 'recording_blob_ingestion_v2_ml_image_team_id_invalid',
-        help: 'Messages whose team ID failed the consumer ref-shape check; collection disabled for them (inline blur instead)',
+        help: 'Messages whose team ID failed the consumer ref-shape check; collection disabled for them, so their images are blanked',
     })
 
     private static readonly mlUrlBytes = new Histogram({

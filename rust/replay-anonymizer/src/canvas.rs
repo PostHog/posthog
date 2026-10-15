@@ -7,10 +7,10 @@
 
 use simd_json::borrowed::{Object, Value};
 
-use crate::blur::{split_data_uri, BLANK_PNG_BASE64};
 use crate::collect::{is_image_ref, is_image_ref_strict, normalize_collected_mime};
 use crate::context::Ctx;
-use crate::images::ImageFallback;
+use crate::data_uri::ImageFallback;
+use crate::data_uri::{split_data_uri, BLANK_PNG_BASE64};
 use crate::json::{
     as_array, as_array_mut, as_f64, as_object, as_object_mut, as_str, as_u32, key, string_value,
 };
@@ -218,7 +218,7 @@ fn scrub_frame_blob(ctx: &Ctx<'_>, blob: &mut Object<'_>) -> bool {
     // A content ref left by an earlier pass. Reassembling it into `data:{mime};base64,image:...`
     // yields a URI that cannot decode, which `scrub_image` fails safe to a blank pixel — destroying
     // the join key and stranding the image. Left alone only on an explicitly trusted re-scrub, and
-    // only when fully well-formed: see `assets::apply_blur`.
+    // only when fully well-formed: see `assets::scrub_media_sources`.
     if ctx.keeps_image_refs() && is_image_ref_strict(&base64) {
         return false;
     }
