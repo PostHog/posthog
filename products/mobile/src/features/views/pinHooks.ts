@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { type QueryClient, type QueryKey, useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ViewToken } from 'react-native'
 import { useShallow } from 'zustand/react/shallow'
@@ -14,7 +14,6 @@ import {
 } from '@/api/shortcuts'
 import { useDemoViews } from '@/demo/views'
 import { toError } from '@/lib/errors'
-import { useAsyncAction } from '@/lib/useAsyncAction'
 import { mergeRecent, pinsFromShortcuts, shortcutMatchKey } from '@/model/adapters/viewPins'
 import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
 import type { QueryState } from '@/model/types'
@@ -47,7 +46,7 @@ import { type PinTarget, pinTargetKey, shortcutInputFor } from './shortcutInput'
 import { type RefreshList, useViewRefresh, type ViewRefresh } from './useViewRefresh'
 import { reportScopeError } from './useViewsAccess'
 import { useViewsContext } from './useViewsContext'
-import { type ItemErrorKind, useItemError, useItemUpdating, useSnapshot, viewsKeys } from './viewsCache'
+import { freshnessKey, type ItemErrorKind, useItemError, useItemUpdating, useSnapshot, viewsKeys } from './viewsCache'
 
 type ShortcutPage = PaginatedApi<FileSystemShortcutApi>
 
@@ -169,46 +168,47 @@ function withRows(page: ShortcutPage | undefined, rows: FileSystemShortcutApi[])
     return { count: rows.length, next: page?.next ?? null, results: rows }
 }
 
-export function usePinActions(): PinActions {
-    const context = useViewsContext()
-    const demo = context.mode === 'demo'
-    const { client, scope } = context.item
-    const { pins } = usePins()
-    const pinnedKeys = usePinnedKeys()
-    const listKey = viewsKeys.shortcuts(scope)
-    const prefsKey = scope ? projectKey(scope) : null
+/** The pin list a pin or unpin changes: the project's cached shortcut page, or the demo store. */
+export interface PinWriteTarget {
+    client: QueryClient
+    listKey: QueryKey
+    demo: boolean
+}
 
-    const setDisplay = useCallback(
-        (shortcutId: string, display: PinDisplay) => {
-            if (demo) {
-                useDemoViews.getState().setDisplay(shortcutId, display)
-            } else if (prefsKey) {
-                usePinPrefs.getState().setDisplay(prefsKey, shortcutId, display)
-            }
-        },
-        [demo, prefsKey]
-    )
-    const setOrder = useCallback(
-        (ids: readonly string[]) => {
-            if (demo) {
-                useDemoViews.getState().setOrder(ids)
-            } else if (prefsKey) {
-                usePinPrefs.getState().setOrder(prefsKey, ids)
-            }
-        },
-        [demo, prefsKey]
-    )
+// Pin and unpin of one view run one after another, from every screen, so a second tap waits for the first instead of
+// being dropped. An unpin that waits for a pin then finds the row the pin created and deletes it.
+const pinWrites = new Map<string, Promise<void>>()
 
-    const pinAction = useAsyncAction(async (target: PinTarget, from: PinSource) => {
+function queuePinWrite(list: PinWriteTarget, matchKey: string, run: () => Promise<void>): Promise<void> {
+    const key = `${list.demo ? 'demo' : freshnessKey(list.listKey)}|${matchKey}`
+    const next = (pinWrites.get(key) ?? Promise.resolve()).then(run)
+    const settled = next.catch(() => undefined)
+    pinWrites.set(key, settled)
+    void settled.then(() => {
+        if (pinWrites.get(key) === settled) {
+            pinWrites.delete(key)
+        }
+    })
+    return next
+}
+
+/**
+ * Pins a view: shows it at once and rolls back on failure. Resolves once the pin is saved, or at once when the view is
+ * already pinned. Rejects with user-facing copy for a toast.
+ */
+export function pinView(list: PinWriteTarget, target: PinTarget, from: PinSource): Promise<void> {
+    const key = pinTargetKey(target)
+    return queuePinWrite(list, key, async () => {
         const input = shortcutInputFor(target)
-        const key = pinTargetKey(target)
-        if (demo) {
-            if (!pinnedKeys.has(key)) {
+        if (list.demo) {
+            const shortcuts = useDemoViews.getState().shortcuts
+            if (!shortcuts.some((row) => shortcutMatchKey(row.type, row.ref) === key)) {
                 useDemoViews.getState().addShortcut(input)
                 trackViewPinned({ viewType: target.kind, from })
             }
             return
         }
+        const { client, listKey } = list
         // A pin list a minute old may miss a star made on the web since, which would make a second row.
         const state = client.getQueryState<ShortcutPage>(listKey)
         const page =
@@ -250,13 +250,17 @@ export function usePinActions(): PinActions {
             throw new Error("Couldn't pin this view. Try again.")
         }
     })
+}
 
-    const unpinAction = useAsyncAction(async (view: PinView | PinTarget, from: PinSource) => {
-        const key = 'shortcutId' in view ? shortcutMatchKey(view.type, view.ref) : pinTargetKey(view)
+/** Deletes every row that matches the view, in every environment. Rejects with user-facing copy for a toast. */
+export function unpinView(list: PinWriteTarget, view: PinView | PinTarget, from: PinSource): Promise<void> {
+    const key = 'shortcutId' in view ? shortcutMatchKey(view.type, view.ref) : pinTargetKey(view)
+    return queuePinWrite(list, key, async () => {
         const viewType = view.kind
-        const rows = demo ? useDemoViews.getState().shortcuts : rowsFor(client.getQueryData<ShortcutPage>(listKey))
+        const { client, listKey } = list
+        const rows = list.demo ? useDemoViews.getState().shortcuts : rowsFor(client.getQueryData<ShortcutPage>(listKey))
         const ids = rows.filter((row) => shortcutMatchKey(row.type, row.ref) === key).map((row) => row.id)
-        if (demo) {
+        if (list.demo) {
             useDemoViews.getState().removeShortcuts(ids)
             trackViewUnpinned({ viewType, from, rowsDeleted: ids.length })
             return
@@ -277,12 +281,60 @@ export function usePinActions(): PinActions {
             throw new Error("Couldn't unpin this view. Try again.")
         }
     })
+}
+
+export function usePinActions(): PinActions {
+    const context = useViewsContext()
+    const demo = context.mode === 'demo'
+    const { client, scope } = context.item
+    const { pins } = usePins()
+    const pinnedKeys = usePinnedKeys()
+    const listKey = viewsKeys.shortcuts(scope)
+    const prefsKey = scope ? projectKey(scope) : null
+
+    const setDisplay = useCallback(
+        (shortcutId: string, display: PinDisplay) => {
+            if (demo) {
+                useDemoViews.getState().setDisplay(shortcutId, display)
+            } else if (prefsKey) {
+                usePinPrefs.getState().setDisplay(prefsKey, shortcutId, display)
+            }
+        },
+        [demo, prefsKey]
+    )
+    const setOrder = useCallback(
+        (ids: readonly string[]) => {
+            if (demo) {
+                useDemoViews.getState().setOrder(ids)
+            } else if (prefsKey) {
+                usePinPrefs.getState().setOrder(prefsKey, ids)
+            }
+        },
+        [demo, prefsKey]
+    )
+
+    const [writing, setWriting] = useState(0)
+    const write = useCallback(
+        (run: (target: PinWriteTarget) => Promise<void>): Promise<void> => {
+            setWriting((count) => count + 1)
+            return run({ client, listKey, demo }).finally(() => setWriting((count) => count - 1))
+        },
+        [client, listKey, demo]
+    )
+    const pin = useCallback(
+        (target: PinTarget, from: PinSource) => write((list) => pinView(list, target, from)),
+        [write]
+    )
+    const unpin = useCallback(
+        (view: PinView | PinTarget, from: PinSource) => write((list) => unpinView(list, view, from)),
+        [write]
+    )
 
     const ordered = pins.data
     return {
         isPinned: (target) => pinnedKeys.has(pinTargetKey(target)),
-        pin: pinAction.run,
-        unpin: unpinAction.run,
+        pin,
+        unpin,
         setDisplayMode: (pin, mode) => {
             if (mode === pin.display.mode) {
                 return 'done'
@@ -322,7 +374,7 @@ export function usePinActions(): PinActions {
             setOrder(shortcutIds)
             trackPinsReordered({ pinCount: shortcutIds.length, method: 'drag' })
         },
-        pending: pinAction.pending || unpinAction.pending,
+        pending: writing > 0,
     }
 }
 

@@ -102,6 +102,7 @@ A pin whose tile is gone (its insight answers 404, or the cached dashboard no lo
 Order and modes go to the device-local prefs through `usePinActions` (`move`, `reorder`, `setDisplayMode`, `chooseTile`). The app never writes the server's `order`.
 Pin and unpin show a toast with Undo, from the list, Browse and a view's pin button alike (`ViewsToast` and `useToasts`). The toast draws through the nearest `OverlayHost`, so it sits above the tab bar and any open sheet.
 Undo pins the view again as a new row, so it comes back as a Row at the end of the list.
+Pin and unpin of one view run one after another from every screen (`pinView`, `unpinView`): a second tap waits for the first instead of being dropped, the toast shows once the change is saved, and an unpin made while a pin saves deletes the row that pin created.
 
 ### Search and Browse
 
