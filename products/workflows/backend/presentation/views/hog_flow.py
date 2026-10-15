@@ -127,6 +127,7 @@ from products.tasks.backend.facade.workflow_tasks import (
     MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH,
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskSkillsInvalid,
+    repositories_no_team_installation_reaches,
     resolve_connectors,
     validate_skill_names,
 )
@@ -303,7 +304,6 @@ from products.workflows.backend.presentation.views.hog_flow_fields import (
     HogFlowActionTypeField,
     HogFlowMaskingSerializer,
     HogFlowVariableSerializer,
-    is_templated,
 )
 from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetContentRequestSerializer,
@@ -1359,6 +1359,35 @@ class HogFlowActionSerializer(serializers.Serializer):
                 }
             )
 
+    def _validate_templated_repository(self, repository: dict) -> None:
+        """The trigger event renders the template, so the allowlist is what keeps the event from
+        choosing any repository the project's GitHub installations reach."""
+        allowed = repository.get("allowed") or []
+        if not str(repository.get("template") or "").strip():
+            raise serializers.ValidationError({"inputs": {"repository": "Enter a repository template."}})
+        if not allowed:
+            raise serializers.ValidationError(
+                {"inputs": {"repository": "List the repositories the template may name."}}
+            )
+        malformed = [name for name in allowed if not REPOSITORY_NAME.fullmatch(name)]
+        if malformed:
+            raise serializers.ValidationError(
+                {"inputs": {"repository": f"{REPOSITORY_NAME_ERROR} Not valid: {', '.join(malformed)}."}}
+            )
+        get_team = self.context.get("get_team")
+        unreached = repositories_no_team_installation_reaches(get_team().id, allowed) if get_team else []
+        if unreached:
+            raise serializers.ValidationError(
+                {
+                    "inputs": {
+                        "repository": (
+                            "No GitHub installation in this project reaches these repositories: "
+                            f"{', '.join(unreached)}."
+                        )
+                    }
+                }
+            )
+
     def _validate_create_task_action(self, inputs: dict) -> None:
         """Save-time checks for the "Create AI task" step beyond input shape: whether the
         chosen connectors, model and repository are actually usable, and the parallel-run
@@ -1393,8 +1422,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError({"inputs": {"skills": str(e)}})
 
         repository = (inputs.get("repository") or {}).get("value")
-        # A templated repository is only known once it renders, so the task API checks it at run time.
-        if repository and not is_templated(repository) and not REPOSITORY_NAME.fullmatch(repository):
+        if isinstance(repository, dict):
+            self._validate_templated_repository(repository)
+        elif repository and not REPOSITORY_NAME.fullmatch(repository):
             raise serializers.ValidationError({"inputs": {"repository": REPOSITORY_NAME_ERROR}})
 
         model_value = (inputs.get("model") or {}).get("value") or {}

@@ -5,6 +5,7 @@ and starts the task through this boundary.
 """
 
 from products.tasks.backend.facade.contracts import WorkflowTaskRateLimits, WorkflowTaskSlackContext
+from products.tasks.backend.github_repository_access import repositories_no_team_installation_reaches
 from products.tasks.backend.logic.services.workflow_task_output import (
     MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH,
     OUTPUT_FIELD_TYPES,
@@ -53,6 +54,7 @@ __all__ = [
     "WorkflowTaskUsageLimited",
     "build_output_schema",
     "create_workflow_task",
+    "repositories_no_team_installation_reaches",
     "resolve_connectors",
     "validate_skill_names",
 ]
