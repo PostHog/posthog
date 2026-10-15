@@ -641,9 +641,11 @@ def _render_live_body(
     team_id: int, report: ReviewReport, review_mode: str, review_design: str, *, run_index: int, failed: bool
 ) -> str:
     state = _turn_state(team_id, report, run_index)
+    # A run that dies in the publish window renders its finished turn, which is not a live turn.
+    live_marker = state.marker if run_index > report.run_count else None
     return render_in_progress_body(
         str(report.id),
-        progress_payload(team_id, report, state.snapshot, state.turn, state.pairs),
+        progress_payload(team_id, report, state.snapshot, state.turn, state.pairs, live_marker),
         review_mode=review_mode,
         review_design=state.review_design(review_design),
         head_sha=report.head_sha,

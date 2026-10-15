@@ -106,6 +106,7 @@ def _turn_progress(
     in_progress_ids: set[str],
     resolutions: dict[str, ResolutionRunState],
     bundle: TurnFindingsBundle,
+    markers: dict[tuple[str, int], TurnMarker],
 ) -> dict[str, ReviewProgress]:
     """The in-flight review turn's stage for each visibly running report.
 
@@ -128,8 +129,9 @@ def _turn_progress(
                 report,
                 live_snapshots.get(str(report.id), SnapshotStats()),
                 live_turns.get(str(report.id), TurnStats()),
-                # The in-flight turn's findings live one run_index ahead of the completed watermark.
+                # The in-flight turn's findings and marker live one run_index ahead of the completed watermark.
                 bundle.turn(str(report.id), report.run_count + 1),
+                markers.get((str(report.id), report.run_count + 1)),
             )
         )
         for report in in_flight
@@ -260,8 +262,8 @@ def _summaries(team_id: int, reports: list[ReviewReport], in_progress_ids: set[s
     report_ids = [str(report.id) for report in reports]
     bundle = load_findings_bundle(team_id=team_id, report_ids=report_ids)
     resolution_map = resolution_states(team_id, reports)
-    progress_map = _turn_progress(team_id, reports, in_progress_ids, resolution_map, bundle)
     markers = turn_markers(team_id, report_ids)
+    progress_map = _turn_progress(team_id, reports, in_progress_ids, resolution_map, bundle, markers)
     latest_resolutions = latest_resolution_summaries(team_id, reports)
     items = []
     for report in reports:
@@ -436,7 +438,8 @@ class ReviewListing:
 
         team_id = self.team_id
         key = str(report.id)
-        marker = turn_markers(team_id, [key]).get((key, run_index))
+        markers = turn_markers(team_id, [key])
+        marker = markers.get((key, run_index))
         # Everything the detail returns (stats, chunk set, link-anchoring head) describes the same
         # completed turn the findings come from, never an in-flight turn's watermark.
         if is_latest:
@@ -450,7 +453,7 @@ class ReviewListing:
         chunk_set = load_chunk_set(team_id=team_id, report_id=key, head_sha=turn_head) if turn_head else None
         resolutions = resolution_states(team_id, [report])
         in_progress_ids = in_progress_report_ids(team_id, [report])
-        progress = _turn_progress(team_id, [report], in_progress_ids, resolutions, bundle).get(key)
+        progress = _turn_progress(team_id, [report], in_progress_ids, resolutions, bundle, markers).get(key)
 
         valid = [_finding(f, v) for f, v in pairs if v is not None and v.is_valid]
         dismissed = [_finding(f, v) for f, v in pairs if v is not None and not v.is_valid]
