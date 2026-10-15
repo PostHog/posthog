@@ -7,8 +7,9 @@ import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
 import { Survey, SurveyType } from '~/types'
 
+import { SurveyApiSnippet } from 'products/surveys/frontend/components/SurveyApiSnippet'
+
 import { NewSurvey } from './constants'
-import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { getNextPreviewPageIndex } from './surveyPreviewNavigation'
 import { clampPreviewPageIndex, getFirstPreviewPageIndex, getIntroScreenPageOptions } from './utils'
@@ -74,8 +75,8 @@ export function SurveyFormAppearance({
         </div>
     ) : (
         <div className="flex flex-col">
-            <h4 className="text-center">API survey response</h4>
-            <SurveyAPIEditor survey={survey} />
+            <h4 className="text-center">Add this code to your app</h4>
+            <SurveyApiSnippet survey={survey} />
         </div>
     )
 }
