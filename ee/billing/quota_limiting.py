@@ -8,7 +8,7 @@ from time import time
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
-from django.db import close_old_connections, connection, transaction
+from django.db import close_old_connections, transaction
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
 
@@ -1392,6 +1392,7 @@ def update_all_orgs_billing_quotas(
     teams_iterator = iter_billable_teams(
         team_fields=("id", "api_token"),
         organization_fields=("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id"),
+        buffer_teams=True,
     )
     total_orgs = (
         Team.objects.filter(is_demo=False, organization__for_internal_metrics=False)
@@ -1437,8 +1438,7 @@ def update_all_orgs_billing_quotas(
     # The shared iterator keeps an organization's teams contiguous, including across read pages.
     organization_teams = (list(group) for _, group in groupby(teams_iterator, key=lambda team: team.organization_id))
     for team_groups in batched(organization_teams, QUOTA_ORGANIZATION_BATCH_SIZE, strict=False):
-        # A server-side cursor needs its connection until the iterator finishes.
-        if not settings.TEST and connection.settings_dict.get("DISABLE_SERVER_SIDE_CURSORS"):
+        if not settings.TEST:
             close_old_connections()
         teams = [team for group in team_groups for team in group]
         reports = _aggregate_quota_usage(teams, all_data)
