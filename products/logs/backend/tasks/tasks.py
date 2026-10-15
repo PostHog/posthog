@@ -8,6 +8,7 @@ retention window. That's slow-moving data, daily cadence is fine.
 
 from celery import shared_task
 
+from posthog.models.scoping import with_team_scope
 from posthog.tasks.utils import CeleryQueue
 
 
@@ -28,6 +29,7 @@ def logs_alert_events_cleanup_task() -> None:
     time_limit=90,
     name="products.logs.backend.tasks.follow_logs_alert_task",
 )
+@with_team_scope()
 def follow_logs_alert_task(team_id: int, alert_id: str) -> None:
     """Copies a logs alert that was just created or turned back on onto the platform.
 
