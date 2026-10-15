@@ -3,12 +3,15 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import type { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
+import { useActions } from 'kea'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
+
+import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
 
 import { ERROR_TRACKING_SIGNAL_SOURCE_TYPES } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
@@ -37,6 +40,7 @@ interface PanelState {
     hasAnalyticsEvents: boolean
     eventDefinitionsUnavailable: boolean
     sourceConfigsUnavailable: boolean
+    externalConnections: boolean
 }
 
 function sourceConfig(
@@ -58,6 +62,19 @@ function sourceConfig(
 
 function sourceConfigsFor(state: PanelState): SignalSourceConfig[] {
     return [
+        ...(state.externalConnections
+            ? [
+                  sourceConfig(SignalSourceProduct.Github, SignalSourceType.Issue, true),
+                  {
+                      ...sourceConfig(SignalSourceProduct.Jira, SignalSourceType.Issue, false),
+                      config: { steering: 'Prioritize issues affecting sign-in and checkout.' },
+                  },
+                  {
+                      ...sourceConfig(SignalSourceProduct.Sentry, SignalSourceType.Issue, true),
+                      status: 'failed' as SignalSourceConfig['status'],
+                  },
+              ]
+            : []),
         ...ERROR_TRACKING_SIGNAL_SOURCE_TYPES.map((sourceType) =>
             sourceConfig(SignalSourceProduct.ErrorTracking, sourceType, state.errorTrackingArmed)
         ),
@@ -171,6 +188,38 @@ function eventDefinitionsFor(state: PanelState): { name: string; last_seen_at: s
 function PanelHarness(state: PanelState): JSX.Element {
     useStorybookMocks({
         get: {
+            '/api/environments/:team_id/external_data_sources/wizard/': () => [
+                200,
+                {
+                    GitLab: {
+                        name: 'GitLab',
+                        label: 'GitLab',
+                        iconPath: '/static/services/gitlab.svg',
+                        caption: null,
+                        supportsColumnSelection: false,
+                        versions: [],
+                        defaultVersion: '',
+                        deprecatedVersions: [],
+                        fields: [
+                            {
+                                name: 'gitlab_host',
+                                label: 'GitLab instance URL',
+                                type: 'text',
+                                required: true,
+                                secret: false,
+                            },
+                            {
+                                name: 'personal_access_token',
+                                label: 'Personal access token',
+                                type: 'password',
+                                required: true,
+                                secret: true,
+                            },
+                            { name: 'project', label: 'Project', type: 'text', required: true, secret: false },
+                        ],
+                    },
+                },
+            ],
             '/api/environments/:team_id/': () => [
                 200,
                 {
@@ -202,7 +251,26 @@ function PanelHarness(state: PanelState): JSX.Element {
                       ],
             '/api/environments/:team_id/external_data_sources/': () => [
                 200,
-                { count: 0, next: null, previous: null, results: [] },
+                {
+                    count: state.externalConnections ? 3 : 0,
+                    next: null,
+                    previous: null,
+                    results: state.externalConnections
+                        ? ['Github', 'Jira', 'Sentry'].map((source_type, index) => ({
+                              id: `source-${index}`,
+                              source_type,
+                              status: 'Completed',
+                              schemas: [
+                                  {
+                                      id: `schema-${index}`,
+                                      name: 'issues',
+                                      should_sync: true,
+                                      sync_type: 'full_refresh',
+                                  },
+                              ],
+                          }))
+                        : [],
+                },
             ],
         },
     })
@@ -211,9 +279,11 @@ function PanelHarness(state: PanelState): JSX.Element {
     // both remount the panel (the `key`) and refetch the team against the updated mock.
     const stateKey = JSON.stringify(state)
     const { loadCurrentTeam } = teamLogic.actions
+    const { load: loadAvailableSources } = useActions(availableSourcesLogic)
     useEffect(() => {
         loadCurrentTeam()
-    }, [stateKey, loadCurrentTeam])
+        loadAvailableSources()
+    }, [stateKey, loadCurrentTeam, loadAvailableSources])
 
     return (
         <div className="w-[760px] p-6 bg-surface-primary border rounded">
@@ -246,6 +316,7 @@ const meta: Meta<typeof PanelHarness> = {
         hasAnalyticsEvents: true,
         eventDefinitionsUnavailable: false,
         sourceConfigsUnavailable: false,
+        externalConnections: false,
     },
 }
 export default meta
@@ -368,4 +439,8 @@ export const ErrorTrackingExpanded: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByText('Error tracking', { exact: true }))
     },
+}
+
+export const ExternalSourcesConnected: Story = {
+    args: { externalConnections: true },
 }
