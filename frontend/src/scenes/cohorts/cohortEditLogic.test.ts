@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { cohortBlockingWorkflowsModalLogic } from 'scenes/cohorts/cohortBlockingWorkflowsModalLogic'
 import { CohortLogicProps, REALTIME_POLL_INTERVAL_MS, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -58,6 +59,7 @@ const mockUsedInResponse: CohortUsedInResponseApi = {
     },
     insights: { results: [], total: 0, has_more: false },
     cohorts: { results: [], total: 0, has_more: false },
+    workflows: { results: [], total: 0, has_more: false },
 }
 
 describe('cohortEditLogic', () => {
@@ -409,6 +411,54 @@ describe('cohortEditLogic', () => {
             },
             expect.anything()
         )
+    })
+
+    describe('workflows that rely on the cohort', () => {
+        const blockingWorkflows = {
+            results: [{ id: 'flow-1', name: 'Welcome series', status: 'active' }],
+            total: 2,
+            has_more: true,
+        }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/used_in/': {
+                        ...mockUsedInResponse,
+                        workflows: blockingWorkflows,
+                    },
+                },
+                patch: {
+                    '/api/projects/:team_id/cohorts/:id/': () => [
+                        400,
+                        { type: 'validation_error', code: 'cohort_used_by_workflows', detail: 'Blocked', attr: null },
+                    ],
+                },
+            })
+        })
+
+        it('lists the blocking workflows instead of deleting the cohort', async () => {
+            await initCohortLogic({ id: 1 })
+
+            await expectLogic(logic, () => logic.actions.deleteCohort())
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([cohortsModel.actionTypes.deleteCohort])
+            expect(cohortBlockingWorkflowsModalLogic.values.blocking).toEqual({
+                action: 'delete',
+                workflows: blockingWorkflows,
+            })
+        })
+
+        it('lists the blocking workflows when the API refuses an edit that stops realtime updates', async () => {
+            await initCohortLogic({ id: 1 })
+
+            await expectLogic(logic, () => logic.actions.saveCohort()).toFinishAllListeners()
+            expect(cohortBlockingWorkflowsModalLogic.values.blocking).toEqual({
+                action: 'edit',
+                workflows: blockingWorkflows,
+            })
+            expect(lemonToast.error).not.toHaveBeenCalledWith('Blocked')
+        })
     })
 
     describe('form validation', () => {

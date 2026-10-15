@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { cohortBlockingWorkflowsModalLogic } from './cohortBlockingWorkflowsModalLogic'
 import { cohortsSceneLogic } from './cohortsSceneLogic'
 
 const MOCK_COHORTS = {
@@ -173,6 +174,37 @@ describe('cohortsSceneLogic', () => {
                             results: expect.arrayContaining([expect.objectContaining({ id: 1 })]),
                         }),
                     })
+            })
+        })
+
+        describe('workflows that rely on the cohort', () => {
+            const usedIn = (workflowsTotal: number): Record<string, any> => ({
+                feature_flags: { results: [], total: 0, has_more: false },
+                insights: { results: [], total: 0, has_more: false },
+                cohorts: { results: [], total: 0, has_more: false },
+                workflows: {
+                    results: workflowsTotal ? [{ id: 'flow-1', name: 'Welcome series', status: 'active' }] : [],
+                    total: workflowsTotal,
+                    has_more: false,
+                },
+            })
+
+            it.each([
+                ['lists the blocking workflows instead of deleting', 1],
+                ['deletes when no workflow relies on the cohort', 0],
+            ])('%s', async (_, workflowsTotal) => {
+                await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
+                useMocks({ get: { '/api/projects/:team/cohorts/:id/used_in/': usedIn(workflowsTotal) } })
+
+                const blocked = workflowsTotal > 0
+                const request = expectLogic(logic, () => logic.actions.requestDeleteCohort({ id: 1 }))
+                await (blocked
+                    ? request.toFinishAllListeners().toNotHaveDispatchedActions(['deleteCohort'])
+                    : request.toDispatchActions(['requestDeleteCohort', 'deleteCohort']))
+
+                expect(cohortBlockingWorkflowsModalLogic.values.blocking).toEqual(
+                    blocked ? { action: 'delete', workflows: usedIn(1).workflows } : null
+                )
             })
         })
 

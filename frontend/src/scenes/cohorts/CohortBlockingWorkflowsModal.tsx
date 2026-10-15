@@ -1,0 +1,59 @@
+import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
+
+import { cohortBlockingWorkflowsModalLogic } from './cohortBlockingWorkflowsModalLogic'
+
+export function CohortBlockingWorkflowsModal(): JSX.Element {
+    const { blocking } = useValues(cohortBlockingWorkflowsModalLogic)
+    const { closeBlockingWorkflowsModal } = useActions(cohortBlockingWorkflowsModalLogic)
+    const hiddenCount = blocking ? blocking.workflows.total - blocking.workflows.results.length : 0
+
+    return (
+        <LemonModal
+            isOpen={!!blocking}
+            onClose={closeBlockingWorkflowsModal}
+            title="This cohort is used by active workflows"
+            width={480}
+            footer={
+                <LemonButton type="secondary" onClick={closeBlockingWorkflowsModal}>
+                    Close
+                </LemonButton>
+            }
+        >
+            {blocking && (
+                <div className="flex flex-col gap-y-3" data-attr="cohort-blocking-workflows">
+                    <p className="mb-0">
+                        {blocking.action === 'delete'
+                            ? 'These workflows trigger on this cohort or branch on it. Remove the cohort from each workflow, or disable the workflow, then delete the cohort.'
+                            : 'This change would stop the cohort updating in real time, and these workflows need real-time updates. Remove the cohort from each workflow, or disable the workflow, then save your change.'}
+                    </p>
+                    {blocking.workflows.results.length > 0 && (
+                        <ul className="list-disc pl-4 mb-0">
+                            {blocking.workflows.results.map((workflow) => (
+                                <li key={workflow.id}>
+                                    <Link
+                                        to={urls.workflow(workflow.id, 'workflow')}
+                                        onClick={closeBlockingWorkflowsModal}
+                                        data-attr="cohort-blocking-workflow-link"
+                                    >
+                                        {workflow.name || 'Untitled workflow'}
+                                    </Link>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                    {hiddenCount > 0 && (
+                        <p className="mb-0 text-secondary">
+                            {hiddenCount === 1
+                                ? "1 more workflow uses this cohort, but you don't have access to it. Ask someone who can edit it to remove the cohort."
+                                : `${hiddenCount} more workflows use this cohort, but you don't have access to them. Ask someone who can edit them to remove the cohort.`}
+                        </p>
+                    )}
+                </div>
+            )}
+        </LemonModal>
+    )
+}

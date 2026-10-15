@@ -61,6 +61,7 @@ import { captureMessageAudienceClicked } from 'products/workflows/frontend/Messa
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+import { CohortBlockingWorkflowsModal } from './CohortBlockingWorkflowsModal'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { COHORT_CSV_HELP, CohortCsvDropzone } from './CohortCsvDropzone'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
@@ -116,6 +117,16 @@ function UsedInSummary({ usedIn, isExpanded, setIsExpanded }: UsedInSummaryProps
                 key: `cohort-${c.id}`,
                 url: urls.cohort(c.id),
                 label: c.name,
+            })),
+        },
+        {
+            title: 'Active workflows',
+            noun: 'active workflow',
+            block: usedIn.workflows,
+            items: usedIn.workflows.results.map((workflow) => ({
+                key: `workflow-${workflow.id}`,
+                url: urls.workflow(workflow.id, 'workflow'),
+                label: workflow.name || 'Untitled workflow',
             })),
         },
     ].filter((section) => section.items.length > 0)
@@ -281,6 +292,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         <BindLogic logic={cohortEditLogic} props={logicProps}>
             <div className="cohort">
                 <AddPersonToCohortModal id={id} />
+                <CohortBlockingWorkflowsModal />
                 <CohortSceneMenuBar id={id} />
 
                 <ScenePanel>

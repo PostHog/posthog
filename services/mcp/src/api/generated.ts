@@ -24255,6 +24255,24 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface CohortUsedInWorkflow {
+      /** Workflow ID (UUID) */
+      id: string;
+      /** Workflow display name */
+      name: string;
+      /** Workflow status. Always 'active', because only active workflows rely on the cohort */
+      status: string;
+    }
+
+    export interface CohortUsedInWorkflowsBlock {
+      /** Active workflows relying on this cohort that the caller can view in the current environment */
+      results: CohortUsedInWorkflow[];
+      /** Total number of active workflows relying on this cohort in every environment of the project, including ones the caller cannot view */
+      total: number;
+      /** True when some relying workflows are not listed in results */
+      has_more: boolean;
+    }
+
     export interface CohortUsedInResponse {
       /** Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata */
       feature_flags: CohortUsedInFlagsBlock;
@@ -24262,6 +24280,8 @@ export namespace Schemas {
       insights: CohortUsedInInsightsBlock;
       /** Other cohorts that include this cohort as a criterion, with truncation metadata */
       cohorts: CohortUsedInCohortsBlock;
+      /** Active workflows that trigger on this cohort or branch on its membership. While any exist, the cohort cannot be deleted or edited in a way that stops it updating in real time. */
+      workflows: CohortUsedInWorkflowsBlock;
     }
 
     /**

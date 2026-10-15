@@ -20,6 +20,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
+import { CohortBlockingWorkflowsModal } from 'scenes/cohorts/CohortBlockingWorkflowsModal'
 import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -51,7 +52,7 @@ export const scene: SceneExport = {
 export function Cohorts(): JSX.Element {
     const { cohorts, cohortsLoading, pagination, cohortFilters, cohortSorting, cohortsLoadError } =
         useValues(cohortsSceneLogic)
-    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting, loadCohorts } =
+    const { requestDeleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting, loadCohorts } =
         useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
     const realtimeTargetingEnabled = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
@@ -184,7 +185,11 @@ export function Cohorts(): JSX.Element {
                                                 children: 'Delete',
                                                 status: 'danger',
                                                 onClick: () =>
-                                                    deleteCohort({ id: cohort.id, name: cohort.name, deleted: true }),
+                                                    requestDeleteCohort({
+                                                        id: cohort.id,
+                                                        name: cohort.name,
+                                                        deleted: true,
+                                                    }),
                                                 size: 'small',
                                             },
                                             secondaryButton: {
@@ -327,6 +332,7 @@ export function Cohorts(): JSX.Element {
                 }}
                 useURLForSorting={false}
             />
+            <CohortBlockingWorkflowsModal />
         </SceneContent>
     )
 }
