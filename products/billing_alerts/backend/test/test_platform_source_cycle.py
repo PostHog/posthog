@@ -11,8 +11,13 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.alerts_platform.backend.facade.api import record_outcomes, slot_of
-from products.alerts_platform.backend.facade.contracts import AlertEventKind, SourceBatchEvaluation, SourceKind
+from products.alerts_platform.backend.facade.api import record_outcomes, slot_of, upsert_configuration
+from products.alerts_platform.backend.facade.contracts import (
+    AlertEventKind,
+    PlatformAlertUpsert,
+    SourceBatchEvaluation,
+    SourceKind,
+)
 from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
 from products.alerts_platform.backend.facade.testing import create_configuration, set_due_at
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvaluationClaim
@@ -89,6 +94,8 @@ class TestPlatformBillingEvaluation(BaseTest):
         [
             ("no_total_yet", _billing_response(None)),
             ("billing_service_down", ConnectionError("billing service timed out")),
+            ("billing_returns_no_customer", {}),
+            ("billing_returns_an_unreadable_amount", {"customer": {"current_total_amount_usd_after_discount": "n/a"}}),
         ]
     )
     def test_a_check_that_reads_no_total_leaves_a_firing_alert_firing_quietly(
@@ -109,6 +116,32 @@ class TestPlatformBillingEvaluation(BaseTest):
             0,
             False,
         )
+
+    def test_a_snooze_cleared_on_the_billing_alert_after_the_backfill_no_longer_holds_the_fire(self) -> None:
+        alert = self._alert()
+        upsert_configuration(
+            PlatformAlertUpsert(
+                legacy_configuration_id=alert.id,
+                team_id=self.team.id,
+                name=alert.name,
+                enabled=True,
+                source_kind=SourceKind.BILLING,
+                source_config={},
+                check_interval_minutes=60,
+                evaluation_periods=1,
+                datapoints_to_alarm=1,
+                cooldown_minutes=0,
+                schedule_restriction=None,
+                next_check_at=DUE_AT,
+                # The snooze the backfill copied, since cleared on the billing alert.
+                snooze_until=CUTOFF + timedelta(hours=2),
+            )
+        )
+
+        evaluation, _ = self._evaluate(_billing_response(150))
+
+        (outcome,) = evaluation.outcomes
+        assert (outcome.kind, outcome.muted_notification) == (AlertEventKind.FIRING, "")
 
     def test_a_snooze_set_on_the_billing_alert_holds_the_fire(self) -> None:
         self._copy(self._alert(snoozed_until=CUTOFF + timedelta(hours=2)))
