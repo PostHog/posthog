@@ -7,10 +7,8 @@ from products.signals.backend.facade import api as signals
 from ..feature_flags import (
     is_enabled_for as is_enabled_for,
     may_ask_jev as may_ask_jev,
-    may_get_briefing as may_get_briefing,
 )
 from ..logic import (
-    briefings,
     code_excerpts,
     figure_sources,
     highlights,
@@ -18,43 +16,11 @@ from ..logic import (
 )
 from ..logic.jev import GatewayJev
 from . import contracts
-from .enums import BriefingStatus
 
 
-def get_briefing(
-    *, team: Team, user: User, timezone_name: str | None, metric_access: signals.ReportMetricAccessPolicy
-) -> contracts.Briefing:
-    """Today's briefing for the person. Starts generating one when there is none yet.
-
-    `metric_access` is the request's access to report metrics, so report cards hide what the Inbox hides.
-    """
-    current = briefings.get_or_start_briefing(team=team, user=user, timezone_name=timezone_name)
-    return briefings.to_contract(
-        current.shown,
-        team,
-        user,
-        metric_access=metric_access,
-        status=BriefingStatus.WRITING if current.generating else None,
-    )
-
-
-def refresh_briefing(
-    *, team: Team, user: User, timezone_name: str | None, metric_access: signals.ReportMetricAccessPolicy
-) -> contracts.Briefing:
-    """Regenerate today's briefing. The ready one stays until the new one is written."""
-    briefings.refresh_briefing(team=team, user=user, timezone_name=timezone_name)
-    return get_briefing(team=team, user=user, timezone_name=timezone_name, metric_access=metric_access)
-
-
-def delete_briefings_for_teams(team_ids: list[int]) -> None:
-    """Remove every briefing and highlights row of the given teams. Called from team deletion, which no foreign key covers."""
-    briefings.delete_for_teams(team_ids)
+def delete_highlights_for_teams(team_ids: list[int]) -> None:
+    """Remove every highlights row of the given teams. Called from team deletion, which no foreign key covers."""
     highlights.delete_for_teams(team_ids)
-
-
-def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> contracts.CandidateList:
-    """Today's ranked items with their facts and reasons, without the written text."""
-    return briefings.list_candidates(team=team, user=user, timezone_name=timezone_name)
 
 
 def _jev(team: Team, user: User, model: str | None = None) -> GatewayJev:
