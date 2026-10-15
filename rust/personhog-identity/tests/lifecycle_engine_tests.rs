@@ -1196,3 +1196,74 @@ async fn a_detached_drive_finishes_after_its_caller_is_gone() {
 
     ctx.cleanup().await.expect("cleanup");
 }
+
+async fn insert_leased_op(ctx: &TestContext, op_id: Uuid, lease: &str) {
+    sqlx::query(&format!(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at) VALUES ($1, 'merge', $2, 'started', '{{}}'::jsonb, {lease})"
+    ))
+    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .execute(&ctx.pool)
+    .await
+    .expect("insert leased op");
+}
+
+#[tokio::test]
+async fn waiting_for_a_lease_lapse_returns_at_once_for_a_missing_or_finished_op() {
+    let ctx = TestContext::new().await;
+    let engine = ctx.engine();
+    let driver = DummyDriver::new();
+
+    let missing = Uuid::now_v7();
+    assert!(!engine
+        .wait_for_lease_lapse(missing)
+        .await
+        .expect("a missing op is claimable"));
+
+    let finished = Uuid::now_v7();
+    engine
+        .execute(&driver, finished, ctx.team_id, &json!({}))
+        .await
+        .expect("drive to completion");
+    assert!(engine
+        .wait_for_lease_lapse(finished)
+        .await
+        .expect("a finished op is reported terminal"));
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn waiting_for_a_lease_lapse_polls_until_it_lapses_and_gives_up_at_the_deadline() {
+    let ctx = TestContext::new().await;
+    let short_engine = personhog_identity::lifecycle::engine::Engine::new(
+        ctx.pools.clone(),
+        personhog_identity::lifecycle::engine::EngineConfig {
+            lease: std::time::Duration::from_secs(5),
+            execute_timeout: std::time::Duration::from_millis(300),
+            poll_interval: std::time::Duration::from_millis(25),
+            attempt_alert_threshold: 5,
+            gc_batch_limit: 10_000,
+        },
+        ctx.tables.clone(),
+    );
+
+    let lapsing = Uuid::now_v7();
+    insert_leased_op(&ctx, lapsing, "now() + interval '150 milliseconds'").await;
+    let started = std::time::Instant::now();
+    assert!(!short_engine
+        .wait_for_lease_lapse(lapsing)
+        .await
+        .expect("the lease lapses"));
+    assert!(started.elapsed() >= std::time::Duration::from_millis(100));
+
+    let held = Uuid::now_v7();
+    insert_leased_op(&ctx, held, "now() + interval '1 hour'").await;
+    let err = short_engine
+        .wait_for_lease_lapse(held)
+        .await
+        .expect_err("a lease held past the deadline is reported as busy");
+    assert!(matches!(err, SagaError::Busy));
+
+    ctx.cleanup().await.expect("cleanup");
+}

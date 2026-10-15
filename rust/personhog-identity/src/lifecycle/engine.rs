@@ -292,6 +292,25 @@ impl Engine {
         self.drive(driver, op_id, true).await
     }
 
+    pub async fn wait_for_lease_lapse(&self, op_id: Uuid) -> Result<bool, SagaError> {
+        let deadline = tokio::time::Instant::now() + self.config.execute_timeout;
+        loop {
+            let Some(row) = self.load(op_id).await? else {
+                return Ok(false);
+            };
+            if row.completed_at.is_some() {
+                return Ok(true);
+            }
+            if !row.lease_live {
+                return Ok(false);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(SagaError::Busy);
+            }
+            self.poll_pause().await;
+        }
+    }
+
     /// The create-or-attach half of [`execute`], without driving: create
     /// the op if it is new, verify an existing op matches the request, and
     /// return the current row. Lets tests and tooling walk an op step by

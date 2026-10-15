@@ -2136,7 +2136,7 @@ async fn a_caller_that_hangs_up_mid_saga_leaves_the_merge_to_finish() {
 }
 
 #[tokio::test]
-async fn an_executor_call_dropped_at_once_still_drives_the_merge() {
+async fn an_executor_call_dropped_once_detached_still_drives_the_merge() {
     let h = MergeHarness::new().await;
     let executor = MergeOpExecutor::new(
         Arc::new(h.ctx.engine()),
@@ -2152,15 +2152,21 @@ async fn an_executor_call_dropped_at_once_still_drives_the_merge() {
     let op_id = Uuid::now_v7();
     let frozen = serde_json::to_value(merge_request("drop-target", &["drop-source"])).unwrap();
 
-    let hung_up = tokio::time::timeout(
-        std::time::Duration::from_millis(1),
-        executor.execute(op_id, h.ctx.team_id, &frozen),
-    )
-    .await;
-    assert!(
-        hung_up.is_err(),
-        "the caller gave up before the saga finished"
-    );
+    {
+        let call = executor.execute(op_id, h.ctx.team_id, &frozen);
+        tokio::pin!(call);
+        loop {
+            tokio::select! {
+                biased;
+                _ = &mut call => panic!("the saga finished before the caller hung up"),
+                _ = tokio::time::sleep(std::time::Duration::from_micros(200)) => {
+                    if h.drives.in_flight() == 1 {
+                        break;
+                    }
+                }
+            }
+        }
+    }
 
     assert!(wait_until_completed(&h.ctx.pool, op_id).await);
     assert_eq!(h.pdi_state("drop-source").await.0, target);
@@ -2173,6 +2179,63 @@ async fn an_executor_call_dropped_at_once_still_drives_the_merge() {
         .expect("the retry returns the recorded row");
     assert_eq!(row.step, STEP_COMPLETED);
     assert_eq!(h.leader.calls().len(), calls_after_saga);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_retry_waiting_behind_a_live_lease_dies_with_its_caller_instead_of_detaching() {
+    let h = MergeHarness::new().await;
+    let executor = MergeOpExecutor::new(
+        Arc::new(h.ctx.engine()),
+        MergeDriver::new(
+            h.leader.clone(),
+            h.ctx.tables.clone(),
+            common::FAN_OUT_CONCURRENCY,
+        ),
+        h.drives.clone(),
+    );
+    let target = h.ctx.insert_person_with_distinct_id("waiter-target").await;
+    h.ctx.insert_person_with_distinct_id("waiter-source").await;
+    let op_id = Uuid::now_v7();
+    let request = merge_request("waiter-target", &["waiter-source"]);
+    let frozen = serde_json::to_value(&request).unwrap();
+    h.create(op_id, &request).await;
+    sqlx::query(
+        "UPDATE lifecycle_op SET lease_expires_at = now() + interval '2 seconds' WHERE op_id = $1",
+    )
+    .bind(op_id)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("hold the lease as another driver");
+
+    let hung_up = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        executor.execute(op_id, h.ctx.team_id, &frozen),
+    )
+    .await;
+    assert!(
+        hung_up.is_err(),
+        "the retry was still waiting behind the lease"
+    );
+    assert_eq!(
+        h.drives.in_flight(),
+        0,
+        "a waiter never takes a detached slot"
+    );
+    assert_eq!(h.drives.free_slots(), common::FAN_OUT_CONCURRENCY);
+
+    sqlx::query("UPDATE lifecycle_op SET lease_expires_at = NULL WHERE op_id = $1")
+        .bind(op_id)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("release the lease");
+    let row = executor
+        .execute(op_id, h.ctx.team_id, &frozen)
+        .await
+        .expect("the next retry claims and drives");
+    assert_eq!(row.step, STEP_COMPLETED);
+    assert_eq!(h.pdi_state("waiter-source").await.0, target);
 
     h.ctx.cleanup().await.expect("cleanup");
 }

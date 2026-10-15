@@ -468,37 +468,40 @@ impl MergeOpExecutor {
         let engine = self.engine.clone();
         let driver = self.driver.clone();
         let frozen = frozen.clone();
-        self.drives
-            .run(async move {
-                engine
-                    .execute(driver.as_ref(), op_id, team_id, &frozen)
-                    .await
-                    .inspect_err(|err| {
-                        if matches!(err, SagaError::Db(_) | SagaError::CorruptState(_)) {
-                            tracing::error!(op_id = %op_id, error = %err, "MergePersons failed");
-                        }
-                    })
-            })
-            .await
-            .map_err(|err| {
+        let terminal = engine.wait_for_lease_lapse(op_id).await;
+        let drive = async move {
+            engine
+                .execute(driver.as_ref(), op_id, team_id, &frozen)
+                .await
+                .inspect_err(|err| {
+                    if matches!(err, SagaError::Db(_) | SagaError::CorruptState(_)) {
+                        tracing::error!(op_id = %op_id, error = %err, "MergePersons failed");
+                    }
+                })
+        };
+        let driven = match terminal {
+            Ok(true) => drive.await,
+            Ok(false) => self.drives.run(drive).await.map_err(|err| {
                 tracing::error!(op_id = %op_id, error = %err, "MergePersons drive task died");
                 Status::internal(format!("merge op {op_id} drive task died: {err}"))
-            })?
-            .map_err(|err| {
-                // The entrance only reaches this create path after finding
-                // no op row, so an engine-level mismatch means the row
-                // appeared in the race window since — a transient loss,
-                // not op_id misuse (which the entrance's attach-first
-                // comparison answers). Both client stacks treat
-                // FAILED_PRECONDITION as terminal, so surfacing the race
-                // as one would fail a request whose retry attaches fine.
-                if matches!(err, SagaError::RequestMismatch(_)) {
-                    return Status::unavailable(format!(
-                        "another call is initializing op {op_id}; retry with the same op_id"
-                    ));
-                }
-                Status::from(err)
-            })
+            })?,
+            Err(err) => Err(err),
+        };
+        driven.map_err(|err| {
+            // The entrance only reaches this create path after finding
+            // no op row, so an engine-level mismatch means the row
+            // appeared in the race window since — a transient loss,
+            // not op_id misuse (which the entrance's attach-first
+            // comparison answers). Both client stacks treat
+            // FAILED_PRECONDITION as terminal, so surfacing the race
+            // as one would fail a request whose retry attaches fine.
+            if matches!(err, SagaError::RequestMismatch(_)) {
+                return Status::unavailable(format!(
+                    "another call is initializing op {op_id}; retry with the same op_id"
+                ));
+            }
+            Status::from(err)
+        })
     }
 }
 
