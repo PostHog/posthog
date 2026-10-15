@@ -263,6 +263,15 @@ TEMPLATE_ID_PARAMETER = OpenApiParameter(
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
 
+IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
+    name="Idempotency-Key",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.HEADER,
+    required=False,
+    description="Makes retries safe. A retry with the same key and request returns the first send instead of "
+    "sending again. Use a new key for each email.",
+)
+
 
 class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
     distinct_id = serializers.CharField(
@@ -595,7 +604,7 @@ class MessageTemplatesViewSet(
             "Transactional emails skip opt-outs and frequency caps. Pass an `Idempotency-Key` header to make "
             "retries safe."
         ),
-        parameters=[TEMPLATE_ID_PARAMETER],
+        parameters=[TEMPLATE_ID_PARAMETER, IDEMPOTENCY_KEY_PARAMETER],
     )
     @action(detail=True, methods=["POST"], pagination_class=None)
     def send(self, request: Any, *args: Any, **kwargs: Any) -> Response:

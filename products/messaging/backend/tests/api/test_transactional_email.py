@@ -21,7 +21,7 @@ from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.services.transactional_email import (
-    IN_FLIGHT_TTL_SECONDS,
+    IDEMPOTENCY_TTL_SECONDS,
     _idempotency_redis_key,
     make_transactional,
 )
@@ -210,6 +210,7 @@ class TestTransactionalEmail(APIBaseTest):
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 2,
             ),
+            ("unreadable_acceptance", MagicMock(status_code=202, json=lambda: {}), status.HTTP_409_CONFLICT, 1),
             # The connection opened, so cdp-api may have queued the email before it dropped.
             (
                 "connection_reset_after_send",
@@ -236,7 +237,8 @@ class TestTransactionalEmail(APIBaseTest):
         assert mock_post.call_count == expected_calls
         # An unknown outcome spends the key for good, so a late retry can't send a second email either.
         outcome_unknown = expected_retry_status == status.HTTP_409_CONFLICT
-        assert (get_client().ttl(_idempotency_redis_key(self.team.id, key)) > IN_FLIGHT_TTL_SECONDS) == outcome_unknown
+        ttl = get_client().ttl(_idempotency_redis_key(self.team.id, key))
+        assert (ttl > IDEMPOTENCY_TTL_SECONDS - 60) == outcome_unknown
 
     def test_an_accepted_send_replays_after_the_email_is_paused(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)

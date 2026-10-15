@@ -45,9 +45,8 @@ from products.workflows.backend.facade.transactional_emails import (
 
 logger = structlog.get_logger(__name__)
 
+# A key never sends twice within this window, also when the request holding it died before it recorded a result.
 IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
-# Long enough to cover a request that cdp-api answers late, short enough that a lost answer does not block the send.
-IN_FLIGHT_TTL_SECONDS = 5 * 60
 _IN_FLIGHT = "in-flight"
 _OUTCOME_UNKNOWN = "outcome-unknown"
 # A gateway can return these after cdp-api queued the job. cdp-api's own 5xx always means nothing was queued.
@@ -197,7 +196,10 @@ def _replay(stored: bytes | str | None, fingerprint: str) -> QueuedEmail | None:
     if reservation["fingerprint"] != fingerprint:
         raise IdempotencyKeyReused("This idempotency key was already used for a different request.")
     if reservation["message_id"] == _IN_FLIGHT:
-        raise SendInProgress("A request with this idempotency key is still in progress.")
+        raise SendInProgress(
+            "A request with this idempotency key is still in progress, or ended without a result. Use a new key to "
+            "send the email again."
+        )
     if reservation["message_id"] == _OUTCOME_UNKNOWN:
         raise SendInProgress(
             "An earlier request with this idempotency key may have sent the email. Use a new key to send it again."
@@ -265,7 +267,7 @@ def send_transactional_email(
 
     hog_flow_id = _transactional_workflow_id(team.id, template_id)
     if redis_key and not redis.set(
-        redis_key, _idempotency_value(fingerprint, _IN_FLIGHT), nx=True, ex=IN_FLIGHT_TTL_SECONDS
+        redis_key, _idempotency_value(fingerprint, _IN_FLIGHT), nx=True, ex=IDEMPOTENCY_TTL_SECONDS
     ):
         # Another request with the key got in between the replay check and this reservation.
         if replayed := _replay(redis.get(redis_key), fingerprint):
@@ -310,7 +312,14 @@ def send_transactional_email(
         )
         raise DeliveryUnavailable()
 
-    message_id = str(response.json()["invocation_id"])
+    try:
+        message_id = str(response.json()["invocation_id"])
+    except (ValueError, KeyError, TypeError) as e:
+        # cdp-api accepted the send, so the key stays spent even though there is no id to replay.
+        if redis_key:
+            _hold_unknown_outcome(redis, redis_key, fingerprint)
+        logger.exception("transactional_email_queue_response_unreadable", team_id=team.id, template_id=str(template_id))
+        raise DeliveryUnavailable() from e
     if redis_key:
         redis.set(redis_key, _idempotency_value(fingerprint, message_id), ex=IDEMPOTENCY_TTL_SECONDS)
     return QueuedEmail(message_id=message_id, replayed=False)
