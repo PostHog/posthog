@@ -43,6 +43,27 @@ if TYPE_CHECKING:
 DEFAULT_RUN_SEARCH_LIMIT = 20
 MAX_RUN_SEARCH_LIMIT = 100
 
+# The columns `_to_summary` reads. The joined TaskRun row carries large JSON columns (`output`,
+# `artifacts`, `state`) that no run read uses, and loading them made every list read hit disk.
+RUN_SUMMARY_FIELDS = (
+    "id",
+    "skill_name",
+    "skill_version",
+    "created_at",
+    "summary",
+    "emitted_count",
+    "emitted_finding_ids",
+    "emitted_report_ids",
+    "edited_report_ids",
+    "metadata",
+    "task_run__id",
+    "task_run__task_id",
+    "task_run__status",
+    "task_run__created_at",
+    "task_run__completed_at",
+    "task_run__error_message",
+)
+
 # The per-scout run window backing the inbox scout surfaces. 25 runs covers a day for an hourly
 # scout and a month for a daily one — the point being that both get enough history to judge, which
 # a single fleet-wide time window can't do.
@@ -214,6 +235,7 @@ def search_recent_runs(
         SignalScoutRun.objects.filter(team_id=team_id)
         .exclude(metadata__has_key="scout_trial")
         .select_related("task_run")
+        .only(*RUN_SUMMARY_FIELDS)
         .order_by("-created_at")
     )
     if date_from is not None:
@@ -386,6 +408,7 @@ def recent_runs_per_scout(
     rows = (
         SignalScoutRun.objects.filter(team_id=team_id, id__in=run_ids)
         .select_related("task_run")
+        .only(*RUN_SUMMARY_FIELDS)
         .order_by("-created_at")
     )
     return _without_deleted_reports([_to_summary(row, team_id=team_id) for row in rows], team_id=team_id)
@@ -513,7 +536,12 @@ def get_run(*, team_id: int, run_id: str) -> RunDetail | None:
     Team scoping is non-negotiable: a run row from another team must not be
     readable, even if the caller knows the UUID.
     """
-    row = SignalScoutRun.objects.select_related("task_run").filter(team_id=team_id, id=run_id).first()
+    row = (
+        SignalScoutRun.objects.select_related("task_run")
+        .only(*RUN_SUMMARY_FIELDS)
+        .filter(team_id=team_id, id=run_id)
+        .first()
+    )
     if row is None:
         return None
     return _to_detail(row, team_id=team_id)

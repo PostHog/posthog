@@ -11,7 +11,9 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import pytest_asyncio
@@ -510,6 +512,31 @@ class TestGetRun(BaseTest):
         detail = get_run(team_id=self.team.id, run_id=str(run.id))
 
         assert detail is None  # team scoping enforced even when caller knows the UUID
+
+
+class TestRunReadsSkipTaskRunPayload(BaseTest):
+    @parameterized.expand(["search_recent_runs", "recent_runs_per_scout", "get_run"])
+    def test_reads_task_run_columns_in_one_query_without_json_payload(self, reader: str) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
+        runs = [_create_run(self.team), _create_run(self.team, task_run_status=TaskRun.Status.FAILED)]
+        TaskRun.objects.filter(id=runs[1].task_run_id).update(error_message="boom")
+
+        with CaptureQueriesContext(connection) as captured:
+            if reader == "search_recent_runs":
+                hits = search_recent_runs(team_id=self.team.id)
+            elif reader == "recent_runs_per_scout":
+                hits = recent_runs_per_scout(team_id=self.team.id)
+            else:
+                detail = get_run(team_id=self.team.id, run_id=str(runs[1].id))
+                hits = [detail] if detail is not None else []
+
+        task_run_queries = [q["sql"] for q in captured.captured_queries if '"posthog_task_run"' in q["sql"]]
+        assert len(task_run_queries) == 1
+        for column in ("output", "artifacts", "state"):
+            assert f'"posthog_task_run"."{column}"' not in task_run_queries[0]
+        failed = next(hit for hit in hits if hit.run_id == str(runs[1].id))
+        assert (failed.status, failed.error, failed.task_run_id) == ("failed", "boom", str(runs[1].task_run_id))
 
 
 class TestRemember(BaseTest):
