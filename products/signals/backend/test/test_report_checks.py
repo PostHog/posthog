@@ -2089,17 +2089,18 @@ class TestPendingChecks(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{kind}_{name}", kind, result)
+            (f"{kind}_{name}", kind, result, recovered)
             for kind in [SignalReportCheck.Kind.METRIC_THRESHOLD, SignalReportCheck.Kind.AGENT]
-            for name, result in [
-                ("enabled", True),
-                ("disabled", False),
-                ("unavailable", RuntimeError("flag unavailable")),
+            for name, result, recovered in [
+                ("enabled", True, False),
+                ("disabled", False, False),
+                ("unavailable", RuntimeError("flag unavailable"), False),
+                ("recovered", RuntimeError("flag unavailable"), True),
             ]
         ]
     )
     def test_monitoring_entry_arms_checks_or_keeps_the_resolved_fallback(
-        self, _name: str, kind: str, flag_result: bool | Exception
+        self, _name: str, kind: str, flag_result: bool | Exception, recovered: bool
     ) -> None:
         now = timezone.now()
         implemented_at = now - timedelta(days=3)
@@ -2144,16 +2145,17 @@ class TestPendingChecks(APIBaseTest):
                     assert check.status == (
                         SignalReportCheck.Status.ACTIVE if flag_result is True else SignalReportCheck.Status.PENDING
                     )
+            coordinator_flag = True if recovered else flag_result
             with patch(
                 "products.signals.backend.report_content_gates.feature_enabled_or_false",
-                return_value=flag_result if isinstance(flag_result, bool) else False,
-                side_effect=flag_result if isinstance(flag_result, Exception) else None,
+                return_value=coordinator_flag if isinstance(coordinator_flag, bool) else False,
+                side_effect=coordinator_flag if isinstance(coordinator_flag, Exception) else None,
             ) as evaluate:
                 with patch(_MEASURE) as measure:
                     run_due_report_checks(now=now)
                     measure.assert_not_called()
                 assert evaluate.call_count == 1
-                anchor = implemented_at if flag_result is True else now
+                anchor = implemented_at if coordinator_flag is True else now
                 expected_due = anchor + timedelta(hours=DEFAULT_CHECK_SOAK_HOURS)
                 if kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
                     expected_due = max(expected_due, metric_check_ready_at(_PAGEVIEWS, self.team, anchor))
@@ -2166,9 +2168,9 @@ class TestPendingChecks(APIBaseTest):
                     assert check.next_run_at == expected_due
                     assert check.updated_at == now
                 assert {due.id for due in collect_due_checks(expected_due + timedelta(minutes=1))} == (
-                    set() if flag_result is True else {check.id for check in checks}
+                    set() if coordinator_flag is True else {check.id for check in checks}
                 )
-                if flag_result is True:
+                if coordinator_flag is True:
                     with self.captureOnCommitCallbacks(execute=True):
                         self.report.save(update_fields=self.report.transition_to(SignalReport.Status.RESOLVED))
                     checks[0].refresh_from_db()
