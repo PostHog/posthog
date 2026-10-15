@@ -1,0 +1,120 @@
+{
+    "id": "01a1352a-0c41-0000-4a8c-d27f15e6b093",
+    "name": "Ticket SLA: pause while pending, on hold or resolved",
+    "description": "Clears a ticket's SLA when it's set to pending, on hold or resolved, so the clock doesn't run while you're waiting on the customer or the ticket is closed. Works with the Ticket SLA first response, next response, follow-up and reopened templates, which set a new deadline when the ticket is open again.",
+    "scope": "global",
+    "tags": ["support", "support SLAs"],
+    "version": 1,
+    "created_at": "2026-10-13T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-13T00:00:00Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "source": "events",
+            "events": [
+                {
+                    "id": "$conversation_ticket_status_changed",
+                    "name": "$conversation_ticket_status_changed",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [
+                        {
+                            "key": "new_status",
+                            "type": "event",
+                            "value": "^(pending|on_hold|resolved)$",
+                            "operator": "regex"
+                        }
+                    ]
+                }
+            ],
+            "filter_test_accounts": false
+        }
+    },
+    "trigger_masking": null,
+    "conversion": null,
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "clear_sla",
+            "type": "continue"
+        },
+        {
+            "from": "clear_sla",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Ticket paused or closed",
+            "description": "Runs when a ticket is set to pending, on hold or resolved.",
+            "type": "trigger",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "type": "event",
+                "filters": {
+                    "source": "events",
+                    "events": [
+                        {
+                            "id": "$conversation_ticket_status_changed",
+                            "name": "$conversation_ticket_status_changed",
+                            "type": "events",
+                            "order": 0,
+                            "properties": [
+                                {
+                                    "key": "new_status",
+                                    "type": "event",
+                                    "value": "^(pending|on_hold|resolved)$",
+                                    "operator": "regex"
+                                }
+                            ]
+                        }
+                    ],
+                    "filter_test_accounts": false
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "clear_sla",
+            "name": "Clear SLA",
+            "description": "Removes the deadline. The SLA templates set a new one when the ticket is open again.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "sla_amount": {
+                        "value": "clear",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "",
+            "type": "exit",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "reason": "Done"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function"]
+}

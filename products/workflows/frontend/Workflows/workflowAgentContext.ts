@@ -94,9 +94,9 @@ export const NEW_WORKFLOW_SUGGESTIONS: AiFirstSuggestion[] = [
         prompt: 'Re-engage users who have been inactive for 30 days',
     },
     {
-        title: 'Answer support tickets with AI',
-        description: 'Triage each new ticket and draft a reply in Slack',
-        prompt: 'When a support ticket comes in, have an AI agent look at the customer in PostHog, set a priority, draft a reply, and post it to Slack',
+        title: 'Triage support tickets with AI',
+        description: 'Investigate each new ticket and save the findings to it',
+        prompt: 'When a support ticket comes in, have an AI agent investigate the customer in PostHog, tag the ticket with a category, set a priority, and save its findings and a suggested reply as a private note on the ticket',
     },
     {
         title: 'Send a weekly AI report',

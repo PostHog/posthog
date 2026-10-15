@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -12,8 +13,9 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.workflows.backend import templates as templates_module
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
-from products.workflows.backend.templates import clear_template_cache, load_global_templates
+from products.workflows.backend.templates import TEMPLATE_FILES, clear_template_cache, load_global_templates
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -630,6 +632,18 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         assert retrieved["id"] == template_id
         assert retrieved["name"] == template_name
         assert retrieved["scope"] == "global"
+
+    def test_every_registered_template_file_loads(self):
+        """The loader skips invalid templates with only a log line, so a broken file would quietly vanish from the picker."""
+        clear_template_cache()
+        loaded_ids = {t["id"] for t in load_global_templates()}
+
+        for template_file in TEMPLATE_FILES:
+            with open(Path(templates_module.__file__).parent / template_file, encoding="utf-8") as f:
+                template_id = json.load(f)["id"]
+            assert template_id in loaded_ids, f"{template_file} is registered but failed to load"
+
+        assert len(loaded_ids) == len(TEMPLATE_FILES), "Template ids must be unique"
 
     def test_file_based_global_templates_not_accessible_via_write_endpoints(self):
         """Test that file-based global templates return 404 on update/delete (not in DB queryset)"""

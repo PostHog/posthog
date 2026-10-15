@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { LemonButton, LemonCard, LemonDivider, Link } from '@posthog/lemon-ui'
 
@@ -14,44 +15,49 @@ interface WorkflowTemplate {
     title: string
     description: string
     trigger: string
+    // Id of the global workflow template in products/workflows/backend/templates
+    templateId: string
 }
 
+// The highlights for a team getting started. The rest are one click away under "See all support templates".
 const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     {
         title: 'New ticket → Slack channel',
         description: 'Post a message to a chosen Slack channel whenever a customer opens a new ticket.',
         trigger: '$conversation_ticket_created',
+        templateId: '019ce1f1-5d12-0000-e318-4b3ebd4b2aea',
     },
     {
-        title: 'Team reply → email customer',
+        title: 'New ticket → AI triage and investigation',
         description:
-            'When a team member replies on a ticket, email the customer so they receive the response in their inbox.',
-        trigger: '$conversation_message_sent',
-    },
-    {
-        title: 'Customer message → notify team',
-        description: 'When a customer sends a message on a ticket, notify the assigned teammate by email or Slack.',
-        trigger: '$conversation_message_received',
-    },
-    {
-        title: 'SLA: no response in 4h → escalate',
-        description: 'If a ticket sits without a team reply for 4 hours, reassign to a lead and email the team.',
+            'An AI agent investigates each new ticket, tags and prioritizes it, and saves its findings and a suggested reply as a private note.',
         trigger: '$conversation_ticket_created',
+        templateId: '01a12fb6-3cfe-0000-5d45-25a5b3a944e0',
     },
     {
-        title: 'First team reply → mark Pending',
-        description: 'When a team member sends the first reply, automatically move the ticket to Pending.',
-        trigger: '$conversation_message_sent',
+        title: 'New ticket → acknowledge',
+        description:
+            'Reply on email and widget tickets to confirm you have them, so the customer can reply straight back.',
+        trigger: '$conversation_ticket_created',
+        templateId: '01a1352a-0c41-0000-6b1e-2f4e8a6d71c3',
+    },
+    {
+        title: 'Customer reply → reopen ticket',
+        description: 'Move pending, on hold and resolved tickets back to open when the customer replies.',
+        trigger: '$conversation_message_received',
+        templateId: '01a1352a-0c41-0000-1f8d-9b3a5c7e2d14',
+    },
+    {
+        title: 'New ticket → first response SLA',
+        description: "Set how soon your team should reply, based on the customer's plan, within your working hours.",
+        trigger: '$conversation_ticket_created',
+        templateId: '01a1352a-0c41-0000-5b93-e08a4c1f7d26',
     },
     {
         title: 'Resolved → CSAT email',
-        description: 'When a ticket is resolved, wait an hour and email the customer a 1-question CSAT survey.',
+        description: 'A day after a ticket is resolved, email the customer a one-click satisfaction survey.',
         trigger: '$conversation_ticket_status_changed',
-    },
-    {
-        title: 'VIP cohort → high priority + auto-assign',
-        description: 'Tickets from your VIP cohort get bumped to high priority and routed to the on-call lead.',
-        trigger: '$conversation_ticket_created',
+        templateId: '01a1352a-0c41-0000-3d7e-c2b9f05a1e68',
     },
 ]
 
@@ -86,6 +92,10 @@ export function NotificationsSection(): JSX.Element {
                 description={
                     <>
                         Build custom automations on top of support events.{' '}
+                        <Link to={combineUrl(urls.workflows('templates'), { tagFilter: 'support' }).url}>
+                            See all support templates
+                        </Link>{' '}
+                        ·{' '}
                         <Link to="https://posthog.com/docs/support/workflows" target="_blank">
                             Workflow docs
                         </Link>
@@ -99,8 +109,12 @@ export function NotificationsSection(): JSX.Element {
                             <p className="text-xs text-muted-alt mb-1 flex-1">{template.description}</p>
                             <div className="flex items-center justify-between gap-2 mt-1">
                                 <code className="text-xs text-muted-alt truncate">{template.trigger}</code>
-                                <LemonButton type="secondary" size="small" to={urls.workflowNew()}>
-                                    Create workflow
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    to={combineUrl(urls.workflowNew(), { templateId: template.templateId }).url}
+                                >
+                                    Use template
                                 </LemonButton>
                             </div>
                         </LemonCard>

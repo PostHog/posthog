@@ -1,7 +1,7 @@
 {
     "id": "019ce1f1-5d12-0000-e318-4b3ebd4b2aea",
-    "name": "New support ticket notification",
-    "description": "Notify your support team in Slack as soon as a new ticket comes in.",
+    "name": "Ticket: notify Slack of new tickets",
+    "description": "When a customer opens a ticket, post it to Slack so your team sees it straight away.",
     "version": 1,
     "created_at": "2026-03-12T12:06:57.554838Z",
     "created_by": {
@@ -52,8 +52,8 @@
     "actions": [
         {
             "id": "trigger_node",
-            "name": "Support ticket is created",
-            "description": "A user has created a new support ticket.",
+            "name": "New ticket",
+            "description": "Runs when a customer opens a ticket.",
             "on_error": null,
             "created_at": 0,
             "updated_at": 0,
@@ -77,8 +77,8 @@
         },
         {
             "id": "action_function_431166ee-1322-4d35-8186-958120346fc2",
-            "name": "Message in Slack channel",
-            "description": "Connect the right Slack channel and notify your support team.",
+            "name": "Post to Slack",
+            "description": "Connect Slack and pick the channel your team watches.",
             "on_error": null,
             "created_at": 1773317149872,
             "updated_at": 1773317149872,
@@ -93,40 +93,32 @@
                         "templating": "hog"
                     },
                     "icon_emoji": {
-                        "value": ":hedgehog:",
+                        "value": ":ticket:",
                         "templating": "hog"
                     },
                     "username": {
-                        "value": "PostHog",
+                        "value": "Support",
                         "templating": "hog"
                     },
                     "blocks": {
                         "value": [
                             {
+                                "type": "section",
                                 "text": {
-                                    "text": "🎫 *New support ticket created*\n\n*User:* {person.name}\n*Email:* {person.email}\n\nA user has submitted a new support request.",
-                                    "type": "mrkdwn"
-                                },
-                                "type": "section"
+                                    "type": "mrkdwn",
+                                    "text": ":ticket: New ticket *#{toInt(event.properties.ticket_number)}*\nFrom: {replaceAll(replaceAll(replaceAll(toString(event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}"
+                                }
                             },
                             {
                                 "type": "actions",
                                 "elements": [
                                     {
-                                        "url": "{person.url}",
+                                        "type": "button",
                                         "text": {
-                                            "text": "View user in PostHog",
-                                            "type": "plain_text"
+                                            "type": "plain_text",
+                                            "text": "View ticket"
                                         },
-                                        "type": "button"
-                                    },
-                                    {
-                                        "url": "{source.url}",
-                                        "text": {
-                                            "text": "Open ticket",
-                                            "type": "plain_text"
-                                        },
-                                        "type": "button"
+                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{toInt(event.properties.ticket_number)}"
                                     }
                                 ]
                             }
@@ -134,7 +126,7 @@
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "*{person.name}* created a ticket: '{event.event}'",
+                        "value": "New ticket #{toInt(event.properties.ticket_number)}",
                         "templating": "hog"
                     }
                 },
@@ -145,7 +137,7 @@
         {
             "id": "exit_node",
             "name": "Exit",
-            "description": "User moved through the workflow without errors.",
+            "description": "",
             "on_error": null,
             "created_at": 0,
             "updated_at": 0,
@@ -161,6 +153,6 @@
     "variables": [],
     "billable_action_types": ["function"],
     "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_9_cc52152691.jpg",
-    "tags": ["slack", "support ticket", "support"],
+    "tags": ["support", "support lifecycle", "slack"],
     "scope": "global"
 }

@@ -18,6 +18,23 @@ TEMPLATE_FILES = [
     "ai-support-first-responder.json",
     "ai-scheduled-report.json",
     "ai-slack-alert-responder.json",
+    # Support tickets: lifecycle, CSAT, SLAs, then routing
+    "support-ticket-acknowledge.json",
+    "support-ticket-reopen-on-reply.json",
+    "support-ticket-auto-resolve.json",
+    "support-ticket-csat-survey.json",
+    "support-ticket-csat-responses.json",
+    "support-ticket-sla-first-response.json",
+    "support-ticket-sla-next-response.json",
+    "support-ticket-sla-reopened.json",
+    "support-ticket-sla-follow-up.json",
+    "support-ticket-sla-pause.json",
+    "support-ticket-sla-warning.json",
+    "support-ticket-sla-escalate.json",
+    "support-ticket-out-of-office.json",
+    "support-ticket-notify-account-owner.json",
+    "support-ticket-prioritize-important.json",
+    "support-ticket-notify-assignee.json",
 ]
 
 _TEMPLATE_CACHE: Optional[list[dict]] = None

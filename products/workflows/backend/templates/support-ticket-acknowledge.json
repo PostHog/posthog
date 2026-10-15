@@ -1,0 +1,146 @@
+{
+    "id": "01a1352a-0c41-0000-6b1e-2f4e8a6d71c3",
+    "name": "Ticket: acknowledge new tickets",
+    "description": "When a customer opens a ticket by email or the chat widget, reply on the ticket to confirm you've received it. The reply goes out through the ticket's own channel, so the customer can reply straight back. Slack tickets are skipped, since the customer is already in a thread with you.",
+    "scope": "global",
+    "tags": ["support", "support lifecycle"],
+    "version": 1,
+    "created_at": "2026-10-13T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-13T00:00:00Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "source": "events",
+            "events": [
+                {
+                    "id": "$conversation_ticket_created",
+                    "name": "$conversation_ticket_created",
+                    "type": "events",
+                    "order": 0
+                }
+            ],
+            "filter_test_accounts": false
+        }
+    },
+    "trigger_masking": null,
+    "conversion": null,
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "is_email_or_widget",
+            "type": "continue"
+        },
+        {
+            "from": "is_email_or_widget",
+            "to": "acknowledge",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "is_email_or_widget",
+            "to": "exit_node",
+            "type": "continue"
+        },
+        {
+            "from": "acknowledge",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "New ticket",
+            "description": "Runs when a customer opens a ticket.",
+            "type": "trigger",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "type": "event",
+                "filters": {
+                    "source": "events",
+                    "events": [
+                        {
+                            "id": "$conversation_ticket_created",
+                            "name": "$conversation_ticket_created",
+                            "type": "events",
+                            "order": 0
+                        }
+                    ],
+                    "filter_test_accounts": false
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "is_email_or_widget",
+            "name": "Email or widget ticket?",
+            "description": "Only acknowledge tickets that came in by email or the widget.",
+            "type": "conditional_branch",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Email or widget",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "channel_source",
+                                    "type": "event",
+                                    "value": ["email", "widget"],
+                                    "operator": "exact"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "acknowledge",
+            "name": "Reply on the ticket",
+            "description": "Sent to the customer through the ticket's channel: as an email reply in the same thread, or in the widget. Edit the copy to match your team's tone.",
+            "type": "function",
+            "on_error": "continue",
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-send-ticket-message",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "message": {
+                        "value": "Hi there, thanks for getting in touch! We've received your ticket and someone from our team will get back to you soon.\n\nIf you have anything to add, like screenshots or steps to reproduce the problem, just reply here.",
+                        "templating": "hog"
+                    },
+                    "is_private": {
+                        "value": false,
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "",
+            "type": "exit",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "reason": "Done"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function"]
+}
