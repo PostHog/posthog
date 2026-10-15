@@ -259,75 +259,62 @@ class _OutputConfigField(serializers.DictField):
     child = serializers.JSONField(allow_null=True)
 
 
+# One object rather than a `oneOf` per strategy: a generated zod union strips the keys a branch does not
+# declare, so a payload that matches the wrong branch loses its settings, and the empty config of a
+# generation target matches no branch. `validate_target_config` checks the per-strategy combination.
 @extend_schema_field(
     {
-        "oneOf": [
-            {
-                "type": "object",
-                "title": "Fixed window settle config",
-                "required": ["strategy"],
-                "properties": {
-                    "strategy": {
-                        "type": "string",
-                        "enum": ["fixed_window"],
-                        "description": "Wait a fixed window after the first matching generation, then evaluate.",
-                    },
-                    "window_seconds": {
-                        "type": "integer",
-                        "description": (
-                            "Seconds to wait after the first matching generation before evaluating the whole "
-                            "unit. Captured when the run is scheduled — editing it does not change runs "
-                            "already in flight. The accepted range depends on `target`: "
-                            f"{TRACE_EVAL_MIN_WINDOW_SECONDS}–{TRACE_EVAL_MAX_WINDOW_SECONDS} for 'trace', "
-                            f"{SESSION_EVAL_MIN_WINDOW_SECONDS}–{SESSION_EVAL_MAX_WINDOW_SECONDS} for 'session'. "
-                            "The default also depends on `target`; see the field-level help_text."
-                        ),
-                        "minimum": min(TRACE_EVAL_MIN_WINDOW_SECONDS, SESSION_EVAL_MIN_WINDOW_SECONDS),
-                        "maximum": max(TRACE_EVAL_MAX_WINDOW_SECONDS, SESSION_EVAL_MAX_WINDOW_SECONDS),
-                    },
-                },
-                "additionalProperties": False,
+        "type": "object",
+        "title": "Settle config",
+        "properties": {
+            "strategy": {
+                "type": "string",
+                "enum": ["fixed_window", "inactivity"],
+                "description": (
+                    "'fixed_window' waits a fixed window after the first matching generation, then evaluates. "
+                    "'inactivity' evaluates once the unit has had no new activity for the quiet period. "
+                    "Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'."
+                ),
             },
-            {
-                "type": "object",
-                "title": "Inactivity settle config",
-                "required": ["strategy"],
-                "properties": {
-                    "strategy": {
-                        "type": "string",
-                        "enum": ["inactivity"],
-                        "description": "Evaluate once the unit has had no new activity for the quiet period.",
-                    },
-                    "quiet_period_seconds": {
-                        "type": "integer",
-                        "description": (
-                            "Seconds without new activity before the unit counts as settled. The accepted "
-                            f"range depends on `target`: {TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS}–"
-                            f"{TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS} for 'trace', "
-                            f"{SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS}–{SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS} "
-                            "for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                        "minimum": min(TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS, SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS),
-                        "maximum": max(TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS, SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS),
-                    },
-                    "max_age_seconds": {
-                        "type": "integer",
-                        "description": (
-                            "Hard cap in seconds on the total wait from the first matching generation, even "
-                            "if the unit stays active. Must be at least quiet_period_seconds. The accepted "
-                            f"range depends on `target`: {TRACE_EVAL_MIN_MAX_AGE_SECONDS}–"
-                            f"{TRACE_EVAL_MAX_MAX_AGE_SECONDS} for 'trace', "
-                            f"{SESSION_EVAL_MIN_MAX_AGE_SECONDS}–{SESSION_EVAL_MAX_MAX_AGE_SECONDS} for 'session'. "
-                            "The default also depends on `target`; see the field-level help_text."
-                        ),
-                        "minimum": min(TRACE_EVAL_MIN_MAX_AGE_SECONDS, SESSION_EVAL_MIN_MAX_AGE_SECONDS),
-                        "maximum": max(TRACE_EVAL_MAX_MAX_AGE_SECONDS, SESSION_EVAL_MAX_MAX_AGE_SECONDS),
-                    },
-                },
-                "additionalProperties": False,
+            "window_seconds": {
+                "type": "integer",
+                "description": (
+                    "fixed_window only. Seconds to wait after the first matching generation before evaluating "
+                    "the whole unit. Captured when the run is scheduled — editing it does not change runs "
+                    "already in flight. The accepted range depends on `target`: "
+                    f"{TRACE_EVAL_MIN_WINDOW_SECONDS}–{TRACE_EVAL_MAX_WINDOW_SECONDS} for 'trace', "
+                    f"{SESSION_EVAL_MIN_WINDOW_SECONDS}–{SESSION_EVAL_MAX_WINDOW_SECONDS} for 'session'. "
+                    "The default also depends on `target`; see the field-level help_text."
+                ),
+                "minimum": min(TRACE_EVAL_MIN_WINDOW_SECONDS, SESSION_EVAL_MIN_WINDOW_SECONDS),
+                "maximum": max(TRACE_EVAL_MAX_WINDOW_SECONDS, SESSION_EVAL_MAX_WINDOW_SECONDS),
             },
-        ],
-        "discriminator": {"propertyName": "strategy"},
+            "quiet_period_seconds": {
+                "type": "integer",
+                "description": (
+                    "inactivity only. Seconds without new activity before the unit counts as settled. The "
+                    f"accepted range depends on `target`: {TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS}–"
+                    f"{TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS} for 'trace', "
+                    f"{SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS}–{SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS} "
+                    "for 'session'. The default also depends on `target`; see the field-level help_text."
+                ),
+                "minimum": min(TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS, SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS),
+                "maximum": max(TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS, SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS),
+            },
+            "max_age_seconds": {
+                "type": "integer",
+                "description": (
+                    "inactivity only. Hard cap in seconds on the total wait from the first matching generation, "
+                    "even if the unit stays active. Must be at least quiet_period_seconds. The accepted range "
+                    f"depends on `target`: {TRACE_EVAL_MIN_MAX_AGE_SECONDS}–{TRACE_EVAL_MAX_MAX_AGE_SECONDS} "
+                    f"for 'trace', {SESSION_EVAL_MIN_MAX_AGE_SECONDS}–{SESSION_EVAL_MAX_MAX_AGE_SECONDS} for "
+                    "'session'. The default also depends on `target`; see the field-level help_text."
+                ),
+                "minimum": min(TRACE_EVAL_MIN_MAX_AGE_SECONDS, SESSION_EVAL_MIN_MAX_AGE_SECONDS),
+                "maximum": max(TRACE_EVAL_MAX_MAX_AGE_SECONDS, SESSION_EVAL_MAX_MAX_AGE_SECONDS),
+            },
+        },
+        "additionalProperties": False,
     }
 )
 class _TargetConfigField(serializers.JSONField):
@@ -444,11 +431,10 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     target_config = _TargetConfigField(
         required=False,
         help_text=(
-            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on "
-            "`strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, "
-            "max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, "
-            "using per-target defaults, and the accepted bounds also depend on `target`. "
-            "Empty for 'generation'."
+            "Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a "
+            "settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, "
+            "max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other "
+            "field you omit, using per-target defaults, and the accepted bounds also depend on `target`."
         ),
     )
     conditions = EvaluationConditionSerializer(
