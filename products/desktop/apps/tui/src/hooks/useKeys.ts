@@ -122,6 +122,7 @@ export function useKeys({
 
   useInput((input, key) => {
     const shortcut = shortcutFor(input, key);
+    if (shortcut === "searchFullScreen") return search.toggle();
     if (shortcut === "search") {
       // From an empty pane in a split, the search draws in that pane and its pick fills it.
       const focused = findPane(layout, workspace.focusedPaneId);
@@ -152,6 +153,11 @@ export function useKeys({
     // The open search, settings or help take every other key through onKey.
     if (search.open || settings.open || help.open) return;
     // Inside a split workspace a new chat takes the focused pane; elsewhere it takes the main view.
+    if (shortcut === "newChatOutside") {
+      track("chat opened", { via: "shortcut", in_split: false });
+      setLayout(newChat);
+      return;
+    }
     if (shortcut === "newChat") {
       const inSplit = activeWorkspace(layout).root.kind === "split";
       track("chat opened", { via: "shortcut", in_split: inSplit });

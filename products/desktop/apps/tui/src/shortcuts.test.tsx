@@ -53,10 +53,13 @@ describe("shortcutFor", () => {
     ["kitty Ctrl+R", "\x1b[114;5u", "reload"],
     ["kitty Ctrl+Q", "\x1b[113;5u", "quit"],
     ["kitty Ctrl+N", "\x1b[110;5u", "newChat"],
+    ["kitty Ctrl+Shift+N", "\x1b[110;6u", "newChatOutside"],
     ["legacy Ctrl+B", "\x02", "toggleSidebar"],
     ["kitty Cmd+B", "\x1b[98;9u", "toggleSidebar"],
     ["legacy Ctrl+K", "\x0b", "search"],
     ["kitty Cmd+K", "\x1b[107;9u", "search"],
+    ["kitty Ctrl+Shift+K", "\x1b[107;6u", "searchFullScreen"],
+    ["kitty Cmd+Shift+K", "\x1b[107;10u", "searchFullScreen"],
     ["plain s", "s", null],
     ["Tab", "\t", null],
   ])("%s", async (_, bytes, expected) => {

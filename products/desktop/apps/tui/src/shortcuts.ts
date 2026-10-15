@@ -5,7 +5,9 @@ export type Shortcut =
   | "splitDown"
   | "close"
   | "newChat"
+  | "newChatOutside"
   | "search"
+  | "searchFullScreen"
   | "settings"
   | "quit"
   | "reload"
@@ -22,8 +24,12 @@ export function shortcutFor(input: string, key: Key): Shortcut | null {
     return "splitDown";
   if (input === "\x1c" || (modified && input === "\\")) return "splitRight";
   if (key.ctrl && (letter === "c" || letter === "d")) return "close";
+  // Shift needs the kitty keyboard protocol: a legacy terminal sends Ctrl+Shift+N as Ctrl+N.
+  if (key.ctrl && key.shift && letter === "n") return "newChatOutside";
   if (key.ctrl && letter === "n") return "newChat";
   // Most macOS terminals keep Cmd+K for clearing the screen, so Ctrl+K searches too.
+  if ((key.ctrl || key.super) && key.shift && letter === "k")
+    return "searchFullScreen";
   if ((key.ctrl || key.super) && letter === "k") return "search";
   if (key.ctrl && input === ";") return "settings";
   if (key.ctrl && letter === "q") return "quit";
