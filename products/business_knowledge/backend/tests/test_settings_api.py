@@ -361,7 +361,15 @@ class TestBusinessKnowledgeSettingsResourceLevelAccess(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).learn_from_support_enabled is False
 
-    def test_a_child_environment_grant_does_not_create_project_libraries(self, _ff) -> None:
+    @parameterized.expand(
+        [
+            ("create_library", "post", "libraries/", {"name": "Docs"}),
+            ("search_documents", "get", "documents/search/", {"query": "refund"}),
+        ]
+    )
+    def test_a_child_environment_grant_does_not_open_project_knowledge(
+        self, _ff, _name: str, method: str, path: str, data: dict[str, str]
+    ) -> None:
         environment = Team.objects.create(
             organization=self.organization, parent_team=self.team, project=self.team.project, name="Child environment"
         )
@@ -369,9 +377,8 @@ class TestBusinessKnowledgeSettingsResourceLevelAccess(APIBaseTest):
             team=environment, resource="business_knowledge", access_level="editor", organization_member=self.membership
         )
 
-        response = self.client.post(
-            f"/api/projects/{environment.id}/business_knowledge/libraries/", {"name": "Docs"}, format="json"
-        )
+        url = f"/api/projects/{environment.id}/business_knowledge/{path}"
+        response = self.client.post(url, data, format="json") if method == "post" else self.client.get(url, data)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert not KnowledgeLibrary.objects.unscoped().filter(team_id=self.team.id).exists()

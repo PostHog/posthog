@@ -681,6 +681,14 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = self._parse_int_param(request, "limit", required=False, default=BK_SEARCH_DEFAULT_LIMIT)
         limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
         rerank = self._parse_bool_param(request, "rerank", default=False)
+        # Search reads the parent project's rows, so a child environment's own token scope and grant are not enough.
+        if self.team.parent_team_id and not (
+            CanonicalTeamTokenPermission().has_permission(request, self)
+            and canonical_user_access_control(self).check_access_level_for_resource("business_knowledge", "viewer")
+        ):
+            raise exceptions.PermissionDenied(
+                detail="You need access to business knowledge in this project to search it."
+            )
         library_id = self._search_library_id(request)
         search_limit = limit * 2 if rerank else limit
         trace = RetrievalTrace(surface="api")
