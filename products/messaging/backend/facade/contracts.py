@@ -1,6 +1,3 @@
-from posthog.dataclasses import frozen
-
-
 class UnlayerError(Exception):
     pass
 
@@ -29,38 +26,3 @@ class MarketingTemplate(TransactionalEmailError):
 
 class SenderUnavailable(TransactionalEmailError):
     code = "sender_unavailable"
-
-
-class TemplateNotTransactional(TransactionalEmailError):
-    code = "template_not_transactional"
-
-
-class TransactionalEmailPaused(TransactionalEmailError):
-    code = "transactional_email_paused"
-
-
-class InvalidRecipient(TransactionalEmailError):
-    code = "invalid_recipient"
-
-
-class QuotaLimited(TransactionalEmailError):
-    code = "quota_limited"
-
-
-class SendInProgress(TransactionalEmailError):
-    code = "idempotency_conflict"
-
-
-class IdempotencyKeyReused(TransactionalEmailError):
-    code = "idempotency_key_reused"
-
-
-class DeliveryUnavailable(Exception):
-    """The email pipeline did not accept the send. Safe to retry."""
-
-
-@frozen
-class QueuedEmail:
-    message_id: str
-    # True when an earlier request with the same idempotency key already queued this email.
-    replayed: bool

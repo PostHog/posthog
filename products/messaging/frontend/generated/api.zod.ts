@@ -593,31 +593,3 @@ export const MessagingTemplatesMakeTransactionalCreateBody = /* @__PURE__ */ zod
             "ID of the verified email sender integration the email is sent from. Defaults to the project's default sender."
         ),
 })
-
-/**
- * Send one transactional email from this template to one recipient. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Pass an `Idempotency-Key` header to make retries safe.
- * @summary Send a transactional email
- */
-export const messagingTemplatesSendCreateBodyIdentifiersOneDistinctIdMax = 400
-
-export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
-    to: zod.email().describe('Email address of the recipient.'),
-    identifiers: zod
-        .object({
-            distinct_id: zod
-                .string()
-                .max(messagingTemplatesSendCreateBodyIdentifiersOneDistinctIdMax)
-                .nullish()
-                .describe(
-                    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
-                ),
-        })
-        .optional()
-        .describe('Who the email is for, used to attribute engagement events.'),
-    message_data: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Data for the template\'s Liquid placeholders, available as `variables`. For example `{\"reset_link\": \"https:\/\/...\"}` fills `{{ variables.reset_link }}`.'
-        ),
-})
