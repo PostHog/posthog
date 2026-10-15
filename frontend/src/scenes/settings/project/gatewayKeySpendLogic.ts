@@ -82,18 +82,18 @@ export interface gatewayKeySpendLogicValues {
 export interface gatewayKeySpendLogicActions {
     loadKeysSuccess: (
         keys: ProjectSecretAPIKeyApi[],
-        payload?: {
-            value: true
-        }
+        payload?:
+            | {
+                  value: true
+              }
+            | undefined
     ) => {
         keys: ProjectSecretAPIKeyApi[]
         payload?: {
             value: true
         }
     } // projectSecretAPIKeysLogic
-    loadSpend: () => {
-        value: true
-    }
+    loadSpend: () => any
     loadSpendFailure: (
         error: string,
         errorObject?: any
@@ -103,14 +103,10 @@ export interface gatewayKeySpendLogicActions {
     }
     loadSpendSuccess: (
         spend: GatewayCredentialSpend[],
-        payload?: {
-            value: true
-        }
+        payload?: any
     ) => {
         spend: GatewayCredentialSpend[]
-        payload?: {
-            value: true
-        }
+        payload?: any
     }
 }
 
