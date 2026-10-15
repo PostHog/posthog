@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import sys
 import time
 import signal
 import threading
@@ -18,13 +17,15 @@ from prompt_toolkit.input import Input, create_input
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 from prompt_toolkit.layout import HSplit, Layout
-from prompt_toolkit.output import Output, create_output
+from prompt_toolkit.output import Output
+from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.search import start_search
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import Frame, Label, RadioList, SearchToolbar, TextArea
 
 from ..log_sink import _case_log_slug
 from .progress import TERMINAL_PHASES, TrialProgress
+from .terminal import open_terminal
 
 
 class EvalDashboard:
@@ -297,13 +298,15 @@ class EvalDashboard:
 @contextmanager
 def open_dashboard(transcript: Path) -> Iterator[EvalDashboard]:
     with (
-        os.fdopen(os.dup(sys.stdout.fileno()), "w", encoding="utf-8") as terminal,
-        closing(create_input(sys.stdin)) as input,
+        open_terminal() as terminal,
+        closing(create_input(terminal.input)) as input,
     ):
         dashboard = EvalDashboard(
             transcript,
             input=input,
-            output=create_output(stdout=terminal),
+            output=Vt100_Output.from_pty(
+                terminal.output, term="xterm-256color" if os.getenv("TERM") == "dumb" else os.getenv("TERM")
+            ),
             cancel=lambda: os.kill(os.getpid(), signal.SIGINT),
         )
         with dashboard.display():

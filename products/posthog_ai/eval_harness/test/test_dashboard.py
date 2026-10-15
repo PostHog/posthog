@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import os
+import sys
 import asyncio
 from pathlib import Path
 
 import pytest
 
+import pexpect
 from prompt_toolkit.application import Application
 from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input import create_pipe_input
@@ -109,3 +112,36 @@ async def test_dashboard_shows_trial_results_and_supports_logs_search_and_safe_c
             if dashboard.application.is_running:
                 dashboard.application.exit()
             await asyncio.wait_for(task, timeout=5)
+
+
+@pytest.mark.parametrize("mode", ["dumb", "stderr", "redirected"])
+def test_dashboard_opens_through_hogli_with_redirected_streams(tmp_path: Path, mode: str) -> None:
+    runner = (
+        "from pathlib import Path; "
+        "from products.posthog_ai.eval_harness.harness import __main__ as harness; "
+        "create = harness.RunTranscript.create; "
+        f"harness.RunTranscript.create = lambda: create(Path({str(tmp_path)!r})); "
+        "harness._run = lambda *args, **kwargs: 0; "
+        f"raise SystemExit(harness.main({[] if mode == 'stderr' else ['--tui']!r}))"
+    )
+    launcher = (
+        "import os, sys; "
+        "from hogli.command_types import _run; "
+        "terminal = os.dup(0); "
+        "null = os.open(os.devnull, os.O_RDWR); "
+        f"[os.dup2(null, fd) for fd in {([0, 1, 2] if mode == 'redirected' else [2])!r}]; "
+        "_run([sys.executable, '-c', sys.argv[1]])"
+    )
+    environment = dict(os.environ, TERM="dumb" if mode == "dumb" else "xterm-256color")
+    environment.pop("CI", None)
+    with pexpect.spawn(
+        sys.executable, ["-c", launcher, runner], env=environment, encoding="utf-8", timeout=20
+    ) as child:
+        child.expect("Results ready")
+        child.send("q")
+        child.expect(pexpect.EOF)
+    assert child.exitstatus == 0
+    transcript = next(path for path in tmp_path.glob("*.log") if not path.is_symlink())
+    text = transcript.read_text()
+    assert "\x1b" not in text
+    assert text.splitlines()[-1] == str(transcript)

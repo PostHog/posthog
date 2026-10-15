@@ -40,6 +40,7 @@ A run of one-shot suites never pays for — or fails preflight on — the sandbo
 | `transcript.py`    | Mirrors stdout and stderr to one run log, then publishes its absolute path as the final line.                                     |
 | `dashboard.py`     | Interactive terminal view, input handling, and bounded log reads. Runs separately from the eval loop.                             |
 | `progress.py`      | Immutable trial progress shared by the reporter and interactive view.                                                             |
+| `terminal.py`      | Opens terminal streams without sharing the descriptors used by transcript capture.                                                |
 | `lifecycle.py`     | `SandboxedEvalHarness`: orchestrates bootstrap, the run, and teardown.                                                            |
 
 ## Boot sequence
@@ -82,7 +83,9 @@ The runner starts workflow cleanup before progress reporting.
 Cancellation during progress reporting does not stop workflow cleanup.
 The sandbox window always reclaims notebook kernels after the agent run, without another progress report.
 Interactive terminals use the dashboard by default. CI, pipes, and `--no-tui` use concise text output.
-`--tui` requires an interactive terminal. `--verbose` shows detailed logging and tracebacks.
+`--tui` overrides CI and `TERM=dumb` detection and opens `/dev/tty` when standard input or output is redirected.
+Redirected stderr does not disable automatic detection. Sessions without a controlling terminal use text output.
+`--verbose` shows detailed logging and tracebacks.
 Both modes retain detailed logs in the transcript, including routine service stderr without a warning label.
 
 The reporter publishes immutable trial updates to the dashboard; the view does not parse log lines to infer case state.

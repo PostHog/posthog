@@ -11,6 +11,7 @@ from .django_env import setup_django
 from .env_preflight import load_env_file
 from .ports import PERSONHOG_ROUTER_PORT
 from .providers import SANDBOX_PROVIDER_SETTING, PreflightError
+from .terminal import open_terminal
 from .transcript import RunTranscript, write_console
 
 if TYPE_CHECKING:
@@ -74,10 +75,20 @@ def _configure_logging(transcript: RunTranscript | None = None, *, verbose: bool
 
 
 def use_dashboard(options: HarnessOptions) -> bool:
-    terminal = sys.stdin.isatty() and sys.stdout.isatty() and sys.stderr.isatty() and os.getenv("TERM") != "dumb"
-    if options.interactive is True and not terminal:
-        raise PreflightError("--tui requires an interactive terminal. Use --no-tui for redirected output.")
-    return terminal and (options.interactive if options.interactive is not None else not os.getenv("CI"))
+    if options.interactive is False:
+        return False
+    terminal = sys.stdin.isatty() and sys.stdout.isatty()
+    if options.interactive is True:
+        if not terminal:
+            try:
+                with open_terminal():
+                    pass
+            except OSError as error:
+                raise PreflightError(
+                    f"--tui could not open this session's terminal: {error}. Use --no-tui for a session without a terminal."
+                ) from error
+        return True
+    return terminal and os.getenv("TERM") != "dumb" and not os.getenv("CI")
 
 
 def main(argv: list[str] | None = None) -> int:

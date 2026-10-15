@@ -77,7 +77,7 @@ python -m products.posthog_ai.eval_harness.harness --list
 | `--create-db`                     | Rebuild the eval test database instead of reusing it.                                                    |
 | `--case-timeout <seconds>`        | Agent-run budget (minimum 1 second), started after the case's team setup.                                |
 | `--verbose`                       | Show detailed logs and tracebacks in the console. The transcript always keeps the detailed logs.         |
-| `--tui`                           | Force the interactive view. Requires an interactive terminal.                                            |
+| `--tui`                           | Force the interactive view using the session's terminal, including when standard streams are redirected. |
 | `--no-tui`                        | Use plain text output, including in an interactive terminal.                                             |
 | `--trials N`                      | Run every case N times (Braintrust trials), for variance on stochastic agents.                           |
 | `--infra-retries N`               | Retry temporary case setup failures and service readiness timeouts N times. Default 2; use 0 to disable. |
@@ -111,7 +111,7 @@ A timeout summary contains the failure reason. Its raw log file can be empty; th
 
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.
-Interactive terminals show a live view by default. CI and redirected output use plain text.
+Interactive terminals show a live view by default. CI and redirected standard input or output use plain text.
 Plain text output shows runner progress, summaries, and short error messages.
 Dependency warnings, SDK progress bars, and direct setup prints stay in the transcript.
 `--verbose` also shows Python warnings, SDK output, and detailed logs in the console.
@@ -137,6 +137,8 @@ During agent execution, use this transcript for live logs. Per-trial log files b
 
 The final results stay visible until you close the view. The terminal then prints the final summary and transcript path.
 Use `--no-tui` for the existing text output. `--verbose` adds detailed messages to the view or text output.
+`--tui` overrides automatic detection, including `TERM=dumb` and CI. It uses `/dev/tty` when a launcher redirects standard input or output.
+Redirecting stderr alone does not disable the view. A session without an attached terminal still requires `--no-tui`.
 The view does not change scores, retries, timeouts, or sandbox cleanup. Its screen controls are not written to the transcript.
 
 ### Comparing skill delivery

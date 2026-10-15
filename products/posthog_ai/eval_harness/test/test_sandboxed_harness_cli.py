@@ -38,29 +38,42 @@ def test_console_output_detail(argv: list[str], verbose: bool) -> None:
 
 
 @pytest.mark.parametrize(
-    "argv,tty,ci,term,expected",
+    "argv,tty,ci,term,controlling_terminal,expected",
     [
-        ([], True, False, "xterm-256color", True),
-        ([], False, False, "xterm-256color", False),
-        ([], True, True, "xterm-256color", False),
-        ([], True, False, "dumb", False),
-        (["--no-tui"], True, False, "xterm-256color", False),
-        (["--tui"], True, True, "xterm-256color", True),
-        (["--tui"], False, False, "xterm-256color", None),
+        ([], True, False, "xterm-256color", False, True),
+        ([], False, False, "xterm-256color", True, False),
+        ([], True, True, "xterm-256color", False, False),
+        ([], True, False, "dumb", False, False),
+        (["--no-tui"], True, False, "xterm-256color", False, False),
+        (["--tui"], True, True, "xterm-256color", False, True),
+        (["--tui"], True, False, "dumb", False, True),
+        (["--tui"], False, False, "xterm-256color", True, True),
+        (["--tui"], False, False, "xterm-256color", False, None),
     ],
 )
 def test_interactive_output_selection(
-    monkeypatch: pytest.MonkeyPatch, argv: list[str], tty: bool, ci: bool, term: str, expected: bool | None
+    monkeypatch: pytest.MonkeyPatch,
+    argv: list[str],
+    tty: bool,
+    ci: bool,
+    term: str,
+    controlling_terminal: bool,
+    expected: bool | None,
 ) -> None:
-    for stream in ("stdin", "stdout", "stderr"):
+    for stream in ("stdin", "stdout"):
         monkeypatch.setattr(f"sys.{stream}.isatty", MagicMock(return_value=tty))
+    monkeypatch.setattr("sys.stderr.isatty", MagicMock(return_value=False))
+    terminal = MagicMock()
+    if not controlling_terminal:
+        terminal.side_effect = OSError("No controlling terminal")
+    monkeypatch.setattr("products.posthog_ai.eval_harness.harness.__main__.open_terminal", terminal)
     monkeypatch.setenv("TERM", term)
     if ci:
         monkeypatch.setenv("CI", "true")
     else:
         monkeypatch.delenv("CI", raising=False)
     if expected is None:
-        with pytest.raises(PreflightError, match="interactive terminal"):
+        with pytest.raises(PreflightError, match="No controlling terminal"):
             use_dashboard(parse_args(argv))
     else:
         assert use_dashboard(parse_args(argv)) is expected
