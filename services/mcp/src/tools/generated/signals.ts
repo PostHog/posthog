@@ -365,6 +365,45 @@ const inboxReportsClaim = (): ToolBase<
     },
 })
 
+const InboxReportsFeedbackCreateSchema = () => {
+    const SignalsReportsFeedbackCreateBody = orvalSchemas.SignalsReportsFeedbackCreateBody()
+    const SignalsReportsFeedbackCreateParams = orvalSchemas.SignalsReportsFeedbackCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['report_id'] }),
+        SignalsReportsFeedbackCreateParams.omit({ project_id: true })
+            .extend(SignalsReportsFeedbackCreateBody.shape)
+            .extend({
+                note: SignalsReportsFeedbackCreateBody.shape['note']
+                    .nonoptional()
+                    .describe("The person's context for why the report was or was not useful, up to 4000 characters."),
+            })
+    )
+}
+
+const inboxReportsFeedbackCreate = (): ToolBase<
+    ReturnType<typeof InboxReportsFeedbackCreateSchema>,
+    WithPostHogUrl<Schemas.SignalReportFeedbackResponse>
+> => ({
+    name: 'inbox-reports-feedback-create',
+    schema: InboxReportsFeedbackCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsFeedbackCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.sentiment !== undefined) {
+            body['sentiment'] = params.sentiment
+        }
+        if (params.note !== undefined) {
+            body['note'] = params.note
+        }
+        const result = await context.api.request<Schemas.SignalReportFeedbackResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/feedback/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.id}`)
+    },
+})
+
 const InboxReportsLeaveReviewersSchema = () => {
     const SignalsReportsReviewersMeDestroyParams = orvalSchemas.SignalsReportsReviewersMeDestroyParams()
     return z.preprocess(
@@ -3113,6 +3152,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-checks-retrieve': inboxReportChecksRetrieve,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
+    'inbox-reports-feedback-create': inboxReportsFeedbackCreate,
     'inbox-reports-leave-reviewers': inboxReportsLeaveReviewers,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-merge': inboxReportsMerge,
