@@ -44,8 +44,8 @@ export interface watchFeedLogicValues {
     emptyReason: WatchFeedEmptyReason | null
     feedFailed: boolean
     feedItems: WatchFeedItemApi[] | null
-    feedLoad: WatchFeedLoad | null
     feedItemsLoading: boolean
+    feedLoad: WatchFeedLoad | null
     feedRanker: WatchFeedRanker
     feedRankerVariant: string | null
     hasFeedFilters: boolean
