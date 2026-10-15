@@ -161,7 +161,7 @@ function DataPin(props: PinCardProps): ReactElement {
 
 function dataSecondLine(pin: PinView, data: PinData): string {
     if (pin.kind === 'dashboard') {
-        return data.snapshot ? `From tile: ${data.snapshot.name}` : 'Dashboard'
+        return data.snapshot ? data.snapshot.name : 'Dashboard'
     }
     return data.rangeLabel ?? viewTypeLabel(pin.kind) ?? ''
 }
