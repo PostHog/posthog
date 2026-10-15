@@ -93,6 +93,7 @@ jobs:
                         - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
                         # replay-core-v4's tests read the encryption vectors the Node writers pin
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json'
+                        - 'nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json'
                       all_crates:
                         # Pins the service images that every crate's tests run against.
                         # A determinator rule would also rebuild and deploy every Rust image.
@@ -924,6 +925,7 @@ jobs:
                       .github/actions/setup-rust/
                       .github/actions/setup-sccache/
                       nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json
+                      nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json
                   sparse-checkout-cone-mode: false
                   clean: false
 

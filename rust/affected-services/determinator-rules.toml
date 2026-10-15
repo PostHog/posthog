@@ -55,7 +55,10 @@ mark-changed = ["feature-flags", "hypercache-server", "common-hypercache"]
 # replay-core-v4's tests read the encryption vectors the Node writers pin.
 # Must come BEFORE the catch-all rule below.
 [[path-rule]]
-globs = ["../nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json"]
+globs = [
+    "../nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json",
+    "../nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json",
+]
 mark-changed = ["replay-core-v4"]
 
 # Django migrations and test environment setup — needed for Rust integration tests.

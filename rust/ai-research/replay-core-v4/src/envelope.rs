@@ -6,6 +6,8 @@
 
 use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use serde_json::{Map, Value};
 
 pub const MAGIC: &[u8; 6] = b"AISR03";
@@ -209,4 +211,51 @@ pub fn open_frame(
     cipher
         .decrypt(Nonce::from_slice(nonce), Payload { msg: sealed, aad })
         .map_err(|_| EnvelopeError::Authentication)
+}
+
+/// Seals a Parquet column value as the base64 JSON envelope `{v, context, nonce, ciphertext}`.
+///
+/// The context carries no codec, as in v3: a column value is stored as it is.
+pub fn seal_json_envelope(
+    key: &[u8; 32],
+    version: Version,
+    context: &Context,
+    data: &[u8],
+) -> Result<Value, EnvelopeError> {
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    seal_json_envelope_with_nonce(key, version, context, data, nonce.into())
+}
+
+/// Seals with a caller-chosen nonce. Only the test vectors may fix a nonce.
+pub fn seal_json_envelope_with_nonce(
+    key: &[u8; 32],
+    version: Version,
+    context: &Context,
+    data: &[u8],
+    nonce: [u8; NONCE_BYTES],
+) -> Result<Value, EnvelopeError> {
+    let context = Context {
+        codec: None,
+        ..context.clone()
+    };
+    let aad = context.authenticated_data(version);
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let sealed = cipher
+        .encrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: data,
+                aad: aad.as_bytes(),
+            },
+        )
+        .map_err(|_| EnvelopeError::Authentication)?;
+    let mut envelope = Map::new();
+    envelope.insert("v".to_owned(), Value::from(version as u8));
+    envelope.insert("context".to_owned(), context.to_json());
+    envelope.insert("nonce".to_owned(), Value::from(STANDARD.encode(nonce)));
+    envelope.insert(
+        "ciphertext".to_owned(),
+        Value::from(STANDARD.encode(sealed)),
+    );
+    Ok(Value::Object(envelope))
 }

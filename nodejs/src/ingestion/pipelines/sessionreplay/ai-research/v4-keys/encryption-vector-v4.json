@@ -1,0 +1,85 @@
+{
+    "identity": {
+        "teamId": 7,
+        "sessionId": "019a2f3e-8c00-7000-8000-000000000007",
+        "keyMonth": "2026-10"
+    },
+    "teamMonthKey": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=",
+    "sessionKey": "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=",
+    "seal": {
+        "wrappingContext": "{\"key_month\":\"2026-10\",\"purpose\":\"ai-research-v4\",\"session_id\":\"019a2f3e-8c00-7000-8000-000000000007\",\"team_id\":\"7\"}",
+        "nonce": "AQEBAQEBAQEBAQEB",
+        "sealedKey": "SpmULtApvbzVgaaDPN9wHsAf/2Oss9E0x1ci6UXyJlW0x/SPQw4y2YUnsXdHa3Qo"
+    },
+    "derived": {
+        "imageContentKey": "TMcKFdIDguYjfA7sj0cJqIwd8vhEllFFqZmVdVxZXiU=",
+        "imageUrlKey": "EznI88z0aWgCTtrETGakWXAlbzeUoVa6QlRE5xVvJU0="
+    },
+    "block": {
+        "context": {
+            "teamId": 7,
+            "sessionId": "019a2f3e-8c00-7000-8000-000000000007",
+            "keyMonth": "2026-10",
+            "kind": "rrweb",
+            "codec": "brotli",
+            "ref": "blocks/dt=2026-10-15/1792056600000-00000000000000a7"
+        },
+        "aad": "{\"context\":{\"codec\":\"brotli\",\"keyMonth\":\"2026-10\",\"kind\":\"rrweb\",\"ref\":\"blocks/dt=2026-10-15/1792056600000-00000000000000a7\",\"sessionId\":\"019a2f3e-8c00-7000-8000-000000000007\",\"teamId\":7},\"v\":4}",
+        "plain": "WyIwMTlhMmYzZS04YzAwLTcwMDAtODAwMC0wMDAwMDAwMDAwYWEiLHsidHlwZSI6NCwidGltZXN0YW1wIjoxNzkyMDU2NjAwMDAwLCJkYXRhIjp7ImhyZWYiOiJodHRwczovL2FwcC5leGFtcGxlLmNvbS8iLCJ3aWR0aCI6MTI4MCwiaGVpZ2h0Ijo3MjB9fV0K",
+        "body": "G5IAAMRyW7fEy487XgX4VJ3h52BGZmXo5PSgXHmQ5XGQtd0pyW3M43W2wnrif4OxuvajhfKSISMZCp0a7pCJTEzDToG5DljMVXmlNB2CVAzBJr6/9W8g51Y+xm4e3RVgxRQEi1ooKMPZsKxc69kA",
+        "nonce": "AgICAgICAgICAgIC",
+        "frame": "QUlTUjAzAMJ7ImNvbnRleHQiOnsiY29kZWMiOiJicm90bGkiLCJrZXlNb250aCI6IjIwMjYtMTAiLCJraW5kIjoicnJ3ZWIiLCJyZWYiOiJibG9ja3MvZHQ9MjAyNi0xMC0xNS8xNzkyMDU2NjAwMDAwLTAwMDAwMDAwMDAwMDAwYTciLCJzZXNzaW9uSWQiOiIwMTlhMmYzZS04YzAwLTcwMDAtODAwMC0wMDAwMDAwMDAwMDciLCJ0ZWFtSWQiOjd9LCJ2Ijo0fQICAgICAgICAgICAopapByNwKNoPH/ihbj3AXYD+4YyDzWCCN0rVzbKBF9XkvGr0OdSj0IcHLAKwI5Co+NBY5ROuFQsgnPTkbJXBhkG31AkyXdUvLhZ46+0ErGaBXYoQ/vq5PlCdR0vwWsMAsBJmQDGjeyqMCUhBEG9+nnottaPXHKldM5P0DMY8Jc="
+    },
+    "image": {
+        "bytes": "c3ludGhldGljIHY0IGltYWdlIGJ5dGVz",
+        "ref": "image:v4:7:2026-10:oH9aUbxY9mFaUw8W0r85yD",
+        "context": {
+            "teamId": 7,
+            "keyMonth": "2026-10",
+            "kind": "image",
+            "codec": "none",
+            "ref": "image:v4:7:2026-10:oH9aUbxY9mFaUw8W0r85yD"
+        },
+        "nonce": "AwMDAwMDAwMDAwMD",
+        "frame": "QUlTUjAzAIN7ImNvbnRleHQiOnsiY29kZWMiOiJub25lIiwia2V5TW9udGgiOiIyMDI2LTEwIiwia2luZCI6ImltYWdlIiwicmVmIjoiaW1hZ2U6djQ6NzoyMDI2LTEwOm9IOWFVYnhZOW1GYVV3OFcwcjg1eUQiLCJ0ZWFtSWQiOjd9LCJ2Ijo0fQMDAwMDAwMDAwMDA6LthQY92R/FuILZQcxRv5PemuEz/YjwWGetXHQG2K6gLPycj9ptdhE="
+    },
+    "imageUrl": {
+        "bytes": "c3ludGhldGljIHY0IGZldGNoZWQgaW1hZ2UgYnl0ZXM=",
+        "ref": "imageurl:v4:7:2026-10:TEX0ajC0UkaOC9js5c7oqr",
+        "context": {
+            "teamId": 7,
+            "keyMonth": "2026-10",
+            "kind": "image-url",
+            "codec": "none",
+            "ref": "imageurl:v4:7:2026-10:TEX0ajC0UkaOC9js5c7oqr"
+        },
+        "nonce": "BgYGBgYGBgYGBgYG",
+        "frame": "QUlTUjAzAIp7ImNvbnRleHQiOnsiY29kZWMiOiJub25lIiwia2V5TW9udGgiOiIyMDI2LTEwIiwia2luZCI6ImltYWdlLXVybCIsInJlZiI6ImltYWdldXJsOnY0Ojc6MjAyNi0xMDpURVgwYWpDMFVrYU9DOWpzNWM3b3FyIiwidGVhbUlkIjo3fSwidiI6NH0GBgYGBgYGBgYGBga8E3CK+Pm3JojWgEgphrSGIg8HFZFiLLkBK3fy+X8ag5A8Kzp6xVYHOyi6K6kvXaY="
+    },
+    "url": {
+        "url": "https://images.example.com/logo.png",
+        "ref": "imageurl:v4:7:2026-10:TEX0ajC0UkaOC9js5c7oqr"
+    },
+    "index": {
+        "context": {
+            "teamId": 7,
+            "sessionId": "019a2f3e-8c00-7000-8000-000000000007",
+            "keyMonth": "2026-10",
+            "kind": "index",
+            "ref": "urls"
+        },
+        "data": "WyJodHRwczovL2FwcC5leGFtcGxlLmNvbS8iXQ==",
+        "envelope": {
+            "v": 4,
+            "context": {
+                "teamId": 7,
+                "sessionId": "019a2f3e-8c00-7000-8000-000000000007",
+                "keyMonth": "2026-10",
+                "kind": "index",
+                "ref": "urls"
+            },
+            "nonce": "BQUFBQUFBQUFBQUF",
+            "ciphertext": "nhsZnd2X2U77+Gj6yvwnTxG4HQcDV4SZ7RLk22m6BwbF3fJO2OnCV6h0K7o="
+        }
+    }
+}
