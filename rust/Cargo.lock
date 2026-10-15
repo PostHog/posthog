@@ -11019,22 +11019,31 @@ name = "replay-core-v4"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "anyhow",
  "async-trait",
  "aws-sdk-dynamodb",
  "aws-sdk-kms",
  "base64 0.22.1",
  "chrono",
+ "flate2",
  "futures",
  "governor",
  "hkdf",
  "hmac 0.12.1",
+ "libdeflater",
+ "lz4",
  "md5",
+ "memchr",
  "moka",
+ "percent-encoding",
+ "public-suffix",
  "rand 0.8.5",
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.18",
  "tokio",
+ "url",
+ "zstd 0.13.3",
 ]
 
 [[package]]
