@@ -780,7 +780,16 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 buildBIQuery(values.lastRunQuery?.config ?? values.config)?.node.chartSettings
             )
             if (values.lastRunQuery) {
-                actions.setLastRunQuery({ ...values.lastRunQuery, chartSettings })
+                const availableColumns = new Set(
+                    getBIScatterAxisOptions(values.lastRunQuery.config).map(({ value }) => value)
+                )
+                const axes = [chartSettings.xAxis, ...(chartSettings.yAxis ?? [])].filter((axis) => axis !== undefined)
+                if (
+                    values.lastRunQuery.config.chartType !== ChartDisplayType.ScatterPlot ||
+                    axes.every((axis) => availableColumns.has(axis.column))
+                ) {
+                    actions.setLastRunQuery({ ...values.lastRunQuery, chartSettings })
+                }
             }
             actions.syncWorksheetUrl()
             actions.recordWorksheet()

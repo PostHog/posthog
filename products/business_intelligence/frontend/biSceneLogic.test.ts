@@ -378,7 +378,7 @@ describe('biSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     })
 
-    it('swaps scatter axis labels and formatting with their columns, including numeric detail', async () => {
+    it.each(['x', 'y'] as const)('swaps scatter formatting and defers an unrun %s axis', async (pendingAxis) => {
         const state = {
             ...config,
             chartType: ChartDisplayType.ScatterPlot,
@@ -403,6 +403,23 @@ describe('biSceneLogic', () => {
             leftYAxisSettings: { label: 'Detail label' },
             yAxis: [{ column: 'event', settings: { formatting: { prefix: 'ID ' } } }],
         })
+        logic.actions.runQuery()
+        const displayed = logic.values.lastRunQuery
+        const previousOptions = new Set(getBIScatterAxisOptions(editor.values.config).map(({ value }) => value))
+        editor.actions.addFieldToShelf(
+            { ...eventField, id: 'amount', name: 'Amount', expression: 'amount', type: 'float' },
+            'values'
+        )
+        const pendingColumn = getBIScatterAxisOptions(editor.values.config).find(
+            ({ value }) => !previousOptions.has(value)
+        )!.value
+        logic.actions.setScatterAxis(pendingAxis, pendingColumn)
+        expect(logic.values.lastRunQuery).toBe(displayed)
+        const axisColumn = (query: BIVisualizationNode): string | undefined =>
+            pendingAxis === 'x' ? query.chartSettings?.xAxis?.column : query.chartSettings?.yAxis?.[0].column
+        expect(axisColumn(logic.values.worksheet)).toBe(pendingColumn)
+        logic.actions.runQuery()
+        expect(axisColumn(logic.values.lastRunQuery!)).toBe(pendingColumn)
         await expectLogic(logic).toFinishAllListeners()
     })
 
