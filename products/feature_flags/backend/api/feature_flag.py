@@ -1295,6 +1295,41 @@ class FeatureFlagExperimentSetMetadataSerializer(serializers.Serializer):
     )
 
 
+COHORT_NAMES_CONTEXT_KEY = "feature_flag_cohort_names"
+
+
+class FeatureFlagListSerializer(serializers.ListSerializer):
+    """Resolves the cohort names of every flag on a page in one query, instead of one query per flag.
+
+    The cohort ids live in each flag's JSON filters, so a queryset prefetch cannot select them. This is
+    the only hook DRF gives that sees the whole page.
+    """
+
+    def to_representation(self, data: Any) -> Any:
+        flags = list(data)
+        assert isinstance(self.child, FeatureFlagSerializer)
+        cohort_ids: set[int] = set()
+        for flag in flags:
+            config = decode_config(flag.get_filters())
+            # A document no reader can parse has no cohort names to show, and must not fail the page.
+            if isinstance(config, UnsupportedConfig):
+                continue
+            cohort_ids.update(references(config).cohort_ids)
+        cohort_names: dict[str, str | None] = {}
+        if cohort_ids:
+            cohort_names = {
+                str(cohort_id): name
+                for cohort_id, name in Cohort.objects.filter(
+                    id__in=cohort_ids, team__project_id=self.child.context["project_id"], deleted=False
+                ).values_list("id", "name")
+            }
+        self.child.context[COHORT_NAMES_CONTEXT_KEY] = cohort_names
+        try:
+            return super().to_representation(flags)
+        finally:
+            self.child.context.pop(COHORT_NAMES_CONTEXT_KEY, None)
+
+
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
     EvaluationContextSerializerMixin,
@@ -1364,6 +1399,7 @@ class FeatureFlagSerializer(
 
     class Meta:
         model = FeatureFlag
+        list_serializer_class = FeatureFlagListSerializer
         fields = [
             "id",
             "name",
@@ -2953,20 +2989,10 @@ class FeatureFlagSerializer(
         representation = super().to_representation(instance)
         filters = representation.get("filters", {})
 
-        # Get all cohort IDs used in the feature flag
-        cohort_ids = set()
-        for cohort_prop in self._get_cohort_properties_from_filters(filters):
-            cohort_ids.add(cohort_prop.get("value"))
-
-        # Use prefetched cohorts if available
-        if hasattr(instance.team, "available_cohorts"):
-            cohorts = {
-                str(cohort.id): cohort.name
-                for cohort in instance.team.available_cohorts
-                if str(cohort.id) in map(str, cohort_ids)
-            }
-        else:
-            # Fallback to database query if cohorts weren't prefetched
+        # FeatureFlagListSerializer resolves the names of a whole page. Retrieve and writes serialize one flag.
+        cohorts = self.context.get(COHORT_NAMES_CONTEXT_KEY)
+        if cohorts is None:
+            cohort_ids = {cohort_prop.get("value") for cohort_prop in self._get_cohort_properties_from_filters(filters)}
             cohorts = {
                 str(cohort.id): cohort.name
                 for cohort in Cohort.objects.filter(id__in=cohort_ids, team__project_id=self.context["project_id"])
@@ -4047,13 +4073,6 @@ class FeatureFlagViewSet(
                             "targeting_flag",
                             "internal_targeting_flag",
                         ).prefetch_related("actions"),
-                    )
-                )
-                .prefetch_related(
-                    Prefetch(
-                        "team__cohort_set",
-                        queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
-                        to_attr="available_cohorts",
                     )
                 )
             )
