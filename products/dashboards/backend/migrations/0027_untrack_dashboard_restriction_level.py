@@ -9,13 +9,14 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # The column is NOT NULL with no database default, so it has to become nullable before
-        # Django stops naming it in INSERTs. The RemoveField is state-only: the column and its
-        # data stay for the deploy that still reads them.
+        # New pods stop naming the column in INSERTs once it leaves model state, so the column
+        # needs a database default for the rolling deploy. Without it Postgres stores NULL, and a
+        # previous-release pod still runs `dashboard.restriction_level > EVERYONE_IN_PROJECT_CAN_EDIT`,
+        # which raises TypeError on None and cannot return the dashboard at all.
         migrations.AlterField(
             model_name="dashboard",
             name="restriction_level",
-            field=models.PositiveSmallIntegerField(null=True),
+            field=models.PositiveSmallIntegerField(null=True, db_default=21),
         ),
         untrack_field("dashboard", "restriction_level"),
     ]
