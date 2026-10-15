@@ -144,6 +144,8 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
                 "skills",
             ),
             ("event_not_a_dict", {"prompt": "p", "event": "boom"}, "event"),
+            ("repository_not_owner_slash_repo", {"prompt": "p", "repository": "just-a-name"}, "repository"),
+            ("repository_with_an_extra_segment", {"prompt": "p", "repository": "org/repo/extra"}, "repository"),
             (
                 "slack_context_missing_channel",
                 {"prompt": "p", "slack_context": {"integration_id": 1, "thread_ts": "1.0"}},

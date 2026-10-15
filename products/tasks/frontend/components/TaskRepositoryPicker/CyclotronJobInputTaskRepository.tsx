@@ -1,15 +1,57 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconGithub } from '@posthog/icons'
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { IconBrackets, IconGithub } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import type { CustomInputRendererProps } from 'lib/components/CyclotronJob/customInputRenderers'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
+type RepositoryInputMode = 'pick' | 'template'
+
+const isTemplated = (value: unknown): boolean => typeof value === 'string' && value.includes('{')
+
 export default function CyclotronJobInputTaskRepository({ value, onChange }: CustomInputRendererProps): JSX.Element {
+    const [mode, setMode] = useState<RepositoryInputMode>(isTemplated(value) ? 'template' : 'pick')
+
+    const onModeChange = (nextMode: RepositoryInputMode): void => {
+        if (nextMode === 'pick' && isTemplated(value)) {
+            onChange(null)
+        }
+        setMode(nextMode)
+    }
+
+    return (
+        <div className="flex items-center gap-2 flex-wrap">
+            <LemonSelect
+                size="small"
+                value={mode}
+                options={[
+                    { value: 'pick', label: 'Pick', icon: <IconGithub /> },
+                    { value: 'template', label: 'Template', icon: <IconBrackets /> },
+                ]}
+                onChange={onModeChange}
+                data-attr="task-repository-input-mode"
+            />
+            {mode === 'template' ? (
+                <LemonInput
+                    size="small"
+                    className="flex-1 min-w-60 font-mono"
+                    value={typeof value === 'string' ? value : ''}
+                    onChange={(repository) => onChange(repository || null)}
+                    placeholder="{event.properties.repository}"
+                    data-attr="task-repository-template"
+                />
+            ) : (
+                <RepositoryPicker value={value} onChange={onChange} />
+            )}
+        </div>
+    )
+}
+
+function RepositoryPicker({ value, onChange }: Pick<CustomInputRendererProps, 'value' | 'onChange'>): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
     const githubIntegrations = getIntegrationsByKind(['github'])
 
@@ -46,7 +88,7 @@ export default function CyclotronJobInputTaskRepository({ value, onChange }: Cus
     }
 
     return (
-        <div className="flex items-center gap-2 flex-wrap">
+        <>
             {githubIntegrations.length > 1 && (
                 <LemonSelect
                     size="small"
@@ -65,6 +107,6 @@ export default function CyclotronJobInputTaskRepository({ value, onChange }: Cus
                 onChange={(repository) => onChange(repository ?? null)}
                 showNoneOption
             />
-        </div>
+        </>
     )
 }

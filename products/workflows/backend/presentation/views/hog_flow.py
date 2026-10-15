@@ -298,9 +298,12 @@ from products.workflows.backend.presentation.views.hog_flow_batch_job import (
 )
 from products.workflows.backend.presentation.views.hog_flow_fields import (
     HOG_FLOW_VARIABLES_MAX_BYTES,
+    REPOSITORY_NAME,
+    REPOSITORY_NAME_ERROR,
     HogFlowActionTypeField,
     HogFlowMaskingSerializer,
     HogFlowVariableSerializer,
+    is_templated,
 )
 from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetContentRequestSerializer,
@@ -563,8 +566,6 @@ _RUN_SCOUT_TEMPLATE_ID = "template-posthog-run-scout"
 # The "Classify with AI" step. The classification endpoint refuses categories outside its limits with a
 # 400, which fails the step on every run, so a strict save applies the same limits.
 _CLASSIFY_TEMPLATE_ID = "template-posthog-classify"
-
-_REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 1
 MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 100
@@ -1392,10 +1393,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError({"inputs": {"skills": str(e)}})
 
         repository = (inputs.get("repository") or {}).get("value")
-        if repository and not _REPOSITORY_SHAPE.fullmatch(repository):
-            raise serializers.ValidationError(
-                {"inputs": {"repository": "Repository must be an organization/repo name like your-org/your-repo."}}
-            )
+        # A templated repository is only known once it renders, so the task API checks it at run time.
+        if repository and not is_templated(repository) and not REPOSITORY_NAME.fullmatch(repository):
+            raise serializers.ValidationError({"inputs": {"repository": REPOSITORY_NAME_ERROR}})
 
         model_value = (inputs.get("model") or {}).get("value") or {}
         model = model_value.get("model")
