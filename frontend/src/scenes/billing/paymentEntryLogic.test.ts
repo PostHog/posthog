@@ -408,30 +408,40 @@ describe('paymentEntryLogic', () => {
             const features = [
                 { key: AvailableFeature.GROUP_ANALYTICS, name: 'Group analytics', limit: null, note: null },
             ]
+            const billingResponse = deferred<[number, unknown]>()
+            let billingRequested = false
             let billingSaved = false
+            let organizationRequested = false
             useMocks({
                 get: {
-                    '/api/billing': async () => {
-                        await new Promise((resolve) => setTimeout(resolve, 50))
-                        billingSaved = true
-                        return [200, { customer_id: 'cus_paid', subscription_level: 'paid' }]
+                    '/api/billing': () => {
+                        billingRequested = true
+                        return billingResponse.promise
                     },
-                    [`/api/organizations/${organization.id}`]: () => [
-                        200,
-                        {
-                            ...organization,
-                            available_product_features: billingSaved
-                                ? features
-                                : organization.available_product_features,
-                        },
-                    ],
+                    [`/api/organizations/${organization.id}`]: () => {
+                        organizationRequested = true
+                        return [
+                            200,
+                            {
+                                ...organization,
+                                available_product_features: billingSaved
+                                    ? features
+                                    : organization.available_product_features,
+                            },
+                        ]
+                    },
                 },
                 post: { '/api/billing/activate': () => [200, { success: true }] },
             })
             logic = paymentEntryLogic()
             logic.mount()
             expect(userLogic.values.hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS)).toBe(false)
-            await expectLogic(logic, () => logic.actions.upgradeProducts('scale:scale', null)).toFinishAllListeners()
+            logic.actions.upgradeProducts('scale:scale', null)
+            await waitFor(() => expect(billingRequested).toBe(true))
+            expect(organizationRequested).toBe(false)
+            billingSaved = true
+            billingResponse.resolve([200, { customer_id: 'cus_paid', subscription_level: 'paid' }])
+            await expectLogic(logic).toFinishAllListeners()
             expect(userLogic.values.hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS)).toBe(true)
         })
 
