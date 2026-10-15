@@ -148,6 +148,25 @@ impl PersonRepair for PostgresStorage {
             .collect()
         };
 
+        let restored_ids =
+            insert_restored_distinct_ids(&mut tx, team_id, &absent, &inserted).await?;
+        // A person listed with distinct ids, none of which could be inserted, would be live with nothing
+        // pointing at it; it was inserted in this transaction, so removing it undoes the insert.
+        let unreachable: Vec<i64> = absent
+            .iter()
+            .filter(|p| !p.distinct_ids.is_empty() && !restored_ids.contains_key(&p.uuid))
+            .filter_map(|p| inserted.get(&p.uuid).copied())
+            .collect();
+        if !unreachable.is_empty() {
+            sqlx::query!(
+                "DELETE FROM posthog_person WHERE team_id = $1 AND id = ANY($2::bigint[])",
+                team_id as i32,
+                &unreachable
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
         // ON CONFLICT DO NOTHING waited for a concurrent insert of the same uuid and skipped it.
         let raced: Vec<Uuid> = absent
             .iter()
@@ -169,11 +188,26 @@ impl PersonRepair for PostgresStorage {
             .iter()
             .map(|p| {
                 if let Some(id) = inserted.get(&p.uuid) {
+                    let ids = restored_ids.get(&p.uuid).cloned().unwrap_or_default();
+                    let outcome = if p.distinct_ids.is_empty() || !ids.is_empty() {
+                        RestoreOutcome::Inserted
+                    } else {
+                        RestoreOutcome::NoDistinctId
+                    };
                     return Ok(RestoreResult {
                         uuid: p.uuid,
-                        outcome: RestoreOutcome::Inserted,
-                        person_id: *id,
-                        version: p.version,
+                        outcome,
+                        person_id: if outcome == RestoreOutcome::Inserted {
+                            *id
+                        } else {
+                            0
+                        },
+                        version: if outcome == RestoreOutcome::Inserted {
+                            p.version
+                        } else {
+                            0
+                        },
+                        restored_distinct_ids: ids,
                     });
                 }
                 let row = existing.get(&p.uuid).ok_or_else(|| {
@@ -188,6 +222,7 @@ impl PersonRepair for PostgresStorage {
                     },
                     person_id: row.id,
                     version: row.version,
+                    restored_distinct_ids: Vec::new(),
                 })
             })
             .collect()
@@ -303,6 +338,57 @@ impl PersonRepair for PostgresStorage {
             })
             .collect())
     }
+}
+
+/// Insert the requested distinct ids of each person this call inserted, where no row exists for them.
+/// Returns the inserted ids by person uuid.
+async fn insert_restored_distinct_ids(
+    tx: &mut Transaction<'static, Postgres>,
+    team_id: i64,
+    persons: &[&RestoredPerson],
+    inserted: &HashMap<Uuid, i64>,
+) -> StorageResult<HashMap<Uuid, Vec<String>>> {
+    let mut rows: Vec<(&str, i64, i64, Uuid)> = persons
+        .iter()
+        .filter_map(|p| inserted.get(&p.uuid).map(|id| (p, *id)))
+        .flat_map(|(p, id)| {
+            p.distinct_ids
+                .iter()
+                .map(move |(distinct_id, version)| (distinct_id.as_str(), id, *version, p.uuid))
+        })
+        .collect();
+    if rows.is_empty() {
+        return Ok(HashMap::new());
+    }
+    // Insert in distinct id order, so two calls racing on the same ids cannot deadlock.
+    rows.sort_unstable_by(|a, b| a.0.cmp(b.0));
+    let done: HashSet<String> = sqlx::query_scalar!(
+        r#"
+        INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version, is_deleted)
+        SELECT f.distinct_id, f.person_id, $1, f.version, false
+        FROM UNNEST($2::text[], $3::bigint[], $4::bigint[]) AS f(distinct_id, person_id, version)
+        ON CONFLICT (team_id, distinct_id) DO NOTHING
+        RETURNING distinct_id as "distinct_id!"
+        "#,
+        team_id as i32,
+        &rows.iter().map(|r| r.0.to_string()).collect::<Vec<_>>(),
+        &rows.iter().map(|r| r.1).collect::<Vec<_>>(),
+        &rows.iter().map(|r| r.2).collect::<Vec<_>>()
+    )
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .collect();
+    let mut by_person: HashMap<Uuid, Vec<String>> = HashMap::new();
+    for (distinct_id, _, _, uuid) in rows {
+        if done.contains(distinct_id) {
+            by_person
+                .entry(uuid)
+                .or_default()
+                .push(distinct_id.to_string());
+        }
+    }
+    Ok(by_person)
 }
 
 enum Planned {
