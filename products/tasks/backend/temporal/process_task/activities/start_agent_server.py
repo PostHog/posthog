@@ -181,16 +181,24 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
     missing working directory, every ACP ``session/new`` fails, and the health wait times out —
     repeated 5-minute attempts surfacing as a misleading "Failed to start agent server". Check
     the directory upfront and fail non-retryably with the actual reason instead.
+
+    The primary repository must be a git checkout, not only a directory: a failed clone can leave
+    an empty fallback workspace, and an agent started there plans work it can never commit or push.
+    Secondary repositories may legitimately use that empty fallback.
     """
     if not ctx.repositories:
         return
-    for repository in ctx.repositories:
+    for index, repository in enumerate(ctx.repositories):
         repo_path = sandbox_repo_path(repository)
-        result = sandbox.execute(f"test -d {shlex.quote(repo_path)}", timeout_seconds=10)
+        if index == 0:
+            probe = f"test -e {shlex.quote(f'{repo_path}/.git')}"
+        else:
+            probe = f"test -d {shlex.quote(repo_path)}"
+        result = sandbox.execute(probe, timeout_seconds=10)
         if result.exit_code != 0:
             raise SandboxMissingRepositoryError(
-                f"Repository {repository} is not present in the sandbox at {repo_path} — it was never "
-                "cloned (no snapshot restored and no usable GitHub credentials for this task)",
+                f"Repository {repository} has no checkout in the sandbox at {repo_path} (no snapshot "
+                "restored, no usable GitHub credentials, or the clone failed)",
                 {
                     "task_id": ctx.task_id,
                     "run_id": ctx.run_id,
