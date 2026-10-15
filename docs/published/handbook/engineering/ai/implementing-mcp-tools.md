@@ -603,7 +603,7 @@ The marker only controls schema inclusion. The endpoint stays reachable, and aut
 ## HogQL query schemas (WIP)
 
 [`frontend/src/queries/schema/schema-assistant-queries.ts`](https://github.com/PostHog/posthog/blob/master/frontend/src/queries/schema/schema-assistant-queries.ts) defines structured query types
-for the AI assistant (trends, funnels, retention, etc.).
+for the AI assistant (trends, funnels, retention, events tables, etc.).
 
 These schemas describe the shape of analytical queries with rich JSDoc comments
 that help agents generate correct HogQL.

@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog import schema
 from posthog.api.test.dashboards import DashboardAPI
@@ -22,6 +22,70 @@ from ee.api.test.base import LicensedTestMixin
 
 
 class TestMCPInsightSerializer(SimpleTestCase):
+    @parameterized.expand([("bare", False), ("wrapped", True)])
+    def test_normalizes_events_queries(self, _name: str, wrapped: bool) -> None:
+        source = {
+            "kind": "EventsQuery",
+            "select": ["event", "timestamp", "properties.example_property"],
+            "where": ["timestamp >= now() - interval 7 day"],
+            "properties": [{"type": "event", "key": "example_property", "operator": "exact", "value": ["example"]}],
+            "fixedProperties": [
+                {"type": "event", "key": "example_scope", "operator": "exact", "value": ["visible"]},
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"type": "event", "key": "example_group", "operator": "exact", "value": ["visible"]}
+                            ],
+                        }
+                    ],
+                },
+            ],
+            "events": ["example_event", "another_event"],
+            "filterTestAccounts": False,
+            "after": "2026-01-01T00:00:00Z",
+            "before": "2026-01-08T00:00:00Z",
+            "orderBy": ["timestamp DESC"],
+            "limit": 25,
+            "offset": 10,
+        }
+        query: dict[str, Any] = (
+            {
+                "kind": "DataTableNode",
+                "source": source,
+                "columns": source["select"],
+                "pinnedColumns": ["event"],
+                "hiddenColumns": ["timestamp"],
+                "showAbsoluteTime": True,
+                "showPropertyFilter": True,
+                "showDateRange": True,
+                "expandable": False,
+            }
+            if wrapped
+            else source
+        )
+
+        normalized = MCPInsightSerializer().validate_query(query)
+
+        assert normalized == (query if wrapped else {"kind": "DataTableNode", "source": source})
+
+    @parameterized.expand(
+        [
+            ("other_table_source", {"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "select 1"}}),
+            ("missing_select", {"kind": "DataTableNode", "source": {"kind": "EventsQuery"}}),
+            ("invalid_select", {"kind": "EventsQuery", "select": "event"}),
+            (
+                "invalid_property_filter",
+                {"kind": "EventsQuery", "select": ["event"], "properties": [{"type": "invalid", "key": "example"}]},
+            ),
+        ]
+    )
+    def test_rejects_unsupported_or_malformed_events_tables(self, _name: str, query: dict[str, Any]) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            MCPInsightSerializer().validate_query(query)
+
     def test_preserves_explicit_box_plot_grouping_nulls(self) -> None:
         normalized_query = MCPInsightSerializer().validate_query(
             {
@@ -448,9 +512,28 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "DataVisualizationNode",
                 "HogQLQuery",
             ),
+            (
+                "raw_events_query",
+                {"kind": "EventsQuery", "select": ["event", "timestamp"], "event": "example_event", "limit": 25},
+                "DataTableNode",
+                "EventsQuery",
+            ),
+            (
+                "already_wrapped_events_table",
+                {
+                    "kind": "DataTableNode",
+                    "source": {"kind": "EventsQuery", "select": ["event", "timestamp"], "event": "example_event"},
+                    "showAbsoluteTime": True,
+                    "pinnedColumns": ["event"],
+                },
+                "DataTableNode",
+                "EventsQuery",
+            ),
         ]
     )
-    def test_mcp_create_normalizes_query(self, _name, query, expected_kind, expected_source_kind) -> None:
+    def test_mcp_create_and_update_normalize_query(
+        self, _name: str, query: dict[str, Any], expected_kind: str, expected_source_kind: str | None
+    ) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/",
             data={"name": "Test insight", "favorited": False, "saved": True, "query": query},
@@ -461,6 +544,18 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert response.json()["query"]["kind"] == expected_kind
         if expected_source_kind is not None:
             assert response.json()["query"]["source"]["kind"] == expected_source_kind
+
+        insight_id = response.json()["id"]
+        stored_query = Insight.objects.get(pk=insight_id).query
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}/",
+            data={"query": query},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert update_response.status_code == status.HTTP_200_OK
+        assert update_response.json()["query"] == response.json()["query"]
+        assert Insight.objects.get(pk=insight_id).query == stored_query
 
     def test_mcp_bi_member_alias_null_round_trip(self) -> None:
         aliases = [
