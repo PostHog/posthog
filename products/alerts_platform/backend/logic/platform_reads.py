@@ -10,6 +10,7 @@ from uuid import UUID
 from django.db.models import Prefetch, QuerySet
 
 from products.alerts_platform.backend.facade.contracts import (
+    InstanceCheckState,
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
     PlatformAlertSnapshot,
@@ -24,15 +25,20 @@ def instance_view(alert: PlatformAlert, configuration: PlatformAlertConfiguratio
     which group caused the failure. The row keeps its own state so a recovery continues its firing.
     A configuration mute shows on every instance for the same reason a check reads it there.
     """
-    check_status = configuration.check_status
-    snoozes = [moment for moment in (configuration.snooze_until, alert.snooze_until) if moment is not None]
+    seen = InstanceCheckState.composed(
+        grouping_key=alert.grouping_key,
+        state=alert.state,
+        check_status=configuration.check_status,
+        configuration_snooze_until=configuration.snooze_until,
+        snooze_until=alert.snooze_until,
+    )
     return PlatformAlertSnapshot(
         id=alert.id,
         grouping_key=alert.grouping_key,
-        state=alert.state if check_status == PlatformAlertConfiguration.CheckStatus.OK else check_status,
+        state=seen.state,
         firing_started_at=alert.firing_started_at,
         last_notified_at=alert.last_notified_at,
-        snooze_until=max(snoozes, default=None),
+        snooze_until=seen.snooze_until,
     )
 
 

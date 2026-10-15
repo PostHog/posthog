@@ -4,6 +4,7 @@ The layer that knows a transport exists. `dispatch.deliver` handles one destinat
 is what decides which destinations there are and which transport each one takes.
 """
 
+import json
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Any, Final
@@ -186,8 +187,16 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         event_id: IncidentAction(action) for action, event_id in request.event_ids_by_incident_action.items()
     }
     webhook_transports = _WebhookTransports(team, request, announced)
+    message_event_ids = set(request.event_ids_by_kind.values())
+    # Destinations already told about the overflow, so each hears it once, on its first message.
+    noticed: set[str] = set()
     for event_id, transitions in _by_subscription(request, announced).items():
         for target in _destinations(request, event_id):
+            overflowed = 0
+            destination = json.dumps(target, sort_keys=True)
+            if request.overflowed and event_id in message_event_ids and destination not in noticed:
+                overflowed = request.overflowed
+                noticed.add(destination)
             transport_class = _TRANSPORTS.get(target["type"])
             if transport_class is None:
                 skipped += 1
@@ -214,7 +223,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     configuration_id=request.configuration_id,
                     evaluation_key=request.evaluation_key,
                     target=target,
-                    announcement=replace(announced, transitions=transitions, overflowed=request.overflowed),
+                    announcement=replace(announced, transitions=transitions, overflowed=overflowed),
                     incident_action=action_by_event_id.get(event_id),
                     source_alert_url=request.source_alert_url,
                 )

@@ -42,15 +42,9 @@ def deliver(
     busy = 0
 
     for transition in announcement.transitions:
-        is_last = transition is announcement.transitions[-1]
-        message = build_message(
-            announcement,
-            transition,
-            team_id=team_id,
-            incident_action=incident_action,
-            source_alert_url=source_alert_url,
-            overflowed=announcement.overflowed if is_last else 0,
-        )
+        # On the first transition, because a retry skips a message already delivered and waits out
+        # a held one, so the overflow notice is sent once, and with the message that opens the batch.
+        overflowed = announcement.overflowed if transition is announcement.transitions[0] else 0
         key = _thread_key(
             configuration_id=configuration_id,
             provider=transport.provider,
@@ -63,7 +57,14 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
-                message=message,
+                message=build_message(
+                    announcement,
+                    transition,
+                    team_id=team_id,
+                    incident_action=incident_action,
+                    source_alert_url=source_alert_url,
+                    overflowed=overflowed,
+                ),
                 in_reply_to=None,
             )
             continue
@@ -85,7 +86,14 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
-                message=message,
+                message=build_message(
+                    announcement,
+                    transition,
+                    team_id=team_id,
+                    incident_action=incident_action,
+                    source_alert_url=source_alert_url,
+                    overflowed=overflowed,
+                ),
                 in_reply_to=claim.handle,
             )
         except Exception:
