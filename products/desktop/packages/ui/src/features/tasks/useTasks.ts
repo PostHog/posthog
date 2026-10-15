@@ -28,7 +28,12 @@ export function useTasks(
     limit?: number;
     ordering?: "-last_activity_at" | "-created_at";
   },
-  options?: { enabled?: boolean; subscribed?: boolean },
+  options?: {
+    enabled?: boolean;
+    subscribed?: boolean;
+    // Show the previous page while a new key loads, for a list whose key changes as the user works.
+    keepPreviousPage?: boolean;
+  },
 ) {
   const { data: currentUser } = useMeQuery();
   const createdBy = filters?.showAllUsers ? undefined : currentUser?.id;
@@ -62,6 +67,7 @@ export function useTasks(
       enabled: (options?.enabled ?? true) && !!currentUser?.id,
       subscribed: options?.subscribed,
       refetchInterval: TASK_LIST_POLL_INTERVAL_MS,
+      placeholderData: options?.keepPreviousPage ? keepPreviousData : undefined,
     },
   );
 }
@@ -70,15 +76,17 @@ export function useTasks(
 export const TASK_LIST_MAX_PAGE_SIZE = 100;
 
 /**
- * Pinned records poll only while they fit in one page. Past that, every poll would read every
- * page, so a long pin history refreshes on focus, mount and pin changes instead.
+ * Pinned records read every page on each poll, so the poll waits one interval per page. Any pin
+ * history then costs about one page request a minute and still refreshes.
  */
 export function pinnedRecordsPollInterval(
   pinCount: number | undefined,
-): number | false {
-  return (pinCount ?? 0) <= TASK_LIST_MAX_PAGE_SIZE
-    ? TASK_LIST_POLL_INTERVAL_MS
-    : false;
+): number {
+  const pages = Math.max(
+    1,
+    Math.ceil((pinCount ?? 0) / TASK_LIST_MAX_PAGE_SIZE),
+  );
+  return pages * TASK_LIST_POLL_INTERVAL_MS;
 }
 
 // A pin can be on any task the user can see, also one older than the recent list reaches. The

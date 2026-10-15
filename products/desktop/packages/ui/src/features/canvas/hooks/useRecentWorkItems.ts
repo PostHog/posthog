@@ -103,11 +103,14 @@ export function useRecentWorkItems({
   const { pinnedTaskIds, isLoading: pinIdsLoading } = usePinnedTasks();
   // The server cuts the page from the newest activity: by creation date, a session started last
   // week and still in use is already off the page when scheduled runs create many tasks.
-  const { data: tasks = [], isLoading: tasksLoading } = useTasks({
-    sources,
-    limit: recentWorkPageSize(pinnedTaskIds.size),
-    ordering: "-last_activity_at",
-  });
+  const { data: tasks = [], isLoading: tasksLoading } = useTasks(
+    {
+      sources,
+      limit: recentWorkPageSize(pinnedTaskIds.size),
+      ordering: "-last_activity_at",
+    },
+    { keepPreviousPage: true },
+  );
   const { data: pinnedTasks = [], isLoading: pinnedLoading } =
     usePinnedTaskRecords();
   const { dashboards, isLoading: canvasesLoading } = useAllCanvases();
