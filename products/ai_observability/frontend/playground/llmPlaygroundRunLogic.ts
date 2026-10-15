@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, isBreakpoint, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -300,7 +300,11 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             }
         },
 
-        submitPrompt: async (_: unknown, breakpoint: () => void) => {
+        submitPrompt: async () => {
+            // A new run replaces the old one, so the old stream must stop sending tokens and must not report.
+            currentAbortController?.abort()
+            currentAbortController = null
+
             // Guarding here rather than only on the Run button, because both message textareas
             // submit on Cmd+Enter and bypass the button entirely.
             if (values.runAccessDeniedReason) {
@@ -357,6 +361,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
 
             const abortController = new AbortController()
             currentAbortController = abortController
+            const isSuperseded = (): boolean => currentAbortController !== abortController
             try {
                 const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }) => {
                     // Resolve {{variables}} only in what is sent; the editors keep the raw template.
@@ -388,6 +393,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                     let providerKeyId: string | null = null
                     let selectedModelProvider = ''
                     let itemAdded = false
+                    let reportedStreamError: unknown = undefined
 
                     const upsertLiveItem = (): void => {
                         const payload: ComparisonItem = {
@@ -413,6 +419,32 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         } else {
                             actions.updateComparisonItem(liveItemId, payload)
                         }
+                    }
+
+                    const reportStreamError = (err: unknown): void => {
+                        if (err instanceof RateLimitError) {
+                            actions.setRateLimited(err.retryAfterSeconds)
+                            responseHasError = true
+                            upsertLiveItem()
+                            return
+                        }
+                        if (err instanceof ApiError && err.status === 402) {
+                            actions.setSubscriptionRequired(true)
+                            responseHasError = true
+                            upsertLiveItem()
+                            return
+                        }
+                        const { message, status } = describeError(err, 'Unknown error')
+                        const errorLabel = err instanceof ApiError ? 'Error' : 'Stream Connection Error'
+                        responseText += `\n\n**${errorLabel}:** ${message}`
+                        responseHasError = true
+                        upsertLiveItem()
+                        posthog.captureException(err, {
+                            tag: 'llma-playground-prompt-run',
+                            model: prompt.model,
+                            provider: selectedModelProvider,
+                            status,
+                        })
                     }
 
                     upsertLiveItem()
@@ -478,8 +510,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             headers: { 'Content-Type': 'application/json' },
                             signal: abortController.signal,
                             onMessage: (event) => {
-                                breakpoint()
-                                if (!event.data) {
+                                if (abortController.signal.aborted || !event.data) {
                                     return
                                 }
 
@@ -530,47 +561,27 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                                 }
                             },
                             onError: (err) => {
-                                // fetch-event-source re-sends the request when onerror returns, so a
-                                // superseded run must throw to stop it.
-                                if (isBreakpoint(err)) {
-                                    throw err
+                                // api.stream can pass the same error to onError twice: once from its onopen
+                                // handler, and again when fetch-event-source catches the rethrow below.
+                                if (!abortController.signal.aborted && err !== reportedStreamError) {
+                                    reportedStreamError = err
+                                    reportStreamError(err)
                                 }
-                                if (abortController.signal.aborted) {
-                                    return
-                                }
-                                if (err instanceof RateLimitError) {
-                                    actions.setRateLimited(err.retryAfterSeconds)
-                                    responseHasError = true
-                                    upsertLiveItem()
-                                    return
-                                }
-                                if (err instanceof ApiError && err.status === 402) {
-                                    actions.setSubscriptionRequired(true)
-                                    responseHasError = true
-                                    upsertLiveItem()
-                                    return
-                                }
-                                const { message, status } = describeError(err, 'Unknown error')
-                                const errorLabel = err instanceof ApiError ? 'Error' : 'Stream Connection Error'
-                                responseText += `\n\n**${errorLabel}:** ${message}`
-                                responseHasError = true
-                                upsertLiveItem()
-                                posthog.captureException(err, {
-                                    tag: 'llma-playground-prompt-run',
-                                    model: prompt.model,
-                                    provider: selectedModelProvider,
-                                    status,
-                                })
+                                // fetch-event-source sends the request again whenever onerror returns, which
+                                // would charge the user for a duplicate completion. Throwing ends the stream.
+                                throw err
                             },
                         })
 
                         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunAiPlayground)
                     } catch (error) {
-                        if (error instanceof Error && isBreakpoint(error)) {
-                            throw error
+                        if (isSuperseded()) {
+                            return
                         }
                         if (abortController.signal.aborted) {
                             responseText += `${responseText ? '\n\n' : ''}*Generation stopped.*`
+                        } else if (error === reportedStreamError) {
+                            // onError already reported it.
                         } else if (error instanceof RateLimitError) {
                             actions.setRateLimited(error.retryAfterSeconds)
                             responseHasError = true
@@ -596,6 +607,10 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         }
                     }
 
+                    if (isSuperseded()) {
+                        return
+                    }
+
                     upsertLiveItem()
 
                     posthog.capture('llma playground prompt completed', {
@@ -613,11 +628,11 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
 
                 await Promise.allSettled(runs)
             } finally {
-                if (currentAbortController === abortController) {
-                    currentAbortController = null
-                }
                 abortController.abort()
-                actions.finishSubmitPrompt()
+                if (!isSuperseded()) {
+                    currentAbortController = null
+                    actions.finishSubmitPrompt()
+                }
             }
         },
     })),

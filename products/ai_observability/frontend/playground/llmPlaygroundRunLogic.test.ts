@@ -19,6 +19,22 @@ import {
 } from './llmPlaygroundRunLogic'
 import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 
+// Same contract as fetch-event-source: an error from the request or from onmessage goes to onerror,
+// and the request is sent again unless onerror throws.
+function mockStreamWithRetryContract(
+    produce: (options: any) => void | Promise<void>,
+    onRetry: () => void
+): (url: string, options: any) => Promise<void> {
+    return async (_url, options) => {
+        try {
+            await produce(options)
+        } catch (error) {
+            options.onError(error)
+            onRetry()
+        }
+    }
+}
+
 function setPlaygroundAccessLevel(level: AccessControlLevel): void {
     window.POSTHOG_APP_CONTEXT = {
         ...window.POSTHOG_APP_CONTEXT,
@@ -295,11 +311,14 @@ describe('llmPlaygroundRunLogic', () => {
         captureExceptionSpy.mockRestore()
     })
 
-    it('labels non-ApiError stream failures as connection errors and captures them', async () => {
+    it('labels network failures as connection errors, captures them once and does not retry', async () => {
         const connectionError = new Error('network down')
-        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
-            options.onError?.(connectionError)
-        })
+        const retried = jest.fn()
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(
+            mockStreamWithRetryContract(() => {
+                throw connectionError
+            }, retried)
+        )
         const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
 
         const logic = llmPlaygroundRunLogic()
@@ -316,6 +335,8 @@ describe('llmPlaygroundRunLogic', () => {
         expect(items).toHaveLength(1)
         expect(items[0].error).toBe(true)
         expect(items[0].response).toContain('**Stream Connection Error:** network down')
+        expect(retried).not.toHaveBeenCalled()
+        expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
         expect(captureExceptionSpy).toHaveBeenCalledWith(
             connectionError,
             expect.objectContaining({ tag: 'llma-playground-prompt-run', status: undefined })
@@ -326,26 +347,26 @@ describe('llmPlaygroundRunLogic', () => {
         captureExceptionSpy.mockRestore()
     })
 
-    it('stops a superseded run instead of letting the stream retry it', async () => {
+    it('stops a superseded run silently and keeps submitting until the newer run ends', async () => {
         let releaseFirstStream: () => void = () => {}
         const firstStreamGate = new Promise<void>((resolve) => {
             releaseFirstStream = resolve
         })
-        const retriedAfterError = jest.fn()
+        let releaseSecondStream: () => void = () => {}
+        const secondStreamGate = new Promise<void>((resolve) => {
+            releaseSecondStream = resolve
+        })
+        const retried = jest.fn()
         const streamSpy = jest
             .spyOn(api, 'stream')
-            .mockImplementationOnce(async (_url, options: any) => {
-                await firstStreamGate
-                // Same contract as fetch-event-source: an onmessage throw goes to onerror, and the
-                // request is sent again unless onerror throws.
-                try {
+            .mockImplementationOnce(
+                mockStreamWithRetryContract(async (options) => {
+                    await firstStreamGate
                     options.onMessage({ data: JSON.stringify({ type: 'text', text: 'stale' }) })
-                } catch (error) {
-                    options.onError(error)
-                    retriedAfterError()
-                }
-            })
-            .mockImplementation(async () => {})
+                }, retried)
+            )
+            .mockImplementationOnce(() => secondStreamGate)
+        const captureSpy = jest.spyOn(posthog, 'capture')
         const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
         const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
 
@@ -358,16 +379,24 @@ describe('llmPlaygroundRunLogic', () => {
         llmPlaygroundRunLogic.actions.submitPrompt()
         llmPlaygroundRunLogic.actions.submitPrompt()
         releaseFirstStream()
+        await new Promise((resolve) => setTimeout(resolve, 0))
 
+        expect(logic.values.submitting).toBe(true)
+        expect(logic.values.comparisonItems.map((item) => item.response)).toEqual([''])
+
+        releaseSecondStream()
         await expectLogic(logic).toFinishAllListeners()
 
+        expect(logic.values.submitting).toBe(false)
         expect(streamSpy).toHaveBeenCalledTimes(2)
-        expect(retriedAfterError).not.toHaveBeenCalled()
+        expect(retried).not.toHaveBeenCalled()
+        expect(captureSpy.mock.calls.filter(([event]) => event === 'llma playground prompt completed')).toHaveLength(1)
         expect(captureExceptionSpy).not.toHaveBeenCalled()
         expect(toastSpy).not.toHaveBeenCalled()
 
         logic.unmount()
         streamSpy.mockRestore()
+        captureSpy.mockRestore()
         captureExceptionSpy.mockRestore()
         toastSpy.mockRestore()
     })
