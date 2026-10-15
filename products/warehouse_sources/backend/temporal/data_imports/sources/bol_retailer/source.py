@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bol_retail
 from products.warehouse_sources.backend.temporal.data_imports.sources.bol_retailer.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MERGE_ONLY,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -77,7 +78,7 @@ class BolRetailerSource(ResumableSource[BolRetailerSourceConfig, BolRetailerResu
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=MERGE_ONLY)
 
     def validate_credentials(
         self,
@@ -117,7 +118,7 @@ class BolRetailerSource(ResumableSource[BolRetailerSourceConfig, BolRetailerResu
             category=DataWarehouseSourceCategory.E_COMMERCE,
             keywords=["bol", "bol.com"],
             label="bol.com Retailer",
-            caption="Sync orders, shipments, returns, offers, inventory and invoices from your bol.com seller account.",
+            caption="Sync order items, shipments, returns, offers, inventory and invoices from your bol.com seller account.",
             docsUrl="https://posthog.com/docs/cdp/sources/bol-retailer",
             iconPath="/static/services/bol_retailer.png",
             releaseStatus=ReleaseStatus.ALPHA,

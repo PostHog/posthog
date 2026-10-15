@@ -40,7 +40,7 @@ def _api(result: DriveResult) -> list[Any]:
 
 class TestPagedLists:
     @time_machine.travel(datetime(2026, 10, 15, 12, tzinfo=UTC), tick=False)
-    def test_orders_read_one_change_day_at_a_time_from_the_watermark(self) -> None:
+    def test_order_items_read_one_change_day_at_a_time_from_the_watermark(self) -> None:
         # The plain list drops handled orders after 48 hours, so history comes from `latest-change-date`.
         order = {
             "orderId": "A1",
@@ -51,7 +51,7 @@ class TestPagedLists:
             ],
         }
         result = _run(
-            "orders",
+            "order_items",
             "/orders",
             [ScriptedResponse(json={"orders": [order]}), EMPTY, EMPTY],
             incremental_field="latestChangedDateTime",
@@ -72,16 +72,19 @@ class TestPagedLists:
         assert {(r.param("status"), r.param("fulfilment-method")) for r in api} == {("ALL", "ALL")}
         assert api[0].headers["accept"] == "application/vnd.retailer.v10+json"
         assert api[0].headers["authorization"] == "Bearer tok"
-        # 22:00 UTC is later than 23:30 at +02:00, even though it sorts first as text.
-        assert [row["latestChangedDateTime"] for row in result.rows] == ["2026-10-14T22:00:00+00:00"]
+        # A day's response holds only the items changed that day, so each item is its own row.
+        assert [(row["orderId"], row["orderItemId"], row["orderPlacedDateTime"]) for row in result.rows] == [
+            ("A1", "1", "2026-10-14T09:00:00+02:00"),
+            ("A1", "2", "2026-10-14T09:00:00+02:00"),
+        ]
         assert result.saved_states == [
             BolRetailerResumeConfig(pass_index=0, page=2, window_start="2026-10-14"),
             BolRetailerResumeConfig(pass_index=1, window_start="2026-10-14"),
         ]
 
     @time_machine.travel(datetime(2026, 10, 15, 12, tzinfo=UTC), tick=False)
-    def test_a_first_order_sync_reaches_three_months_back(self) -> None:
-        result = _run("orders", "/orders", [EMPTY] * 91)
+    def test_a_first_order_items_sync_reaches_three_months_back(self) -> None:
+        result = _run("order_items", "/orders", [EMPTY] * 91)
 
         assert result.raised is None
         days = [r.param("latest-change-date") for r in _api(result)]

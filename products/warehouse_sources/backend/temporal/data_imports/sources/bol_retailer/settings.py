@@ -42,11 +42,13 @@ class BolEndpointConfig:
 
 
 BOL_ENDPOINTS: dict[str, BolEndpointConfig] = {
-    "orders": BolEndpointConfig(
-        name="orders",
+    # One row per order item: a day filtered on `latest-change-date` returns only the items changed that
+    # day, so whole-order rows would lose the items of other days on merge.
+    "order_items": BolEndpointConfig(
+        name="order_items",
         path="/orders",
         data_selector="orders",
-        primary_keys=("orderId",),
+        primary_keys=("orderId", "orderItemId"),
         # The list defaults to open orders shipped by the retailer only.
         passes=((("status", "ALL"), ("fulfilment-method", "ALL")),),
         per_change_day=True,
@@ -116,3 +118,6 @@ ENDPOINTS = tuple(BOL_ENDPOINTS)
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: list(config.incremental_fields) for name, config in BOL_ENDPOINTS.items()
 }
+
+# Order items re-read the watermark's whole day each run. Appending would write those rows again.
+MERGE_ONLY = ("order_items",)

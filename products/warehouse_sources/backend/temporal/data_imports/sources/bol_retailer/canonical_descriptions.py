@@ -5,13 +5,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 _DOCS = "https://api.bol.com/retailer/public/Retailer-API/"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
-    "orders": {
-        "description": "An order placed on bol.com for the seller's offers. The API lists the last three months.",
+    "order_items": {
+        "description": "One line of an order placed on bol.com for the seller's offers.",
         "docs_url": f"{_DOCS}v10/functional/retailer-api/orders-shipments.html",
         "columns": {
-            "orderId": "Unique identifier of the order.",
+            "orderId": "The order the item belongs to.",
             "orderPlacedDateTime": "When the customer placed the order.",
-            "orderItems": "The order lines, each with its EAN, quantities, fulfilment method and status.",
+            "orderItemId": "Identifier of the order item.",
+            "ean": "EAN of the ordered product.",
+            "fulfilmentMethod": "Whether the seller (FBR) or bol (FBB) ships the item.",
+            "fulfilmentStatus": "Whether the item is still open or handled.",
+            "quantity": "Units ordered.",
+            "quantityShipped": "Units shipped so far.",
+            "quantityCancelled": "Units cancelled.",
+            "cancellationRequest": "Whether the customer asked to cancel the item.",
+            "latestChangedDateTime": "When the item last changed. Used for incremental sync.",
         },
     },
     "shipments": {

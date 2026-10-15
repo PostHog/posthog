@@ -67,18 +67,13 @@ def format_modified_since(value: Any) -> str:
     return str(value)
 
 
-def add_latest_change(order: dict[str, Any]) -> dict[str, Any]:
-    """Lift the newest order item change onto the order, which carries no change time of its own."""
-    changes = [
-        item["latestChangedDateTime"]
+def flatten_order_items(order: dict[str, Any]) -> list[dict[str, Any]]:
+    """One row per order item, carrying the order's id and placement time."""
+    return [
+        {"orderId": order.get("orderId"), "orderPlacedDateTime": order.get("orderPlacedDateTime"), **item}
         for item in order.get("orderItems") or []
-        if isinstance(item, dict) and item.get("latestChangedDateTime")
+        if isinstance(item, dict)
     ]
-    # bol writes local times with an offset, so compare the instants rather than the strings.
-    order["latestChangedDateTime"] = (
-        max(changes, key=datetime.fromisoformat) if changes else order.get("orderPlacedDateTime")
-    )
-    return order
 
 
 def _paged_passes(
@@ -89,7 +84,7 @@ def _paged_passes(
     manager: ResumableSourceManager[BolRetailerResumeConfig],
     resume: BolRetailerResumeConfig | None,
     window_start: str | None = None,
-    row_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    row_map: Callable[[dict[str, Any]], list[dict[str, Any]]] | None = None,
 ) -> Iterator[list[Any]]:
     start_pass = resume.pass_index if resume is not None else 0
     for pass_index in range(start_pass, len(passes)):
@@ -111,8 +106,9 @@ def _paged_passes(
             data_selector=data_selector,
             page_state_hook=stage,
         ):
-            if rows:
-                yield [row_map(row) for row in rows] if row_map else rows
+            mapped = [mapped_row for row in rows for mapped_row in row_map(row)] if row_map else rows
+            if mapped:
+                yield mapped
             else:
                 manager.safe_point()
 
@@ -264,7 +260,7 @@ def bol_retailer_source(
                 resumable_source_manager,
                 resume,
                 window_start=first_day.isoformat(),
-                row_map=add_latest_change,
+                row_map=flatten_order_items,
             ),
             # Days are requested in order, and the next run re-reads the watermark's whole day.
             sort_mode="asc",
