@@ -191,9 +191,13 @@ def download(run_id: str, patterns: list[str], directory: Path) -> int:
 
 
 def ran_on_master(shown: ShownWorkflow) -> bool:
-    """A branch can add itself to the push trigger in its own copy of the workflow."""
+    """A branch can add itself to the push trigger in its own copy of the workflow.
+
+    Depot leaves a scheduled run's ref empty, and the schedule fires only on the default branch.
+    Any other run counts as master only when its ref says so, so a payload without a ref fails closed.
+    """
     run = shown.get("run") or {}
-    return run.get("trigger") != "push" or run.get("ref") == MASTER_REF
+    return run.get("trigger") == "schedule" or run.get("ref") == MASTER_REF
 
 
 def gate_run(listed: ListedWorkflow) -> GateRun | None:

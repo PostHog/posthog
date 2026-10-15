@@ -9,6 +9,8 @@ import pytest
 import ci_backend_relay
 import depot_backend_runs as script
 
+SCHEDULED_RUN = {"trigger": "schedule", "ref": ""}
+
 
 @pytest.mark.parametrize(
     "workflow_status,gate_status,expected",
@@ -30,7 +32,7 @@ def test_gate_run_reports_the_gate_verdict(
     jobs: list[dict[str, Any]] = [{"job_key": "ci-backend.yml:report-test-timings", "status": "failed"}]
     if gate_status:
         jobs.append({"job_key": script.GATE_JOB_KEY, "status": gate_status, "finished_at": "2026-10-05T13:00:00Z"})
-    shown = {"org_id": "org", "jobs": jobs}
+    shown = {"org_id": "org", "run": SCHEDULED_RUN, "jobs": jobs}
     monkeypatch.setattr(script, "depot", lambda *args: json.dumps(shown))
     listed = {
         "workflow_id": "wf",
@@ -51,8 +53,19 @@ def test_names_the_workflow_and_gate_job_the_relay_reads() -> None:
     assert script.GATE_JOB_KEY == ci_backend_relay.GATE_JOB_KEY
 
 
-@pytest.mark.parametrize("ref,kept", [("refs/heads/master", 1), ("refs/heads/feature", 0)], ids=["master", "branch"])
-def test_gate_runs_drop_push_runs_from_other_branches(monkeypatch: pytest.MonkeyPatch, ref: str, kept: int) -> None:
+@pytest.mark.parametrize(
+    "run,kept",
+    [
+        ({"trigger": "push", "ref": "refs/heads/master"}, 1),
+        ({"trigger": "push", "ref": "refs/heads/feature"}, 0),
+        (SCHEDULED_RUN, 1),
+        ({}, 0),
+    ],
+    ids=["master", "branch", "schedule", "no-ref"],
+)
+def test_gate_runs_drop_runs_from_other_branches(
+    monkeypatch: pytest.MonkeyPatch, run: dict[str, str], kept: int
+) -> None:
     def depot_response(*args: str) -> str:
         if args[:2] == ("workflow", "list"):
             return json.dumps(
@@ -69,7 +82,7 @@ def test_gate_runs_drop_push_runs_from_other_branches(monkeypatch: pytest.Monkey
         return json.dumps(
             {
                 "org_id": "org",
-                "run": {"trigger": "push", "ref": ref},
+                "run": run,
                 "jobs": [{"job_key": script.GATE_JOB_KEY, "status": "finished"}],
             }
         )
@@ -116,7 +129,9 @@ def test_gate_window_requires_a_settled_verdict(monkeypatch: pytest.MonkeyPatch,
                 if status
                 else []
             )
-        return json.dumps({"org_id": "org", "jobs": [{"job_key": script.GATE_JOB_KEY, "status": status}]})
+        return json.dumps(
+            {"org_id": "org", "run": SCHEDULED_RUN, "jobs": [{"job_key": script.GATE_JOB_KEY, "status": status}]}
+        )
 
     monkeypatch.setattr(script, "depot", depot_response)
 
@@ -142,7 +157,9 @@ def test_gate_window_keeps_in_progress_runs_alongside_a_settled_verdict(monkeypa
                     for status in ("finished", "running")
                 ]
             )
-        return json.dumps({"org_id": "org", "jobs": [{"job_key": script.GATE_JOB_KEY, "status": args[2]}]})
+        return json.dumps(
+            {"org_id": "org", "run": SCHEDULED_RUN, "jobs": [{"job_key": script.GATE_JOB_KEY, "status": args[2]}]}
+        )
 
     monkeypatch.setattr(script, "depot", depot_response)
 
