@@ -227,11 +227,15 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let service = build_restrictions(inputs).await;
 
     let producer = MockKafkaProducer::new();
-    let sink = KafkaSinkBase::with_producer(producer.clone(), OutputTable::new(&cfg.outputs, cfg.ai_events_overflow_enabled));
+    let sink = KafkaSinkBase::with_producer(
+        producer.clone(),
+        OutputTable::new(&cfg.outputs, cfg.ai_events_overflow_enabled),
+    );
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
     let router = router(
+        capture::router::analytics_routes(),
         FixedTime {
             time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
                 .expect("invalid fixed time")
@@ -331,12 +335,13 @@ async fn run_v1(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         .with_global_rate_limiter(Arc::new(limiter))
         .build();
 
-    let router = v1_router(V1RouterConfig {
-        concurrency_limit: None,
-        max_compressed_body_bytes: 10 * 1024 * 1024,
-        serves_analytics: true,
-        serves_ai_events: false,
-    })
+    let router = v1_router(
+        V1RouterConfig {
+            concurrency_limit: None,
+            max_compressed_body_bytes: 10 * 1024 * 1024,
+        },
+        capture::v1::analytics::router::routes(),
+    )
     .with_state(ts.state.clone());
 
     // v1 reads the customer's choice from the event options, not the property.

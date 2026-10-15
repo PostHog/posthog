@@ -127,6 +127,7 @@ async fn setup_router_with_limits(
         .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
 
     let app = router(
+        capture::router::analytics_routes(),
         timesource,
         readiness,
         liveness,
@@ -1181,6 +1182,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         .add_scoped_limiter(QuotaResource::Surveys, is_survey_event);
 
     let app = router(
+        capture::router::analytics_routes(),
         timesource,
         readiness,
         liveness,
@@ -1273,6 +1275,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         .add_scoped_limiter(QuotaResource::Surveys, is_survey_event);
 
     let app = router(
+        capture::router::analytics_routes(),
         timesource,
         readiness,
         liveness,
@@ -1369,6 +1372,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         .add_scoped_limiter(QuotaResource::Surveys, is_survey_event);
 
     let app = router(
+        capture::router::analytics_routes(),
         timesource,
         readiness,
         liveness,
@@ -1802,6 +1806,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
 
     let app = router(
+        capture::router::analytics_routes(),
         timesource,
         readiness,
         liveness,

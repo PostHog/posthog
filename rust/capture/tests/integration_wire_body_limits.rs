@@ -78,7 +78,14 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
     let mut cfg = DEFAULT_CONFIG.clone();
     cfg.capture_mode = mode;
 
+    let routes = match mode {
+        CaptureMode::Events | CaptureMode::Import => capture::router::analytics_routes(),
+        CaptureMode::Ai => capture::router::ai_routes(26_214_400),
+        CaptureMode::Recordings => capture::router::recordings_routes(),
+    };
+
     let app = router(
+        routes,
         timesource,
         readiness,
         liveness,

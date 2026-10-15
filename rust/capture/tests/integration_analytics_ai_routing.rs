@@ -112,7 +112,14 @@ fn setup_router_for_mode(
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
+    let routes = match capture_mode {
+        CaptureMode::Events | CaptureMode::Import => capture::router::analytics_routes(),
+        CaptureMode::Ai => capture::router::ai_routes(26_214_400),
+        CaptureMode::Recordings => capture::router::recordings_routes(),
+    };
+
     let router = router(
+        routes,
         timesource,
         readiness,
         liveness,
