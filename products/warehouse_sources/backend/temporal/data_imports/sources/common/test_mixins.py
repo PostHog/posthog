@@ -911,3 +911,49 @@ class TestCheckResolvedAddresses(SimpleTestCase):
         assert resolution.error is None
         assert resolution.connect_host == host
         assert resolution.addresses == ("10.0.0.5",)
+
+
+class TestOOBDomainDetection(SimpleTestCase):
+    def test_logs_before_the_exemption_so_an_allowlisted_team_is_recorded(self):
+        with (
+            patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
+            patch(f"{_MIXINS_MODULE}._host_check_exemption", return_value="team_allowlist"),
+            patch(f"{_MIXINS_MODULE}._log_host_check") as log_host_check,
+        ):
+            resolution = resolve_safe_host("abc.oast.live", 2)
+
+        stages = [call.args[3] for call in log_host_check.call_args_list]
+        assert "oob_domain" in stages
+        assert resolution.connect_host is not None
+
+    def test_records_the_matched_domain_as_the_reason(self):
+        with (
+            patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
+            patch(f"{_MIXINS_MODULE}._host_check_exemption", return_value="team_allowlist"),
+            patch(f"{_MIXINS_MODULE}._log_host_check") as log_host_check,
+        ):
+            resolve_safe_host("abc.oast.live", 2)
+
+        oob_calls = [call for call in log_host_check.call_args_list if call.args[3] == "oob_domain"]
+        assert [call.args[4] for call in oob_calls] == ["oast.live"]
+
+    def test_does_not_log_off_cloud(self):
+        with (
+            patch(f"{_MIXINS_MODULE}.is_cloud", return_value=False),
+            patch(f"{_MIXINS_MODULE}._log_host_check") as log_host_check,
+        ):
+            resolve_safe_host("abc.oast.live", 2)
+
+        stages = [call.args[3] for call in log_host_check.call_args_list]
+        assert "oob_domain" not in stages
+
+    def test_does_not_log_an_unlisted_host(self):
+        with (
+            patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
+            patch(f"{_MIXINS_MODULE}._host_check_exemption", return_value="team_allowlist"),
+            patch(f"{_MIXINS_MODULE}._log_host_check") as log_host_check,
+        ):
+            resolve_safe_host("notoast.me", 2)
+
+        stages = [call.args[3] for call in log_host_check.call_args_list]
+        assert "oob_domain" not in stages
