@@ -1,4 +1,4 @@
-import { buildAgentSearch, experimentLogGroups, latestAgentNotes } from './agentSearch'
+import { buildAgentSearch, experimentLogGroups, experimentTitle, runHeadline, statusBrief } from './agentSearch'
 import { AutoresearchModelApi, AutoresearchTrainingRunApi, IterationTrailApi } from './generated/api.schemas'
 
 function iteration(
@@ -37,19 +37,19 @@ const RUNS = [
 ]
 
 describe('buildAgentSearch', () => {
-    it('measures each experiment against the best kept score before it, across runs', () => {
+    it('measures each experiment against the previous kept experiment in its own run', () => {
         const { points } = buildAgentSearch(RUNS, null)
         expect(
             points.map((p) => [p.runNumber, p.iterationNumber, p.status, p.delta?.toFixed(2) ?? null, p.bestSoFar])
         ).toEqual([
             [1, 0, 'kept', null, 0.7],
             [1, 1, 'kept', '0.10', 0.8],
-            // The first experiment of a later run compares against the best of the runs before it.
-            [2, 0, 'kept', '-0.05', 0.8],
+            // The first experiment of a later run has no delta, even below an earlier run's best.
+            [2, 0, 'kept', null, 0.8],
             // A discarded experiment with a higher score than a kept one does not raise the best.
-            [2, 1, 'discarded', '-0.02', 0.8],
+            [2, 1, 'discarded', '0.03', 0.8],
             [2, 2, 'crashed', null, 0.8],
-            [2, 3, 'kept', '0.02', 0.82],
+            [2, 3, 'kept', '0.07', 0.82],
         ])
     })
 
@@ -79,18 +79,11 @@ describe('buildAgentSearch', () => {
             'Tried fewer features.',
         ],
         [
-            'the first sentence of the description otherwise',
+            'the first clause of the description otherwise',
             undefined,
             null,
             'Dropped 12 features (v1.2). AUC fell.',
-            'Dropped 12 features (v1.2).',
-        ],
-        [
-            'the first clause of the description, cut to length',
-            null,
-            null,
-            `Dropped ${'very '.repeat(12)}weak features, AUC fell.`,
-            `Dropped ${'very '.repeat(10).trim()}…`,
+            'Dropped 12 features (v1.2)',
         ],
         [
             'the whole description when it has no sentence end',
@@ -116,55 +109,97 @@ describe('experimentLogGroups', () => {
             [1, [1, 0]],
         ])
     })
+})
 
+describe('experimentTitle', () => {
     it.each([
+        ['a label in capitals', 'SHIPPED BUNDLE. Re-ran the final package end to end.', 'SHIPPED BUNDLE'],
         [
-            'the run headline',
-            { headline: 'Recency won', reader_summary: 'Recent visits mattered. More later.' },
-            'Recency won',
+            'a clause before a semicolon',
+            'Moved cutoffs to midnight; scoring runs then too.',
+            'Moved cutoffs to midnight',
         ],
         [
-            'the first sentence of the reader summary',
-            { headline: null, reader_summary: 'Recent visits mattered. More later.' },
-            'Recent visits mattered.',
+            'a long clause, cut to one line',
+            'Retrained the live recipe with every hourly weight and both views of the population before pruning anything',
+            'Retrained the live recipe with every hourly weight and both views of…',
         ],
-        ['the run number', {}, 'Run 1'],
-    ])('falls back to %s', (_, overrides, expected) => {
-        const runs = [run('run-1', '2026-01-01T00:00:00Z', [], overrides as Partial<AutoresearchTrainingRunApi>)]
-        expect(experimentLogGroups(runs, buildAgentSearch(runs, null), 'all')[0].headline).toEqual(expected)
+    ])('keeps %s short', (_, description, expected) => {
+        expect(experimentTitle(description)).toEqual(expected)
     })
 })
 
-describe('latestAgentNotes', () => {
-    it('reads the newest completed run that left notes', () => {
-        const notes = { distillation: 'Recency wins', recommended_next: 'Try sessions' }
+describe('runHeadline', () => {
+    it.each([
+        [
+            'the agent headline, with the plain summary as detail',
+            { headline: 'Recency won', reader_summary: 'Recent visits mattered. More later.' },
+            { headline: 'Recency won', detail: 'Recent visits mattered. More later.' },
+        ],
+        [
+            'the first sentence of the plain summary, with the rest as detail',
+            { reader_summary: 'Found why real outcomes lagged. Training used a random time of day.' },
+            { headline: 'Found why real outcomes lagged.', detail: 'Training used a random time of day.' },
+        ],
+        [
+            'the run number and best score without one',
+            { best_holdout_score: 0.9431 },
+            { headline: 'Run 3 · best 0.943', detail: '' },
+        ],
+    ])('uses %s', (_, overrides, expected) => {
+        const r = run('run-1', '2026-01-01T00:00:00Z', [], overrides as Partial<AutoresearchTrainingRunApi>)
+        expect(runHeadline(r, 3)).toEqual(expected)
+    })
+})
+
+describe('statusBrief', () => {
+    const champion = {
+        role: 'champion',
+        source_training_run: 'run-1',
+        holdout_score: 0.948,
+        realized_score: 0.874,
+    } as AutoresearchModelApi
+
+    it('builds a factual line and keeps the agent notes apart when a run has no plain summary', () => {
         const runs = [
             run('run-3', '2026-01-03T00:00:00Z', [], { status: 'running' }),
-            run('run-2', '2026-01-02T00:00:00Z', [], { summary: { distillation: '', recommended_next: '' } as any }),
-            run('run-1', '2026-01-01T00:00:00Z', [], { summary: notes as any }),
+            run('run-2', '2026-01-02T00:00:00Z', [], {
+                best_holdout_score: 0.94,
+                summary: { distillation: 'Recency wins', recommended_next: 'Try sessions' } as any,
+            }),
+            run('run-1', '2026-01-01T00:00:00Z', []),
         ]
-        expect(latestAgentNotes(runs)).toEqual({
-            runNumber: 1,
+        const brief = statusBrief(runs, champion, null)
+        expect(brief).toMatchObject({
+            runNumber: 2,
             readerSummary: '',
-            nextSteps: [],
+            factualLine:
+                'The live model scores 0.948 in training and 0.874 on real outcomes. Run 2 got a best score of 0.940 in training.',
             distillation: 'Recency wins',
             recommendedNext: 'Try sessions',
+            live: { runNumber: 1, holdoutScore: 0.948, realizedScore: 0.874 },
+            scoredAlongside: null,
         })
     })
 
-    it('reads the plain notes for people when a run left only those', () => {
+    it('reads the plain summary, at most three next steps, and the scored-alongside model', () => {
         const runs = [
-            run('run-1', '2026-01-01T00:00:00Z', [], {
-                reader_summary: 'Recent visits predict a purchase best.',
-                next_steps: ['Add session length', ' '],
+            run('run-2', '2026-01-02T00:00:00Z', [], {
+                reader_summary: 'Run 2 found part of the reason.',
+                next_steps: ['One', ' ', 'Two', 'Three', 'Four'],
             } as Partial<AutoresearchTrainingRunApi>),
+            run('run-1', '2026-01-01T00:00:00Z', []),
         ]
-        expect(latestAgentNotes(runs)).toEqual({
-            runNumber: 1,
-            readerSummary: 'Recent visits predict a purchase best.',
-            nextSteps: ['Add session length'],
-            distillation: '',
-            recommendedNext: '',
+        const challenger = {
+            role: 'challenger',
+            source_training_run: 'run-2',
+            holdout_score: 0.94,
+            realized_score: 0.893,
+        } as AutoresearchModelApi
+        expect(statusBrief(runs, champion, challenger)).toMatchObject({
+            readerSummary: 'Run 2 found part of the reason.',
+            nextSteps: ['One', 'Two', 'Three'],
+            scoredAlongside: { runNumber: 2, holdoutScore: 0.94, realizedScore: 0.893 },
         })
     })
 })

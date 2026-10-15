@@ -327,7 +327,7 @@ def _likely_dismissed_as_wrong(candidate: _BriefingCandidate) -> bool:
     return candidate.priority != "P0" and lift is not None and lift >= DISMISS_WRONG_HIDE_LIFT
 
 
-def _briefing_pick(candidates: Sequence[_BriefingCandidate], limit: int | None) -> list[_BriefingCandidate]:
+def _briefing_pick(candidates: Sequence[_BriefingCandidate]) -> list[_BriefingCandidate]:
     """The candidates in one order, without the ones likely dismissed as wrong.
 
     P0 first. Then by the higher of two percentile ranks among the candidates: the chance of a
@@ -337,8 +337,8 @@ def _briefing_pick(candidates: Sequence[_BriefingCandidate], limit: int | None) 
     not by value. Ties go to the higher sum of the two ranks, then priority, then newest. A report
     with neither score follows the scored ones.
 
-    The order does not depend on `limit` or on the relation, so the top N reports are always the
-    first N of the same list.
+    The order does not depend on the relation, so the top N reports are always the first N of the
+    same list.
     """
     kept = [c for c in candidates if not _likely_dismissed_as_wrong(c)]
     merge_ranks = _percentile_ranks({c.report_id: c.scores.pr_merged for c in kept if c.scores.pr_merged is not None})
@@ -351,12 +351,15 @@ def _briefing_pick(candidates: Sequence[_BriefingCandidate], limit: int | None) 
             0 if ranks else 1,
             -max(ranks, default=0.0),
             -sum(ranks),
-            _PRIORITY_ORDER.get(candidate.priority or "", 5),
+            _priority_order(candidate),
             -candidate.updated_at.timestamp(),
         )
 
-    ranked = sorted(kept, key=order)
-    return ranked if limit is None else ranked[:limit]
+    return sorted(kept, key=order)
+
+
+def _priority_order(candidate: _BriefingCandidate) -> int:
+    return _PRIORITY_ORDER.get(candidate.priority or "", 5)
 
 
 def _relation_to_person(team_id: int, user: User, *, include_unowned: bool) -> Case:
@@ -406,14 +409,23 @@ def _reports_for_person(team_id: int, user: User, *, include_unowned: bool) -> Q
 
 
 def reports_for_briefing(
-    *, team_id: int, user_id: int, limit: int | None = None, include_unowned: bool = True
+    *,
+    team_id: int,
+    user_id: int,
+    limit: int | None = None,
+    include_unowned: bool = True,
+    offset: int = 0,
+    exclude_report_ids: Sequence[str] = (),
 ) -> list[BriefingReport]:
     """Open, actionable reports for one person, in briefing order, each tagged with its strongest relation.
 
     A report appears once, under the first `BriefingReportRelation` that matches. One query reads
     every candidate with its relation, priority and served scores, up to `_CANDIDATE_LIMIT`, so the
     model ranks the whole set and not only the newest reports. Urgent-unowned keeps only P0.
-    `_briefing_pick` orders the candidates and `limit` keeps the best of them.
+    `_briefing_pick` orders the candidates. The excluded reports leave the list after it is ordered,
+    so the rest keep their order, and `offset` and `limit` then take one page of it. Priority does
+    not decide which reports make the page: it only orders the page for display, P0 first and
+    reports without a priority last, keeping the ranked order within a priority.
 
     `include_unowned` false drops the urgent-unowned relation, so the result holds only reports the
     person is named on or claimed. The Today briefing asks for that: a P0 nobody owns sorts above
@@ -426,19 +438,20 @@ def reports_for_briefing(
         .order_by("-updated_at")
         .values_list("id", "updated_at", "briefing_relation", "briefing_priority", "briefing_heads")[:_CANDIDATE_LIMIT]
     )
-    chosen = _briefing_pick(
-        [
-            _BriefingCandidate(
-                report_id=str(report_id),
-                relation=BriefingReportRelation(relation_value),
-                priority=priority,
-                updated_at=updated_at,
-                scores=_served_scores(heads),
-            )
-            for report_id, updated_at, relation_value, priority, heads in rows
-        ],
-        limit,
-    )
+    candidates = [
+        _BriefingCandidate(
+            report_id=str(report_id),
+            relation=BriefingReportRelation(relation_value),
+            priority=priority,
+            updated_at=updated_at,
+            scores=_served_scores(heads),
+        )
+        for report_id, updated_at, relation_value, priority, heads in rows
+    ]
+    excluded = set(exclude_report_ids)
+    ranked = [candidate for candidate in _briefing_pick(candidates) if candidate.report_id not in excluded]
+    page = ranked[offset:] if limit is None else ranked[offset : offset + limit]
+    chosen = sorted(page, key=_priority_order)
     chosen_ids = [candidate.report_id for candidate in chosen]
     reports = {
         str(report.id): report
