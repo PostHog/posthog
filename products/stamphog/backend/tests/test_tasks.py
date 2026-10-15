@@ -393,8 +393,8 @@ def test_review_mode_gates_events(team, repo_config, review_mode, payload_kwargs
 
 @pytest.mark.parametrize(
     "retrigger_updated_at,expect_label_removed",
-    [("2026-10-15T14:03:30Z", True), ("2026-10-15T14:00:20Z", False)],
-    ids=["fresh_relabel_rejected", "redelivered_trigger_left_alone"],
+    [("2026-10-15T14:03:30Z", True), ("2026-10-15T14:00:20Z", True), ("2026-10-15T14:00:10Z", False)],
+    ids=["fresh_relabel_rejected", "same_second_relabel_rejected", "stale_delivery_left_alone"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_labeled_rereview_cooldown_skips_rapid_retrigger(

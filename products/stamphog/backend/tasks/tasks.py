@@ -729,7 +729,7 @@ def _reject_label_in_cooldown(repo_config: StamphogRepoConfig, pr: dict[str, Any
             .values_list("payload_updated_at", flat=True)
             .first()
         )
-        if incoming_updated_at and stored_updated_at and incoming_updated_at <= stored_updated_at:
+        if incoming_updated_at and stored_updated_at and incoming_updated_at < stored_updated_at:
             return
         cooldown_ends_at = cache.get(_label_cooldown_key(repo_config, pr_number))
         client = StamphogGitHubClient(repo_config.installation_id)
