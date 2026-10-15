@@ -56,7 +56,6 @@ V2_BOOLEAN_ALL_RULE_TYPES: dict[str, Any] = {
             "id": "44444444-4444-4444-8444-444444444444",
             "rule_type": "experiment",
             "targeting": {"properties": []},
-            "experiment_id": 42,
             "paused": False,
             "rollout_percentage": 100,
             "on_rollout_miss": "continue",
@@ -135,19 +134,16 @@ class TestParseV2Config:
                 RuleV2(
                     id="11111111-1111-4111-8111-111111111111",
                     rule_type="targeted_release",
-                    experiment_id=None,
                     value=True,
                 ),
                 RuleV2(
                     id="22222222-2222-4222-8222-222222222222",
                     rule_type="percentage_rollout",
-                    experiment_id=None,
                     value=True,
                 ),
                 RuleV2(
                     id="44444444-4444-4444-8444-444444444444",
                     rule_type="experiment",
-                    experiment_id=42,
                     value=None,
                 ),
             ),
@@ -162,7 +158,6 @@ class TestParseV2Config:
                 RuleV2(
                     id="55555555-5555-4555-8555-555555555555",
                     rule_type="percentage_rollout",
-                    experiment_id=None,
                     value="compact",
                 ),
             ),
@@ -196,7 +191,6 @@ class TestParseV2Config:
             ("rules", None, "rules"),
             ("rule_id", 0, "id"),
             ("rule_type", 0, "rule_type"),
-            ("experiment_id", 2, "experiment_id"),
             ("rule_value", 1, "value"),
         ]
     )
