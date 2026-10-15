@@ -132,24 +132,68 @@ pub fn now_last_updated() -> String {
     format_last_updated(Utc::now().timestamp_micros())
 }
 
-/// Per-partition output-version allocator. Wall time supplies the normal value; the local floor
-/// makes every later worker message strictly newer even if the clock stalls or moves backward.
+/// How far ahead of the newest version a stored reservation reaches.
+const RESERVATION_LEAD_MICROS: i64 = 2_000_000;
+/// The reservation is renewed once less than this much of it is left, so a turn shorter than this
+/// emits only versions under the stored reservation.
+const RESERVATION_RENEW_MICROS: i64 = RESERVATION_LEAD_MICROS / 2;
+
+/// Per-partition output-version allocator. Wall time supplies the normal value; the floor makes
+/// every later worker message strictly newer even if the clock stalls or moves backward.
+///
+/// The floor survives a restart through a reservation: the worker stores a value ahead of what it
+/// emits ([`Self::reservation_due`]), and the next tenure starts above it ([`Self::resume_above`]).
+/// A new owner whose wall clock lags the old one therefore cannot emit an older version.
 #[derive(Debug, Default)]
 pub(crate) struct LastUpdatedClock {
     last_micros: Option<i64>,
+    reserved_micros: Option<i64>,
 }
 
 impl LastUpdatedClock {
+    /// Start a tenure whose first version is above `floor_micros`, the reservation an earlier tenure
+    /// stored.
+    pub fn resume_above(floor_micros: i64) -> Self {
+        Self {
+            last_micros: Some(floor_micros),
+            reserved_micros: Some(floor_micros),
+        }
+    }
+
     pub fn next(&mut self) -> String {
         self.next_at(Utc::now().timestamp_micros())
     }
 
     fn next_at(&mut self, observed_micros: i64) -> String {
+        format_last_updated(self.next_micros_at(observed_micros))
+    }
+
+    fn next_micros_at(&mut self, observed_micros: i64) -> i64 {
         let next_micros = self.last_micros.map_or(observed_micros, |last_micros| {
             observed_micros.max(last_micros.saturating_add(1))
         });
         self.last_micros = Some(next_micros);
-        format_last_updated(next_micros)
+        next_micros
+    }
+
+    /// The reservation to store before the next turn emits, or `None` while the stored one still
+    /// covers it. Call [`Self::reserved`] once the store accepts it.
+    pub fn reservation_due(&self) -> Option<i64> {
+        self.reservation_due_at(Utc::now().timestamp_micros())
+    }
+
+    fn reservation_due_at(&self, observed_micros: i64) -> Option<i64> {
+        let newest = self.last_micros.map_or(observed_micros, |last_micros| {
+            observed_micros.max(last_micros)
+        });
+        match self.reserved_micros {
+            Some(reserved) if reserved.saturating_sub(newest) >= RESERVATION_RENEW_MICROS => None,
+            _ => Some(newest.saturating_add(RESERVATION_LEAD_MICROS)),
+        }
+    }
+
+    pub fn reserved(&mut self, reserved_micros: i64) {
+        self.reserved_micros = Some(reserved_micros);
     }
 }
 
@@ -435,6 +479,34 @@ mod tests {
         assert_eq!(first, "2023-11-14 22:13:20.000000");
         assert_eq!(stalled, "2023-11-14 22:13:20.000001");
         assert_eq!(rewound, "2023-11-14 22:13:20.000002");
+    }
+
+    #[test]
+    fn a_resumed_tenure_stays_above_every_version_the_last_tenure_emitted_under_its_reservation() {
+        let now = 1_700_000_000_000_000;
+        let mut old_owner = LastUpdatedClock::default();
+        let reservation = old_owner
+            .reservation_due_at(now)
+            .expect("a fresh clock reserves");
+        old_owner.reserved(reservation);
+        assert_eq!(old_owner.reservation_due_at(now), None);
+
+        let mut emitted = Vec::new();
+        for step in (0..RESERVATION_RENEW_MICROS).step_by(1_000) {
+            emitted.push(old_owner.next_micros_at(now + step));
+        }
+        assert!(emitted.iter().all(|&version| version <= reservation));
+        assert!(
+            old_owner
+                .reservation_due_at(now + RESERVATION_RENEW_MICROS + 1)
+                .is_some(),
+            "the reservation renews before the turn can pass it",
+        );
+
+        // The new owner's wall clock lags the old owner's by a minute.
+        let mut new_owner = LastUpdatedClock::resume_above(reservation);
+        let first = new_owner.next_micros_at(now - 60_000_000);
+        assert!(emitted.iter().all(|&version| version < first));
     }
 
     #[tokio::test]

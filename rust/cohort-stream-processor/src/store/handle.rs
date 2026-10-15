@@ -417,6 +417,19 @@ impl StoreHandle {
         .await
     }
 
+    /// Point-read one partition's output-version floor (worker spawn).
+    pub async fn get_output_version_floor(
+        &self,
+        partition_id: u16,
+    ) -> Result<Option<i64>, StoreError> {
+        self.read(
+            "get_output_version_floor",
+            ReadLane::Maintenance,
+            move |store| store.get_output_version_floor(partition_id),
+        )
+        .await
+    }
+
     /// Point-read one pending-transfer outbox slot (maintenance/merge path).
     pub async fn get_pending_transfer(
         &self,

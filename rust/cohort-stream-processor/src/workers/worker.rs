@@ -47,7 +47,9 @@ use crate::producer::{
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::{StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
-use crate::store::{BehavioralKey, ReadLane, StoreHandle};
+use crate::store::{
+    BehavioralKey, OutputVersionFloorKey, OutputVersionFloors, ReadLane, StagedBatch, StoreHandle,
+};
 use crate::sweep::EvictionQueue;
 use crate::workers::cascade_path::handle_cascade;
 use crate::workers::event_path::{
@@ -140,6 +142,48 @@ impl Stage1Worker {
     }
 }
 
+/// Start the output clock above the floor an earlier tenure stored, so a lagging wall clock on this
+/// pod cannot emit a version older than one the earlier tenure emitted.
+async fn resume_last_updated_clock(partition_id: u16, handle: &StoreHandle) -> LastUpdatedClock {
+    match handle.get_output_version_floor(partition_id).await {
+        Ok(Some(floor_micros)) => LastUpdatedClock::resume_above(floor_micros),
+        Ok(None) => LastUpdatedClock::default(),
+        Err(err) => {
+            warn!(
+                partition_id,
+                error = %err,
+                "output version floor read failed; starting the output clock at wall time",
+            );
+            LastUpdatedClock::default()
+        }
+    }
+}
+
+/// Store a new output-version reservation when the current one runs low. A failed write keeps the
+/// old reservation and tries again on the next turn: output does not wait on it.
+async fn reserve_output_versions(
+    partition_id: u16,
+    handle: &StoreHandle,
+    clock: &mut LastUpdatedClock,
+) {
+    let Some(reservation) = clock.reservation_due() else {
+        return;
+    };
+    let mut staged = StagedBatch::default();
+    staged.put::<OutputVersionFloors>(
+        &OutputVersionFloorKey(partition_id),
+        &reservation.to_be_bytes(),
+    );
+    match handle.commit(staged).await {
+        Ok(()) => clock.reserved(reservation),
+        Err(err) => warn!(
+            partition_id,
+            error = %err,
+            "output version reservation write failed; retrying next turn",
+        ),
+    }
+}
+
 /// What one [`run_worker`] select round yielded, so the loop body is a plain `match`.
 enum Turn {
     /// A live sub-batch, or `None` for a closed live lane.
@@ -191,7 +235,7 @@ async fn run_worker(
 
     // Persists across batches so a stream of buffered batches still yields on the wall-clock interval.
     let mut last_yield = Instant::now();
-    let mut last_updated_clock = LastUpdatedClock::default();
+    let mut last_updated_clock = resume_last_updated_clock(partition_id, &handle).await;
     // Two locals, not `inbox.live`/`inbox.seeds`: both branch futures live at once inside the
     // macro, so they must borrow disjoint places.
     let WorkerInbox {
@@ -241,6 +285,7 @@ async fn run_worker(
             // Both lanes are closed and drained and no run is pending, so nothing more can arrive.
             else => break,
         };
+        reserve_output_versions(partition_id, &handle, &mut last_updated_clock).await;
         let batch = match turn {
             Turn::Live(Some(batch)) => batch,
             Turn::Live(None) => {
@@ -1395,6 +1440,60 @@ mod tombstone_redirect_tests {
         assert_eq!(changes[0].status, MembershipStatus::Entered);
         assert_eq!(changes[1].status, MembershipStatus::Left);
         assert!(changes[0].last_updated < changes[1].last_updated);
+    }
+
+    #[tokio::test]
+    async fn a_new_tenure_emits_above_the_reservation_the_last_tenure_stored() {
+        let (_dir, store) = temp_store();
+        let membership = CaptureSink::new();
+        let tracker = Arc::new(OffsetTracker::new());
+        let person = Uuid::from_u128(0x71AF);
+        let mut leaves = person_event(person, "other@p.com", 5, 1);
+        leaves.timestamp = "2026-05-26 12:34:56.790000".to_string();
+
+        let tenures = [(person_event(person, "u@p.com", 5, 0), 0), (leaves, 1)];
+        let mut floors = Vec::new();
+        for (event, offset) in tenures {
+            run_batch(
+                0,
+                &store,
+                person_catalog(),
+                &membership,
+                &tracker,
+                merge_deps_with(CaptureStreamEventSink::new()),
+                offset + 1,
+                vec![ShuffleMessage::Event {
+                    event: Box::new(event),
+                    cse_offset: offset,
+                    broker_ts_ms: None,
+                }],
+                vec![],
+            )
+            .await;
+            floors.push(
+                test_handle(&store)
+                    .get_output_version_floor(0)
+                    .await
+                    .unwrap()
+                    .expect("the tenure stored a reservation"),
+            );
+        }
+
+        let changes = membership.changes();
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[1].status, MembershipStatus::Left);
+        let first = clickhouse_timestamp_to_micros(&changes[0].last_updated);
+        let second = clickhouse_timestamp_to_micros(&changes[1].last_updated);
+        assert!(first <= floors[0]);
+        assert!(second > floors[0]);
+        assert!(second <= floors[1]);
+    }
+
+    fn clickhouse_timestamp_to_micros(value: &str) -> i64 {
+        chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S%.6f")
+            .unwrap()
+            .and_utc()
+            .timestamp_micros()
     }
 
     #[tokio::test]

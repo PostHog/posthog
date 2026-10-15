@@ -20,8 +20,8 @@ pub use keys::{
     Stage2TransferredRegisterPersonPrefix, TombstoneKey,
 };
 pub use keyspace::{
-    Behavioral, BehavioralKey, Keyspace, Meta, MetaKey, PersonPrefix, PersonRecordKey,
-    PersonRecords,
+    Behavioral, BehavioralKey, Keyspace, Meta, MetaKey, OutputVersionFloorKey, OutputVersionFloors,
+    PersonPrefix, PersonRecordKey, PersonRecords,
 };
 pub use rocks::{
     BatchBuilder, CfStats, CohortStore, EventSnapshotRaw, Stage2DirtyTrackingGuard, StoreConfig,
