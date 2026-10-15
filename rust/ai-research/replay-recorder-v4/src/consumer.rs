@@ -22,7 +22,11 @@ use crate::batch::{Batch, Block, Inspectors, SessionKey};
 use crate::process::{admit, read, sampled};
 use crate::store::BlobStore;
 use crate::teams::TeamCache;
+use crate::urls::{fetch_jobs, records};
 use crate::write::{prepare, write_block_index, write_blocks, write_images, WriteError};
+use rdkafka::message::{Header, OwnedHeaders};
+use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::util::Timeout;
 
 /// Records the partitions each rebalance takes away, so the loop can drop what it buffered for them.
 pub struct RebalanceContext {
@@ -128,6 +132,10 @@ pub struct Writer {
     pub images_bucket: String,
     /// Images this process stored for their team and day, so a later flush references them without packing them again.
     pub stored_images: moka::sync::Cache<String, ()>,
+    pub producer: FutureProducer,
+    pub image_fetch_topic: String,
+    /// Remote image references this process sent to the fetcher for their team and day.
+    pub sent_urls: moka::sync::Cache<String, ()>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -136,6 +144,8 @@ pub enum FlushError {
     Keys(#[from] replay_core_v4::keys::batch::KeyError),
     #[error(transparent)]
     Write(#[from] WriteError),
+    #[error("producing image fetch jobs failed: {0}")]
+    Produce(String),
 }
 
 pub struct Settings {
@@ -259,6 +269,10 @@ async fn flush(blocks: &mut [Block], writer: Option<&Writer>) -> Result<(), Flus
     let prepared = prepare(blocks, &keys, &day, &|reference| {
         stored.contains_key(reference)
     });
+    // Before the index is written: building the jobs counts each block's image URLs into its stats.
+    let jobs = fetch_jobs(blocks, &keys, &day, now.timestamp_millis(), &|reference| {
+        writer.sent_urls.contains_key(reference)
+    });
     let rows = write_images(
         &prepared.images,
         &keys,
@@ -290,5 +304,37 @@ async fn flush(blocks: &mut [Block], writer: Option<&Writer>) -> Result<(), Flus
         now,
     )
     .await?;
+    produce_jobs(writer, jobs, now.timestamp_millis()).await?;
+    Ok(())
+}
+
+/// Sends the flush's fetch jobs and waits for every delivery before the flush commits, as the v3 mirror does.
+async fn produce_jobs(
+    writer: &Writer,
+    jobs: std::collections::BTreeMap<String, Vec<serde_json::Value>>,
+    now_ms: i64,
+) -> Result<(), FlushError> {
+    let captured_at = now_ms.to_string();
+    let mut sent = Vec::new();
+    for (domain, payload, references) in records(jobs) {
+        let headers = OwnedHeaders::new().insert(Header {
+            key: "capture-timestamp-ms",
+            value: Some(&captured_at),
+        });
+        let record = FutureRecord::to(&writer.image_fetch_topic)
+            .key(&domain)
+            .payload(&payload)
+            .headers(headers);
+        writer
+            .producer
+            .send(record, Timeout::After(Duration::from_secs(30)))
+            .await
+            .map_err(|(error, _)| FlushError::Produce(error.to_string()))?;
+        sent.extend(references);
+    }
+    counter!("replay_recorder_v4_image_fetch_jobs_total").increment(sent.len() as u64);
+    for reference in sent {
+        writer.sent_urls.insert(reference, ());
+    }
     Ok(())
 }
