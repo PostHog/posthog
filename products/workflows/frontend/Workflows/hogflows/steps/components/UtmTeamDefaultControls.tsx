@@ -13,7 +13,7 @@ import type { UtmTagValues } from './UtmTagFields'
 export interface UtmTeamDefaultControlsProps {
     value: UtmTagValues
     /** Called after the values become the team default, so the email can mark them as following it. */
-    onSavedAsTeamDefault: () => void
+    onSavedAsTeamDefault: (saved: UtmTagValues) => void
 }
 
 export function UtmTeamDefaultControls({ value, onSavedAsTeamDefault }: UtmTeamDefaultControlsProps): JSX.Element {
@@ -50,7 +50,7 @@ export function UtmTeamDefaultControls({ value, onSavedAsTeamDefault }: UtmTeamD
                     // email keeps its values as its own so a later bulk apply skips them.
                     const saved = getTeamUtmDefaults(teamLogic.values.currentTeam?.workflows_config)
                     if (saved.enabled && matchesTeamUtmDefaults(value, saved)) {
-                        onSavedAsTeamDefault()
+                        onSavedAsTeamDefault(value)
                     }
                 }}
                 data-attr="email-utm-save-as-team-default"

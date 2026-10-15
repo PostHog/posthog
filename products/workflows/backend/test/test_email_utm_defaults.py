@@ -30,6 +30,7 @@ class TestEmailUtmDefaults(SimpleTestCase):
             _email("new_with_values", utm_params={"utm_source": "partner"}),
             _email("new_chosen_with_values", utm_tags_enabled=True, utm_params={"utm_source": "partner"}),
             _email("new_with_marker", **{UTM_FROM_DEFAULT_KEY: ["utm_medium"]}),
+            _email("new_with_empty_campaign", utm_params={"utm_campaign": ""}),
             {"id": "trigger", "type": "trigger", "config": {}},
         ]
 
@@ -53,51 +54,74 @@ class TestEmailUtmDefaults(SimpleTestCase):
             "utm_campaign": "{{ person.properties.plan }}",
         }
         assert configs["new_with_values"][UTM_FROM_DEFAULT_KEY] == ["utm_medium", "utm_campaign", "utm_content"]
+        assert configs["new_with_empty_campaign"]["utm_params"] == {"utm_source": "newsletter", "utm_campaign": ""}
+        assert configs["new_with_empty_campaign"][UTM_FROM_DEFAULT_KEY] == ["utm_source", "utm_medium", "utm_content"]
 
     @parameterized.expand(
         [
             (
                 "an edited value stops following the default",
-                {"utm_source": "newsletter"},
+                {"utm_params": {"utm_source": "newsletter"}},
                 None,
                 {"utm_params": {"utm_source": "partner"}, UTM_FROM_DEFAULT_KEY: list(UTM_KEYS)},
+                False,
                 ["utm_medium", "utm_campaign", "utm_content"],
             ),
             (
                 "a step only the staged draft has is compared with the draft",
                 None,
-                {"utm_source": "newsletter"},
+                {"utm_params": {"utm_source": "newsletter"}},
                 {"utm_params": {"utm_source": "partner"}, UTM_FROM_DEFAULT_KEY: list(UTM_KEYS)},
+                True,
                 ["utm_medium", "utm_campaign", "utm_content"],
             ),
             (
                 "a value changed to the team default keeps following it",
-                {"utm_source": "partner"},
+                {"utm_params": {"utm_source": "partner"}},
                 None,
                 {"utm_params": {"utm_source": "newsletter"}, UTM_FROM_DEFAULT_KEY: list(UTM_KEYS)},
+                False,
                 list(UTM_KEYS),
             ),
             (
                 "an unchanged step from before team defaults gets no marker",
-                {"utm_source": "old"},
-                None,
                 {"utm_params": {"utm_source": "old"}},
                 None,
+                {"utm_params": {"utm_source": "old"}},
+                False,
+                None,
+            ),
+            (
+                "a resend without the marker keeps the stored marker",
+                {"utm_params": {"utm_source": "partner"}, UTM_FROM_DEFAULT_KEY: ["utm_medium"]},
+                None,
+                {"utm_params": {"utm_source": "partner"}},
+                False,
+                ["utm_medium"],
+            ),
+            (
+                "an unchanged draft value is compared with the draft, not the live step",
+                {"utm_params": {"utm_source": "spring"}},
+                {"utm_params": {"utm_source": "summer"}},
+                {"utm_params": {"utm_source": "summer"}, UTM_FROM_DEFAULT_KEY: list(UTM_KEYS)},
+                True,
+                list(UTM_KEYS),
             ),
         ]
     )
     def test_release_edited_keys(
         self,
         _name: str,
-        live_params: dict[str, str] | None,
-        draft_params: dict[str, str] | None,
+        live_config: dict[str, Any] | None,
+        draft_config: dict[str, Any] | None,
         submitted_config: dict[str, Any],
+        saving_draft: bool,
         expected_marker: list[str] | None,
     ) -> None:
-        stored_actions = [_email("email_1", utm_params=live_params)] if live_params is not None else []
-        stored_draft = {"actions": [_email("email_1", utm_params=draft_params)]} if draft_params is not None else None
+        stored_actions = [_email("email_1", **live_config)] if live_config is not None else []
+        stored_draft = {"actions": [_email("email_1", **draft_config)]} if draft_config is not None else None
         actions = [_email("email_1", **submitted_config)]
 
-        release_edited_keys(actions, stored_actions, stored_draft, DEFAULTS)
+        release_edited_keys(actions, stored_actions, stored_draft, DEFAULTS, saving_draft=saving_draft)
 
         assert actions[0]["config"].get(UTM_FROM_DEFAULT_KEY) == expected_marker

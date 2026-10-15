@@ -188,6 +188,45 @@ describe('hogFlowEditorLogic', () => {
         expect(logic.values.selectedNode).toMatchObject({ id: action.id, data: action })
     })
 
+    it('keeps edits made while "Save as team default" was saving', () => {
+        const email = {
+            id: 'email',
+            name: 'Send email',
+            description: '',
+            type: 'function_email',
+            created_at: 0,
+            updated_at: 0,
+            config: {
+                template_id: 'template-email',
+                inputs: {},
+                utm_tags_enabled: true,
+                utm_params: { utm_source: 'partner', utm_campaign: 'spring' },
+                utm_params_from_default: [],
+            },
+        } as HogFlowAction
+        workflowLogic().actions.setWorkflowInfo({
+            actions: [NEW_WORKFLOW.actions[0], email, NEW_WORKFLOW.actions[1]],
+            edges: [edge(TRIGGER_NODE_ID, email.id, 'continue'), edge(email.id, EXIT_NODE_ID, 'continue')],
+        })
+        const saved = { utm_source: 'partner', utm_campaign: 'spring' }
+        logic.actions.setWorkflowAction(email.id, {
+            ...email,
+            name: 'Renamed while saving',
+            config: { ...email.config, utm_params: { utm_source: 'partner', utm_campaign: 'summer' } },
+        } as HogFlowAction)
+
+        logic.actions.markUtmSavedAsTeamDefault(email.id, saved)
+
+        const latest = logic.values.workflow.actions.find((action) => action.id === email.id)
+        expect(latest).toMatchObject({
+            name: 'Renamed while saving',
+            config: {
+                utm_params: { utm_source: 'partner', utm_campaign: 'summer' },
+                utm_params_from_default: ['utm_source', 'utm_medium', 'utm_content'],
+            },
+        })
+    })
+
     it.each([
         {
             case: 'a delay',

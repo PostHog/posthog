@@ -42,7 +42,9 @@ def seed_new_email_actions(
         config = action["config"]
         # Values the caller supplied for this email are its own, so only the keys it left out follow the default.
         # A new step without a marker would otherwise count as following every default on the next bulk apply.
-        supplied = clean_utm_params(config.get("utm_params"))
+        # An empty value is a choice too: it asks for the built-in tag, such as the workflow name for utm_campaign.
+        raw = config.get("utm_params")
+        supplied = {key: raw[key] for key in UTM_KEYS if isinstance(raw, dict) and isinstance(raw.get(key), str)}
         config.setdefault(UTM_FROM_DEFAULT_KEY, [key for key in UTM_KEYS if key not in supplied])
         if "utm_tags_enabled" in config:
             continue
@@ -53,8 +55,7 @@ def seed_new_email_actions(
         }
 
 
-def _keys_following_default(config: dict[str, Any]) -> list[str]:
-    marker = config.get(UTM_FROM_DEFAULT_KEY)
+def _keys_following_default(marker: Any) -> list[str]:
     # Steps saved before the team defaults existed carry no marker. None of them had custom values when
     # the defaults shipped, so every key counts as following the default.
     return [key for key in marker if key in UTM_KEYS] if isinstance(marker, list) else list(UTM_KEYS)
@@ -65,27 +66,36 @@ def release_edited_keys(
     stored_actions: list[Any],
     stored_draft: dict[str, Any] | None,
     defaults: TeamUtmDefaults,
+    *,
+    saving_draft: bool,
 ) -> None:
     """Stops a key from following the team default when an edit changes its value, like the email editor does."""
     draft_actions = stored_draft.get("actions") if isinstance(stored_draft, dict) else None
-    stored: dict[str, list[dict[str, str]]] = {}
-    for action in [*stored_actions, *(draft_actions if isinstance(draft_actions, list) else [])]:
-        if is_email_action(action) and action.get("id"):
-            stored.setdefault(str(action["id"]), []).append(clean_utm_params(action["config"].get("utm_params")))
+    live = {str(a["id"]): a["config"] for a in stored_actions if is_email_action(a) and a.get("id")}
+    draft = {
+        str(a["id"]): a["config"]
+        for a in (draft_actions if isinstance(draft_actions, list) else [])
+        if is_email_action(a) and a.get("id")
+    }
 
     for action in actions:
-        previous = stored.get(str(action.get("id"))) if is_email_action(action) else None
-        if not previous:
+        if not is_email_action(action):
+            continue
+        action_id = str(action.get("id"))
+        # A draft save edits the staged draft, so its values are the ones the edit started from.
+        baseline = (draft.get(action_id) if saving_draft else None) or live.get(action_id) or draft.get(action_id)
+        if baseline is None:
             continue
         config = action["config"]
-        following = _keys_following_default(config)
+        # A client that resends the config without the marker has not changed which keys follow the default.
+        following = _keys_following_default(config.get(UTM_FROM_DEFAULT_KEY, baseline.get(UTM_FROM_DEFAULT_KEY)))
+        previous = clean_utm_params(baseline.get("utm_params"))
         current = clean_utm_params(config.get("utm_params"))
         # A value equal to the team default still follows it, so "Save as team default" and the bulk apply keep the key.
         kept = [
             key
             for key in following
-            if current.get(key) == defaults.params.get(key)
-            or all(params.get(key) == current.get(key) for params in previous)
+            if current.get(key) == defaults.params.get(key) or current.get(key) == previous.get(key)
         ]
-        if kept != following:
+        if kept != following or (UTM_FROM_DEFAULT_KEY not in config and UTM_FROM_DEFAULT_KEY in baseline):
             config[UTM_FROM_DEFAULT_KEY] = kept

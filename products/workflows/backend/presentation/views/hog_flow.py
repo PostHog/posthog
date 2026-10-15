@@ -3088,16 +3088,19 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         get_team = self.context.get("get_team")
         if isinstance(submitted_actions, list) and get_team is not None:
-            existing_ids = (
-                [str(a["id"]) for a in (instance.actions or []) if instance and isinstance(a, dict) and a.get("id")]
-                if instance
-                else []
-            )
+            # A test invocation passes the workflow through the context rather than as the instance.
+            stored_actions = stored.actions if stored and isinstance(stored.actions, list) else []
+            existing_ids = [str(a["id"]) for a in stored_actions if isinstance(a, dict) and a.get("id")]
             utm_defaults = load_team_utm_defaults(get_team().id)
             seed_new_email_steps_with_utm_defaults(actions, existing_ids, utm_defaults)
-            if instance:
-                stored_actions = instance.actions if isinstance(instance.actions, list) else []
-                release_edited_email_utm_keys(actions, stored_actions, instance.draft, utm_defaults)
+            if stored:
+                release_edited_email_utm_keys(
+                    actions,
+                    stored_actions,
+                    stored.draft,
+                    utm_defaults,
+                    saving_draft=stored.status == HogFlowState.ACTIVE,
+                )
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
         status = data.get("status", instance.status if instance else "draft")

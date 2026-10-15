@@ -1,6 +1,7 @@
 from typing import Any
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -64,3 +65,36 @@ class TestHogFlowUtmDefaults(APIBaseTest):
         config = self._email_config(HogFlow.objects.get(pk=response.json()["id"]))
         assert config["utm_tags_enabled"] is expected_on
         assert config.get("utm_params") == expected_params
+
+    def test_test_invocation_leaves_existing_steps_without_team_defaults(self) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Old flow", "actions": [TRIGGER, _email_action(utm_tags_enabled=False)]},
+            format="json",
+        )
+        assert created.status_code == 201, created.json()
+        flow = HogFlow.objects.get(pk=created.json()["id"])
+        # A step saved before team defaults existed carries no UTM settings.
+        flow.actions = [
+            {**a, "config": {k: v for k, v in a["config"].items() if not k.startswith("utm_")}} for a in flow.actions
+        ]
+        flow.save()
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}/invocations/",
+                {
+                    "configuration": {"name": "Old flow", "actions": [TRIGGER, _email_action()]},
+                    "globals": {"event": {"event": "$pageview", "distinct_id": "test-distinct-id"}},
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        actions = mock_invoke.call_args.kwargs["payload"]["configuration"]["actions"]
+        email_config = next(a for a in actions if a["type"] == "function_email")["config"]
+        assert "utm_tags_enabled" not in email_config
+        assert "utm_params" not in email_config

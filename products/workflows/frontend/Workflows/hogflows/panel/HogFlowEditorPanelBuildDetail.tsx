@@ -28,7 +28,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { utmKeysFromDefaultAfterEdit } from '../steps/components/utmDefaults'
-import { UTM_TAG_KEYS, UtmTagFields } from '../steps/components/UtmTagFields'
+import { UtmTagFields } from '../steps/components/UtmTagFields'
 import { UtmTeamDefaultControls } from '../steps/components/UtmTeamDefaultControls'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isEmailAction, isOptOutEligibleAction } from '../steps/types'
@@ -42,7 +42,7 @@ import { OutputTestResultTree } from './OutputTestResultTree'
 
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, workflow, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
-    const { setWorkflowAction, setMode } = useActions(hogFlowEditorLogic)
+    const { setWorkflowAction, setMode, markUtmSavedAsTeamDefault } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(workflowLogic)
     const { mappings, pendingPath, testLoading, testError, testResultData, shakePickButton, pendingSuggestions } =
         useValues(hogFlowOutputMappingLogic(logicProps))
@@ -197,12 +197,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                             />
                             <UtmTeamDefaultControls
                                 value={action.config.utm_params ?? {}}
-                                onSavedAsTeamDefault={() => {
-                                    setWorkflowAction(action.id, {
-                                        ...action,
-                                        config: { ...action.config, utm_params_from_default: [...UTM_TAG_KEYS] },
-                                    })
-                                }}
+                                onSavedAsTeamDefault={(saved) => markUtmSavedAsTeamDefault(action.id, saved)}
                             />
                         </div>
                     )}

@@ -49,7 +49,9 @@ import {
     TOP_HANDLE_POSITION,
 } from './react_flow_utils/constants'
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
-import { getTeamUtmDefaults, newEmailUtmConfig } from './steps/components/utmDefaults'
+import { getTeamUtmDefaults, newEmailUtmConfig, utmKeysFollowingSavedDefault } from './steps/components/utmDefaults'
+import type { UtmTagValues } from './steps/components/UtmTagFields'
+import type { UtmTagKey } from './steps/components/UtmTagFields'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
 import { isWorkflowTreeComplete } from './tree/workflowTree'
@@ -2083,6 +2085,13 @@ export interface hogFlowEditorLogicActions {
             timezone: string
         }
     }
+    markUtmSavedAsTeamDefault: (
+        actionId: string,
+        saved: UtmTagValues
+    ) => {
+        actionId: string
+        saved: Partial<Record<UtmTagKey, string>>
+    }
     moveNodeToEdge: (
         movingNodeId: string,
         targetEdge: HogFlowEdge,
@@ -2289,6 +2298,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             joinEdges,
         }),
         duplicateNodeBelow: (actionId: string) => ({ actionId }),
+        markUtmSavedAsTeamDefault: (actionId: string, saved: UtmTagValues) => ({ actionId, saved }),
         loadActionMetricsById: (
             params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
             timezone: string
@@ -3108,6 +3118,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                 actions.setWorkflowInfo({ actions: values.workflow.actions, edges: newEdges })
                 actions.setSelectedNodeId(movingNodeId)
+            },
+            markUtmSavedAsTeamDefault: ({ actionId, saved }) => {
+                // The save takes a round trip, so start from the step as it is now to keep edits made meanwhile.
+                const latest = values.workflow.actions.find((action) => action.id === actionId)
+                if (!latest || latest.type !== 'function_email') {
+                    return
+                }
+                actions.setWorkflowAction(actionId, {
+                    ...latest,
+                    config: {
+                        ...latest.config,
+                        utm_params_from_default: utmKeysFollowingSavedDefault(latest.config.utm_params ?? {}, saved),
+                    },
+                })
             },
             duplicateNodeBelow: ({ actionId }) => {
                 const action = values.workflow.actions.find((action) => action.id === actionId)

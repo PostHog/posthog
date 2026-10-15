@@ -53,3 +53,10 @@ export function matchesTeamUtmDefaults(params: UtmTagValues, defaults: TeamUtmDe
     const cleaned = cleanUtmParams(params)
     return UTM_TAG_KEYS.every((key) => (cleaned[key] ?? '') === (defaults.params[key] ?? ''))
 }
+
+/** Which keys follow the team default after "Save as team default": those still holding the saved value. */
+export function utmKeysFollowingSavedDefault(current: UtmTagValues, saved: UtmTagValues): UtmTagKey[] {
+    const cleanedCurrent = cleanUtmParams(current)
+    const cleanedSaved = cleanUtmParams(saved)
+    return UTM_TAG_KEYS.filter((key) => (cleanedCurrent[key] ?? '') === (cleanedSaved[key] ?? ''))
+}

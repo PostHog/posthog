@@ -314,5 +314,7 @@ def release_edited_email_utm_keys(
     stored_actions: list[Any],
     stored_draft: dict[str, Any] | None,
     defaults: TeamUtmDefaults,
+    *,
+    saving_draft: bool,
 ) -> None:
-    email_utm_defaults.release_edited_keys(actions, stored_actions, stored_draft, defaults)
+    email_utm_defaults.release_edited_keys(actions, stored_actions, stored_draft, defaults, saving_draft=saving_draft)
