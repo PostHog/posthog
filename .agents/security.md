@@ -205,6 +205,11 @@ adapter emits `security.oob_domain_seen` and takes its team from the activity's 
 `posthog/security/url_validation.py` emits the same event with no team at all, because no team is
 in scope there, so those lines are attributable to a host and not to a project.
 
+In Node, `validateHostnameIPLiteral` (`nodejs/src/common/utils/request.ts`) and
+`EmailValidationService.dnsLookup` emit `security.oob_domain_seen` too, under the guard
+`node_request` or `node_email_validation`. Both read the hand-written mirror in
+`nodejs/src/common/utils/oob-domains.ts`, which a parity test holds against the JSON.
+
 The check runs on cloud only, and it runs before each guard's own DNS resolution, because the
 lookup alone confirms the path to whoever runs the collaborator.
 
