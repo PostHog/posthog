@@ -399,7 +399,7 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
 
     afterMount(({ actions, cache, props }) => {
         cache.impressions = new WatchFeedImpressions(props.playlistLogicProps ? 'list' : 'watch_page')
-        // Not paused on hide: hiding the tab is when the batch must go out, since a closed tab sends nothing later.
+        // Not paused on hide: hiding is when the batch must go out.
         cache.disposables.add(cache.impressions.flushOnHideAndUnmount, 'impressionsFlush', { pauseOnPageHidden: false })
         actions.loadPicks()
     }),

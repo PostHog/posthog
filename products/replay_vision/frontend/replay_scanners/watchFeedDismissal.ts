@@ -12,7 +12,6 @@ export const FEED_DISMISSAL_REASON_LABELS: Record<FeedDismissalReasonEnumApi, st
     other: 'Other reason',
 }
 
-/** The reason picks behind every "Not useful" control, so each surface records the same labels. */
 export function feedDismissalMenuItems(onDismiss: (reason: FeedDismissalReasonEnumApi | null) => void): LemonMenuItems {
     const reasons = Object.entries(FEED_DISMISSAL_REASON_LABELS) as [FeedDismissalReasonEnumApi, string][]
     return [
@@ -58,13 +57,10 @@ interface DismissFeedItemArgs {
     teamId: number
     item: WatchFeedItemApi
     reason: FeedDismissalReasonEnumApi | null
-    /** The card's shared event properties, from `cardProperties`. */
     properties: Record<string, unknown>
-    /** Puts the card back in the list: on undo, and when the request fails. */
     restore: () => void
 }
 
-/** Persists the not-useful mark and offers an undo. The caller has already taken the card out of the list. */
 export async function dismissFeedItem({
     teamId,
     item,

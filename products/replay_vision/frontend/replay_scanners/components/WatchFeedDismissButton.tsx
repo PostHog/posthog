@@ -9,7 +9,6 @@ interface WatchFeedDismissButtonProps {
     className?: string
 }
 
-/** Marks a session not useful, with an optional reason, so the feed stops showing it to this reader. */
 export function WatchFeedDismissButton({ onDismiss, className }: WatchFeedDismissButtonProps): JSX.Element {
     return (
         <LemonMenu placement="bottom-end" items={feedDismissalMenuItems(onDismiss)}>

@@ -5,7 +5,6 @@ import { RefObject, useEffect, useRef } from 'react'
 const VISIBLE_RATIO = 0.5
 const VISIBLE_FOR_MS = 1000
 
-/** Calls `onSeen` once, the first time the element stays at least half visible for a second. */
 export function useCardImpression(ref: RefObject<HTMLElement | null>, onSeen: () => void): void {
     const onSeenRef = useRef(onSeen)
     onSeenRef.current = onSeen

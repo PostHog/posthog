@@ -3,9 +3,7 @@ import { uuid } from 'lib/utils/dom'
 
 import type { WatchFeedItemApi } from '../generated/api.schemas'
 
-/** One fetch of the feed, as the events that came from it name it. A later ranker trains on these events,
- * so every event about a card carries the load it came from: that is what ties a click, a dismissal, or an
- * impression back to the ranked list it was picked out of. */
+/** One feed fetch. Every card event carries its id, so a click, dismissal, or impression joins back to the ranked list it came from. */
 export interface WatchFeedLoad {
     feedLoadId: string
     ranker: string
@@ -15,7 +13,6 @@ export function newWatchFeedLoad(ranker: string | null | undefined): WatchFeedLo
     return { feedLoadId: uuid(), ranker: ranker ?? 'weighted-score' }
 }
 
-/** The ranked list as served, in order, so a card the reader never opened still counts as shown at its place. */
 export function servedListProperties(load: WatchFeedLoad | null, items: WatchFeedItemApi[]): Record<string, unknown> {
     return {
         feed_load_id: load?.feedLoadId ?? null,
@@ -24,7 +21,6 @@ export function servedListProperties(load: WatchFeedLoad | null, items: WatchFee
     }
 }
 
-/** What every per-card event says about the card, so the events join on the same keys. */
 export function cardProperties(
     load: WatchFeedLoad | null,
     item: WatchFeedItemApi,
@@ -39,7 +35,7 @@ export function cardProperties(
         surface,
         observation_id: observation.id,
         scanner_id: observation.scanner_id,
-        // The recording's id, so the `recording viewed summary` event the player sends later joins to this card.
+        // Joins to the player's `recording viewed summary` event.
         session_id: observation.session_id,
         position,
         reason_kind: reason.kind,
@@ -47,11 +43,7 @@ export function cardProperties(
     }
 }
 
-/**
- * Collects the cards a reader actually saw during one feed load and sends them as one event, so a page of
- * 50 cards costs one event instead of 50. Flushed when the load is replaced, the surface unmounts, or the
- * tab is hidden: the last of these is the only one a closed tab still reaches.
- */
+/** Batches one load's seen cards into a single event. Flushes on tab hide too, since a closed tab sends nothing later. */
 export class WatchFeedImpressions {
     private seen = new Map<string, { position: number; reason_kind: string }>()
     // A tab hidden and shown again flushes twice in one load; a card is reported once per load.
@@ -89,7 +81,6 @@ export class WatchFeedImpressions {
         this.seen.clear()
     }
 
-    /** A `cache.disposables` setup: flushes when the tab is hidden, and once more when the logic unmounts. */
     flushOnHideAndUnmount = (): (() => void) => {
         const flushWhenHidden = (): void => {
             if (document.visibilityState === 'hidden') {

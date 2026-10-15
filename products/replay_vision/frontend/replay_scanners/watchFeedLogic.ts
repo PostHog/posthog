@@ -565,7 +565,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
     // The tab content mounts only while the tab is active, so mount is the fetch signal.
     afterMount(({ actions, cache }) => {
         cache.impressions = new WatchFeedImpressions('feed_tab')
-        // Not paused on hide: hiding the tab is when the batch must go out, since a closed tab sends nothing later.
+        // Not paused on hide: hiding is when the batch must go out.
         cache.disposables.add(cache.impressions.flushOnHideAndUnmount, 'impressionsFlush', { pauseOnPageHidden: false })
         actions.loadFeed()
         // tagsModel is lazy; load it so the tag filter isn't empty on a direct visit.

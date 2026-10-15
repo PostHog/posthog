@@ -17,7 +17,6 @@ class ReplayObservationFeedDismissal(TeamScopedRootMixin, UUIDModel):
     observation = models.ForeignKey(
         "replay_vision.ReplayObservation", on_delete=models.CASCADE, related_name="feed_dismissals"
     )
-    # db_constraint=False: the migration policy blocks real FK constraints to the hot posthog_team/posthog_user tables.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     reason = models.CharField(max_length=32, choices=FeedDismissalReason.choices, null=True, blank=True)

@@ -137,7 +137,6 @@ export interface PlayerTimeTracking {
 }
 
 export interface RecordingViewedSummaryAnalytics {
-    // which recording was viewed, so the summary joins to whatever opened it (e.g. a What to watch click)
     recording_id?: string
     // how long was the player session mounted for
     viewed_time_ms?: number
