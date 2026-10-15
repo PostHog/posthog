@@ -314,26 +314,27 @@ async def perform_clustering_compute_activity(inputs: ClusteringActivityInputs) 
             # ClickHouse is saturated, or our own limiter holds no free slot for the query. Retrying
             # immediately would only add load, so back off with jitter to give the pool room to recover.
             backoff = random.uniform(
-                constants.CLICKHOUSE_AT_CAPACITY_BACKOFF_MIN.total_seconds(),
-                constants.CLICKHOUSE_AT_CAPACITY_BACKOFF_MAX.total_seconds(),
+                constants.QUERY_CAPACITY_BACKOFF_MIN.total_seconds(),
+                constants.QUERY_CAPACITY_BACKOFF_MAX.total_seconds(),
             )
             logger.warning(
-                "clustering_compute_clickhouse_at_capacity",
+                "clustering_compute_query_capacity_exhausted",
                 team_id=inputs.team_id,
                 analysis_level=inputs.analysis_level,
                 error_type=type(e).__name__,
                 backoff_seconds=round(backoff, 1),
             )
             # The retry usually gets through, so only a saturation that outlasts every attempt reaches error tracking.
+            next_retry_delay = timedelta(seconds=backoff)
             error_class = (
                 ApplicationError
-                if is_last_attempt(constants.COMPUTE_ACTIVITY_RETRY_POLICY)
+                if is_last_attempt(next_retry_delay=next_retry_delay)
                 else NonReportableApplicationError
             )
             raise error_class(
-                "ClickHouse at capacity while fetching embeddings for clustering",
+                "No ClickHouse query capacity while fetching embeddings for clustering",
                 type=type(e).__name__,
-                next_retry_delay=timedelta(seconds=backoff),
+                next_retry_delay=next_retry_delay,
             ) from e
 
 
