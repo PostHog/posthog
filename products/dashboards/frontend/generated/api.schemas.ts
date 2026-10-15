@@ -1804,6 +1804,8 @@ export interface HogQLQueryModifiersApi {
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
     sessionPropertyPreAggregation?: boolean | null
     sessionTableVersion?: SessionTableVersionApi | null
+    /** Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range. */
+    sessionTimestampBufferMinutes?: number | null
     sessionsV2JoinMode?: SessionsV2JoinModeApi | null
     timings?: boolean | null
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
@@ -9618,6 +9620,22 @@ export const MissingDatesApi = {
     Zero: 'zero',
 } as const
 
+export type ReferenceLinesApi = (typeof ReferenceLinesApi)[keyof typeof ReferenceLinesApi]
+
+export const ReferenceLinesApi = {
+    Pane: 'pane',
+    Worksheet: 'worksheet',
+} as const
+
+export interface BIPaneSettingsApi {
+    /** Ordered dimension IDs used to split returned groups into separate charts. */
+    fields: string[]
+    /** Use a separate value scale for each pane instead of a shared primary scale. */
+    independentAxes?: boolean | null
+    /** Calculate reference lines from each pane or from all returned worksheet marks. */
+    referenceLines?: ReferenceLinesApi | null
+}
+
 export type Operator1Api = (typeof Operator1Api)[keyof typeof Operator1Api]
 
 export const Operator1Api = {
@@ -9755,6 +9773,8 @@ export interface BIConfigApi {
     memberAliases?: MemberAliaseApi[] | null
     /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
     missingDates?: MissingDatesApi | null
+    /** Split the returned groups into charts using these ordered dimension IDs. */
+    panes?: BIPaneSettingsApi | null
     resultFilterGroup?: BIConditionGroupApi | null
     resultFilters?: BIResultFilterApi[] | null
     rowFilterGroup?: BIConditionGroupApi | null
