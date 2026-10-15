@@ -12,13 +12,16 @@ Design notes:
 """
 
 import ipaddress
+from collections.abc import Iterator
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import requests
 from parameterized import parameterized
+from requests.adapters import HTTPAdapter
 from rest_framework import status
 
 from posthog.security.url_validation import PinnedUrlVerdict
@@ -148,8 +151,8 @@ class TestFetchUrl(SimpleTestCase):
     @patch("products.business_knowledge.backend.url_fetch.requests.Session")
     @patch("products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips")
     def test_pins_ipv4_when_aaaa_is_also_validated(self, mock_ssrf: MagicMock, mock_session_cls: MagicMock) -> None:
-        class _Ipv6First(set):
-            def __iter__(self):
+        class _Ipv6First(set[ipaddress.IPv4Address | ipaddress.IPv6Address]):
+            def __iter__(self) -> Iterator[ipaddress.IPv4Address | ipaddress.IPv6Address]:
                 items = list(super().__iter__())
                 items.sort(key=lambda ip: (ip.version != 6, int(ip)))
                 return iter(items)
@@ -163,7 +166,11 @@ class TestFetchUrl(SimpleTestCase):
         url_fetch.fetch_url("https://example.com/x")
 
         adapter = session.mount.call_args_list[0].args[1]
-        assert adapter._pin_map["example.com"] == str(ipv4)
+        request = requests.Request("GET", "https://example.com/x").prepare()
+        with patch.object(HTTPAdapter, "send", return_value=MagicMock()):
+            adapter.send(request)
+        assert request.url == "https://93.184.216.34/x"
+        assert request.headers["Host"] == "example.com"
 
     @patch(
         "products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips",
