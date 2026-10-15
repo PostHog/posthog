@@ -10990,10 +10990,10 @@ Today (2): `logs`, `workflows`
 
 Diffed against: <https://docs.sim.ai/openapi.json>
 
-- [ ] `List Workflow Versions (GET /api/v2/workflows/{workflowId}/versions)` — resolve deploymentVersionId in execution logs and compare failures across deployment versions (high)
-- [ ] `List Workspaces (GET /api/v2/workspaces)` — resolve workspaceId in workflows and compare automation activity across workspaces (high)
-- [ ] `List Tables and List Rows (GET /api/v2/tables; GET /api/v2/tables/{tableId}/rows)` — analyze records created by automation, including enrichment outcomes attached to table rows (high)
-- [ ] `List Organization Usage Events (GET /api/v2/organizations/{organizationId}/usage/events)` — measure credit consumption across workflows, chat, and other usage sources (high)
+- [x] `List Workflow Versions (GET /api/v2/workflows/{workflowId}/versions)` — resolve deploymentVersionId in execution logs and compare failures across deployment versions (high)
+- [x] `List Workspaces (GET /api/v2/workspaces)` — resolve workspaceId in workflows and compare automation activity across workspaces (high)
+- [x] `List Tables and List Rows (GET /api/v2/tables; GET /api/v2/tables/{tableId}/rows)` — analyze records created by automation, including enrichment outcomes attached to table rows (high)
+- [x] `List Organization Usage Events (GET /api/v2/organizations/{organizationId}/usage/events)` — measure credit consumption across workflows, chat, and other usage sources (high)
 - [ ] `List Billing Logs (GET /api/v2/billing/logs)` — reconcile credit charges with automation activity over time (medium)
 - [ ] `List Audit Logs (GET /api/v2/audit-logs)` — track changes to workflows and workspace resources for governance analysis (medium)
 - [ ] `List Workspace Members (GET /api/v2/workspaces/{workspaceId}/members)` — analyze workspace membership and inherited organization access (medium)
@@ -12153,10 +12153,10 @@ Today (4): `ad_revenue_report`, `app_report`, `campaign_report`, `sk_ad_network_
 
 Diffed against: <https://api-docs.tenjin.com/assets/index-BBavDbPH.js>
 
-- [ ] `Cohort retention and revenue reports (GET /v2/reports/spend?metrics=users_1d,sessions_1d,retention_1d,revenues_1d,roas_1d)` — measure retention and return on advertising spend, which the fixed spend metric set cannot produce (high)
-- [ ] `Spend by campaign and country (GET /v2/reports/spend?group_by=campaign,country)` — compare acquisition costs and conversion rates across countries within each campaign (medium)
+- [x] `Cohort retention and revenue reports (GET /v2/reports/spend?metrics=users_1d,sessions_1d,retention_1d,revenues_1d,roas_1d)` — measure retention and return on advertising spend, which the fixed spend metric set cannot produce (high)
+- [x] `Spend by campaign and country (GET /v2/reports/spend?group_by=campaign,country)` — compare acquisition costs and conversion rates across countries within each campaign (medium)
 - [ ] `Spend by creative (GET /v2/reports/spend?group_by=creative)` — compare creative performance and identify inefficient advertising spend (medium)
-- [ ] `Ad revenue by placement (GET /v2/reports/ad_revenue?group_by=ad_placement)` — compare monetization revenue and efficiency across advertising placements (medium)
+- [x] `Ad revenue by placement (GET /v2/reports/ad_revenue?group_by=ad_placement)` — compare monetization revenue and efficiency across advertising placements (medium)
 - [ ] `SKAN Apple reports (GET /v2/reports/skan_apple)` — analyze Apple-sourced SKAdNetwork postbacks alongside network-sourced reports (medium)
 - [ ] `Campaigns (GET /v2/campaigns)` — add campaign metadata and account relationships to daily campaign performance reports (medium)
 
