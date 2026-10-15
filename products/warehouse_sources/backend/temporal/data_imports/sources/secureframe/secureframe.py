@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Callable, Iterator
 from functools import partial
 from typing import Any, Optional
@@ -6,6 +5,8 @@ from urllib.parse import urlencode
 
 import requests
 from requests import Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -36,7 +37,7 @@ PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
 
 
-@dataclasses.dataclass
+@frozen
 class SecureframeResumeConfig:
     page: int = 1
     # Fan-out endpoints only: the parent kind in progress and its fan-out state.

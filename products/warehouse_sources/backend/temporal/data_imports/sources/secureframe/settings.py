@@ -1,10 +1,11 @@
-from dataclasses import dataclass
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class SecureframeEndpointConfig:
     name: str
     path: str
