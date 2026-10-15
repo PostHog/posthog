@@ -1,8 +1,13 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
-import type { Series, TimeSeriesBarChartConfig, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
+import { ReferenceLines, TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
+import type {
+    ReferenceLineProps,
+    Series,
+    TimeSeriesBarChartConfig,
+    TimeSeriesLineChartConfig,
+} from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,6 +27,7 @@ import {
 // The top gridline sits at the top of the plot, and its tick label is centered on it, so the plot
 // starts far enough down for the upper half of that label to stay inside the chart box.
 const BAR_MARGINS = { top: 9 }
+const MARKER_MARGINS = { top: 26 }
 
 /** Height of the chart. A month of daily buckets needs this much room for the bar heights to
  *  separate and for the date row to stay smaller than the plot. The skeleton that stands in while
@@ -43,12 +49,14 @@ export function ReportObservationChart({
     type,
     interval,
     goalValue,
+    markers,
 }: {
     metric: ReportMetricApi
     points: ReportMetricSeriesPoints
     type: ReportMetricChartType
     interval: IntervalType | null | undefined
     goalValue?: number
+    markers?: ReferenceLineProps[]
 }): JSX.Element {
     const theme = useChartTheme()
     const { timezone } = useValues(teamLogic)
@@ -75,6 +83,7 @@ export function ReportObservationChart({
     const lineConfig = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({
             xAxis,
+            margins: markers?.length ? MARKER_MARGINS : undefined,
             goalLines: goalValue === undefined ? undefined : [{ value: goalValue, label: 'Goal' }],
             // Rates and durations emphasize change, so the value axis floats to the observed range.
             yAxis: { startAtZero: false, tickFormatter: yAxisValueFormatter },
@@ -82,7 +91,7 @@ export function ReportObservationChart({
             showCrosshair: true,
             tooltip: { pinnable: false, valueFormatter },
         }),
-        [xAxis, yAxisValueFormatter, valueFormatter, goalValue]
+        [xAxis, yAxisValueFormatter, valueFormatter, goalValue, markers?.length]
     )
     const barConfig = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
@@ -94,10 +103,10 @@ export function ReportObservationChart({
             barCornerRadius: 1,
             bandPadding: 0.25,
             minBarSize: 2,
-            margins: BAR_MARGINS,
+            margins: markers?.length ? MARKER_MARGINS : BAR_MARGINS,
             tooltip: { pinnable: false, hitArea: 'band', valueFormatter },
         }),
-        [xAxis, yAxisValueFormatter, valueFormatter, goalValue]
+        [xAxis, yAxisValueFormatter, valueFormatter, goalValue, markers?.length]
     )
 
     return (
@@ -107,9 +116,13 @@ export function ReportObservationChart({
             data-chart-type={type}
         >
             {type === 'bar' ? (
-                <TimeSeriesBarChart series={series} labels={points.labels} theme={theme} config={barConfig} />
+                <TimeSeriesBarChart series={series} labels={points.labels} theme={theme} config={barConfig}>
+                    {markers && <ReferenceLines lines={markers} />}
+                </TimeSeriesBarChart>
             ) : (
-                <TimeSeriesLineChart series={series} labels={points.labels} theme={theme} config={lineConfig} />
+                <TimeSeriesLineChart series={series} labels={points.labels} theme={theme} config={lineConfig}>
+                    {markers && <ReferenceLines lines={markers} />}
+                </TimeSeriesLineChart>
             )}
         </div>
     )

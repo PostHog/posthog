@@ -119,8 +119,8 @@ describe('ReportExpectedImpact', () => {
     }
 
     it.each(['linear', 'fixed'] as const)(
-        'explains the %s Monitoring definition without showing a legacy measurement',
-        (scaling) => {
+        'keeps the chart and collapses the %s Monitoring definition',
+        async (scaling) => {
             renderMeasurements([
                 {
                     ...check,
@@ -155,9 +155,12 @@ describe('ReportExpectedImpact', () => {
                         : 'The target stays fixed as the measurement period grows.'
                 )
             ).toBeInTheDocument()
-            expect(screen.getByText('Interim Monitoring measurements are not available yet.')).toBeInTheDocument()
-            expect(screen.queryByText('Chart')).not.toBeInTheDocument()
+            expect(screen.getByText('View measurement details').closest('details')).not.toHaveAttribute('open')
+            expect(screen.getByText('Target reference period: 7 days.')).not.toBeVisible()
+            expect(screen.getByText('Chart')).toBeInTheDocument()
             expect(screen.queryByText(/Goal for the full query window/)).not.toBeInTheDocument()
+            await userEvent.setup().click(screen.getByText('View measurement details'))
+            expect(screen.getByText('Target reference period: 7 days.')).toBeVisible()
         }
     )
 

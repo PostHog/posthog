@@ -48,7 +48,7 @@ const meta: Meta<typeof ReportExpectedImpact> = {
     parameters: {
         layout: 'centered',
         viewMode: 'story',
-        mockDate: '2026-08-29',
+        mockDate: '2026-08-29T12:00:00Z',
         featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE],
     },
     args: { report, reportUrl: 'https://example.com/report' },
@@ -154,6 +154,7 @@ export const MonitoringDefinitionFlagOff: Story = {
 }
 
 export const MonitoringDefinition: Story = {
+    args: { report: { ...report, monitoring_started_at: '2026-08-27T12:00:00Z' } },
     parameters: {
         monitoringDefinition: true,
         featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
@@ -161,6 +162,7 @@ export const MonitoringDefinition: Story = {
 }
 
 export const MonitoringDefinitionNarrow: Story = {
+    args: MonitoringDefinition.args,
     parameters: {
         monitoringDefinition: true,
         narrow: true,
@@ -169,6 +171,7 @@ export const MonitoringDefinitionNarrow: Story = {
 }
 
 export const MonitoringFixedTarget: Story = {
+    args: MonitoringDefinition.args,
     parameters: {
         monitoringDefinition: true,
         fixedTarget: true,
