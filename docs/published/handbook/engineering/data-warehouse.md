@@ -330,7 +330,7 @@ When groups preserve ungrouped values, named groups and original members retain 
 
 Repeated dimension pills use distinct result columns so their chart and table bindings stay unambiguous. Generated dimension aliases avoid source identifiers used by measures and filters. Expressions containing percent signs or matching reserved names use supported generated aliases while keeping their original calculation.
 
-BI chart settings preserve custom scatter axes and implicit count formatting. Numeric date parts can be used as scatter axes. Switching to a box plot initializes statistic mappings from matching result column names. Generated axis labels follow field renames, while custom axis labels remain unchanged.
+BI chart settings preserve custom scatter axes and implicit count formatting. Numeric date parts can be used as scatter axes and remain numeric in **Keep only** and drill-down filters. Scatter selection shows a highlighted count with **Keep only** and **Clear selection** buttons. Switching between chart types reuses results when only their presentation changes, including with auto-update off; pending data changes still require a run. Switching to a box plot initializes statistic mappings from matching result column names. Generated axis labels follow field renames, while custom axis labels remain unchanged.
 
 ## Connected fields in BI mode
 
