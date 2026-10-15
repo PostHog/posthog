@@ -88,6 +88,7 @@ SELECT toDate(timestamp) AS day, count() AS fails
 FROM events
 WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<uuid>'
     AND (<fail predicate>) AND coalesce(properties.$ai_evaluation_skipped, false) != true
+    AND coalesce(properties.$ai_evaluation_applicable, true) != false
     AND timestamp >= now() - INTERVAL 30 DAY
 GROUP BY day ORDER BY day
 ```

@@ -355,6 +355,7 @@ identical.
    WHERE event = '$ai_evaluation'
        AND properties.$ai_evaluation_id = '<uuid>'
        AND (<fail predicate>)
+       AND coalesce(properties.$ai_evaluation_applicable, true) != false
        AND coalesce(properties.$ai_evaluation_skipped, false) != true
        AND timestamp >= now() - INTERVAL 30 DAY
    GROUP BY day
