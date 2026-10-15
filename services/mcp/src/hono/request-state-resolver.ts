@@ -194,14 +194,16 @@ export class RequestStateResolver {
         // Dev/test-only overrides win over evaluated values (no-op in production).
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
         const mergedFlags = { ...allFlags, ...overrides }
-        if (
-            _apiKey?.scopes?.includes('internal_run:read') ||
-            props.taskId ||
-            props.taskOriginProduct ||
-            source !== EVENT_SOURCE.MCP
-        ) {
-            mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG] = false
-        }
+        const interviewRecruitmentConfig =
+            source === EVENT_SOURCE.MCP &&
+            !_apiKey?.scopes?.includes('internal_run:read') &&
+            !props.taskId &&
+            !props.taskOriginProduct
+                ? resolveInterviewRecruitmentConfig(
+                      mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG],
+                      payloads[MCP_INTERVIEW_RECRUITMENT_FLAG]
+                  )
+                : undefined
         // Preserve variant strings (and `undefined` for unevaluated flags) — the
         // tool filter needs raw values to support `feature_flag_variant` matching.
         // Include override keys so a forced flag reaches the tool/instructions layer
@@ -273,10 +275,7 @@ export class RequestStateResolver {
             context,
             useSingleExec,
             toolFeatureFlags,
-            interviewRecruitmentConfig: resolveInterviewRecruitmentConfig(
-                mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG],
-                payloads[MCP_INTERVIEW_RECRUITMENT_FLAG]
-            ),
+            interviewRecruitmentConfig,
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,

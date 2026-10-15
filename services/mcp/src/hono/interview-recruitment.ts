@@ -186,18 +186,6 @@ export class InterviewRecruitment {
             .safeParse((params._meta as Record<string, unknown> | undefined)?.[META_CLIENT_CAPABILITIES]).success
     }
 
-    private canRecruit(params: Record<string, unknown>, state: ResolvedState): boolean {
-        const config = state.interviewRecruitmentConfig
-        const value = state.toolFeatureFlags?.[MCP_INTERVIEW_RECRUITMENT_FLAG]
-        return (
-            config !== undefined &&
-            (value === config.campaign_id || (value === true && config.campaign_id === DEFAULT_CAMPAIGN_ID)) &&
-            !state.isImpersonated &&
-            !state.suppressAnalytics &&
-            this.supportsUrl(params)
-        )
-    }
-
     private isProductCall(params: Record<string, unknown>, state: ResolvedState): boolean {
         const args = params.arguments as Record<string, unknown> | undefined
         const name =
@@ -214,7 +202,21 @@ export class InterviewRecruitment {
         )
     }
 
-    private conversationKey(state: ResolvedState): string | undefined {
+    private eligibleConversation(
+        params: Record<string, unknown>,
+        state: ResolvedState
+    ): { config: InterviewRecruitmentConfig; key: string } | undefined {
+        const config = state.interviewRecruitmentConfig
+        if (
+            params.requestState !== undefined ||
+            !config ||
+            state.isImpersonated ||
+            state.suppressAnalytics ||
+            !this.supportsUrl(params) ||
+            !this.isProductCall(params, state)
+        ) {
+            return undefined
+        }
         const conversation = resolveSessionKey(state.requestContext)
         if (!conversation) {
             return undefined
@@ -223,7 +225,7 @@ export class InterviewRecruitment {
         const hash = createHash('sha256')
             .update(JSON.stringify([client.mcpClientName, client.mcpVendorClient, client.mcpConsumer, conversation]))
             .digest('hex')
-        return `${this.preferenceKey(state)}:conversation:${hash}`
+        return { config, key: `${this.preferenceKey(state)}:conversation:${hash}` }
     }
 
     async afterToolCall(
@@ -233,25 +235,23 @@ export class InterviewRecruitment {
         requestId: string | number
     ): Promise<void> {
         if (
-            params.requestState !== undefined ||
-            !this.canRecruit(params, state) ||
-            !this.isProductCall(params, state) ||
             !result ||
             typeof result !== 'object' ||
-            !Array.isArray((result as Record<string, unknown>).content) ||
-            (result as Record<string, unknown>).isError === true
+            !('content' in result) ||
+            !Array.isArray(result.content) ||
+            ('isError' in result && result.isError === true)
         ) {
             return
         }
-        const key = this.conversationKey(state)
-        if (!key) {
+        const conversation = this.eligibleConversation(params, state)
+        if (!conversation) {
             return
         }
         try {
             await this.redis.eval(
                 OBSERVE_CONVERSATION,
                 1,
-                key,
+                conversation.key,
                 Date.now(),
                 CONVERSATION_IDLE_SECONDS,
                 this.requestFingerprint(params, JSON.stringify(requestId))
@@ -328,18 +328,11 @@ export class InterviewRecruitment {
             await this.resume(params, state, userHash)
             return undefined
         }
-        if (
-            params.requestState !== undefined ||
-            !this.canRecruit(params, state) ||
-            !this.isProductCall(params, state)
-        ) {
+        const conversation = this.eligibleConversation(params, state)
+        if (!conversation) {
             return undefined
         }
-        const conversationKey = this.conversationKey(state)
-        if (!conversationKey) {
-            return undefined
-        }
-        const config = state.interviewRecruitmentConfig!
+        const { config, key: conversationKey } = conversation
 
         const invitationId = randomUUID()
         const requestState = `${STATE_PREFIX}${invitationId}`

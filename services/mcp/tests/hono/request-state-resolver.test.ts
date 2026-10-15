@@ -517,7 +517,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         }
         vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ [MCP_INTERVIEW_RECRUITMENT_FLAG]: true })
         const result = await makeResolver().resolve(makeProps(input))
-        expect(result.toolFeatureFlags?.[MCP_INTERVIEW_RECRUITMENT_FLAG]).toBe(false)
+        expect(result.interviewRecruitmentConfig).toBeUndefined()
     })
 
     it.each([

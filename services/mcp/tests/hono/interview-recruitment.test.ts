@@ -35,7 +35,7 @@ vi.mock('@/hono/tool-executor', () => ({
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { McpDispatcher } from '@/hono/dispatcher'
-import { resolveInterviewRecruitmentConfig, MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
+import { resolveInterviewRecruitmentConfig } from '@/hono/interview-recruitment'
 import { registerPublicRoutes } from '@/hono/public-routes'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import type { ToolCatalog } from '@/hono/tool-catalog'
@@ -121,7 +121,6 @@ function makeState(): ResolvedState {
     return {
         distinctId: 'test-person',
         context: { api: { getProjectBaseUrl: () => 'https://us.posthog.com' } },
-        toolFeatureFlags: { [MCP_INTERVIEW_RECRUITMENT_FLAG]: true },
         interviewRecruitmentConfig: resolveInterviewRecruitmentConfig(true, {
             min_completed_tool_calls: 0,
             min_session_age_seconds: 0,
@@ -239,7 +238,6 @@ describe('MCP interview recruitment', () => {
             vi.useFakeTimers()
             vi.setSystemTime(Date.now() + 365 * 24 * 60 * 60 * 1000)
             const reconnected = new McpDispatcher({} as ToolCatalog, storage.redis)
-            state.toolFeatureFlags = { [MCP_INTERVIEW_RECRUITMENT_FLAG]: 'other-study' }
             state.interviewRecruitmentConfig = resolveInterviewRecruitmentConfig('other-study', {
                 message: 'Another interview',
                 booking_url: 'https://example.com/other',
@@ -264,7 +262,6 @@ describe('MCP interview recruitment', () => {
                 properties: expect.objectContaining({ response: 'cancel' }),
             })
         )
-        state.toolFeatureFlags = { [MCP_INTERVIEW_RECRUITMENT_FLAG]: 'other-study' }
         state.interviewRecruitmentConfig = resolveInterviewRecruitmentConfig('other-study', {
             message: 'Another interview',
             booking_url: 'https://example.com/other',
@@ -288,7 +285,10 @@ describe('MCP interview recruitment', () => {
         'skips recruitment when %s',
         async (condition) => {
             if (condition === 'disabled' || condition === 'missing') {
-                state.toolFeatureFlags = condition === 'disabled' ? { [MCP_INTERVIEW_RECRUITMENT_FLAG]: false } : {}
+                state.interviewRecruitmentConfig = resolveInterviewRecruitmentConfig(
+                    condition === 'disabled' ? false : undefined,
+                    {}
+                )
             }
             if (condition === 'invalid-payload') {
                 state.interviewRecruitmentConfig = undefined
@@ -381,7 +381,6 @@ describe('MCP interview recruitment', () => {
     it('reserves only one invitation across simultaneous campaigns and server instances', async () => {
         const otherState = {
             ...state,
-            toolFeatureFlags: { [MCP_INTERVIEW_RECRUITMENT_FLAG]: 'other-study' },
             interviewRecruitmentConfig: resolveInterviewRecruitmentConfig('other-study', {
                 message: 'Another interview',
                 booking_url: 'https://example.com/other',
@@ -439,7 +438,7 @@ describe('MCP interview recruitment', () => {
 
     it('processes a displayed invitation after its flag has been disabled', async () => {
         const invitation = await call(dispatcher)
-        state.toolFeatureFlags = {}
+        state.interviewRecruitmentConfig = undefined
         expect(
             (await call(dispatcher, continuation(invitation.result?.requestState, { action: 'decline' }))).result
         ).toMatchObject(toolResult)
@@ -462,7 +461,6 @@ describe('MCP interview recruitment', () => {
 
     it('keeps original campaign attribution after a flag change and deduplicates actual link opens', async () => {
         vi.useFakeTimers()
-        state.toolFeatureFlags = { [MCP_INTERVIEW_RECRUITMENT_FLAG]: 'first-study' }
         state.interviewRecruitmentConfig = resolveInterviewRecruitmentConfig('first-study', {
             message: 'First interview',
             booking_url: 'https://example.com/first',
@@ -472,7 +470,6 @@ describe('MCP interview recruitment', () => {
         const invitation = await call(dispatcher)
         const inputs = invitation.result?.inputRequests as Record<string, { params: { url: string } }>
         const url = inputs['mcp-interview']!.params.url
-        state.toolFeatureFlags = { [MCP_INTERVIEW_RECRUITMENT_FLAG]: 'second-study' }
         state.interviewRecruitmentConfig = resolveInterviewRecruitmentConfig('second-study', {
             message: 'Second interview',
             booking_url: 'https://example.com/second',
