@@ -151,8 +151,8 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                 {showVisualEmptyState && (
                     <ProductIntroduction
                         thingName="alert"
-                        titleOverride="Know when your metrics need attention"
-                        description="Get notified when a metric crosses a threshold or behaves unexpectedly. Choose how often PostHog checks this insight and who receives the alert."
+                        titleOverride="Get notified when something you care about happens"
+                        description="Catch a drop in signups, a spike in errors, or an unexpected change in your metrics."
                         customHog={InsightAlertPreview}
                         hogLayout="vertical"
                         hogClassName="w-full sm:w-full lg:w-full max-w-96 mb-0"
