@@ -767,6 +767,42 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         response = self.client.get(self._url(), data={"per_scout_limit": 5000})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_an_unchanged_fleet_revalidates_without_hydrating_the_runs(self) -> None:
+        _make_run(self.team)
+        first = self.client.get(self._url())
+        assert first.status_code == status.HTTP_200_OK
+        with patch("products.signals.backend.scout_harness.views.runs_by_id") as runs_by_id:
+            second = self.client.get(self._url(), HTTP_IF_NONE_MATCH=first["ETag"])
+        assert second.status_code == status.HTTP_304_NOT_MODIFIED
+        runs_by_id.assert_not_called()
+
+    def test_a_failed_if_match_is_a_failed_precondition_not_a_cache_hit(self) -> None:
+        _make_run(self.team)
+        response = self.client.get(self._url(), HTTP_IF_MATCH='"stale"')
+        assert response.status_code == status.HTTP_412_PRECONDITION_FAILED
+
+    @parameterized.expand(["emit_tally", "task_run_settles", "report_deleted", "new_run"])
+    def test_a_change_the_summary_shows_moves_the_etag(self, change: str) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        run = _make_run(self.team, emitted_report_ids=[str(report.id)])
+        first = self.client.get(self._url())
+
+        if change == "emit_tally":
+            run.emitted_finding_ids = ["finding-1"]
+            run.emitted_count = 1
+            run.save(update_fields=["emitted_finding_ids", "emitted_count"])
+        elif change == "task_run_settles":
+            run.task_run.status = run.task_run.Status.COMPLETED
+            run.task_run.save(update_fields=["status"])
+        elif change == "report_deleted":
+            SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.DELETED)
+        else:
+            _make_run(self.team)
+
+        second = self.client.get(self._url(), HTTP_IF_NONE_MATCH=first["ETag"])
+        assert second.status_code == status.HTTP_200_OK
+        assert second["ETag"] != first["ETag"]
+
 
 class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
     def _url(self) -> str:
