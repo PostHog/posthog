@@ -6922,6 +6922,13 @@ class MaxRecordingEventFilter(BaseModel):
     )
     id: str = Field(..., description="Name of the event.")
     name: str | None = Field(default=None, description="Optional display name for this event.")
+    negation: bool | None = Field(
+        default=None,
+        description=(
+            "Set to true to match sessions that did NOT contain this event. Only set it"
+            " when the tool description says excluding sessions by event is supported."
+        ),
+    )
     properties: (
         list[
             AssistantCohortPropertyFilter
