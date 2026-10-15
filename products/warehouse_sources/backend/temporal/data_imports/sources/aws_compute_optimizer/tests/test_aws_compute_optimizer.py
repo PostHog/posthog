@@ -142,6 +142,20 @@ def test_signed_json_request(region: str | None, token: str | None, host: str) -
             ["volume_arn"],
         ),
         (
+            "rds_database_recommendations",
+            "GetRDSDatabaseRecommendations",
+            "rdsDBRecommendations",
+            {"resourceArn": "arn:aws:rds:eu-west-1:123456789012:db:example"},
+            ["resource_arn"],
+        ),
+        (
+            "idle_recommendations",
+            "GetIdleRecommendations",
+            "idleRecommendations",
+            {"resourceArn": "arn:aws:ec2:eu-west-1:123456789012:volume/vol-idle", "resourceType": "EBSVolume"},
+            ["resource_arn"],
+        ),
+        (
             "recommendation_summaries",
             "GetRecommendationSummaries",
             "recommendationSummaries",
@@ -185,6 +199,124 @@ def test_full_refresh_pagination(
     source.on_complete()
     resume.clear_state.assert_called_once()
     session.close.assert_called_once()
+
+
+EC2_ARN = "arn:aws:ec2:eu-west-1:123456789012:instance/i-example"
+ECS_ARN = "arn:aws:ecs:eu-west-1:123456789012:service/example/service"
+
+
+@pytest.mark.parametrize(
+    "endpoint,parent_operation,parent_key,arn_field,lookback_field,option,metric,expected",
+    [
+        (
+            "ec2_recommendation_projected_metrics",
+            "GetEC2InstanceRecommendations",
+            "instanceRecommendations",
+            "instanceArn",
+            "lookBackPeriodInDays",
+            {"recommendedInstanceType": "m7i.large", "rank": 1},
+            {"name": "Cpu", "timestamps": [1735689600, 1735776000], "values": [40.5, 12.0]},
+            [
+                {"instance_arn": EC2_ARN, "recommended_instance_type": "m7i.large", "rank": 1, "value": 40.5},
+                {"instance_arn": EC2_ARN, "recommended_instance_type": "m7i.large", "rank": 1, "value": 12.0},
+            ],
+        ),
+        (
+            "ecs_service_recommendation_projected_metrics",
+            "GetECSServiceRecommendations",
+            "ecsServiceRecommendations",
+            "serviceArn",
+            "lookbackPeriodInDays",
+            {"recommendedCpuUnits": 256, "recommendedMemorySize": 512},
+            {
+                "name": "Memory",
+                "timestamps": [1735689600, 1735776000],
+                "upperBoundValues": [70.0, 60.0],
+                "lowerBoundValues": [30.0],
+            },
+            [
+                {
+                    "service_arn": ECS_ARN,
+                    "recommended_cpu_units": 256,
+                    "recommended_memory_size": 512,
+                    "upper_bound_value": 70.0,
+                    "lower_bound_value": 30.0,
+                },
+                {
+                    "service_arn": ECS_ARN,
+                    "recommended_cpu_units": 256,
+                    "recommended_memory_size": 512,
+                    "upper_bound_value": 60.0,
+                    "lower_bound_value": None,
+                },
+            ],
+        ),
+    ],
+)
+def test_projected_metrics_fan_out_over_recommendations(
+    endpoint: str,
+    parent_operation: str,
+    parent_key: str,
+    arn_field: str,
+    lookback_field: str,
+    option: dict[str, Any],
+    metric: dict[str, Any],
+    expected: list[dict[str, Any]],
+) -> None:
+    arn = expected[0][transport._column(arn_field)]
+    result = driver().run(
+        endpoint,
+        [
+            ScriptedResponse(
+                json={parent_key: [{arn_field: "arn:gone"}, {arn_field: arn, lookback_field: 32}], "nextToken": "p2"}
+            ),
+            ScriptedResponse(status=400, json={"__type": "ResourceNotFoundException"}),
+            ScriptedResponse(json={"recommendedOptionProjectedMetrics": [{**option, "projectedMetrics": [metric]}]}),
+            ScriptedResponse(json={parent_key: [], "nextToken": None}),
+        ],
+    )
+    assert result.raised is None
+    timestamps = [datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 2, tzinfo=UTC)]
+    assert result.rows == [
+        {**row, "metric_name": metric["name"], "timestamp": timestamp, "region": "eu-west-1"}
+        for row, timestamp in zip(expected, timestamps)
+    ]
+    bodies = [json.loads(request.body or b"{}") for request in result.requests]
+    targets = [request.headers["x-amz-target"].rsplit(".", 1)[-1] for request in result.requests]
+    assert targets[0] == targets[3] == parent_operation
+    assert bodies[0] == {"maxResults": 100}
+    assert bodies[3] == {"maxResults": 100, "nextToken": "p2"}
+    gone, child = bodies[1], bodies[2]
+    assert gone[arn_field] == "arn:gone"
+    assert gone["endTime"] - gone["startTime"] == 14 * 86400
+    assert child == {
+        arn_field: arn,
+        "stat": "Maximum",
+        "period": 86400,
+        "startTime": child["endTime"] - 32 * 86400,
+        "endTime": child["endTime"],
+    }
+    assert child["endTime"] % 86400 == 0
+    assert [
+        (state.next_token, [tuple(parent) for parent in state.pending], state.complete)
+        for state in result.committed_states
+    ] == [("p2", [(arn, 32)], False), ("p2", [], False), (None, [], True)]
+    assert result.completed_state is None
+
+
+def test_projected_metrics_resume_processes_pending_parents_without_refetching_page() -> None:
+    result = driver().run(
+        "ec2_recommendation_projected_metrics",
+        [ScriptedResponse(json={"recommendedOptionProjectedMetrics": []})],
+        resume_state=AwsComputeOptimizerResumeConfig(pending=((EC2_ARN, 14),)),
+    )
+    assert result.raised is None
+    assert [json.loads(request.body or b"{}").get("instanceArn") for request in result.requests] == [EC2_ARN]
+    assert (result.final_state.next_token, list(result.final_state.pending), result.final_state.complete) == (
+        None,
+        [],
+        True,
+    )
 
 
 def test_completed_resume_does_not_refetch() -> None:
@@ -300,6 +432,37 @@ def test_missing_permission_at_creation_and_per_table(session: MagicMock, schema
         assert message and "compute-optimizer:GetEC2InstanceRecommendations" in message
         assert json.loads(session.post.call_args.kwargs["data"]) == {"maxResults": 1}
     session.close.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "listing,metrics,valid,targets",
+    [
+        (
+            [{"instanceArn": EC2_ARN}],
+            ScriptedResponse(status=400, json={"__type": "AccessDeniedException"}),
+            False,
+            ["GetEC2InstanceRecommendations", "GetEC2RecommendationProjectedMetrics"],
+        ),
+        (
+            [{"instanceArn": EC2_ARN}],
+            ScriptedResponse(json={"recommendedOptionProjectedMetrics": []}),
+            True,
+            ["GetEC2InstanceRecommendations", "GetEC2RecommendationProjectedMetrics"],
+        ),
+        ([], None, True, ["GetEC2InstanceRecommendations"]),
+    ],
+)
+def test_projected_metrics_validation_probes_metrics_permission(
+    listing: list[dict[str, Any]], metrics: ScriptedResponse | None, valid: bool, targets: list[str]
+) -> None:
+    script = [ScriptedResponse(json={"instanceRecommendations": listing}), *([metrics] if metrics else [])]
+    with scripted_network(script) as network:
+        result, message = validate_credentials(config(), "ec2_recommendation_projected_metrics")
+    assert result is valid
+    assert (message is None) is valid
+    if not valid:
+        assert message and "compute-optimizer:GetEC2RecommendationProjectedMetrics" in message
+    assert [request.headers["x-amz-target"].rsplit(".", 1)[-1] for request in network.requests_log] == targets
 
 
 @pytest.mark.parametrize("status,valid", [("Active", True), ("Inactive", False), ("Pending", False), ("Failed", False)])

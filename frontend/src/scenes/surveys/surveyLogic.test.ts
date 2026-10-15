@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import {
+    getSurveyTranslationDraftPayload,
     mergeResponsesByQuestion,
     processOpenEndedResults,
     processResultsForSurveyQuestions,
@@ -248,6 +249,116 @@ describe('translation validation', () => {
                 },
             ],
         })
+    })
+
+    it.each(['introScreenHeader', 'introScreenDescription', 'introScreenButtonText'] as const)(
+        'validates the %s translation like the confirmation message',
+        async (field) => {
+            const survey = {
+                ...createPersistedSurvey(),
+                appearance: { displayIntroScreen: true, [field]: 'Welcome' },
+                translations: { fr: { [field]: '[Translation needed]' } },
+            } as Survey
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(survey)
+            }).toMatchValues({
+                translationValidationErrors: [
+                    {
+                        language: 'fr',
+                        questionIndex: -1,
+                        field,
+                        error: 'Contains placeholder "[Translation needed]"',
+                    },
+                ],
+            })
+        }
+    )
+
+    it.each([
+        [
+            'on',
+            true,
+            [
+                {
+                    language: 'fr',
+                    questionIndex: -1,
+                    field: 'backButtonText',
+                    error: 'Contains placeholder "[Translation needed]"',
+                },
+            ],
+        ],
+        ['off', false, []],
+    ] as const)('validates the back button translation with going back %s', async (_name, allowGoBack, expected) => {
+        const survey = {
+            ...createPersistedSurvey(),
+            appearance: { allowGoBack },
+            translations: { fr: { backButtonText: '[Translation needed]' } },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({ translationValidationErrors: expected })
+    })
+
+    it.each([
+        ['an empty button text', 'introScreenButtonText', '', []],
+        ['an unset button text', 'introScreenButtonText', undefined, []],
+        [
+            'an empty header',
+            'introScreenHeader',
+            '',
+            [
+                {
+                    language: 'default',
+                    questionIndex: -1,
+                    field: 'introScreenHeader',
+                    error: 'Cannot be empty (has translation)',
+                },
+            ],
+        ],
+    ] as const)('checks a translated intro field against %s', async (_name, field, base, expected) => {
+        const survey = {
+            ...createPersistedSurvey(),
+            appearance: { displayIntroScreen: true, [field]: base },
+            translations: { fr: { [field]: 'Commencer' } },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({ translationValidationErrors: expected })
+    })
+
+    it('skips intro translation checks while the intro is off', async () => {
+        const survey = {
+            ...createPersistedSurvey(),
+            appearance: { displayIntroScreen: false, introScreenHeader: 'Welcome' },
+            translations: { fr: { introScreenHeader: '[Translation needed]' } },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({ translationValidationErrors: [] })
+    })
+
+    it.each([
+        ['an enabled intro with no button text', { displayIntroScreen: true }, 'Get started'],
+        ['an enabled intro with button text', { displayIntroScreen: true, introScreenButtonText: 'Go' }, 'Go'],
+        ['a disabled intro', { displayIntroScreen: false }, undefined],
+    ] as const)('sends the effective intro button text to AI translation for %s', (_name, appearance, expected) => {
+        const payload = getSurveyTranslationDraftPayload({ ...createPersistedSurvey(), appearance } as Survey)
+
+        expect(payload.appearance?.introScreenButtonText).toBe(expected)
+    })
+
+    it.each([
+        ['back enabled with no button text', { allowGoBack: true }, 'Back'],
+        ['back enabled with button text', { allowGoBack: true, backButtonText: 'Go back' }, 'Go back'],
+        ['back disabled', { allowGoBack: false, backButtonText: 'Go back' }, undefined],
+    ] as const)('sends the effective back button text to AI translation for %s', (_name, appearance, expected) => {
+        const payload = getSurveyTranslationDraftPayload({ ...createPersistedSurvey(), appearance } as Survey)
+
+        expect(payload.appearance?.backButtonText).toBe(expected)
     })
 
     it('does not validate survey root description translations', async () => {

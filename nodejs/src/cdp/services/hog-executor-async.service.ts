@@ -22,6 +22,7 @@ import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
+import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-headers'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
@@ -454,6 +455,17 @@ export class HogExecutorAsyncService {
         }
 
         let signedHeaders = headers
+
+        // Secret headers are merged before signing so that the signatures cover them, and they are never written
+        // back to queueParameters, so every attempt resolves them again from the hog function.
+        if (params.secret_headers_input) {
+            const resolved = resolveSecretHeaders(params.secret_headers_input, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            signedHeaders = mergeSecretHeaders(signedHeaders, resolved.headers)
+        }
+
         if (params.aws_sigv4) {
             const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
             if (!resolved.ok) {
@@ -463,7 +475,7 @@ export class HogExecutorAsyncService {
                 method,
                 url: params.url,
                 body: params.body ?? '',
-                headers,
+                headers: signedHeaders,
                 credentials: resolved.credentials,
             })
         }

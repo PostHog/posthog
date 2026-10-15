@@ -29,6 +29,7 @@ import {
 
 import { type ComposerSeed, composerSeedLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
 import type { ToolRegistration } from './max-constants'
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
@@ -115,7 +116,7 @@ export function parseCommandString(options: string): ParsedCommand {
 }
 
 function handleCommandString(options: string, actions: maxLogicType['actions'], effectivePhaiView: PhaiViewMode): void {
-    if (options === REPORT_AI_PANEL) {
+    if (options === REPORT_AI_PANEL || options === SCOUT_AI_PANEL) {
         return
     }
     const parsed = parseCommandString(options)

@@ -39,7 +39,7 @@ import {
     rowCountFromResponse,
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { sqlVisualizationDisabledReason } from '~/queries/nodes/DataVisualization/sqlVisualizationSupport'
-import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
@@ -299,7 +299,7 @@ export interface insightDataLogicActions {
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
-            dashboards: number[] | null
+            dashboards?: number[] | undefined
             deleted: boolean
             derived_name?: string | null | undefined
             description?: string | undefined
@@ -331,6 +331,13 @@ export interface insightDataLogicActions {
             user_access_level: AccessControlLevel
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
+            warnings?:
+                | (
+                      | import('~/queries/schema/schema-general').AccessControlFilterWarning
+                      | import('~/queries/schema/schema-general').DataWarehouseSyncWarning
+                  )[]
+                | null
+                | undefined
         },
         payload?:
             | {
@@ -349,7 +356,7 @@ export interface insightDataLogicActions {
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
-            dashboards: number[] | null
+            dashboards?: number[] | undefined
             deleted: boolean
             derived_name?: string | null | undefined
             description?: string | undefined
@@ -381,6 +388,13 @@ export interface insightDataLogicActions {
             user_access_level: AccessControlLevel
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
+            warnings?:
+                | (
+                      | import('~/queries/schema/schema-general').AccessControlFilterWarning
+                      | import('~/queries/schema/schema-general').DataWarehouseSyncWarning
+                  )[]
+                | null
+                | undefined
         }
         payload?: {
             filtersOverride: DashboardFilter | null | undefined

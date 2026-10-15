@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ThinkificCoursesSource(ResumableSource[ThinkificCoursesSourceConfig, ThinkificCoursesResumeConfig]):
+    codebase_detection = detect(env=("^(THINKIFIC_COURSES|THINKIFICCOURSES)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developers.thinkific.com/api/api-documentation"
 
