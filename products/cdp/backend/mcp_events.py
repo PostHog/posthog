@@ -1,14 +1,13 @@
 import json
 import hashlib
-from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import partial
-from typing import TYPE_CHECKING, Final, cast
+from typing import Final, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.db import connection, transaction
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
 from pydantic import JsonValue
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -30,21 +29,13 @@ from products.access_control.backend.facade.api import (
     split_restricted_property_names,
 )
 from products.cdp.backend.filters import compile_filters_expr
-from products.cdp.backend.mcp_event_delivery import (
-    MCP_CREDENTIAL_INPUT,
-    MCP_EVENT_MAX_BYTES,
-    MCP_EVENT_NAME,
-    signed_headers,
-    verify_callback,
-)
+from products.cdp.backend.mcp_event_delivery import MCP_EVENT_MAX_BYTES, MCP_EVENT_NAME, signed_headers, verify_callback
+from products.cdp.backend.mcp_event_destination import MCPEventDestination
+from products.cdp.backend.mcp_event_envelope import MCPEventEnvelopeSerializer
 from products.cdp.backend.mcp_event_filters import MCPEventFilterAccessValidator
 from products.cdp.backend.mcp_event_properties import MCPEventPropertyAccess
-from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.mcp_event_subscription import MCPEventSubscription
 from products.cdp.backend.validation import HogFunctionFiltersSerializer
-
-if TYPE_CHECKING:
-    from products.cdp.backend.api.hog_function import HogFunctionSerializer
 
 MAX_SUBSCRIPTIONS_PER_USER: Final = 20
 MAX_SUBSCRIPTIONS_PER_PROJECT: Final = 100
@@ -138,84 +129,6 @@ class MCPEventSubscriptions:
             )
         return {"filters": filters, "examples": examples, "lookback_days": 7, "sample_limit": 5}
 
-    def _save_destination(
-        self, subscription: MCPEventSubscription, credential: str, serializer_class: type["HogFunctionSerializer"]
-    ) -> None:
-        template = HogFunctionTemplate.get_template("template-webhook")
-        if template is None:
-            raise ValidationError("The webhook destination is unavailable. Sync destination templates and try again.")
-        code = template.code.replace("fetch(", "mcpEventFetch(")
-        if code == template.code:
-            raise ValidationError(
-                "The webhook destination cannot be used for MCP events. Sync templates and try again."
-            )
-        schema = deepcopy(template.inputs_schema)
-        for item in schema:
-            if item["key"] == "url":
-                item["secret"] = True
-        schema.extend(
-            [
-                {
-                    "key": MCP_CREDENTIAL_INPUT,
-                    "type": "string",
-                    "secret": True,
-                    "required": True,
-                    "label": "Subscription credential",
-                },
-                {"key": "mcp_generation", "type": "string", "required": True, "label": "Subscription generation"},
-            ]
-        )
-        payload = {
-            "name": "MCP event subscription",
-            "description": "Delivers matching captured events to the subscribing MCP client.",
-            "template_id": "template-webhook",
-            "type": "destination",
-            "enabled": True,
-            "hog": code,
-            "inputs_schema": schema,
-            "filters": subscription.arguments["filters"],
-            "inputs": {
-                "url": {"value": subscription.delivery["url"]},
-                "method": {"value": "POST"},
-                "debug": {"value": False},
-                "signing_secret": {"value": subscription.delivery["secret"]},
-                MCP_CREDENTIAL_INPUT: {"value": credential},
-                "mcp_generation": {"value": str(subscription.generation)},
-                "headers": {
-                    "value": {"Content-Type": "application/json", "X-MCP-Subscription-Id": str(subscription.pk)}
-                },
-                "body": {
-                    "value": {
-                        "eventId": "{event.uuid}",
-                        "name": MCP_EVENT_NAME,
-                        "timestamp": "{event.timestamp}",
-                        "data": {
-                            "event": "{event.event}",
-                            "distinct_id": "{event.distinct_id}",
-                            "properties": "{event.properties}",
-                        },
-                        "cursor": None,
-                    }
-                },
-            },
-        }
-        serializer = serializer_class(
-            instance=subscription.hog_function,
-            data=payload,
-            context={
-                "get_team": lambda: self.team,
-                "is_create": subscription.hog_function_id is None,
-                "allow_mcp_event_subscription": True,
-                "function_type": "destination",
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-        subscription.hog_function = serializer.save(team=self.team, created_by=self.user)
-        compiled_filters = subscription.hog_function.filters or {}
-        MCPEventFilterAccessValidator.validate_snapshot(
-            compiled_filters["mcp_property_dependencies"], team=self.team, user=self.user
-        )
-
     def subscribe(
         self,
         *,
@@ -225,7 +138,6 @@ class MCPEventSubscriptions:
         credential: str,
         ttl_ms: int | None,
         credential_expires_at: datetime | None,
-        serializer_class: type["HogFunctionSerializer"],
     ) -> MCPEventSubscription:
         filters = self.normalize_filters(raw_filters)
         subscription_id = self.identity(filters, url)
@@ -297,7 +209,13 @@ class MCPEventSubscriptions:
             if not verified:
                 subscription.verified_at = now
             subscription.active = True
-            self._save_destination(subscription, credential, serializer_class)
+            subscription.hog_function = MCPEventDestination.save(
+                subscription, credential=credential, team=self.team, user=self.user
+            )
+            compiled_filters = subscription.hog_function.filters or {}
+            MCPEventFilterAccessValidator.validate_snapshot(
+                compiled_filters["mcp_property_dependencies"], team=self.team, user=self.user
+            )
             subscription.save()
             self._reload_after_commit(subscription)
         return subscription
@@ -389,48 +307,21 @@ class MCPEventSubscriptions:
         MCPEventFilterAccessValidator.validate_snapshot(dependencies, team=self.team, user=self.user)
         if len(body.encode()) > MCP_EVENT_MAX_BYTES:
             raise ValidationError("The event exceeds the 256 KiB delivery limit.")
-        try:
-            event = json.loads(body)
-        except ValueError:
-            raise ValidationError("Send a valid JSON event envelope.") from None
-        if (
-            not isinstance(event, dict)
-            or event.get("name") != MCP_EVENT_NAME
-            or not isinstance(event.get("eventId"), str)
-            or not event["eventId"]
-            or len(event["eventId"]) > 255
-            or set(event) != {"eventId", "name", "timestamp", "data", "cursor"}
-            or event.get("cursor") is not None
-        ):
-            raise ValidationError("Send a captured PostHog event envelope with an event ID.")
-        data = event.get("data")
-        if (
-            not isinstance(data, dict)
-            or set(data) != {"event", "distinct_id", "properties"}
-            or not isinstance(data.get("event"), str)
-            or not isinstance(data.get("distinct_id"), str)
-            or not isinstance(data.get("properties"), dict)
-        ):
-            raise ValidationError("The event payload must include an event properties object.")
-        timestamp = event.get("timestamp")
-        try:
-            parsed_timestamp = parse_datetime(timestamp) if isinstance(timestamp, str) else None
-        except ValueError:
-            parsed_timestamp = None
-        if parsed_timestamp is None or timezone.is_naive(parsed_timestamp):
-            raise ValidationError("The event timestamp must include a timezone.")
+        event = MCPEventEnvelopeSerializer.parse(body)
         restrictions = get_restricted_properties_with_group_type_index_for_team(user=self.user, team_id=self.team.pk)
         restricted_names = split_restricted_property_names(restrictions).event
-        data["properties"] = MCPEventPropertyAccess.redact(data["properties"], set(restricted_names))
-        try:
-            serialized = json.dumps(event, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
-        except ValueError:
-            raise ValidationError("Event properties must contain valid JSON values.") from None
+        event = replace(
+            event,
+            data=replace(
+                event.data, properties=MCPEventPropertyAccess.redact(event.data.properties, set(restricted_names))
+            ),
+        )
+        serialized = MCPEventEnvelopeSerializer.render(event)
         if len(serialized.encode()) > MCP_EVENT_MAX_BYTES:
             raise ValidationError("The event exceeds the 256 KiB delivery limit.")
         headers = signed_headers(
             subscription_id=str(subscription.pk),
-            webhook_id=event["eventId"],
+            webhook_id=event.eventId,
             body=serialized,
             secret=subscription.delivery["secret"],
         )
@@ -438,7 +329,7 @@ class MCPEventSubscriptions:
         if previous_secret_until and timezone.now() < datetime.fromisoformat(previous_secret_until):
             old_headers = signed_headers(
                 subscription_id=str(subscription.pk),
-                webhook_id=event["eventId"],
+                webhook_id=event.eventId,
                 body=serialized,
                 secret=subscription.delivery["previous_secret"],
                 signed_at=int(headers["webhook-timestamp"]),

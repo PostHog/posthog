@@ -3,6 +3,7 @@
 A facade must not hand out DRF classes, so these cross through presentation instead.
 """
 
+from products.cdp.backend.mcp_event_envelope import MCPEventEnvelopeSerializer as MCPEventEnvelopeSerializer
 from products.cdp.backend.validation import (
     HogFunctionFiltersSerializer as HogFunctionFiltersSerializer,
     InputsSchemaSerializer as InputsSchemaSerializer,
