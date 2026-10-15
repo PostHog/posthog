@@ -2078,10 +2078,6 @@ mod tests {
         }
 
         // ==================== AiEvents ====================
-        // The dedicated $ai_* lane routes to its own topic, keyed on the
-        // event key. test_outputs() has an AI overflow lane, so overflow
-        // handling mirrors the AnalyticsMain arm onto the AI topics; the
-        // no-lane test below removes it.
 
         #[tokio::test]
         async fn ai_events_normal() {
@@ -2107,8 +2103,6 @@ mod tests {
 
         #[tokio::test]
         async fn ai_events_force_overflow_reroutes() {
-            // Restriction-driven force_overflow behaves exactly like the
-            // analytics main lane: rerouted, key kept.
             assert_routing(
                 EventInput {
                     data_type: DataType::AiEvents,

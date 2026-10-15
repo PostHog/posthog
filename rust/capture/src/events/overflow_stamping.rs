@@ -30,11 +30,8 @@ use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
 /// event in `events`, consulting the lane's limiter and the pre-existing
 /// `force_overflow` flag stamped by event restrictions.
 ///
-/// Two lanes can overflow: `AnalyticsMain` and `AiEvents`. Setup builds
-/// `ai_limiter` only when `OVERFLOW_ENABLED` and `AI_EVENTS_OVERFLOW_ENABLED`
-/// are set; the kafka sink ignores overflow stamps on the AI lane when the
-/// deployment has no AI overflow lane (Import). Each lane consults its own limiter instance — `analytics_limiter`
-/// for `AnalyticsMain`, `ai_limiter` for `AiEvents` — so per-key budgets are
+/// Two lanes can overflow: `AnalyticsMain` and `AiEvents`. Each lane consults
+/// its own limiter instance — `analytics_limiter` for `AnalyticsMain`, `ai_limiter` for `AiEvents` — so per-key budgets are
 /// isolated: analytics volume never pushes a key's AI events into AI overflow
 /// and vice versa. The stamp carries no topic; the kafka sink maps it to the
 /// lane's own overflow topic, so an overflowing AI event lands on AI
@@ -283,11 +280,6 @@ mod tests {
 
     #[test]
     fn non_analytics_main_events_are_skipped() {
-        // SnapshotMain has its own (replay) overflow path; HeatmapMain,
-        // ExceptionErrorTracking, ClientIngestionWarning, AnalyticsHistorical,
-        // and AiEvents (without an AI limiter) never limiter-overflow.
-        // Even with a limiter that would otherwise force-route their key, the
-        // helper must leave them untouched.
         let limiter = build_limiter(10, 10, Some("phc_t:u".to_string()), false);
         let mut events = vec![
             build_event(DataType::SnapshotMain, "phc_t", "u", false),
@@ -373,8 +365,6 @@ mod tests {
         );
     }
 
-    /// The AI lane joins limiter overflow only when its limiter is present;
-    /// absent, even a force-routed key stays on the AI main lane.
     #[rstest::rstest]
     #[case::limiter_present(true, Some(OverflowReason::ForceLimited), true)]
     #[case::limiter_absent(false, None, false)]

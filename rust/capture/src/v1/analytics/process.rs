@@ -2108,10 +2108,6 @@ mod tests {
         assert_eq!(ev.destination, Destination::AnalyticsOverflow);
     }
 
-    /// A diverted AI event consults ai-scoped restrictions: an ai-scoped
-    /// ForceOverflow reroutes it to the AI overflow destination when the
-    /// deployment has an AI overflow lane and leaves it untouched when not,
-    /// while an analytics-scoped ForceOverflow never crosses into the AI lane.
     #[rstest::rstest]
     #[case::with_lane(Pipeline::Ai, true, Destination::AiOverflow)]
     #[case::without_lane(Pipeline::Ai, false, Destination::AiMain)]
@@ -3467,9 +3463,6 @@ mod tests {
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
     }
 
-    /// The AI lane converts to its own overflow destination under the same
-    /// conditions as AnalyticsMain, but only when its limiter is present;
-    /// absent it is never touched.
     #[rstest::rstest]
     #[case::limiter_present(true, Destination::AiOverflow, true)]
     #[case::limiter_absent(false, Destination::AiMain, false)]
@@ -3890,14 +3883,8 @@ mod tests {
         assert_eq!(&*records[0].topic, "ai_events");
     }
 
-    /// process_batch wiring: overflow stamping must run when only the AI-lane
-    /// limiter is armed (analytics limiter unset), with the state's AI limiter
-    /// governing the AI lane — a bursting key's second AI event lands on
-    /// the AI overflow topic while an analytics event on the same key stays on
-    /// the main topic (it would overflow instead if the limiter arguments were
-    /// ever swapped).
     #[tokio::test]
-    async fn process_batch_routes_ai_overflow_with_only_ai_limiter_armed() {
+    async fn process_batch_routes_ai_overflow_with_only_ai_limiter() {
         let ts = TestStateBuilder::new()
             .with_ai_events_overflow_limiter(1, 1)
             .build();

@@ -276,8 +276,8 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub overflow_enabled: bool,
 
-    /// Builds the AI lane's overflow limiter, as `overflow_enabled` does for
-    /// analytics. Restriction overflow does not need it.
+    /// Builds the AI lane's overflow limiter when `overflow_enabled` is also
+    /// set. Restriction overflow does not need it.
     #[envconfig(default = "false")]
     pub ai_events_overflow_enabled: bool,
 

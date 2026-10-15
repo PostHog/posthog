@@ -63,7 +63,8 @@ pub enum Address {
 /// ordering guarantee. Depends only on [`ProcessedEventMetadata`] (stamped
 /// upstream by the pipeline) and whether the deployment has an AI overflow
 /// lane — the one piece of deployment config that changes a routing decision
-/// rather than a topic name. Side effects are not part of the decision: the dlq header set and
+/// rather than a topic name. Side effects are not part of the decision: the
+/// dlq header set and
 /// the reroute counters follow from the address, and the person-processing
 /// header follows from
 /// [`ProcessedEventMetadata::person_processing_disabled`] — the stamped flag,
@@ -159,9 +160,7 @@ pub fn resolve(
             // The AI lanes route overflow like analytics, except that a burst
             // may spread while person processing is on — the AI consumer reads
             // persons without writing them, so keyless person-on records cause
-            // no person-update contention there. Without an overflow lane AI
-            // events never overflow, and the default route keeps the event key
-            // regardless of skip_person_processing.
+            // no person-update contention there.
             if has_ai_overflow_lane && metadata.force_overflow {
                 AddressDecision::lane(
                     PipelineLane::Ai(AiLane::Overflow),
@@ -462,8 +461,6 @@ mod tests {
 
     #[test]
     fn ai_events_overflow_needs_an_overflow_lane() {
-        // Without the lane, force_overflow and stamped reasons are ignored:
-        // the AI lane never overflows and keeps its event key.
         let mut m = meta(DataType::AiEvents);
         m.force_overflow = true;
         assert_eq!(
@@ -474,7 +471,6 @@ mod tests {
             }
         );
 
-        // With the lane: mirrors the analytics main lane's overflow handling.
         assert_eq!(
             resolve(&m, true).unwrap().address,
             lane(PipelineLane::Ai(AiLane::Overflow))

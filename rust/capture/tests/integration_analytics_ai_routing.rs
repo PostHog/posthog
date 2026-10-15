@@ -2,8 +2,8 @@
 //! HTTP request -> router state -> `process_events` -> sink. The pipeline
 //! tests in `events::analytics` exercise `process_events` directly, so they
 //! cannot catch a regression in the router wiring (capture mode or the AI
-//! limiter not reaching the pipeline) or in the
-//! endpoint-level batch handling of mixed AI / non-AI payloads.
+//! limiter not reaching the pipeline) or in the endpoint-level batch handling
+//! of mixed AI / non-AI payloads.
 
 #[path = "common/integration_utils.rs"]
 mod integration_utils;
@@ -389,11 +389,6 @@ fn force_keyed_limiter() -> Arc<OverflowLimiter> {
     ))
 }
 
-/// A force-limited key on the AI limiter overflow-stamps the diverted AI
-/// event only when the AI limiter is wired, while the `$pageview` on the same
-/// hot key (force-limited on the analytics limiter) stamps in both cases.
-/// Catches the router failing to thread the AI limiter into the pipeline,
-/// which the process-level tests cannot see.
 #[rstest]
 #[case::limiter_present(true, Some(OverflowReason::ForceLimited))]
 #[case::limiter_absent(false, None)]
@@ -474,12 +469,6 @@ async fn ai_lane_overflow_isolated_from_analytics_limiter() {
     );
 }
 
-/// Import mode's no-overflow guarantee, end-to-end on the legacy path. Non-AI
-/// events in a historical batch land on `AnalyticsHistorical`; AI events
-/// divert to the AI lane (only the AI lane has AI processing, so imports must
-/// divert too). Neither lane can stamp overflow, even with the overflow
-/// limiter force-keyed on the batch's `token:distinct_id`, and the GRL never
-/// runs.
 #[tokio::test]
 async fn import_mode_historical_batch_never_overflows() {
     let (router, sink) =

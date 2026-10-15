@@ -95,7 +95,8 @@ pub struct State {
     /// volume never pushes a key's AI events into AI overflow and AI volume
     /// never burns the analytics budget. Only built when both
     /// `OVERFLOW_ENABLED` and `AI_EVENTS_OVERFLOW_ENABLED` are set; `None` leaves
-    /// the AI lane subject to restriction-driven `force_overflow` only.
+    /// only restriction overflow, which reaches AI overflow on every deployment
+    /// with that lane (not Import).
     pub ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     /// AI-lane per-token byte budget; `None` when disabled. A second instance
     /// of the same global rate limiter the `token:distinct_id` field holds,

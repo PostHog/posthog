@@ -386,6 +386,7 @@ mod tests {
     #[case("dlq", |r: &mut OutputTable| r.dlq.topic = Arc::from(""))]
     #[case("errortracking-main", |r: &mut OutputTable| r.error_tracking.topic = Arc::from(""))]
     #[case("ai-main", |r: &mut OutputTable| r.ai_main.topic = Arc::from(""))]
+    #[case("ai-overflow", |r: &mut OutputTable| r.ai_overflow.topic = Arc::from(""))]
     fn check_complete_rejects_empty_topic(
         #[case] output_name: &str,
         #[case] blank: fn(&mut OutputTable),

@@ -2408,8 +2408,6 @@ mod tests {
         expected_reason: Option<OverflowReason>,
     }
 
-    /// A diverted AI event gets a limiter overflow stamp only when the AI
-    /// limiter is wired, and keeps its AI lane either way.
     #[rstest]
     #[case::limiter_present(AiLimiterCase {
         ai_limiter_present: true,
