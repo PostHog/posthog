@@ -16,7 +16,7 @@ import {
     LogEntry,
     MinimalAppMetric,
 } from '../types'
-import { HogFunctionMappingType, HogFunctionType } from '../types'
+import { HogFunctionType } from '../types'
 import { getConfiguredSensitiveValues, logEntry, sanitizeLogMessage } from '../utils'
 import { currentRuntimeContractHash } from './filter-runtime'
 import { bytecodeContractOf, classifyHogError } from './hog-error-classification'
@@ -104,7 +104,7 @@ export async function buildHogFunctionInvocations(
 
     const _buildInvocation = async (
         hogFunction: HogFunctionType,
-        mapping?: HogFunctionMappingType
+        additionalInputs?: HogFunctionType['inputs']
     ): Promise<CyclotronJobInvocationHogFunction | null> => {
         try {
             const globalsWithSource = {
@@ -119,8 +119,7 @@ export async function buildHogFunctionInvocations(
             const globalsWithInputs = await hogInputsService.buildInputsWithGlobals(
                 hogFunction,
                 globalsWithSource,
-                mapping ? (mapping.inputs ?? {}) : undefined,
-                mapping?.inputs_schema
+                additionalInputs
             )
 
             return createInvocation(globalsWithInputs, hogFunction)
@@ -199,7 +198,7 @@ export async function buildHogFunctionInvocations(
                         return
                     }
 
-                    const invocation = await _buildInvocation(hogFunction, mapping)
+                    const invocation = await _buildInvocation(hogFunction, mapping.inputs ?? {})
                     if (!invocation) {
                         return
                     }

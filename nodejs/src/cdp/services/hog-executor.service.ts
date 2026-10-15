@@ -9,7 +9,6 @@ import { logger } from '~/common/utils/logger'
 import type {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
-    HogFunctionInputSchemaType,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
@@ -94,15 +93,9 @@ export class HogExecutorService {
     async buildInputsWithGlobals(
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
-        additionalInputs?: Record<string, any>,
-        additionalInputsSchema?: HogFunctionInputSchemaType[]
+        additionalInputs?: Record<string, any>
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
-        return this.hogInputsService.buildInputsWithGlobals(
-            hogFunction,
-            globals,
-            additionalInputs,
-            additionalInputsSchema
-        )
+        return this.hogInputsService.buildInputsWithGlobals(hogFunction, globals, additionalInputs)
     }
 
     /**
@@ -124,7 +117,7 @@ export class HogExecutorService {
     private async resolveMappingInputs(
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals
-    ): Promise<{ inputs: Record<string, any>; inputs_schema: HogFunctionInputSchemaType[] } | undefined> {
+    ): Promise<HogFunctionType['inputs'] | undefined> {
         const mappings = hogFunction.mappings
         if (!mappings || mappings.length === 0) {
             return undefined
@@ -132,7 +125,6 @@ export class HogExecutorService {
 
         const filterGlobals = convertToHogFunctionFilterGlobal(globals)
         let merged: HogFunctionType['inputs'] | undefined
-        const mergedSchema = new Map<string, HogFunctionInputSchemaType>()
 
         for (const mapping of mappings) {
             if (!mapping.inputs) {
@@ -146,13 +138,10 @@ export class HogExecutorService {
             })
             if (match) {
                 merged = { ...(merged ?? {}), ...mapping.inputs }
-                for (const schema of mapping.inputs_schema ?? []) {
-                    mergedSchema.set(schema.key, schema)
-                }
             }
         }
 
-        return merged ? { inputs: merged, inputs_schema: [...mergedSchema.values()] } : undefined
+        return merged
     }
 
     @instrumented({ key: 'hog-executor.execute', sendException: false })
@@ -196,15 +185,14 @@ export class HogExecutorService {
                     // Mapping destinations need their per-mapping inputs
                     // re-merged here — they aren't part of the top-level config
                     // and were stripped from the rerun blob.
-                    const matchedMappings = await this.resolveMappingInputs(
+                    const additionalInputs = await this.resolveMappingInputs(
                         invocation.hogFunction,
                         invocation.state.globals
                     )
                     globals = await this.hogInputsService.buildInputsWithGlobals(
                         invocation.hogFunction,
                         invocation.state.globals,
-                        matchedMappings?.inputs,
-                        matchedMappings?.inputs_schema
+                        additionalInputs
                     )
                 }
             } catch (e) {
