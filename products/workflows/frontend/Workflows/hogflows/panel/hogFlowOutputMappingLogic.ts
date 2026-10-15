@@ -14,7 +14,6 @@ import type { HogFlowAction } from '../types'
 import type { HogFlow, HogFlowActionNode } from '../types'
 import { hogFlowEditorTestLogic } from './testing/hogFlowEditorTestLogic'
 
-// `description` is what an AI task step asks the agent to put in its `output.<name>` field.
 export type OutputMapping = { key: string; result_path: string; spread?: boolean | null; description?: string | null }
 // The variable types the output schema of an AI task step can express. Other input types stay
 // selectable only from the variables tab.
@@ -372,7 +371,9 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 key: m.key,
                 result_path: m.result_path || null,
                 ...(m.spread ? { spread: true } : {}),
-                ...(m.description?.trim() ? { description: m.description.trim() } : {}),
+                ...(m.description?.trim() && isAiTaskOutputFieldPath(m.result_path)
+                    ? { description: m.description.trim() }
+                    : {}),
             })
             const outputVariable =
                 filtered.length === 0 ? null : filtered.length === 1 ? toOutput(filtered[0]) : filtered.map(toOutput)

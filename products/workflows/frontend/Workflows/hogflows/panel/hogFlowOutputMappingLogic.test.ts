@@ -275,6 +275,11 @@ describe('hogFlowOutputMappingLogic', () => {
                         { key: 'score', result_path: 'output.score' },
                     ],
                 },
+                {
+                    description: 'an instruction on a path the agent does not fill is dropped',
+                    mappings: [{ key: 'run', result_path: 'run_id', description: 'the old verdict instruction' }],
+                    expected: { key: 'run', result_path: 'run_id' },
+                },
             ])('$description', async ({ mappings, expected }) => {
                 const node = makeActionNode(ACTION_ID)
                 await expectLogic(editorLogic, () => {
@@ -501,6 +506,37 @@ describe('hogFlowOutputMappingLogic', () => {
                     logic.actions.updateMappingResultPath(index, 'new.path')
                 }).toMatchValues({
                     mappings: expected,
+                })
+            })
+        })
+
+        describe('updateMappingDescription', () => {
+            it('saves the instruction the author types, trimmed', async () => {
+                const node = makeActionNode('action-instruction')
+                await expectLogic(editorLogic, () => {
+                    editorLogic.actions.setNodesRaw([node])
+                    editorLogic.actions.setSelectedNodeId('action-instruction')
+                }).toMatchValues({ selectedNode: node })
+                logic.actions.initMappings([{ key: 'verdict', result_path: 'output.verdict' }])
+
+                let capturedOutputVariable: unknown = 'NOT_CAPTURED'
+                await expectLogic(logic, () => {
+                    logic.actions.updateMappingDescription(0, ' ship or hold ')
+                })
+                    .toDispatchActions([
+                        (action: any) => {
+                            if (action.type === wfLogic.actionCreators.setWorkflowAction('', {} as any).type) {
+                                capturedOutputVariable = action.payload.action?.output_variable ?? null
+                            }
+                            return action.type === wfLogic.actionCreators.setWorkflowAction('', {} as any).type
+                        },
+                    ])
+                    .toFinishAllListeners()
+
+                expect(capturedOutputVariable).toEqual({
+                    key: 'verdict',
+                    result_path: 'output.verdict',
+                    description: 'ship or hold',
                 })
             })
         })
