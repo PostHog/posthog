@@ -290,12 +290,16 @@ def validate_credentials(
                     page = client.request("analyzers", page_size=1, next_token=page["nextToken"])
                     analyzers = select_analyzers(schema_name, page["analyzers"])
                 if analyzers and ENDPOINTS[schema_name].per_finding:
-                    findings = client.request("findings", analyzer=analyzers[0], page_size=1)["findings"]
-                    if findings:
+                    findings_page = client.request("findings", analyzer=analyzers[0])
+                    finding_ids = select_finding_ids(schema_name, findings_page["findings"])
+                    while not finding_ids and findings_page.get("nextToken"):
+                        findings_page = client.request(
+                            "findings", analyzer=analyzers[0], next_token=findings_page["nextToken"]
+                        )
+                        finding_ids = select_finding_ids(schema_name, findings_page["findings"])
+                    if finding_ids:
                         try:
-                            client.request(
-                                schema_name, analyzer=analyzers[0], finding_id=findings[0]["id"], page_size=1
-                            )
+                            client.request(schema_name, analyzer=analyzers[0], finding_id=finding_ids[0], page_size=1)
                         except AwsIamAccessAnalyzerError as error:
                             if error.code != "ResourceNotFoundException":
                                 raise

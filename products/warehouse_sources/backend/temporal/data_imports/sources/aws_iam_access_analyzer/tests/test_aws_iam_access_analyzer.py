@@ -469,10 +469,12 @@ def test_recommendation_validation_accepts_findings_without_a_generated_recommen
         [
             ScriptedResponse(json={"analyzers": [EXTERNAL_PARENT], "nextToken": "next"}),
             ScriptedResponse(json={"analyzers": [UNUSED_PARENT]}),
-            ScriptedResponse(json={"findings": [{"id": "f-1"}]}),
+            ScriptedResponse(json={"findings": [{"id": "role", "findingType": "UnusedIAMRole"}], "nextToken": "more"}),
+            ScriptedResponse(json={"findings": [{"id": "f-1", "findingType": "UnusedPermission"}]}),
             ScriptedResponse(status=404, json={"__type": "ResourceNotFoundException"}),
         ]
     ) as network:
         assert validate_credentials(CONFIG, "finding_recommendations") == (True, None)
-    assert network.requests_log[2].json() == {"maxResults": 1, "analyzerArn": UNUSED_PARENT["arn"]}
+    assert network.requests_log[2].json() == {"maxResults": 100, "analyzerArn": UNUSED_PARENT["arn"]}
+    assert network.requests_log[3].json()["nextToken"] == "more"
     assert network.requests_log[-1].url.split("?")[0].endswith("/recommendation/f-1")
