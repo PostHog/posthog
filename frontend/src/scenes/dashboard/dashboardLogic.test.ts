@@ -21,6 +21,7 @@ import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
+import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -277,11 +278,10 @@ describe('dashboardLogic', () => {
                     // update the insight
                     const insightId = tileToUpdate.insight.id
                     const insight = insights[insightId]
-                    insight.dashboards?.splice(
-                        insight.dashboards?.findIndex((d) => d === from.id),
-                        1
-                    )
-                    insight.dashboards?.push(toDashboard)
+                    insight.dashboard_tiles = [
+                        ...(insight.dashboard_tiles || []).filter((t) => t.dashboard_id !== from.id),
+                        { id: removedTile.id, dashboard_id: toDashboard },
+                    ]
 
                     // add the tile to the target dashboard
                     removedTile.insight = insight
@@ -299,19 +299,26 @@ describe('dashboardLogic', () => {
                         const insightId = boxToId(params.id as string | readonly string[])
 
                         const starting: InsightModel = insights[insightId]
+                        // like a session response, the stored insight carries its membership as tiles only
+                        const { dashboards: requestedDashboards, ...rest } = updates as Partial<InsightModel>
+                        const nextDashboards = requestedDashboards ?? liveDashboardIds(starting.dashboard_tiles)
                         insights[insightId] = {
                             ...starting,
-                            ...updates,
+                            ...rest,
+                            dashboard_tiles: nextDashboards.map((dashboardId) => ({
+                                id: insightId,
+                                dashboard_id: dashboardId,
+                            })),
                         }
 
-                        starting.dashboards?.forEach((dashboardId) => {
+                        liveDashboardIds(starting.dashboard_tiles).forEach((dashboardId) => {
                             // remove this insight from any dashboard it is already on
                             dashboards[dashboardId].tiles = dashboards[dashboardId].tiles.filter(
                                 (t) => !!t.insight && t.insight.id !== starting.id
                             )
                         })
 
-                        insights[insightId].dashboards?.forEach((dashboardId: number) => {
+                        nextDashboards.forEach((dashboardId: number) => {
                             // then add it to any it new references
                             dashboards[dashboardId].tiles.push(tileFromInsight(insights[insightId]))
                         })
@@ -1362,7 +1369,6 @@ describe('dashboardLogic', () => {
                 .map((t) => t.insight!)
             const withBreakdowns = (insight: typeof firstInsight, breakdownValues: string[]): typeof firstInsight => ({
                 ...insight,
-                dashboards: [5],
                 dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
                 result: breakdownValues.map((breakdown_value) => ({
                     action: { order: 0 },
@@ -1404,7 +1410,6 @@ describe('dashboardLogic', () => {
                 for (const tileInsight of tileInsights) {
                     dashboardsModel.actions.updateDashboardInsight({
                         ...tileInsight,
-                        dashboards: [5],
                         dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
                         result: [
                             { action: { order: 0 }, breakdown_value: ['Chrome'] },
@@ -1439,7 +1444,6 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboardInsight({
                     ...tileInsight,
-                    dashboards: [5],
                     dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
                     result: [{ action: { order: 0 }, breakdown_value: ['Chrome'] }],
                     query: {
@@ -1488,7 +1492,6 @@ describe('dashboardLogic', () => {
                 breakdownValues: string[] | null
             ): typeof firstInsight => ({
                 ...insight,
-                dashboards: [5],
                 dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
                 result: breakdownValues
                     ? breakdownValues.map((breakdown_value) => ({ action: { order: 0 }, breakdown_value }))
@@ -2511,6 +2514,21 @@ describe('dashboardLogic', () => {
                 `api/projects/${MOCK_TEAM_ID}/dashboards/${9}/move_tile`,
                 expect.objectContaining({ tile: sourceTile, to_dashboard: 8 })
             )
+        })
+
+        it('records a copied insight tile on the source tile, so the copy menu treats the destination as taken', async () => {
+            // insight 800 starts on dashboard 9 and 10
+            await expectLogic(logic).toFinishAllListeners()
+            const sourceTile = logic.values.insightTiles[0]
+            jest.spyOn(api, 'create').mockResolvedValueOnce({ id: 8, tiles: [{ id: 555, insight: { id: 800 } }] })
+
+            await expectLogic(logic, () => {
+                logic.actions.copyToDashboard(sourceTile, 9, 8, 'targetDashboard')
+            }).toFinishAllListeners()
+
+            const insightTiles = logic.values.insightTiles[0].insight!.dashboard_tiles
+            expect(insightTiles).toContainEqual({ id: 555, dashboard_id: 8 })
+            expect(liveDashboardIds(insightTiles)).toEqual([9, 10, 8])
         })
 
         it('adds tile on moveToDashboardSuccess', async () => {
@@ -4500,7 +4518,7 @@ describe('dashboardLogic', () => {
         expect(
             fiveLogic.values.insightTiles.map((t) => ({
                 short_id: t.insight!.short_id,
-                dashboards: t.insight!.dashboards,
+                dashboards: liveDashboardIds(t.insight!.dashboard_tiles),
             }))
         ).toEqual([
             { dashboards: [5, 6], short_id: '172' },
@@ -4509,17 +4527,25 @@ describe('dashboardLogic', () => {
         expect(
             nineLogic.values.insightTiles.map((t) => ({
                 short_id: t.insight!.short_id,
-                dashboards: t.insight!.dashboards,
+                dashboards: liveDashboardIds(t.insight!.dashboard_tiles),
             }))
         ).toEqual([{ dashboards: [9, 10], short_id: '800' }])
 
-        const changedInsight: InsightModel = { ...insight800(), dashboards: [10, 5] } // Moved from to 9 to 5
+        // Moved from 9 to 5. The soft-deleted tile on 9 must not count as membership.
+        const changedInsight: InsightModel = {
+            ...insight800(),
+            dashboard_tiles: [
+                { id: 1, dashboard_id: 9, deleted: true },
+                { id: 2, dashboard_id: 10 },
+                { id: 3, dashboard_id: 5 },
+            ],
+        }
         dashboardsModel.actions.updateDashboardInsight(changedInsight, [9])
 
         expect(
             fiveLogic.values.insightTiles.map((t) => ({
                 short_id: t.insight!.short_id,
-                dashboards: t.insight!.dashboards,
+                dashboards: liveDashboardIds(t.insight!.dashboard_tiles),
             }))
         ).toEqual([
             { dashboards: [5, 6], short_id: '172' },
@@ -4528,7 +4554,7 @@ describe('dashboardLogic', () => {
         expect(
             nineLogic.values.insightTiles.map((t) => ({
                 short_id: t.insight!.short_id,
-                dashboards: t.insight!.dashboards,
+                dashboards: liveDashboardIds(t.insight!.dashboard_tiles),
             }))
         ).toEqual([])
         // Ensuring we do go back to the API for 800, which was added to dashboard 5
