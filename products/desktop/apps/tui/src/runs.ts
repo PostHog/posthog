@@ -689,16 +689,27 @@ export class CloudRuns {
     const listener = (update: CloudTaskUpdatePayload): void => {
       if (update.taskId !== taskId || update.runId !== runId) return;
       publish(applyUpdate(own, update));
-      if (update.kind === "snapshot") {
+      // The view is kept on every entry, so the next watch of this run knows how far it has read.
+      if (update.kind === "snapshot" || update.kind === "logs") {
         this.previews.set(keyOf(taskId, runId), own);
       }
     };
     this.engine.on(CloudTaskEvent.Update, listener);
+    // The engine closes the stream when its last watcher stops, and a new one opens at the stream's latest entry,
+    // past anything that landed in between (a reply sent right as a pane re-rendered once went unseen until the
+    // next visit). A watch that already holds entries resumes from their count, so the gap is replayed.
+    const known = own.loaded ? own.windowStart + own.entries.length : null;
     this.context().then(
       ({ apiHost, teamId }) => {
         if (stopped) return;
         opened = true;
-        this.engine.watch({ taskId, runId, apiHost, teamId });
+        this.engine.watch({
+          taskId,
+          runId,
+          apiHost,
+          teamId,
+          ...(known !== null && { resumeFromEntryCount: known }),
+        });
       },
       (error: unknown) =>
         publish({
