@@ -6,6 +6,8 @@ import pytest
 
 import pytest_asyncio
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -32,19 +34,22 @@ async def environment() -> AsyncIterator[WorkflowEnvironment]:
 
 
 @pytest.mark.parametrize(
-    "full_tries, expected_evaluated",
+    "full_tries, expected_evaluated, evaluation_fails",
     [
         # The pool frees after two tries, inside the wait budget, so the batch runs in its own tick.
-        (2, True),
+        (2, True, False),
         # The pool never frees, so the batch gives up and its checks stay due for a later tick.
-        (1000, False),
+        (1000, False, False),
+        # The evaluation fails, for example by timing out in the queue, so the workflow frees the slot.
+        (0, True, True),
     ],
 )
 async def test_a_batch_waits_for_a_pool_slot_on_a_timer_before_it_evaluates(
-    environment: WorkflowEnvironment, full_tries: int, expected_evaluated: bool
+    environment: WorkflowEnvironment, full_tries: int, expected_evaluated: bool, evaluation_fails: bool
 ) -> None:
     tries: list[TakeLogsBatchSlotInputs] = []
     evaluated: list[LogsBatchSlot] = []
+    released: list[LogsBatchSlot] = []
 
     @activity.defn(name="take_logs_batch_slot_activity")
     async def take(inputs: TakeLogsBatchSlotInputs) -> LogsBatchAdmission:
@@ -56,16 +61,22 @@ async def test_a_batch_waits_for_a_pool_slot_on_a_timer_before_it_evaluates(
     @activity.defn(name="evaluate_held_logs_batch_activity")
     async def evaluate(inputs: HeldLogsBatchInputs) -> SourceBatchEvaluation:
         evaluated.append(inputs.slot)
+        if evaluation_fails:
+            raise ApplicationError("evaluation failed", non_retryable=True)
         return SourceBatchEvaluation(outcomes=(), deliveries=())
+
+    @activity.defn(name="release_logs_batch_slot_activity")
+    async def release(held: LogsBatchSlot) -> None:
+        released.append(held)
 
     async with Worker(
         environment.client,
         task_queue=QUEUE,
         workflows=[LogsAlertEvaluateWorkflow],
-        activities=[take, evaluate],
+        activities=[take, evaluate, release],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
-        await environment.client.execute_workflow(
+        run = environment.client.execute_workflow(
             LogsAlertEvaluateWorkflow.run,
             SourceEvaluationInputs(
                 source=SourceKind.LOGS,
@@ -76,6 +87,11 @@ async def test_a_batch_waits_for_a_pool_slot_on_a_timer_before_it_evaluates(
             task_queue=QUEUE,
             execution_timeout=dt.timedelta(minutes=5),
         )
+        if evaluation_fails:
+            with pytest.raises(WorkflowFailureError):
+                await run
+        else:
+            await run
 
     # Every try names one member, so a retried try finds the slot an earlier one took.
     assert len({t.member for t in tries}) == 1
@@ -85,6 +101,7 @@ async def test_a_batch_waits_for_a_pool_slot_on_a_timer_before_it_evaluates(
         assert [slot.member for slot in evaluated] == [tries[0].member]
         assert len(tries) == full_tries + 1
         assert not any(t.final for t in tries)
+        assert released == (evaluated if evaluation_fails else [])
     else:
         assert evaluated == []
         # Only the last try counts the batch as deferred.

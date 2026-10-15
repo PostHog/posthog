@@ -560,12 +560,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
             assert taken.slot is not None and retried.slot is not None
             assert (turned_away.due, turned_away.slot) == (True, None)
 
-            evaluation, _ = self._run(configuration, held=retried.slot)
+            # The retry rewrote the expiry, so the first take's expiry is stale, as when a timed-out
+            # take attempt lands after its retry returned.
+            evaluation, _ = self._run(configuration, held=taken.slot)
             after = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="second", first=True, final=False)
+            # "first" no longer holds a slot and "second" fills the pool.
+            lapsed, lapsed_query = self._run(configuration, held=taken.slot)
 
         assert len(evaluation.outcomes) == 1
         # The evaluation gave the slot back, or a pool of one would still turn the second batch away.
         assert after.slot is not None
+        assert lapsed.outcomes == () and not lapsed_query.called
 
     def test_a_logs_alert_with_unreadable_filters_breaks_alone(self) -> None:
         unreadable, healthy = self._configuration(), self._configuration()

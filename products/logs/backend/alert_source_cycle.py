@@ -128,9 +128,10 @@ MIN_QUERY_SECONDS = 2
 CHECKPOINT_QUERY_SECONDS = 10
 
 INFLIGHT_KEY = "alerts:platform:logs:batches:inflight"
-# A workflow takes the slot before its evaluation activity starts, so the lease has to outlast the
-# rest of the take, that activity's queue time and its run, with room to spare. Short enough that a
-# worker that dies mid-batch frees its slot within two minutes.
+# A workflow takes the slot before its evaluation activity starts, and the activity holds it again
+# under a fresh lease when it starts. So the lease has to outlast the rest of the take and the
+# activity's queue time, and also the activity's run, with room to spare. Short enough that a worker
+# that dies mid-batch frees its slot within two minutes.
 BATCH_SLOT_LEASE_SECONDS = 90
 _DEFERRED_COUNT_LIMIT = 10_000
 
@@ -974,13 +975,30 @@ def take_logs_batch_slot(
 def evaluate_held_logs_batch(team_id: int, slot: str, cutoff: datetime, held: LogsBatchSlot) -> SourceBatchEvaluation:
     """`evaluate_logs_batch` for a batch whose workflow already took its slot. Releases the slot."""
     started_at = time.monotonic()
+    # Hold the slot again under a fresh lease. The take's lease can lapse while this activity waits in
+    # the queue, and a timed-out take attempt can rewrite the expiry after its retry returned. A batch
+    # whose slot lapsed while the pool filled finds no room here, and its checks stay due.
+    held_until = hold_evaluation_slot(
+        held.member,
+        limit=settings.ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES,
+        lease_seconds=BATCH_SLOT_LEASE_SECONDS,
+        key=INFLIGHT_KEY,
+    )
+    if held_until is None:
+        logger.info("Deferred a platform logs batch whose slot lapsed", team_id=team_id, slot=slot)
+        return SourceBatchEvaluation(outcomes=(), deliveries=())
     try:
         checks = due_checks(team_id, SourceKind.LOGS.value, slot, cutoff)
         if not checks:
             return SourceBatchEvaluation(outcomes=(), deliveries=())
         return _evaluate_admitted(team_id, slot, cutoff, checks, started_at=started_at)
     finally:
-        release_evaluation_slot(held.member, held_until=held.held_until, key=INFLIGHT_KEY)
+        release_evaluation_slot(held.member, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def release_logs_batch_slot(held: LogsBatchSlot) -> None:
+    """Frees a slot whose evaluation never started. A no-op once that evaluation held the slot again."""
+    release_evaluation_slot(held.member, held_until=held.held_until, key=INFLIGHT_KEY)
 
 
 def _evaluate_admitted(

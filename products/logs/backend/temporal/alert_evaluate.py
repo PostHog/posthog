@@ -5,6 +5,7 @@ plain function a test can call without Temporal.
 """
 
 import datetime as dt
+import contextlib
 import dataclasses
 
 from temporalio import activity, workflow
@@ -187,6 +188,13 @@ def evaluate_held_logs_batch_activity(inputs: HeldLogsBatchInputs) -> SourceBatc
 
 
 @activity.defn
+def release_logs_batch_slot_activity(held: LogsBatchSlot) -> None:
+    from products.logs.backend.alert_source_cycle import release_logs_batch_slot
+
+    release_logs_batch_slot(held)
+
+
+@activity.defn
 async def emit_platform_alert_signals_activity(inputs: PlatformSignalInputs) -> int:
     """Emits the Self-driving signals for alerts the platform owns. Never raises."""
     # In the body, like the import above, because the workflow's sandbox refuses Django models.
@@ -230,13 +238,26 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
             held = await self._wait_for_slot(inputs)
             if held is None:
                 return 0
-            evaluation = await workflow.execute_activity(
-                evaluate_held_logs_batch_activity,
-                HeldLogsBatchInputs(evaluation=inputs, slot=held),
-                start_to_close_timeout=EVALUATE_START_TO_CLOSE,
-                schedule_to_close_timeout=EVALUATE_SCHEDULE_TO_CLOSE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
+            try:
+                evaluation = await workflow.execute_activity(
+                    evaluate_held_logs_batch_activity,
+                    HeldLogsBatchInputs(evaluation=inputs, slot=held),
+                    start_to_close_timeout=EVALUATE_START_TO_CLOSE,
+                    schedule_to_close_timeout=EVALUATE_SCHEDULE_TO_CLOSE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except ActivityError:
+                # An evaluation that timed out in the queue never ran its release. The release checks
+                # the take's expiry, so it does nothing to a slot an evaluation that did start holds.
+                with contextlib.suppress(ActivityError):
+                    await workflow.execute_activity(
+                        release_logs_batch_slot_activity,
+                        held,
+                        start_to_close_timeout=TAKE_SLOT_START_TO_CLOSE,
+                        schedule_to_close_timeout=TAKE_SLOT_SCHEDULE_TO_CLOSE,
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                raise
         else:
             evaluation = await workflow.execute_activity(
                 evaluate_logs_alerts_activity,
@@ -317,6 +338,7 @@ SOURCE_EVALUATION_ACTIVITIES = [
     evaluate_logs_alerts_activity,
     take_logs_batch_slot_activity,
     evaluate_held_logs_batch_activity,
+    release_logs_batch_slot_activity,
 ]
 # Registered on the platform delivery queue, beside the deliveries the evaluation starts.
 PLATFORM_SIGNAL_WORKFLOWS = [LogsPlatformAlertSignalsWorkflow]
