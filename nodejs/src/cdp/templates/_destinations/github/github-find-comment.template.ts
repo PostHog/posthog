@@ -40,6 +40,9 @@ for (let page := 1; page <= ${PAGE_BUDGET}; page := page + 1) {
   }
 
   for (let comment in res.body) {
+    if (typeof(comment.body) != 'string') {
+      throw Error(f'Failed to find GitHub comment ({res.status}): GitHub returned a comment without a body')
+    }
     if (position(comment.body, inputs.text) > 0) {
       return {'found': true, 'comment_id': comment.id, 'html_url': comment.html_url}
     }

@@ -139,6 +139,12 @@ describe('github find comment template', () => {
             { message: 'Moved' },
             'Failed to find GitHub comment (200): GitHub returned no comment list',
         ],
+        [
+            'a comment on the page has no readable body',
+            200,
+            [comment(1, 'Looks good to me'), { id: 2, body: null, html_url: commentUrl(2) }],
+            'Failed to find GitHub comment (200): GitHub returned a comment without a body',
+        ],
     ])('fails instead of returning not found when %s', async (_, status, body, message) => {
         const response = await tester.invoke(defaultInputs)
         const result = await tester.invokeFetchResponse(response.invocation, { status, body })
