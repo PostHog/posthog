@@ -1335,6 +1335,28 @@ describe('runInteractionLogic', () => {
         }
     )
 
+    it('warms a successor while the empty composer of a terminal run has focus', async () => {
+        jest.useFakeTimers()
+        try {
+            setStatus('completed')
+            logic.actions.setComposerFocused(true)
+            await jest.advanceTimersByTimeAsync(300)
+            expect(tasksWarmResumeCreate).toHaveBeenCalledWith(
+                '997',
+                TASK_ID,
+                expect.objectContaining({ resume_from_run_id: RUN_ID })
+            )
+
+            logic.actions.setComposerFocused(false)
+            await jest.advanceTimersByTimeAsync(5000)
+            expect(tasksRunsCancelCreate).toHaveBeenCalledWith('997', TASK_ID, 'warm-run', {
+                only_if_awaiting_first_message: true,
+            })
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it.each([
         ['submitted', false],
         ['unmounted', false],

@@ -1235,7 +1235,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             )
             // A run on the ChatGPT plan boots cold, so its draft releases the warm like an empty one.
             getWarmLogic()?.actions.noteDraft(
-                Boolean(values.composerForm.draft.trim()) &&
+                (Boolean(values.composerForm.draft.trim()) || values.composerFocused) &&
                     !usesChatGptPlan(getRuntimeAdapterForModel(values.catalogue, values.selectedModel)),
                 createRequest as WarmTaskResumeRequestApi
             )
@@ -1556,6 +1556,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             [codexBillingLogic.actionTypes.setPreferredCodexModelAccess]: noteTerminalDraft,
             setComposerFormValue: noteTerminalDraft,
             setComposerFormValues: noteTerminalDraft,
+            setComposerFocused: noteTerminalDraft,
             handleTerminalStatus: () => {
                 if (values.isTerminal) {
                     invalidateSend()
