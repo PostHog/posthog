@@ -5300,10 +5300,10 @@ Diffed against: <https://developer.gladly.com/rest/>
 - [x] `/api/v1/teams` — lookup resolving the team IDs carried on agents and conversations (high). Added as `teams` (full refresh).
 - [x] `/api/v1/inboxes` — lookup resolving the inbox IDs carried on conversation items (high). Added as `inboxes` (full refresh).
 - [x] `/api/v1/reports/work-session-events` — agent work-session and status history — the vendor's own agent-productivity metric (high). Added as `work_session_events` via the equivalent `WorkSessionEventsReportV4` metric set of `POST /api/v1/reports`.
-- [ ] `/api/v1/events` — org-wide event stream, the closest thing Gladly has to an activity log (medium)
-- [ ] `/api/v1/customers/{customerId}/tasks` — customer tasks with assignment and completion state, a distinct work object from conversations (medium)
-- [ ] `/api/v1/answers` — knowledge-base answer catalog, needed to analyze self-service deflection (medium)
-- [ ] `/api/v1/conversation-items/{itemId}/voice-transcript` — voice transcripts for call-content analysis; the export ships item metadata only (medium)
+- [x] `/api/v1/events` — org-wide event stream, the closest thing Gladly has to an activity log (medium). Added as `events` (incremental merge on `timestamp`, all eight entity types). Gladly serves only the last 24 hours, so history builds up through daily or more frequent syncs.
+- [x] `/api/v1/customers/{customerId}/tasks` — customer tasks with assignment and completion state, a distinct work object from conversations (medium). Covered by `tasks` (Task Export report via `POST /api/v1/reports`, one row per task with assignment and closure columns). The per-customer endpoint itself is skipped: it is unpaginated, returns at most 2000 tasks, and would need one request per customer.
+- [x] `/api/v1/answers` — knowledge-base answer catalog, needed to analyze self-service deflection (medium). Added as `answers` (full refresh).
+- [x] `/api/v1/conversation-items/{itemId}/voice-transcript` — voice transcripts for call-content analysis; the export ships item metadata only (medium). Added as `voice_transcripts` (fan-out over the phone call and voicemail items of each export job, incremental on the job watermark).
 - [ ] `/api/v1/audiences` — lookup resolving audience IDs on answers (low)
 - [ ] `/api/v1/tasks/{taskId}/comments` — task discussion thread (low)
 
