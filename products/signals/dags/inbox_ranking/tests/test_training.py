@@ -2789,6 +2789,7 @@ class _AppObjectStore:
         self.objects = dict(existing or {})
         self.fail_on = fail_on
         self.written: list[str] = []
+        self.extras: dict[str, dict[str, str] | None] = {}
 
     def head_object(self, bucket: str, file_key: str) -> dict[str, int] | None:
         return {"ContentLength": len(self.objects[file_key])} if file_key in self.objects else None
@@ -2798,6 +2799,7 @@ class _AppObjectStore:
             raise RuntimeError("object store write failed")
         self.objects[key] = content if isinstance(content, bytes) else content.encode()
         self.written.append(key)
+        self.extras[key] = extras
 
 
 def _serving_dataset_s3(
@@ -2884,9 +2886,12 @@ def test_publishing_copies_every_model_the_manifest_names_and_writes_the_manifes
         assert f"{entry.prefix}/{METADATA_FILE}" in store.objects
         assert f"{entry.prefix}/{model_file}" in store.objects
     assert store.written[-1] == serving_manifest_key(prefix)
+    assert all("ACL" not in (extras or {}) for extras in store.extras.values())
     if mirror is not None:
         assert mirror.objects == store.objects
         assert mirror.written[-1] == serving_manifest_key(prefix)
+        # The mirror bucket is in another account, and its policy refuses a write without this ACL.
+        assert all((extras or {}).get("ACL") == "bucket-owner-full-control" for extras in mirror.extras.values())
     assert _manifest_event(capture).get("mirror_published") is (True if mirrored else None)
 
 

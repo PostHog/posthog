@@ -37,9 +37,19 @@ class FilterPropertyReferences(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.references: dict[str, list[str | None]] = {}
+        self._lambda_scopes: list[set[str]] = []
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self._lambda_scopes.append(set(node.args))
+        try:
+            super().visit_lambda(node)
+        finally:
+            self._lambda_scopes.pop()
 
     def visit_field(self, node: ast.Field) -> None:
         chain: list[str | int] = list(node.chain)
+        if chain and any(chain[0] in scope for scope in self._lambda_scopes):
+            return
         if chain and chain[0] == "events":
             chain = chain[1:]
         root = chain[0] if chain else None

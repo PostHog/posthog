@@ -1,10 +1,11 @@
 import enum
 from collections.abc import Iterable
+from functools import partial
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
@@ -371,7 +372,11 @@ def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
         return
 
     if instance.type is None or instance.type in TYPES_THAT_RELOAD_PLUGIN_SERVER:
-        reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
+        reload = partial(reload_hog_functions_on_workers, team_id=instance.team_id, hog_function_ids=[str(instance.id)])
+        if "mcp_credential" in (instance.encrypted_inputs or {}):
+            transaction.on_commit(reload)
+        else:
+            reload()
 
 
 @receiver(post_save, sender=Action)

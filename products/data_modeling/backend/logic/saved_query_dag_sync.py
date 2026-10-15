@@ -593,6 +593,41 @@ def _oldest_node_id(nodes: QuerySet[Node]) -> str | None:
     return str(oldest_node.id) if oldest_node else None
 
 
+def _lock_dags_and_check_dependents(saved_query: "DataWarehouseSavedQuery", nodes: QuerySet[Node]) -> list[DAG]:
+    """Lock every DAG `nodes` sit in, then raise HasDependentsError if anything reads the query."""
+    dags = sorted({node.dag for node in nodes if node.dag is not None}, key=lambda dag: str(dag.id))
+    for dag in dags:
+        lock_dag(saved_query.team_id, dag.id)
+
+    query_dependents = [
+        Dependent(
+            name=dependent.name,
+            kind=node_type_for(dependent),
+            saved_query_id=str(dependent.id),
+            created_by_id=dependent.created_by_id,
+        )
+        for dependent in get_dependent_saved_queries(saved_query)
+    ]
+    dependents = query_dependents + _dependent_metrics(nodes)
+    if dependents:
+        raise HasDependentsError(
+            saved_query.name,
+            tuple(dependents),
+            fallback_node_id=_oldest_node_id(Node.objects.filter(team=saved_query.team, saved_query=saved_query)),
+        )
+    return dags
+
+
+def check_saved_query_deletable(team_id: int, saved_query_id: UUID) -> None:
+    """Raise HasDependentsError if a view, endpoint or metric reads the saved query. Deletes nothing."""
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    saved_query = DataWarehouseSavedQuery.objects.get(team_id=team_id, id=saved_query_id)
+    nodes = _nodes_standing_for(saved_query).select_related("dag", "dag__team")
+    with transaction.atomic():
+        _lock_dags_and_check_dependents(saved_query, nodes)
+
+
 def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
     """
     Delete the Node for a SavedQuery (cascades to edges)
@@ -600,30 +635,10 @@ def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
     Must be called BEFORE soft_delete() due to on_delete=PROTECT on the saved_query FK.
     """
     nodes = _nodes_standing_for(saved_query).select_related("dag", "dag__team")
-    own_nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query)
     with transaction.atomic():
         # Hold every DAG this query has a node in, so a sync cannot attach a dependent between the
-        # check below and the delete that would cascade its edge away.
-        dags = sorted({node.dag for node in nodes if node.dag is not None}, key=lambda dag: str(dag.id))
-        for dag in dags:
-            lock_dag(saved_query.team_id, dag.id)
-
-        query_dependents = [
-            Dependent(
-                name=dependent.name,
-                kind=node_type_for(dependent),
-                saved_query_id=str(dependent.id),
-                created_by_id=dependent.created_by_id,
-            )
-            for dependent in get_dependent_saved_queries(saved_query)
-        ]
-        dependents = query_dependents + _dependent_metrics(nodes)
-        if dependents:
-            raise HasDependentsError(
-                saved_query.name,
-                tuple(dependents),
-                fallback_node_id=_oldest_node_id(own_nodes),
-            )
+        # check and the delete that would cascade its edge away.
+        dags = _lock_dags_and_check_dependents(saved_query, nodes)
         delete_nodes(saved_query.team_id, nodes)
     for dag in dags:
         maybe_reconcile_dag(dag)
@@ -701,6 +716,50 @@ def move_saved_query_to_dag(team_id: int, saved_query_id: UUID, dag_id: UUID) ->
             node.save(update_fields=["dag"])
             maybe_reconcile_dag(previous_dag)
         sync_saved_query_to_dag(saved_query, dag=dag)
+
+
+class ManagedNodeMaterializingError(Exception):
+    """Raised when a managed view's node cannot move because a materialization of it is running."""
+
+
+def move_node_out_of_managed_dag(saved_query: "DataWarehouseSavedQuery", dag: DAG) -> DAG | None:
+    """Move the saved query's node from the Revenue Analytics DAG into `dag`, returning the DAG it left."""
+    with transaction.atomic():
+        node = (
+            Node.objects.filter(
+                team_id=saved_query.team_id, saved_query=saved_query, dag__name=REVENUE_ANALYTICS_DAG_NAME
+            )
+            .select_related("dag")
+            .first()
+        )
+        if node is None:
+            return None
+        managed_dag = node.dag
+        for dag_id in sorted({managed_dag.id, dag.id}, key=str):
+            lock_dag(saved_query.team_id, dag_id)
+            lock_dag_placements(saved_query.team_id, dag_id)
+        # A concurrent call may have moved the node between the read above and the locks. Acting on
+        # the stale row would take the existence check below for a legacy copy and delete the node.
+        node = (
+            Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query, dag=managed_dag)
+            .select_related("dag")
+            .first()
+        )
+        if node is None:
+            return None
+        if DataModelingJob.objects.filter(
+            team_id=saved_query.team_id, saved_query=saved_query, status=DataModelingJobStatus.RUNNING
+        ).exists():
+            raise ManagedNodeMaterializingError(saved_query.name)
+        source_ids = _delete_incoming_edges(saved_query.team_id, node)
+        Edge.objects.filter(team_id=saved_query.team_id, source=node).delete()
+        if Node.objects.filter(team_id=saved_query.team_id, dag=dag, saved_query=saved_query).exists():
+            node.delete()
+        else:
+            node.dag = dag
+            node.save(update_fields=["dag"])
+        delete_orphaned_table_nodes(saved_query.team_id, source_ids)
+    return managed_dag
 
 
 def update_node_type(saved_query: "DataWarehouseSavedQuery", type: NodeType) -> None:
