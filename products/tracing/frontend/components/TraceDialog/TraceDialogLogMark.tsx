@@ -22,10 +22,7 @@ const MARK_CLASS: Partial<Record<LemonTagType, string>> = {
     muted: 'bg-muted',
 }
 
-/**
- * The mark for the log the dialog was opened from. The "Opened from log" strip, the emitting span's chip
- * and the pin on its bar all show it, so a person learns once which mark is their log.
- */
+// One mark across the strip, the span chip and the bar pin, so a person learns once which mark is their log.
 export function TraceDialogLogMark({
     severity,
     className,

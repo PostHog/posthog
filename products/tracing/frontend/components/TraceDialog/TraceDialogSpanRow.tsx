@@ -21,7 +21,6 @@ export interface TraceDialogSpanRowProps {
     isSelected: boolean
     /** Set only on the span that emitted the record the dialog was opened from. */
     openedAtUs: number | null
-    /** The log the dialog was opened from, set with openedAtUs. */
     openedFrom: TraceDialogSource | null
     /** How many spans sit under this one. Zero for a span with no children. */
     descendantCount: number
