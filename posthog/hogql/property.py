@@ -1444,13 +1444,7 @@ def property_to_expr(
                     )
                     for v in value
                 ]
-                if (
-                    operator == PropertyOperator.NOT_ICONTAINS
-                    or operator == PropertyOperator.NOT_REGEX
-                    or operator == PropertyOperator.IS_NOT
-                    or operator == PropertyOperator.NOT_STARTS_WITH
-                    or operator == PropertyOperator.NOT_ENDS_WITH
-                ):
+                if operator_is_negative(operator):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
         elif property.type == "data_warehouse_person_property":
