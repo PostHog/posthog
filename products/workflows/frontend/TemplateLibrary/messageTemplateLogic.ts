@@ -17,6 +17,7 @@ import { resourceEditedLogic } from 'products/notifications/frontend/resourceEdi
 
 import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-functions/email-templater/types'
 import type { HogFunctionType, ResourceEditedEvent, UserBasicType } from '../../../../frontend/src/types'
+import { workflowLogic } from '../Workflows/workflowLogic'
 import { NEW_TEMPLATE } from './constants'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { MessageTemplate } from './types'
@@ -475,7 +476,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         templateEditedElsewhere: ({ event }) => {
             // The echo of our own save can arrive before its response. Parked until the flight settles,
             // it then compares equal to the loaded stamp and is dropped.
-            if (values.templateLoading) {
+            if (values.templateLoading || values.isMakingTransactional) {
                 actions.setDeferredExternalEdit(event)
                 return
             }
@@ -510,12 +511,24 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     props.id,
                     {}
                 )
-                // A reload sets the form and the saved copy together, so the form doesn't read as edited.
-                actions.loadTemplate()
+                // Only these two fields changed. Merging them in keeps edits made while this ran.
+                const changes = {
+                    transactional_hog_flow_id: updated.transactional_hog_flow_id ?? null,
+                    updated_at: updated.updated_at,
+                }
+                actions.setOriginalTemplate({ ...values.originalTemplate, ...changes })
+                if (values.templateChanged) {
+                    actions.setTemplateValues(changes)
+                } else {
+                    // Resetting moves the form's baseline too, so the form doesn't read as edited.
+                    actions.resetTemplate({ ...values.template, ...changes })
+                }
                 actions.makeTransactionalDone(updated.transactional_hog_flow_id ?? null)
+                actions.replayDeferredExternalEdit()
                 lemonToast.success('Template is now transactional. You can send it over the API.')
             } catch (error: any) {
                 actions.makeTransactionalDone(null)
+                actions.replayDeferredExternalEdit()
                 lemonToast.error(error?.detail ?? 'Could not make the template transactional.')
             }
         },
@@ -564,6 +577,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             // does not intercept the post-save redirect.
             actions.resetTemplate(template)
             actions.setOriginalTemplate(template)
+            if (values.transactionalHogFlowId) {
+                // The save wrote a new workflow version, and nothing else tells the bound workflow tabs.
+                workflowLogic.findMounted({ id: values.transactionalHogFlowId })?.actions.loadWorkflow()
+            }
             if (props.id === 'new') {
                 router.actions.push(urls.workflows('library'))
             } else if (template.id) {
