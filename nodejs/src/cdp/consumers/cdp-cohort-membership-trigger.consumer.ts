@@ -1,0 +1,186 @@
+import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
+
+import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '~/common/config/kafka-topics'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
+import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
+
+import { HealthCheckResult, PluginsServerConfig } from '../../types'
+import { HogFlow } from '../schema/hogflow'
+import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
+import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '../utils'
+import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
+import { CohortMembershipChangeSchema } from './cdp-cohort-membership.consumer'
+import { counterParseError } from './metrics'
+
+// pinned: stored as the event of every cohort-triggered run, which workflow steps and logs read
+export const COHORT_MEMBERSHIP_CHANGED_EVENT = '$cohort_membership_changed'
+
+export const counterCohortMembershipTriggerSkipped = new Counter({
+    name: 'cdp_cohort_membership_trigger_skipped',
+    help: 'Membership changes the cohort trigger consumer did not turn into workflow runs, by reason.',
+    labelNames: ['reason'],
+})
+
+export function isMatchingCohortTrigger(flow: HogFlow, globals: HogFunctionInvocationGlobals): boolean {
+    const trigger = flow.trigger
+    return (
+        trigger.type === 'cohort' &&
+        globals.event.event === COHORT_MEMBERSHIP_CHANGED_EVENT &&
+        trigger.cohort_id === globals.event.properties.cohort_id &&
+        trigger.transition === globals.event.properties.status
+    )
+}
+
+/**
+ * Starts workflow runs from realtime cohort membership changes.
+ *
+ * Reads the same topic as CdpCohortMembershipConsumer under its own group, so persisting membership
+ * and starting runs fail and lag independently.
+ */
+export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
+    protected name = 'CdpCohortMembershipTriggerConsumer'
+
+    protected hogflowQueue: JobQueue
+    protected kafkaConsumer: KafkaConsumerInterface
+    private hogFlowPipeline: HogFlowInvocationPipeline
+
+    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps, jobQueues: { hogflowQueue: JobQueue }) {
+        super(config, deps)
+        this.hogflowQueue = jobQueues.hogflowQueue
+        this.kafkaConsumer = createKafkaConsumer({
+            groupId: 'cdp-cohort-membership-trigger-consumer',
+            topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
+        })
+        this.hogFlowPipeline = new HogFlowInvocationPipeline(config, {
+            hogFlowManager: this.hogFlowManager,
+            hogFlowExecutor: this.hogFlowExecutor,
+            hogWatcher: this.hogWatcher,
+            hogWatcherMirror: this.hogWatcherMirror,
+            hogMasker: this.hogMasker,
+            hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+            quotaLimiting: deps.quotaLimiting,
+            redis: this.redis,
+            valkeyShadow: this.valkeyShadow,
+        })
+    }
+
+    public async processBatch(
+        invocationGlobals: HogFunctionInvocationGlobals[]
+    ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
+        if (!invocationGlobals.length) {
+            return { backgroundTask: Promise.resolve(), invocations: [] }
+        }
+
+        const invocations = await this.hogFlowPipeline.buildInvocations(invocationGlobals, {
+            eligibilityFn: isMatchingCohortTrigger,
+        })
+
+        for (const invocation of invocations) {
+            this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+        }
+
+        return {
+            backgroundTask: Promise.all([
+                instrumentFn({ key: 'cdp.background_task.queue_hogflow_invocations', sendException: false }, () =>
+                    this.hogflowQueue.queueInvocations(invocations)
+                ),
+                instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
+                    try {
+                        await this.hogFunctionMonitoringService.flush()
+                    } catch (err) {
+                        captureException(err)
+                        logger.error('🔴', 'Error producing queued messages for monitoring', { err })
+                    }
+                }),
+                instrumentFn({ key: 'cdp.background_task.lifecycle_running_flush', sendException: false }, () =>
+                    this.invocationResultsService.invocationResultsRowsService.flush()
+                ),
+            ]),
+            invocations,
+        }
+    }
+
+    @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
+    public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        const events: HogFunctionInvocationGlobals[] = []
+        await Promise.all(
+            messages.map(async (message) => {
+                try {
+                    const change = CohortMembershipChangeSchema.parse(parseJSON(message.value!.toString()))
+
+                    // Seed and reconcile messages restate membership the cohort already had. Starting runs
+                    // on them would put every existing member through the workflow when a cohort is built.
+                    if (change.origin) {
+                        counterCohortMembershipTriggerSkipped.labels({ reason: 'backfill' }).inc()
+                        return
+                    }
+
+                    const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(change.team_id)
+                    const triggered = teamHogFlows.some(
+                        (flow) => flow.trigger.type === 'cohort' && flow.trigger.cohort_id === change.cohort_id
+                    )
+                    if (!triggered) {
+                        return
+                    }
+
+                    const team = await this.deps.teamManager.getTeam(change.team_id)
+                    if (!team) {
+                        return
+                    }
+
+                    const globals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
+                        team,
+                        personId: change.person_id,
+                        siteUrl: this.config.SITE_URL,
+                    })
+                    globals.event = {
+                        ...globals.event,
+                        event: COHORT_MEMBERSHIP_CHANGED_EVENT,
+                        properties: { cohort_id: change.cohort_id, status: change.status },
+                    }
+                    events.push(globals)
+                } catch (e) {
+                    // A dependency outage is not a poison message. Rethrowing fails the batch so the
+                    // offsets stay put and the consumer retries.
+                    if (e?.isRetriable === true) {
+                        throw e
+                    }
+                    logger.error('Error parsing cohort membership change', e)
+                    counterParseError.labels({ error: e.message }).inc()
+                }
+            })
+        )
+
+        return events
+    }
+
+    public override async start(): Promise<void> {
+        await super.start()
+        await this.hogflowQueue.startAsProducer()
+        await this.kafkaConsumer.connect(async (messages) => {
+            logger.info('🔁', `${this.name} - handling batch`, { size: messages.length })
+            return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
+                const invocationGlobals = await this._parseKafkaBatch(messages)
+                const { backgroundTask } = await this.processBatch(invocationGlobals)
+                return { backgroundTask }
+            })
+        })
+    }
+
+    public override async stop(): Promise<void> {
+        logger.info('💤', 'Stopping consumer...')
+        await this.kafkaConsumer.disconnect()
+        await this.hogflowQueue.stopProducer()
+        await super.stop()
+    }
+
+    public isHealthy(): HealthCheckResult {
+        return this.kafkaConsumer.isHealthy()
+    }
+}
