@@ -140,7 +140,7 @@ describe('SqlPieGraph', () => {
         await waitForSlices()
         expect(sliceLabelLines()).toEqual([['Missing'], ['Blank']])
         const readsBeforeSettings = aliasReads
-        await userEvent.click(screen.getByRole('button', { name: 'Visualization settings' }))
+        await userEvent.click(screen.getByLabelText('Visualization settings'))
         expect(aliasReads).toBe(readsBeforeSettings)
         expect(sliceLabelLines()).toEqual([['Missing'], ['Blank']])
     })

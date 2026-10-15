@@ -285,6 +285,53 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
 
+    const biConfig = query.kind === NodeKind.BIVisualizationNode ? query.config : undefined
+    const sqlChartData = useMemo(() => {
+        if (!isSqlChartVisualizationType(effectiveVisualizationType)) {
+            return null
+        }
+        const chartXData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        const chartYData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+        const xDimension = biConfig
+            ? getBIResultDimensions(biConfig).find(({ column }) => column === chartXData?.column.name)
+            : undefined
+        const aliasFormatter = biConfig && xDimension ? createBIMemberFormatter(biConfig, xDimension.field) : undefined
+        const fallbackTickFormatter = aliasFormatter
+            ? (dateAxis?.tickFormatter ??
+              (isDateXAxis
+                  ? createXAxisTickCallback({ allDays: chartXData?.data ?? [], timezone, interval: dateBucket })
+                  : undefined))
+            : undefined
+        return {
+            xData: chartXData,
+            yData: chartYData,
+            labelFormatter: aliasFormatter,
+            xAxis: aliasFormatter
+                ? {
+                      ...dateAxis,
+                      tickFormatter: (value: string, index: number): string | null => {
+                          const label = aliasFormatter(value)
+                          return label !== value
+                              ? label
+                              : fallbackTickFormatter
+                                ? fallbackTickFormatter(value, index)
+                                : value
+                      },
+                  }
+                : dateAxis,
+        }
+    }, [
+        effectiveVisualizationType,
+        seriesBreakdownData,
+        xData,
+        yData,
+        biConfig,
+        dateAxis,
+        isDateXAxis,
+        timezone,
+        dateBucket,
+    ])
+
     const pieDisplayData = useMemo(() => {
         if (!PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
             return null
@@ -389,26 +436,13 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 onInspect={canDrill ? inspect : undefined}
             />
         )
-    } else if (isSqlChartVisualizationType(effectiveVisualizationType)) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
-        const dimensions = query.kind === NodeKind.BIVisualizationNode ? getBIResultDimensions(query.config) : []
-        const xDimension = dimensions.find(({ column }) => column === _xData?.column.name)
-        const aliasFormatter =
-            query.kind === NodeKind.BIVisualizationNode && xDimension
-                ? createBIMemberFormatter(query.config, xDimension.field)
-                : undefined
-        const fallbackTickFormatter =
-            dateAxis?.tickFormatter ??
-            (isDateXAxis
-                ? createXAxisTickCallback({ allDays: _xData?.data ?? [], timezone, interval: dateBucket })
-                : undefined)
+    } else if (sqlChartData) {
+        const { xData: _xData, yData: _yData } = sqlChartData
         component = (
             <BindLogic logic={insightLogic} props={alertsInsightProps}>
                 <SqlChart
                     className="p-3"
-                    xData={_xData}
-                    yData={_yData}
+                    {...sqlChartData}
                     visualizationType={effectiveVisualizationType}
                     chartSettings={chartSettings}
                     dashboardId={dashboardId}
@@ -418,22 +452,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     presetChartHeight={presetChartHeight}
                     embedded={props.embedded}
                     directPointClick={canDrill}
-                    labelFormatter={aliasFormatter}
-                    xAxis={
-                        aliasFormatter
-                            ? {
-                                  ...dateAxis,
-                                  tickFormatter: (value, index) => {
-                                      const label = aliasFormatter(value)
-                                      return label !== value
-                                          ? label
-                                          : fallbackTickFormatter
-                                            ? fallbackTickFormatter(value, index)
-                                            : value
-                                  },
-                              }
-                            : dateAxis
-                    }
                     margins={dateMargins}
                     onPointClick={
                         canDrill
