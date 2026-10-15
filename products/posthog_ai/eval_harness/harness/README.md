@@ -38,7 +38,7 @@ A run of one-shot suites never pays for — or fails preflight on — the sandbo
 | `context.py`       | `EvalContext`, the single object every suite receives.                                                                            |
 | `reporting.py`     | `ProgressReporter` and the final summary table. The quiet Braintrust reporter lives with the engine (`../engines/braintrust.py`). |
 | `transcript.py`    | Mirrors stdout and stderr to one run log, then publishes its absolute path as the final line.                                     |
-| `dashboard.py`     | Interactive terminal view, input handling, and bounded log reads. Runs separately from the eval loop.                             |
+| `dashboard.py`     | Starts the `phrocs evals` view process and streams run progress to it over a socket pair.                                         |
 | `progress.py`      | Immutable trial progress shared by the reporter and interactive view.                                                             |
 | `terminal.py`      | Opens terminal streams without sharing the descriptors used by transcript capture.                                                |
 | `lifecycle.py`     | `SandboxedEvalHarness`: orchestrates bootstrap, the run, and teardown.                                                            |
@@ -89,15 +89,16 @@ Redirected stderr does not disable automatic detection. Sessions without a contr
 Both modes retain detailed logs in the transcript, including routine service stderr without a warning label.
 
 The reporter publishes immutable trial updates to the dashboard; the view does not parse log lines to infer case state.
-The dashboard uses a separate thread and a duplicate terminal descriptor, outside stdout/stderr capture.
-State updates request redraws immediately, with a limit of 30 redraws per second.
-An async task reads the selected log in a worker and publishes its text to the view. Rendering does no file reads.
-Mouse controls select trials, scroll details, and use the action bar. Moving the details cursor pauses log following.
-Its event loop uses `SelectSelector` so reopened `/dev/tty` input works on macOS. The eval event loop keeps its default selector.
+The view is a separate `phrocs evals` process (`tools/phrocs/internal/tui/evals.go`). It owns the terminal, so the harness's GIL never delays input or rendering.
+The harness passes one end of a socket pair with `--fd`. It writes one JSON event per line; the view replies `ready` after its first layout and `cancel` when the user confirms.
+The view reads the selected summary, agent log, or transcript itself. The harness sends file paths, never file contents.
+The view process gets a duplicate terminal descriptor, outside stdout/stderr capture.
+While the view runs, the harness points its own stdin at `/dev/null`. Services inherit stdin, and a service that reads the terminal (for example `tsx watch`) takes key presses from the view.
 The transcript routes console messages to the view while still saving their original text.
-Cancel controls send one SIGINT through the existing cleanup path and keep the view open during teardown.
+Cancel replies send one SIGINT through the existing cleanup path. The view ignores SIGINT, so it stays open during teardown.
 The completed view stays open until `q`, then the final summary and transcript path print to the restored terminal.
-Dashboard readiness requires a completed render. Forced UI startup failures stop before eval setup; automatic mode reports the failure before selecting text output.
+Dashboard readiness requires the `ready` reply. Forced UI startup failures stop before eval setup; automatic mode reports the failure before selecting text output.
+If the view process exits during a run, the runner stops through its cleanup path and saves the view's stderr in the transcript.
 UI loop exceptions propagate through the worker, interrupt an active run once for cleanup, and are logged with their original traceback.
 
 Every invocation that attempts an eval writes the combined stdout/stderr stream to `logs/harness/<timestamp>_<id>.log`.

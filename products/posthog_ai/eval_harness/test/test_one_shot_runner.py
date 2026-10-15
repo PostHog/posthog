@@ -64,6 +64,7 @@ class _StubReporter:
         status: str,
         trial_id: str | None = None,
         error_type: str | None = None,
+        error_detail: str | None = None,
     ) -> None:
         self.done.append((case_name, status))
 

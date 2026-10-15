@@ -250,6 +250,7 @@ class ProgressReporter:
         status: CaseStatus = "ok",
         trial_id: str | None = None,
         error_type: str | None = None,
+        error_detail: str | None = None,
     ) -> None:
         async with self._lock:
             self._case_counts[experiment_name] += 1
@@ -269,7 +270,12 @@ class ProgressReporter:
                     marker = "READY" if status == "ok" else "TIMEOUT"
                     detail = "; execution complete; scoring pending"
                     case.transition("scoring")
-                self._publish_trial(trial_id, case, phase="error" if status == "error" else None, detail=detail)
+                self._publish_trial(
+                    trial_id,
+                    case,
+                    phase="error" if status == "error" else None,
+                    detail=error_detail or detail.removeprefix("; "),
+                )
             total = self._experiment_totals.get(experiment_name)
             progress = f"[{self._case_counts[experiment_name]}/{total}]" if total is not None else ""
             await asyncio.to_thread(

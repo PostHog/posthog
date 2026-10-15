@@ -119,32 +119,38 @@ Native subprocess output always goes to the transcript.
 
 ### Interactive view
 
-The view shows service setup and one row per trial, with phase, elapsed time, trial number, and setup retry count.
-Use Up/Down and Enter to select a trial. Its details show local results and scores after execution.
-Select **Run and setup** for setup status and run messages. Press `l` to switch to the full run transcript.
-During agent execution, use this transcript for live logs. Per-trial log files become available after execution.
-Click a trial to select it, or use the mouse wheel over the trial list to change the selection.
-The action bar has clickable controls for logs, follow, search, and cancellation. Cancellation asks for confirmation.
-Click the details pane to focus it. Scrolling away from the end pauses log following; click **Follow off** to resume.
-Status updates redraw the view immediately. Log reads run outside the screen thread so slow reads do not block controls.
+The view is `phrocs evals`, the same Bubble Tea program that renders `hogli start`.
+It runs in its own process, so a busy eval run does not delay key presses or redraws.
+The harness builds the in-repo phrocs (`tools/phrocs/dist/phrocs`) when Go is available, otherwise it uses `phrocs` on `PATH`.
+If phrocs is missing or too old to have the `evals` command, the run continues with plain text output.
 
-| Key                  | Action                                                            |
-| -------------------- | ----------------------------------------------------------------- |
-| Up/Down, Enter       | Select a trial or the run                                         |
-| Tab                  | Move focus between the trial list and details                     |
-| `l`                  | Switch between details and logs                                   |
-| `/`, Enter, Escape   | Search the details, accept the search, or leave search            |
-| `f`                  | Turn automatic log following on or off                            |
-| `q`, then `y`        | Cancel a running eval and wait for cleanup; `n` continues the run |
-| Ctrl-C               | Cancel once and wait for cleanup                                  |
-| `q` after completion | Close the view                                                    |
+The sidebar shows the run and one row per trial, grouped by experiment, with status and elapsed time.
+A failed trial shows its full error and traceback. Select **Run** for setup status, trial counts, and warnings. Press `l` to switch to the full run transcript.
+During agent execution, use this transcript for live logs. Per-trial log files become available after execution.
+Click a row or use the mouse wheel over the sidebar to change the selection. The wheel over the output pane scrolls it.
+Drag over the output pane to select text. The view copies the selection when you release the button, through OSC 52 and `pbcopy` on macOS.
+
+| Key                      | Action                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------ |
+| Up/Down, `j`/`k`         | Select a trial or the run, or scroll when the output pane has focus                  |
+| Tab, Enter               | Move focus between the sidebar and the output pane                                   |
+| `l`                      | Switch between the summary and logs                                                  |
+| `/`, Up/Down, Escape     | Search the output, move between matches, or clear the search                         |
+| PgUp/PgDn, Home          | Scroll the output                                                                    |
+| End                      | Jump to the end and follow new output                                                |
+| `q`, then `y`            | Cancel a running eval and wait for cleanup; `n` continues the run                    |
+| Ctrl-C                   | Cancel once and wait for cleanup                                                     |
+| `q` after completion     | Close the view                                                                       |
+| Mouse drag in the output | Select text; releasing the button copies it to the clipboard                         |
+| `c`, then `c` twice      | Select lines with Up/Down and copy them; the mouse can also drag-select in this mode |
+| `?`                      | Show all keys                                                                        |
 
 The final results stay visible until you close the view. The terminal then prints the final summary and transcript path.
 Use `--no-tui` for the existing text output. `--verbose` adds detailed messages to the view or text output.
 `--tui` overrides automatic detection, including `TERM=dumb` and CI. It uses `/dev/tty` when a launcher redirects standard input or output.
 Redirecting stderr alone does not disable the view. A session without an attached terminal still requires `--no-tui`.
 With `--tui`, setup starts only after the first screen is drawn. A startup failure stops the command and reports its cause.
-If the view fails during a run, the runner stops through its cleanup path and saves the UI traceback in the transcript.
+If the view exits during a run, the runner stops through its cleanup path and saves the view error in the transcript.
 The view does not change scores, retries, timeouts, or sandbox cleanup. Its screen controls are not written to the transcript.
 
 ### Comparing skill delivery
