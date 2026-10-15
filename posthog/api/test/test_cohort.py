@@ -56,6 +56,7 @@ from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.facade.models import Insight
+from products.workflows.backend.models import HogFlow
 
 from ee.clickhouse.materialized_columns.analyze import materialize
 
@@ -7044,6 +7045,64 @@ class TestCohortTypeIntegration(APIBaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)  # Should remain unchanged
         self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+
+    def _create_realtime_cohort(self) -> int:
+        filters = {
+            "properties": {
+                "type": "AND",
+                "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+            }
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/", {"name": "Realtime", "filters": filters}, format="json"
+        )
+        assert response.status_code == 201, response.data
+        assert response.data["cohort_type"] == CohortType.REALTIME
+        return response.data["id"]
+
+    def _create_workflow_using_cohort(self, cohort_id: int, usage: str, status: str) -> None:
+        if usage == "trigger":
+            action = {"id": "trigger_node", "type": "trigger", "config": {"type": "cohort", "cohort_id": cohort_id}}
+        else:
+            condition = {"filters": {"properties": [{"key": "id", "type": "cohort", "value": cohort_id}]}}
+            action = {"id": "branch", "type": "conditional_branch", "config": {"conditions": [condition]}}
+        HogFlow.objects.create(team=self.team, name=f"Workflow {usage}", status=status, actions=[action])
+
+    @parameterized.expand(
+        [
+            ("active_trigger", "trigger", "active", 400),
+            ("active_branch", "branch", "active", 400),
+            ("draft_trigger", "trigger", "draft", 200),
+        ]
+    )
+    def test_delete_cohort_is_blocked_by_active_workflows_using_it(self, _name, usage, workflow_status, expected):
+        cohort_id = self._create_realtime_cohort()
+        self._create_workflow_using_cohort(cohort_id, usage, workflow_status)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", {"deleted": True})
+
+        assert response.status_code == expected, response.json()
+        if expected == 400:
+            assert f"used in 1 active workflow(s): Workflow {usage}" in response.json()["detail"]
+
+    def test_edit_that_stops_realtime_is_blocked_by_active_workflows_using_it(self):
+        cohort_id = self._create_realtime_cohort()
+        self._create_workflow_using_cohort(cohort_id, "trigger", "active")
+        filters = {
+            "properties": {
+                "type": "AND",
+                "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+            },
+            "filterTestAccounts": True,
+        }
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}", {"filters": filters}, format="json"
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "stops the cohort updating in real time" in response.json()["detail"]
+        assert Cohort.objects.get(id=cohort_id).cohort_type == CohortType.REALTIME
 
     def test_cohort_type_not_set_when_not_provided(self):
         """cohort_type should remain None when not provided"""

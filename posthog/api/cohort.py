@@ -122,6 +122,7 @@ from products.feature_flags.backend.models.team_feature_flags_config import (
 )
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.product_analytics.backend.facade.models import Insight
+from products.workflows.backend.facade.api import get_active_workflows_using_realtime_cohort
 
 
 class CohortPersonsResponseSerializer(serializers.Serializer):
@@ -1504,6 +1505,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if create_in_folder is not None:
             cohort._create_in_folder = create_in_folder or None
 
+        was_realtime = cohort.cohort_type == CohortType.REALTIME and not cohort.is_static
+
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
@@ -1528,6 +1531,20 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             else:
                 cohort.filters = filters
 
+        # A cohort that stops being realtime stops emitting membership changes, so its workflows would
+        # never trigger and their branches would read frozen membership, with no error anywhere.
+        if was_realtime and (cohort.is_static or cohort.cohort_type != CohortType.REALTIME):
+            workflows_relying_on_realtime = get_active_workflows_using_realtime_cohort(
+                team_id=cohort.team_id, cohort_id=cohort.id
+            )
+            if workflows_relying_on_realtime:
+                workflow_names = [workflow.name for workflow in workflows_relying_on_realtime]
+                raise ValidationError(
+                    f"This change stops the cohort updating in real time, and {len(workflows_relying_on_realtime)} "
+                    f"active workflow(s) rely on that: {', '.join(workflow_names)}. "
+                    "Please remove the cohort from these workflows before making this change."
+                )
+
         deleted_state = cast(bool | None, validated_data.get("deleted"))
 
         incoming_has_criteria = cohort_filters_have_values(validated_data.get("filters"))
@@ -1545,6 +1562,16 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     raise ValidationError(
                         f"This cohort is used in {len(flags_with_cohort)} active feature flag(s): {', '.join(flag_names)}. "
                         "Please remove the cohort from these feature flags before deleting it."
+                    )
+
+                workflows_with_cohort = get_active_workflows_using_realtime_cohort(
+                    team_id=cohort.team_id, cohort_id=cohort.id
+                )
+                if workflows_with_cohort:
+                    workflow_names = [workflow.name for workflow in workflows_with_cohort]
+                    raise ValidationError(
+                        f"This cohort is used in {len(workflows_with_cohort)} active workflow(s): "
+                        f"{', '.join(workflow_names)}. Please remove the cohort from these workflows before deleting it."
                     )
 
                 # Check if cohort is used in test_account_filters
