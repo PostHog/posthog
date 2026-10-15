@@ -50,17 +50,13 @@ def emit_inbox_report_ready_event(*, team_id: int, report_id: str, source_produc
     """Write the report out once, the first time it settles as ready.
 
     Waits for the broker to accept the event, because the claim is what stops a second attempt.
-    A rejected event gives the claim back and raises, so the caller can retry. An event still
-    unresolved after the flush keeps its claim unconfirmed, and `reconcile_stranded_ready_events`
-    sends it again once the claim goes stale.
+    An event the broker rejects or never confirms keeps its claim unconfirmed, and
+    `reconcile_stranded_ready_events` sends it again once the claim goes stale. A rejected event
+    still raises, so the caller can log it.
     """
     if not _claim_ready_event(team_id, report_id, source_products):
         return
-    try:
-        _publish_ready_event(team_id, report_id, source_products)
-    except Exception:
-        _release_ready_event_claim(team_id, report_id)
-        raise
+    _publish_ready_event(team_id, report_id, source_products)
 
 
 def reconcile_stranded_ready_events() -> None:
@@ -122,12 +118,6 @@ def _renew_stale_claim(team_id: int, report_id: str, claimed_at: datetime) -> bo
         return True
     claim.update(ready_event_emitted_at=None, ready_event_source_products=None)
     return False
-
-
-def _release_ready_event_claim(team_id: int, report_id: str) -> None:
-    SignalReport.objects.filter(id=report_id, team_id=team_id).update(
-        ready_event_emitted_at=None, ready_event_source_products=None
-    )
 
 
 def _event_properties(team_id: int, report_id: str, source_products: list[str]) -> InboxReportReadyProperties:

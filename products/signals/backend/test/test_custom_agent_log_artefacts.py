@@ -1,8 +1,12 @@
 import json
 import uuid
+from datetime import timedelta
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
+
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -32,6 +36,7 @@ from products.signals.backend.report_generation.research import (
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
+from products.signals.backend.workflow_events import reconcile_stranded_ready_events
 from products.tasks.backend.models import Task
 
 
@@ -188,9 +193,9 @@ class TestCustomAgentLogArtefacts(BaseTest):
         assert len(rows) == 2
         assert json.loads(rows[-1].content)["priority"] == "P0"
 
-    @parameterized.expand([("published", None), ("broker_down", RuntimeError("broker down"))])
+    @parameterized.expand([("published", None, 1), ("broker_down", RuntimeError("broker down"), 2)])
     def test_create_report_starts_the_inbox_report_ready_workflows(
-        self, _name: str, produce_error: Exception | None
+        self, _name: str, produce_error: Exception | None, expected_sends: int
     ) -> None:
         with patch(
             "products.signals.backend.workflow_events.produce_internal_event", side_effect=produce_error
@@ -201,11 +206,16 @@ class TestCustomAgentLogArtefacts(BaseTest):
                 repo_selection=RepoSelectionResult(repository="acme/repo", reason="r"),
                 agent_identifier=("billing", "anomaly_scan"),
             )
+            produce.side_effect = None
+            with time_machine.travel(timezone.now() + timedelta(minutes=16), tick=False):
+                reconcile_stranded_ready_events()
 
-        [ready_event] = [call.args[1] for call in produce.call_args_list]
-        assert ready_event.event == "$inbox_report_ready"
-        assert ready_event.properties["report_id"] == persisted.report_id
-        assert ready_event.properties["source_products"] == ["billing"]
+        ready_events = [call.args[1] for call in produce.call_args_list]
+        assert len(ready_events) == expected_sends
+        for ready_event in ready_events:
+            assert ready_event.event == "$inbox_report_ready"
+            assert ready_event.properties["report_id"] == persisted.report_id
+            assert ready_event.properties["source_products"] == ["billing"]
 
     def test_registered_uuid_only_reviewer_is_included_in_telemetry(self):
         reviewer_uuid = uuid.uuid4()

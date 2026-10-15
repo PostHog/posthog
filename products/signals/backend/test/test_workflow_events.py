@@ -105,7 +105,7 @@ class TestEmitInboxReportReadyEvent(BaseTest):
             ("rejected_on_delivery", None, KafkaException("message timed out")),
         ]
     )
-    def test_a_failed_publish_raises_and_lets_a_retry_emit(
+    def test_a_failed_publish_raises_and_the_sweep_sends_it_again(
         self, _name: str, produce_error: Exception | None, delivery_error: Exception | None
     ) -> None:
         failed_delivery = MagicMock()
@@ -114,7 +114,8 @@ class TestEmitInboxReportReadyEvent(BaseTest):
 
         with pytest.raises(type(produce_error or delivery_error)):
             self._emit()
-        self._emit()
+        self._sweep_after(timedelta(minutes=16))
+        self._sweep_after(timedelta(hours=1))
 
         assert len(self._produced_events()) == 2
 
