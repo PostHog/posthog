@@ -1569,6 +1569,12 @@ function normalizeDismissalArtefact(
     type: "dismissal",
     ...artefactBase(value),
     content: {
+      state:
+        contentValue.state === "resolved" ||
+        contentValue.state === "suppressed" ||
+        contentValue.state === "potential"
+          ? contentValue.state
+          : null,
       reason,
       note: optionalString(contentValue.note) ?? "",
       user_id:

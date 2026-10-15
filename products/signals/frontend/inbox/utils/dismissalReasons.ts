@@ -23,8 +23,9 @@ export const DISMISSAL_REASON_OPTIONS = [
  * joining this one — so the choice no longer decides whether the issue can come back.
  */
 export const RESOLVE_REASON_OPTIONS = [
-    { value: 'fixed_outside_posthog', label: 'Fixed outside PostHog' },
-    { value: 'pr_merged', label: 'PR was merged' },
+    { value: 'fixed_outside_posthog', label: 'Implemented manually' },
+    { value: 'no_action_needed', label: 'No action needed' },
+    { value: 'pr_merged', label: 'PR already merged' },
     { value: 'already_fixed', label: 'Was already fixed before this report' },
     { value: 'other', label: 'Something else…' },
 ] as const
@@ -41,7 +42,12 @@ export type ResolveReasonValue = (typeof RESOLVE_REASON_OPTIONS)[number]['value'
  * its old dismiss reason, and showing that on finished work would mislabel it.
  */
 export function isResolveReason(value: string | null | undefined): boolean {
-    return value === 'fixed_outside_posthog' || value === 'pr_merged' || value === 'already_fixed'
+    return (
+        value === 'fixed_outside_posthog' ||
+        value === 'no_action_needed' ||
+        value === 'pr_merged' ||
+        value === 'already_fixed'
+    )
 }
 
 /** Feedback captured by the dismiss dialog and forwarded to the report state API. */

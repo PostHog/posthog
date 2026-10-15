@@ -28,8 +28,9 @@ export const DISMISSAL_REASON_OPTIONS = [
 ] as const;
 
 export const RESOLVE_REASON_OPTIONS = [
-  { value: "fixed_outside_posthog", label: "Fixed outside PostHog" },
-  { value: "pr_merged", label: "PR was merged" },
+  { value: "fixed_outside_posthog", label: "Implemented manually" },
+  { value: "no_action_needed", label: "No action needed" },
+  { value: "pr_merged", label: "PR already merged" },
   { value: "already_fixed", label: "Was already fixed before this report" },
   { value: "other", label: "Something else…" },
 ] as const;
