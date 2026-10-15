@@ -133,9 +133,8 @@ export function TraceDrawer({
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Metrics correlate to a trace via exemplars, so the tab only exists where the metrics
-    // product does: its own flag, plus the metrics feature and view access.
-    const showMetricsTab =
-        !!featureFlags[FEATURE_FLAGS.TRACING_METRICS_TAB] && !!featureFlags[FEATURE_FLAGS.METRICS] && canViewMetrics()
+    // product does: its own flag, plus metrics view access.
+    const showMetricsTab = !!featureFlags[FEATURE_FLAGS.TRACING_METRICS_TAB] && canViewMetrics()
 
     // Resolve the inspected span outside render churn: a resize drag re-renders this component on
     // every mousemove, and these scans are O(spans) — memoize so they only run when data/selection change.

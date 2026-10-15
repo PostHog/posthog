@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { IconBell } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
@@ -22,15 +21,11 @@ export function AlertsButton({ insight, insightLogicProps, text, ...props }: Ale
     const { push } = useActions(router)
     const logic = insightAlertsLogic({ insightId: insight.id!, insightLogicProps })
     const { alerts } = useValues(logic)
-    const metricsAlertsEnabled = useFeatureFlag('METRICS')
 
-    const supported = areAlertsSupportedForInsight(insight.query, { metricsAlertsEnabled })
+    const supported = areAlertsSupportedForInsight(insight.query)
     // Existing alerts must stay manageable even if the gating flag is later disabled —
     // they keep evaluating server-side, so the user needs a way in to edit or disable them.
-    const disabledReason =
-        supported || (alerts?.length ?? 0) > 0
-            ? undefined
-            : alertsUnsupportedReason({ metricsAlertsEnabled }, insight.query)
+    const disabledReason = supported || (alerts?.length ?? 0) > 0 ? undefined : alertsUnsupportedReason(insight.query)
 
     return (
         <LemonButton

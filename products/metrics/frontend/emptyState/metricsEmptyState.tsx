@@ -3,7 +3,6 @@ import { IconGraph } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -15,8 +14,6 @@ const HedgehogChart = pngHoggie(chartPng)
 
 export const metricsEmptyState: SceneProductEmptyState = {
     statusLogic: metricsSetupLogic,
-    // The whole product is behind this flag; its feature-preview gate handles the flag-off case.
-    featureFlag: FEATURE_FLAGS.METRICS,
     config: {
         productKey: ProductKey.METRICS,
         productName: 'Metrics',
