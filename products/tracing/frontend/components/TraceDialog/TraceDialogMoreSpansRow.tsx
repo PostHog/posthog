@@ -11,7 +11,8 @@ export interface TraceDialogMoreSpansRowProps {
 export function TraceDialogMoreSpansRow({ row, onShowAll }: TraceDialogMoreSpansRowProps): JSX.Element {
     const { parent, hiddenCount } = row
     return (
-        <div className="flex items-center w-full h-full gap-2 text-xs text-muted border-l-[3px] border-l-transparent">
+        // No gap between the columns: the span row has none, so the tree lines on both line up.
+        <div className="flex items-center w-full h-full text-xs text-muted border-l-[3px] border-l-transparent">
             <span className="w-16 shrink-0" aria-hidden />
             <span
                 className="relative self-stretch w-96 shrink-0 flex items-center gap-2"
