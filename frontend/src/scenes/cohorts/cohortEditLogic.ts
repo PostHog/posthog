@@ -1180,16 +1180,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 actions.setCriteria({ operator: PropertyOperator.Exact }, groupIndex, criteriaIndex)
             }
         },
-        deleteCohort: async (_, breakpoint) => {
-            const { id, name } = values.cohort
-            // Workflows that rely on the cohort block the delete. Listing them up front is clearer than the API error.
-            const workflows = typeof id === 'number' ? await loadBlockingWorkflows(values.currentProjectId, id) : null
-            breakpoint()
-            if (workflows) {
+        deleteCohort: () => {
+            // The editor already loaded what uses the cohort, so blocking workflows show without another request.
+            const workflows = values.usedIn?.workflows
+            if (workflows?.total) {
                 actions.openBlockingWorkflowsModal({ action: 'delete', workflows })
                 return
             }
-            cohortsModel.actions.deleteCohort({ id, name })
+            cohortsModel.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
         },
         removePersonFromCohort: async ({ personId }) => {
             if (!values.cohort.id || values.cohort.id === 'new') {

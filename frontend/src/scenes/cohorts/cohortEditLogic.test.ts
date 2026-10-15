@@ -433,6 +433,10 @@ describe('cohortEditLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
+                    '/api/projects/:team_id/cohorts/:id/used_in/': {
+                        ...mockUsedInResponse,
+                        workflows: blockingWorkflows,
+                    },
                     '/api/projects/:team_id/cohorts/:id/blocking_workflows/': blockingWorkflows,
                 },
                 patch: {
@@ -446,6 +450,9 @@ describe('cohortEditLogic', () => {
 
         it('lists the blocking workflows instead of deleting the cohort', async () => {
             await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toMatchValues({
+                usedIn: expect.objectContaining({ workflows: blockingWorkflows }),
+            })
 
             await expectLogic(logic, () => logic.actions.deleteCohort())
                 .toFinishAllListeners()
@@ -456,10 +463,7 @@ describe('cohortEditLogic', () => {
             })
         })
 
-        it.each([
-            ['delete', (): void => logic.actions.deleteCohort()],
-            ['blocked save', (): void => logic.actions.saveCohort()],
-        ])('does nothing after the %s workflow check when the editor has closed', async (_, start) => {
+        it('does nothing after the blocked save workflow check when the editor has closed', async () => {
             let releaseLookup: () => void = () => {}
             const lookupHeld = new Promise<void>((resolve) => {
                 releaseLookup = resolve
@@ -487,7 +491,7 @@ describe('cohortEditLogic', () => {
             cohortBlockingWorkflowsModalLogic.mount()
             const deleteSpy = jest.spyOn(cohortsModel.actions, 'deleteCohort')
 
-            start()
+            logic.actions.saveCohort()
             await started
             logic.unmount()
             releaseLookup()

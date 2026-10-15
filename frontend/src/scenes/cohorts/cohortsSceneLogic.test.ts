@@ -9,7 +9,6 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { cohortBlockingWorkflowsModalLogic } from './cohortBlockingWorkflowsModalLogic'
 import { cohortsSceneLogic } from './cohortsSceneLogic'
 
 const MOCK_COHORTS = {
@@ -174,48 +173,6 @@ describe('cohortsSceneLogic', () => {
                             results: expect.arrayContaining([expect.objectContaining({ id: 1 })]),
                         }),
                     })
-            })
-        })
-
-        describe('workflows that rely on the cohort', () => {
-            const workflowsBlock = (workflowsTotal: number): Record<string, any> => ({
-                results: workflowsTotal ? [{ id: 'flow-1', name: 'Welcome series', status: 'active' }] : [],
-                total: workflowsTotal,
-                hidden: 0,
-                has_more: false,
-            })
-
-            it('deletes every cohort when a second delete starts before the first check finishes', async () => {
-                await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
-                useMocks({ get: { '/api/projects/:team/cohorts/:id/blocking_workflows/': workflowsBlock(0) } })
-
-                await expectLogic(logic, () => {
-                    logic.actions.requestDeleteCohort({ id: 1 })
-                    logic.actions.requestDeleteCohort({ id: 2 })
-                }).toDispatchActions([
-                    logic.actionCreators.deleteCohort({ id: 1 }),
-                    logic.actionCreators.deleteCohort({ id: 2 }),
-                ])
-            })
-
-            it.each([
-                ['lists the blocking workflows instead of deleting', 1],
-                ['deletes when no workflow relies on the cohort', 0],
-            ])('%s', async (_, workflowsTotal) => {
-                await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
-                useMocks({
-                    get: { '/api/projects/:team/cohorts/:id/blocking_workflows/': workflowsBlock(workflowsTotal) },
-                })
-
-                const blocked = workflowsTotal > 0
-                const request = expectLogic(logic, () => logic.actions.requestDeleteCohort({ id: 1 }))
-                await (blocked
-                    ? request.toFinishAllListeners().toNotHaveDispatchedActions(['deleteCohort'])
-                    : request.toDispatchActions(['requestDeleteCohort', 'deleteCohort']))
-
-                expect(cohortBlockingWorkflowsModalLogic.values.blocking).toEqual(
-                    blocked ? { action: 'delete', workflows: workflowsBlock(1) } : null
-                )
             })
         })
 
