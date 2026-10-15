@@ -53,9 +53,15 @@ RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 # A batch the pool turns away waits on a workflow timer and tries again, so it runs inside its own
 # tick instead of the next. The timer holds no worker slot, which a wait inside the sync activity
-# would. A batch still without a slot after the budget keeps its checks due for a later tick.
-SLOT_WAIT_BUDGET = dt.timedelta(seconds=30)
-SLOT_POLL_INTERVAL = dt.timedelta(seconds=2)
+# would. A batch still without a slot after the budget keeps its checks due for a later tick. The
+# budget is a third of the tick, so a batch let in late still finishes close to its own minute.
+# A freed slot goes to whichever batch tries next, not to the one that waited longest.
+SLOT_WAIT_BUDGET = dt.timedelta(seconds=20)
+# The interval grows from the first to the last value, with jitter, so the batches of one tick do
+# not all try again in the same second.
+SLOT_POLL_FIRST_INTERVAL = dt.timedelta(seconds=1)
+SLOT_POLL_MAX_INTERVAL = dt.timedelta(seconds=4)
+SLOT_POLL_JITTER_SECONDS = 0.5
 TAKE_SLOT_START_TO_CLOSE = dt.timedelta(seconds=5)
 TAKE_SLOT_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=10)
 # What the source needs from its binding's `evaluation_timeout`, which has to hold the wait, both
@@ -86,6 +92,7 @@ _SIGNAL_ACTIONS: dict[AlertEventKind, AlertSignalAction] = {
 class TakeLogsBatchSlotInputs:
     evaluation: SourceEvaluationInputs
     member: str
+    first: bool
     final: bool
 
 
@@ -162,6 +169,7 @@ def take_logs_batch_slot_activity(inputs: TakeLogsBatchSlotInputs) -> LogsBatchA
         key.slot,
         dt.datetime.fromisoformat(inputs.evaluation.cutoff),
         member=inputs.member,
+        first=inputs.first,
         final=inputs.final,
     )
 
@@ -278,12 +286,14 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
         # From the workflow, so it is the same on replay and on every retry of a try.
         member = f"{inputs.batch_key.team_id}:{inputs.batch_key.slot}:{workflow.uuid4().hex}"
         deadline = workflow.now() + SLOT_WAIT_BUDGET
+        interval = SLOT_POLL_FIRST_INTERVAL
+        first = True
         while True:
             final = workflow.now() >= deadline
             try:
                 admission = await workflow.execute_activity(
                     take_logs_batch_slot_activity,
-                    TakeLogsBatchSlotInputs(evaluation=inputs, member=member, final=final),
+                    TakeLogsBatchSlotInputs(evaluation=inputs, member=member, first=first, final=final),
                     start_to_close_timeout=TAKE_SLOT_START_TO_CLOSE,
                     schedule_to_close_timeout=TAKE_SLOT_SCHEDULE_TO_CLOSE,
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -297,7 +307,9 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
                 return admission.slot
             if final:
                 return None
-            await workflow.sleep(SLOT_POLL_INTERVAL)
+            first = False
+            await workflow.sleep(interval.total_seconds() + workflow.random().uniform(0, SLOT_POLL_JITTER_SECONDS))
+            interval = min(interval * 2, SLOT_POLL_MAX_INTERVAL)
 
 
 SOURCE_EVALUATION_WORKFLOWS = [LogsAlertEvaluateWorkflow]

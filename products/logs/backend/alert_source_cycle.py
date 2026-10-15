@@ -132,7 +132,6 @@ INFLIGHT_KEY = "alerts:platform:logs:batches:inflight"
 # rest of the take, that activity's queue time and its run, with room to spare. Short enough that a
 # worker that dies mid-batch frees its slot within two minutes.
 BATCH_SLOT_LEASE_SECONDS = 90
-# Counts the deferred checks on a workflow's last try, which reads every due id, not just the first.
 _DEFERRED_COUNT_LIMIT = 10_000
 
 
@@ -941,15 +940,23 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
         release_evaluation_slot(member, held_until=held_until, key=INFLIGHT_KEY)
 
 
-def take_logs_batch_slot(team_id: int, slot: str, cutoff: datetime, *, member: str, final: bool) -> LogsBatchAdmission:
+def take_logs_batch_slot(
+    team_id: int, slot: str, cutoff: datetime, *, member: str, first: bool, final: bool
+) -> LogsBatchAdmission:
     """One try at a pool slot for a batch, without waiting. The workflow waits between tries.
 
     `member` comes from the workflow, so a retried attempt finds the slot an earlier attempt took
-    instead of taking a second one. `final` marks the workflow's last try: a batch that still finds
-    no room then misses its tick, and only that try counts its checks as deferred.
+    instead of taking a second one. Only the first try asks whether the batch is due: nothing else
+    evaluates this batch key while its workflow waits, and the evaluation reads the checks again.
+    `final` marks the last try: a batch that still finds no room misses its tick, and only that try
+    counts its checks as deferred.
     """
-    if not due_check_ids(team_id, SourceKind.LOGS.value, slot, cutoff, limit=1):
-        return LogsBatchAdmission(due=False)
+    due: tuple[str, ...] = ()
+    if first or final:
+        # The last try counts every due check it defers, so only it reads more than one id.
+        due = due_check_ids(team_id, SourceKind.LOGS.value, slot, cutoff, limit=_DEFERRED_COUNT_LIMIT if final else 1)
+        if not due:
+            return LogsBatchAdmission(due=False)
     held_until = hold_evaluation_slot(
         member,
         limit=settings.ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES,
@@ -958,9 +965,8 @@ def take_logs_batch_slot(team_id: int, slot: str, cutoff: datetime, *, member: s
     )
     if held_until is None:
         if final:
-            deferred = len(due_check_ids(team_id, SourceKind.LOGS.value, slot, cutoff, limit=_DEFERRED_COUNT_LIMIT))
             logger.info("Deferred a platform logs batch over the pool limit", team_id=team_id, slot=slot)
-            safe_record(increment_checks_deferred, SourceKind.LOGS.value, deferred)
+            safe_record(increment_checks_deferred, SourceKind.LOGS.value, len(due))
         return LogsBatchAdmission(due=True)
     return LogsBatchAdmission(due=True, slot=LogsBatchSlot(member=member, held_until=held_until))
 

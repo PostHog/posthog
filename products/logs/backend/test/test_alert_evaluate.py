@@ -551,15 +551,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
         slot = self._slot()
 
         with override_settings(ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES=1):
-            first = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="first", final=False)
-            turned_away = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="second", final=False)
+            taken = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="first", first=True, final=False)
+            turned_away = take_logs_batch_slot(
+                self.team.id, slot, self.cutoff, member="second", first=True, final=False
+            )
             # A retried try names the same member, so it finds its slot instead of taking another.
-            retried = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="first", final=False)
-            assert first.slot is not None and retried.slot is not None
+            retried = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="first", first=True, final=False)
+            assert taken.slot is not None and retried.slot is not None
             assert (turned_away.due, turned_away.slot) == (True, None)
 
             evaluation, _ = self._run(configuration, held=retried.slot)
-            after = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="second", final=False)
+            after = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="second", first=True, final=False)
 
         assert len(evaluation.outcomes) == 1
         # The evaluation gave the slot back, or a pool of one would still turn the second batch away.
@@ -644,8 +646,7 @@ class TestEvaluationTimeoutLadder(SimpleTestCase):
         assert (EVALUATE_SCHEDULE_TO_CLOSE - EVALUATE_START_TO_CLOSE).total_seconds() >= BATCH_QUERY_BUDGET_SECONDS / 2
         # The platform's own timeout holds both activities and still leaves room for the deliveries.
         assert source_evaluation_timeout(SourceKind.LOGS) > EVALUATION_BUDGET
-        # The workflow takes the slot before the evaluation queues, so the lease must outlast the
-        # rest of the take, the queue and the run, or a second batch starts while this one queries.
+        # See `BATCH_SLOT_LEASE_SECONDS`.
         assert BATCH_SLOT_LEASE_SECONDS > (TAKE_SLOT_START_TO_CLOSE + EVALUATE_SCHEDULE_TO_CLOSE).total_seconds()
 
 

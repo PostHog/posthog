@@ -9,15 +9,10 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.alerts_platform.backend.facade.contracts import (
-    RECORD_OUTCOMES_ACTIVITY,
     AlertBatchKey,
-    AlertEventKind,
-    GroupOutcome,
-    PlatformAlertOutcome,
     SourceBatchEvaluation,
     SourceEvaluationInputs,
     SourceKind,
-    SourceOutcomeInputs,
 )
 from products.logs.backend.temporal.alert_evaluate import (
     HeldLogsBatchInputs,
@@ -60,23 +55,13 @@ async def test_a_batch_waits_for_a_pool_slot_on_a_timer_before_it_evaluates(
     @activity.defn(name="evaluate_held_logs_batch_activity")
     async def evaluate(inputs: HeldLogsBatchInputs) -> SourceBatchEvaluation:
         evaluated.append(inputs.slot)
-        outcome = PlatformAlertOutcome(
-            configuration_id=uuid.UUID("01936a2e-0000-7000-8000-000000000001"),
-            evaluation_key="slot:2026-09-16T10:00:00+00:00|window:2026-09-16T09:59:45+00:00",
-            consecutive_failures=0,
-            groups=(GroupOutcome(grouping_key="", kind=AlertEventKind.CHECK, new_state="not_firing", notified=False),),
-        )
-        return SourceBatchEvaluation(outcomes=(outcome,), deliveries=())
-
-    @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
-    async def record(inputs: SourceOutcomeInputs) -> int:
-        return len(inputs.outcomes)
+        return SourceBatchEvaluation(outcomes=(), deliveries=())
 
     async with Worker(
         environment.client,
         task_queue=QUEUE,
         workflows=[LogsAlertEvaluateWorkflow],
-        activities=[take, evaluate, record],
+        activities=[take, evaluate],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         await environment.client.execute_workflow(
@@ -92,6 +77,8 @@ async def test_a_batch_waits_for_a_pool_slot_on_a_timer_before_it_evaluates(
 
     # Every try names one member, so a retried try finds the slot an earlier one took.
     assert len({t.member for t in tries}) == 1
+    # Only the first try reads whether the batch is due.
+    assert [t.first for t in tries][:2] == [True, False][: len(tries)]
     if expected_evaluated:
         assert [slot.member for slot in evaluated] == [tries[0].member]
         assert len(tries) == full_tries + 1
