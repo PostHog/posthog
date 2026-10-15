@@ -91,6 +91,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
     ClientFactory,
+    CreditNoteListWithAllLines,
     InvoiceListWithAllLines,
     RateLimitCallback,
 )
@@ -733,8 +734,8 @@ def _build_resources(
     checks). Nested resources carry their parent on `.parent`, so callers can derive the
     nested→parent linkage without restating it elsewhere.
 
-    `logger` and `client_factory` are only consumed by InvoiceListWithAllLines; pass None when the
-    caller doesn't need the wrapped invoice expansion (e.g. validation, which just probes the list
+    `logger` and `client_factory` are only consumed by the invoice and credit note line expansion;
+    pass None when the caller doesn't need it (e.g. validation, which just probes the list
     endpoint). The factory gives each of its worker threads a client of its own.
     """
     return {
@@ -770,7 +771,13 @@ def _build_resources(
                 "expand": ["data.discounts", "data.items.data.discounts"],
             },
         ),
-        CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
+        CREDIT_NOTE_RESOURCE_NAME: StripeResource(
+            method=(
+                (lambda params: CreditNoteListWithAllLines(params, logger, client_factory=client_factory))  # type: ignore
+                if logger is not None and client_factory is not None
+                else client.credit_notes.list
+            )
+        ),
         COUPON_RESOURCE_NAME: StripeResource(method=client.coupons.list),
         # The one nested resource that reads its parent from the warehouse. Its skip predicate
         # answers from the parent row itself, so a run is dominated by paging the customer
