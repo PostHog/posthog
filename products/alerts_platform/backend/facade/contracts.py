@@ -17,7 +17,7 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.alerts_platform.backend.facade.enums import PlatformAlertCheckStatus, PlatformAlertState
 
 if TYPE_CHECKING:
     # facade.lifecycle imports this module, so the policy type stays off the runtime import path.
@@ -103,12 +103,116 @@ def source_condition(source_config: dict[str, Any]) -> dict[str, Any]:
     return condition if isinstance(condition, dict) else {}
 
 
+class GroupingMode(StrEnum):
+    SINGLE = "single"
+    BY_RESULT_LABELS = "by_result_labels"
+
+
+class OnOverflow(StrEnum):
+    # The only mode, because a cap that drops groups silently reads the same as nothing being wrong.
+    DEGRADE_VISIBLE = "degrade_visible"
+
+
+DEFAULT_MAX_INSTANCES: Final = 100
+
+
+@frozen
+class Grouping:
+    """How a configuration splits its results into instances.
+
+    `keys` names the result labels whose values make a group's key, so it is empty for a single
+    instance and required for grouping by labels. `max_instances` bounds how many instance rows a
+    configuration holds, which bounds the messages one check can post.
+    """
+
+    mode: GroupingMode = GroupingMode.SINGLE
+    keys: tuple[str, ...] = ()
+    max_instances: int = DEFAULT_MAX_INSTANCES
+    on_overflow: OnOverflow = OnOverflow.DEGRADE_VISIBLE
+
+    def __post_init__(self) -> None:
+        if self.mode == GroupingMode.SINGLE and self.keys:
+            raise ValueError("a single-instance grouping takes no keys")
+        if self.mode == GroupingMode.BY_RESULT_LABELS and not self.keys:
+            raise ValueError("grouping by result labels needs at least one key")
+        if len(set(self.keys)) != len(self.keys):
+            raise ValueError("a grouping names each key once")
+        if self.max_instances < 1:
+            raise ValueError("max_instances must be at least 1")
+
+    @classmethod
+    def from_stored(cls, stored: Mapping[str, Any]) -> Grouping:
+        return cls(
+            mode=GroupingMode(stored.get("mode", GroupingMode.SINGLE)),
+            keys=tuple(stored.get("keys", ())),
+            max_instances=int(stored.get("max_instances", DEFAULT_MAX_INSTANCES)),
+            on_overflow=OnOverflow(stored.get("on_overflow", OnOverflow.DEGRADE_VISIBLE)),
+        )
+
+    def to_stored(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode.value,
+            "keys": list(self.keys),
+            "max_instances": self.max_instances,
+            "on_overflow": self.on_overflow.value,
+        }
+
+
+@frozen
+class GroupAdmission:
+    """Which of a check's groups the configuration has room for, and how many it turned away."""
+
+    admitted: frozenset[str]
+    overflowed: int
+
+
+@frozen
+class InstanceCheckState:
+    """One instance's runtime state, as the shared machine reads it for that group."""
+
+    grouping_key: str
+    state: str
+    last_notified_at: datetime | None = None
+    snooze_until: datetime | None = None
+    firing_started_at: datetime | None = None
+
+    @classmethod
+    def composed(
+        cls,
+        *,
+        grouping_key: str,
+        state: str,
+        check_status: str,
+        configuration_snooze_until: datetime | None,
+        snooze_until: datetime | None = None,
+        last_notified_at: datetime | None = None,
+        firing_started_at: datetime | None = None,
+    ) -> InstanceCheckState:
+        """An instance as a check, history and the read API all see it.
+
+        The machine reads ERRORED and BROKEN from the same field as firing, so a failing check status
+        takes the place of the instance's state. A configuration mute extends every instance's, and
+        the later of the two holds. The single definition, so what a check judges, what history
+        records and what a reader sees cannot drift apart.
+        """
+        snoozes = [moment for moment in (configuration_snooze_until, snooze_until) if moment is not None]
+        return cls(
+            grouping_key=grouping_key,
+            state=state if check_status == PlatformAlertCheckStatus.OK else check_status,
+            last_notified_at=last_notified_at,
+            snooze_until=max(snoozes, default=None),
+            firing_started_at=firing_started_at,
+        )
+
+
 @frozen
 class PlatformAlertCheckInput:
     """One configuration and its runtime state, as a source adapter reads it.
 
-    Flat rather than nested, because a source never holds the rows and has nothing to do with
-    the split between what belongs to the configuration and what belongs to the instance.
+    `instances` holds every instance the configuration has, already composed with what belongs to
+    the configuration: a failing check status replaces each state, and a configuration mute
+    extends each snooze. A grouped source reads one per group it evaluates, and an open instance
+    whose key a successful check does not return has gone and resolves.
     """
 
     id: UUID
@@ -123,11 +227,51 @@ class PlatformAlertCheckInput:
     next_check_at: datetime | None
     consecutive_failures: int
     legacy_configuration_id: UUID | None
-    state: str
-    last_notified_at: datetime | None
+    check_status: str
     snooze_until: datetime | None
-    firing_started_at: datetime | None = None
     owned_by_platform: bool = False
+    instances: tuple[InstanceCheckState, ...] = ()
+    grouping: Grouping = field(default_factory=Grouping)
+
+    def admit(self, grouping_keys: Sequence[str]) -> GroupAdmission:
+        """The groups a check may report, from keys in the source's priority order.
+
+        A group that already has an instance is always admitted, so an open group can still
+        resolve. New groups fill what `max_instances` leaves, front first.
+        """
+        existing = {instance.grouping_key for instance in self.instances}
+        room = max(self.grouping.max_instances - len(existing), 0)
+        admitted: set[str] = set()
+        overflowed = 0
+        for key in dict.fromkeys(grouping_keys):
+            if key in existing:
+                admitted.add(key)
+            elif room > 0:
+                admitted.add(key)
+                room -= 1
+            else:
+                overflowed += 1
+        return GroupAdmission(admitted=frozenset(admitted), overflowed=overflowed)
+
+    def instance(self, grouping_key: str = "") -> InstanceCheckState:
+        """The instance for a group, or the state a group with no instance starts from."""
+        for instance in self.instances:
+            if instance.grouping_key == grouping_key:
+                return instance
+        return InstanceCheckState.composed(
+            grouping_key=grouping_key,
+            state=PlatformAlertState.NOT_FIRING.value,
+            check_status=self.check_status,
+            configuration_snooze_until=self.snooze_until,
+        )
+
+    def open_keys(self) -> list[str]:
+        """The groups whose instance is not at rest. A check judges each one, returned or not."""
+        return [
+            instance.grouping_key
+            for instance in self.instances
+            if instance.state != PlatformAlertState.NOT_FIRING.value
+        ]
 
     @property
     def filters(self) -> dict[str, Any]:
@@ -236,32 +380,136 @@ class FiringEpisode:
 
 
 @frozen
+class GroupOutcome:
+    """What one check decided for one group. The platform turns each into an instance write and a
+    history row.
+
+    A source that does not group sends one of these with the empty key, which is its one instance.
+    """
+
+    grouping_key: str
+    kind: AlertEventKind
+    new_state: str
+    notified: bool
+    firing_episode: FiringEpisode | None = None
+    value: float | None = None
+    labels: dict[str, str] = field(default_factory=dict)
+    # What a mute held back, so history separates a muted fire from a check that said nothing.
+    muted_notification: str = ""
+
+
+@frozen
+class CheckFailure:
+    """What the shared machine decided for a check that could not evaluate.
+
+    It belongs to the check, not to a group, because a failed query returns no groups to attribute
+    the failure to. `new_state` is the machine's verdict, which stays the prior state under a
+    policy that rides through errors and becomes ERRORED or BROKEN under one that does not.
+    """
+
+    kind: AlertEventKind
+    new_state: str
+    notified: bool
+    firing_episode: FiringEpisode | None = None
+    muted_notification: str = ""
+
+
+@frozen
 class PlatformAlertOutcome:
     """What one check decided. The platform turns this into rows.
 
     Every check produces one, including a check a source skipped. A skip that records nothing
     leaves its due time where it was, so discovery finds the same work every tick.
+
+    The fields here describe the check, and each of `groups` describes one group's verdict. A failed
+    query fails every group at once, so the failure count, `disable` and `failure` belong to the
+    check, and a failed check carries no groups. A successful check of an ungrouped source carries
+    exactly one group with the empty key; a grouped source's may carry none when nothing is open.
     """
 
     configuration_id: UUID
     evaluation_key: str
-    kind: AlertEventKind
-    new_state: str
-    notified: bool
     consecutive_failures: int
-    firing_episode: FiringEpisode | None = None
-    value: float | None = None
-    labels: dict[str, str] = field(default_factory=dict)
+    groups: tuple[GroupOutcome, ...] = ()
+    failure: CheckFailure | None = None
+    skipped: bool = False
+    # New groups `max_instances` had no room for, which the delivery names so a cap is never silent.
+    overflowed: int = 0
     error_message: str | None = None
     query_duration_ms: int | None = None
-    # What a mute held back, so history separates a muted fire from a check that said nothing.
-    muted_notification: str = ""
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
     # A team's checks with the same group are due in one slot, so a source that answers them with
     # one query can do so. None spreads the configuration by its own id.
     schedule_group: str | None = None
+
+    @classmethod
+    def ungrouped(
+        cls,
+        *,
+        configuration_id: UUID,
+        evaluation_key: str,
+        consecutive_failures: int,
+        kind: AlertEventKind,
+        new_state: str,
+        notified: bool,
+        failed: bool,
+        firing_episode: FiringEpisode | None = None,
+        value: float | None = None,
+        muted_notification: str = "",
+        error_message: str | None = None,
+        query_duration_ms: int | None = None,
+        disable: bool = False,
+        skipped: bool = False,
+        schedule_group: str | None = None,
+    ) -> PlatformAlertOutcome:
+        """A check of a source that does not group: its one verdict on the empty key, or its failure."""
+        failure = (
+            CheckFailure(
+                kind=kind,
+                new_state=new_state,
+                notified=notified,
+                firing_episode=firing_episode,
+                muted_notification=muted_notification,
+            )
+            if failed
+            else None
+        )
+        groups = (
+            ()
+            if failed
+            else (
+                GroupOutcome(
+                    grouping_key="",
+                    kind=kind,
+                    new_state=new_state,
+                    notified=notified,
+                    firing_episode=firing_episode,
+                    value=value,
+                    muted_notification=muted_notification,
+                ),
+            )
+        )
+        return cls(
+            configuration_id=configuration_id,
+            evaluation_key=evaluation_key,
+            consecutive_failures=consecutive_failures,
+            groups=groups,
+            failure=failure,
+            error_message=error_message,
+            query_duration_ms=query_duration_ms,
+            disable=disable,
+            skipped=skipped,
+            schedule_group=schedule_group,
+        )
+
+    def __post_init__(self) -> None:
+        if self.failure is not None and self.groups:
+            raise ValueError("a failed check reports no groups")
+        keys = [group.grouping_key for group in self.groups]
+        if len(set(keys)) != len(keys):
+            raise ValueError("an outcome names each group once")
 
 
 @frozen
@@ -327,6 +575,9 @@ class EvaluationAnnouncement:
     # whole evaluation, and every group in one announcement saw the same count.
     consecutive_failures: int
     transitions: tuple[AnnouncedTransition, ...]
+    # Groups the configuration had no room for. The first message names them, so a cap never drops
+    # a group without anyone being told.
+    overflowed: int = 0
 
 
 @frozen
@@ -368,6 +619,7 @@ class AlertDeliveryRequest:
     # The alert's page in the source's own product. Without one a message links to the platform's page.
     source_alert_url: str | None = None
     owned_by_platform: bool = False
+    overflowed: int = 0
 
 
 @frozen
@@ -398,6 +650,7 @@ class PlatformConfigurationSnapshot:
     next_check_at: datetime | None
     consecutive_failures: int
     owner: str
+    check_status: str
 
 
 @frozen

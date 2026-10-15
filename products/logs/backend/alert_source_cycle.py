@@ -14,8 +14,9 @@ logs stack would have said given the same configuration. The lifecycle decision 
 the shared machine configured with this source's policy, not from the logs product.
 """
 
+import json
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
 from itertools import batched
@@ -37,12 +38,21 @@ from products.alerts_platform.backend.facade.api import due_checks, refresh_sett
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
+    GroupingMode,
+    InstanceCheckState,
     MuteReason,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     SkipReason,
     SourceBatchEvaluation,
     SourceKind,
+)
+from products.alerts_platform.backend.facade.grouping import (
+    GroupObservation,
+    bounded_grouping_key,
+    decide_groups,
+    is_hashed_grouping_key,
+    muted_value,
 )
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
@@ -72,8 +82,10 @@ from products.alerts_platform.backend.facade.platform_metrics import (
 )
 from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.logs.backend.alert_check_query import (
+    GROUPABLE_LOGS_COLUMNS,
     BatchedAlertCheckQuery,
     BucketedCount,
+    GroupedAlertCheckQuery,
     fetch_live_logs_checkpoint,
     is_projection_eligible,
     resolve_alert_date_to,
@@ -241,17 +253,20 @@ def is_in_quiet_hours(schedule_restriction: dict | None, now: datetime, tz_name:
         return False
 
 
-def _snapshot(check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...]) -> AlertSnapshot:
+def _snapshot(
+    check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...], instance: InstanceCheckState | None = None
+) -> AlertSnapshot:
+    instance = instance or check.instance()
     return AlertSnapshot(
-        state=AlertState(check.state),
+        state=AlertState(instance.state),
         cooldown=timedelta(minutes=check.cooldown_minutes),
-        last_notified_at=check.last_notified_at,
-        snooze_until=check.snooze_until,
+        last_notified_at=instance.last_notified_at,
+        snooze_until=instance.snooze_until,
         consecutive_failures=check.consecutive_failures,
         evaluation_periods=check.evaluation_periods,
         datapoints_to_alarm=check.datapoints_to_alarm,
         recent_events_breached=prior_breached,
-        firing_started_at=check.firing_started_at,
+        firing_started_at=instance.firing_started_at,
     )
 
 
@@ -276,6 +291,8 @@ def _record_check_metrics(
     skip: SkipReason | None = None,
     muted_by_quiet_hours: bool = False,
     now: datetime,
+    grouping_key: str = "",
+    record_lag: bool = True,
 ) -> None:
     safe_record(increment_checks, SourceKind.LOGS.value, notification.value)
     if skip is not None:
@@ -284,9 +301,10 @@ def _record_check_metrics(
         # The machine owns the snooze predicate, so the source's flag is what separates the two.
         mute_reason = MuteReason.QUIET_HOURS if muted_by_quiet_hours else MuteReason.SNOOZE
         safe_record(increment_notifications_muted, SourceKind.LOGS.value, mute_reason.value)
-    if check.state != new_state:
-        safe_record(increment_state_transition, SourceKind.LOGS.value, check.state, new_state)
-    if check.next_check_at is not None:
+    previous_state = check.instance(grouping_key).state
+    if previous_state != new_state:
+        safe_record(increment_state_transition, SourceKind.LOGS.value, previous_state, new_state)
+    if record_lag and check.next_check_at is not None:
         lag_ms = int((now - check.next_check_at).total_seconds() * 1000)
         if lag_ms > 0:
             safe_record(record_scheduler_lag, SourceKind.LOGS.value, lag_ms)
@@ -338,20 +356,22 @@ def _recorded(
     query_duration_ms: int | None = None,
     muted_notification: str = "",
     disable: bool = False,
+    failed: bool = False,
 ) -> PlatformAlertOutcome:
     """The one place a recorded outcome is built, so every path states the firing the same way."""
-    return PlatformAlertOutcome(
+    return PlatformAlertOutcome.ungrouped(
         configuration_id=check.id,
         evaluation_key=evaluation_key,
+        consecutive_failures=outcome.consecutive_failures,
         kind=kind,
         new_state=outcome.new_state.value,
         notified=notified,
-        consecutive_failures=outcome.consecutive_failures,
+        failed=failed,
         firing_episode=decide_firing_episode(_snapshot(check, ()), outcome, now, policy=PLATFORM_LOGS_ALERT_POLICY),
         value=value,
+        muted_notification=muted_notification,
         error_message=error_message,
         query_duration_ms=query_duration_ms,
-        muted_notification=muted_notification,
         disable=disable,
         # A broken alert is never discovered again, so its slot does not matter.
         schedule_group=None if outcome.new_state == AlertState.BROKEN else _schedule_group(check),
@@ -366,6 +386,7 @@ def _delivery(
     now: datetime,
     value: float | None = None,
     query_duration_ms: int | None = None,
+    failed: bool = False,
 ) -> Decision:
     """What the platform records for a verdict, and what delivery would announce for it."""
     recorded = _recorded(
@@ -378,30 +399,46 @@ def _delivery(
         value=value,
         error_message=outcome.error_message,
         query_duration_ms=query_duration_ms,
-        muted_notification=(
-            "" if outcome.muted_notification == NotificationAction.NONE else outcome.muted_notification.value
-        ),
+        muted_notification=muted_value(outcome),
         disable=outcome.disable,
+        failed=failed,
     )
-    return recorded, _request(check, recorded, outcome, sends_messages=outcome.notification != NotificationAction.NONE)
+    return recorded, _request(
+        check, recorded, _ungrouped_move(check, outcome), sends_messages=outcome.notification != NotificationAction.NONE
+    )
+
+
+@frozen
+class _Move:
+    """The state a group left and the state it reached in one check."""
+
+    before: AlertState
+    after: AlertState
 
 
 def _request(
-    check: PlatformAlertCheckInput, recorded: PlatformAlertOutcome, outcome: Outcome, *, sends_messages: bool
+    check: PlatformAlertCheckInput,
+    recorded: PlatformAlertOutcome,
+    moves: Mapping[str, _Move],
+    *,
+    sends_messages: bool,
 ) -> AlertDeliveryRequest | None:
     """The delivery for a recorded outcome, or None when it neither announces nor moves a firing.
 
-    A firing that opens or closes needs a delivery even when cooldown or mute held the
-    announcement, because a paging destination needs one resolve for every trigger. An alert
-    with no such destination gets no incident action, so its edges start no delivery.
+    `moves` maps each group's key to the state it left and the state it reached. A firing that opens
+    or closes needs a delivery even when cooldown or mute held the announcement, because a paging
+    destination needs one resolve for every trigger. An alert with no such destination gets no
+    incident action, so its edges start no delivery.
     """
     destination_alert_id = str(check.legacy_configuration_id)
-    incident_action = decide_incident_action(
-        AlertState(check.state), outcome.new_state, policy=PLATFORM_LOGS_ALERT_POLICY
-    )
-    if incident_action is not None and not _has_incident_destination(check.team_id, destination_alert_id):
-        incident_action = None
-    if not sends_messages and incident_action is None:
+    actions = {
+        key: action
+        for key, move in moves.items()
+        if (action := decide_incident_action(move.before, move.after, policy=PLATFORM_LOGS_ALERT_POLICY)) is not None
+    }
+    if actions and not _has_incident_destination(check.team_id, destination_alert_id):
+        actions = {}
+    if not sends_messages and not actions:
         return None
     return AlertDeliveryRequest(
         source=SourceKind.LOGS,
@@ -413,15 +450,19 @@ def _request(
         destination_alert_id=destination_alert_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
         event_ids_by_incident_action=_EVENT_IDS_BY_INCIDENT_ACTION,
-        # Logs does not group, so its one row has the empty grouping key.
-        incident_actions={"": incident_action} if incident_action is not None else {},
+        incident_actions=actions,
         sends_messages=sends_messages,
         # The logs alert page, as the HogFunction messages linked. An alert with no logs row has none.
         source_alert_url=absolute_uri(f"/project/{check.team_id}/logs/alerts/{check.legacy_configuration_id}")
         if check.legacy_configuration_id is not None
         else None,
         owned_by_platform=check.owned_by_platform,
+        overflowed=recorded.overflowed,
     )
+
+
+def _ungrouped_move(check: PlatformAlertCheckInput, outcome: Outcome) -> dict[str, _Move]:
+    return {"": _Move(before=AlertState(check.instance().state), after=outcome.new_state)}
 
 
 def _has_incident_destination(team_id: int, destination_alert_id: str) -> bool:
@@ -505,11 +546,12 @@ def _held(
         notified=False,
         now=now,
         error_message=error_message,
+        failed=True,
     )
     _record_check_metrics(
         check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
     )
-    return recorded, _request(check, recorded, outcome, sends_messages=False)
+    return recorded, _request(check, recorded, _ungrouped_move(check, outcome), sends_messages=False)
 
 
 def _evaluate_cohort(
@@ -547,7 +589,13 @@ def _evaluate_cohort(
         # batch would advance every other check's schedule and leave this one due with its failure
         # counter unmoved, never reaching the escalation that stops it.
         return [
-            _delivery(check, _failed(check, error, now=now, muted=check.id in muted_ids), window_end=date_to, now=now)
+            _delivery(
+                check,
+                _failed(check, error, now=now, muted=check.id in muted_ids),
+                window_end=date_to,
+                now=now,
+                failed=True,
+            )
             for check in checks
         ]
 
@@ -559,17 +607,26 @@ def _evaluate_cohort(
         value: float | None = float(buckets[-1].count) if buckets else 0.0
         # One query serves the cohort, so every check in it records the same duration.
         duration_ms: int | None = result.query_duration_ms
+        failed = False
         try:
             outcome = _evaluate_one(check, buckets, now=now, muted=muted)
         except Exception as error:
             logger.exception("Failed to evaluate a logs alert", check_id=str(check.id), error=str(error))
             outcome = _failed(check, error, now=now, muted=muted)
             # A check that reached no verdict measured nothing.
-            value, duration_ms = None, None
+            value, duration_ms, failed = None, None, True
         # Outside the block above on purpose. Resolving a destination reads the database, and a
         # failure there is not this check's failure.
         decided.append(
-            _delivery(check, outcome, window_end=date_to, now=now, value=value, query_duration_ms=duration_ms)
+            _delivery(
+                check,
+                outcome,
+                window_end=date_to,
+                now=now,
+                value=value,
+                query_duration_ms=duration_ms,
+                failed=failed,
+            )
         )
     return decided
 
@@ -618,26 +675,166 @@ def _as_configured_now(
                 logger.exception("Failed to bring a platform logs copy up to date", check_id=str(check.id))
                 current.append(check)
                 continue
-        current.append(replace(check, **{field: getattr(upsert, field) for field in _LIVE_FIELDS}))
+        # A logs mute lives on the configuration alone, so each instance takes the live one too.
+        instances = tuple(replace(instance, snooze_until=upsert.snooze_until) for instance in check.instances)
+        current.append(replace(check, instances=instances, **{field: getattr(upsert, field) for field in _LIVE_FIELDS}))
     return current, stopped
 
 
 def _stopped(check: PlatformAlertCheckInput, *, now: datetime) -> Decision:
     """A check whose logs alert no longer runs. It leaves the state alone and disables the copy."""
-    unchanged = ControlPlaneOutcome(new_state=AlertState(check.state), consecutive_failures=check.consecutive_failures)
-    recorded = _recorded(
-        check,
-        outcome=unchanged,
-        evaluation_key=_evaluation_key(check, now),
-        kind=AlertEventKind.CHECK,
-        notified=False,
-        now=now,
-        disable=True,
-    )
+    state = check.instance().state
+    if check.grouping.mode == GroupingMode.SINGLE:
+        unchanged = ControlPlaneOutcome(new_state=AlertState(state), consecutive_failures=check.consecutive_failures)
+        recorded = _recorded(
+            check,
+            outcome=unchanged,
+            evaluation_key=_evaluation_key(check, now),
+            kind=AlertEventKind.CHECK,
+            notified=False,
+            now=now,
+            disable=True,
+        )
+    else:
+        # No group was checked, so each instance keeps its state and no row is created.
+        recorded = PlatformAlertOutcome(
+            configuration_id=check.id,
+            evaluation_key=_evaluation_key(check, now),
+            consecutive_failures=check.consecutive_failures,
+            disable=True,
+        )
     _record_check_metrics(
-        check, new_state=check.state, notification=NotificationAction.NONE, skip=SkipReason.SOURCE_RULE, now=now
+        check, new_state=state, notification=NotificationAction.NONE, skip=SkipReason.SOURCE_RULE, now=now
     )
     return recorded, None
+
+
+def grouping_key_of(labels: dict[str, str]) -> str:
+    """The instance key for one group's label values."""
+    return bounded_grouping_key(json.dumps(labels, sort_keys=True, separators=(",", ":")))
+
+
+def _labels_of(grouping_key: str) -> dict[str, str] | None:
+    """The labels `grouping_key_of` encoded, or None for a hashed key, which keeps no labels."""
+    if is_hashed_grouping_key(grouping_key):
+        return None
+    try:
+        labels = json.loads(grouping_key)
+    except ValueError:
+        return None
+    return labels if isinstance(labels, dict) else None
+
+
+def _broken_grouping(check: PlatformAlertCheckInput) -> str | None:
+    if check.grouping.mode == GroupingMode.SINGLE:
+        return None
+    if set(check.grouping.keys) - GROUPABLE_LOGS_COLUMNS:
+        return f"A logs alert can only group by {', '.join(sorted(GROUPABLE_LOGS_COLUMNS))}"
+    # A group with no matching log returns no row, so a service gone silent, the case a `below`
+    # alert exists for, is never seen unless it was already open.
+    if check.condition.get("threshold_operator") != LogsAlertConfiguration.ThresholdOperator.ABOVE:
+        return "A grouped logs alert can only alert above a threshold"
+    return None
+
+
+def _evaluate_grouped(
+    team: Team,
+    check: PlatformAlertCheckInput,
+    *,
+    checkpoint: datetime | None,
+    now: datetime,
+    query_seconds: int,
+    muted: bool,
+) -> Decision:
+    """One grouped alert: its own query, then the platform's per-group decision.
+
+    An open group the query did not return had no matching log, so it is checked against a zero
+    count and can resolve.
+    """
+    condition = LogsAlertCondition.of(check)
+    date_to = resolve_alert_date_to(check.next_check_at or now, checkpoint)
+    lookback = rolling_check_lookback_minutes(
+        condition.window_minutes, check.check_interval_minutes, check.evaluation_periods
+    )
+    open_keys = check.open_keys()
+    limit = len(open_keys) + check.grouping.max_instances
+    try:
+        result = GroupedAlertCheckQuery(
+            team=team,
+            alert=check,
+            date_from=date_to - timedelta(minutes=lookback),
+            date_to=date_to,
+            group_by=check.grouping.keys,
+            open_groups=[labels for key in open_keys if (labels := _labels_of(key)) is not None],
+            worst_is_highest=condition.threshold_operator == LogsAlertConfiguration.ThresholdOperator.ABOVE,
+            # Room for every open group and a full cap of new ones, so admission sees the worst.
+            limit=limit,
+            max_execution_time=query_seconds,
+            ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS,
+        ).execute_rolling_checks(
+            date_to, condition.window_minutes, check.check_interval_minutes, check.evaluation_periods
+        )
+    except Exception as error:
+        logger.exception("Grouped logs alert query failed", check_id=str(check.id), error=str(error))
+        return _delivery(check, _failed(check, error, now=now, muted=muted), window_end=date_to, now=now, failed=True)
+
+    counts = {grouping_key_of(group.labels): group for group in result.groups}
+    # A hashed key keeps no labels, so the query cannot put that open group first, and the limit can
+    # cut it while it still breaches. Its absence means no matching log only when nothing was cut.
+    truncated = len(result.groups) >= limit
+
+    def observe(key: str, buckets: list[BucketedCount], labels: dict[str, str]) -> GroupObservation:
+        current_breached, *prior_breached = _derive_breaches(
+            buckets, condition.threshold_count, condition.threshold_operator, check.evaluation_periods
+        ) or (False,)
+        return GroupObservation(
+            grouping_key=key,
+            current_breached=current_breached,
+            prior_breached=tuple(prior_breached),
+            value=float(buckets[-1].count) if buckets else 0.0,
+            labels=labels,
+        )
+
+    def absent(key: str) -> GroupObservation | None:
+        labels = _labels_of(key)
+        if truncated and labels is None:
+            return None
+        return observe(key, result.zero_counts(), labels or {})
+
+    decision = decide_groups(
+        check,
+        [observe(key, group.counts, group.labels) for key, group in counts.items()],
+        snapshot_of=lambda instance, prior: _snapshot(check, prior, instance),
+        policy=PLATFORM_LOGS_ALERT_POLICY,
+        now=now,
+        muted=muted,
+        absent=absent,
+    )
+    for index, verdict in enumerate(decision.verdicts):
+        _record_check_metrics(
+            check,
+            new_state=verdict.group.new_state,
+            notification=verdict.outcome.notification,
+            muted_notification=verdict.outcome.muted_notification,
+            muted_by_quiet_hours=muted,
+            now=now,
+            grouping_key=verdict.group.grouping_key,
+            record_lag=index == 0,
+        )
+    recorded = decision.as_outcome(
+        configuration_id=check.id,
+        evaluation_key=_evaluation_key(check, date_to),
+        query_duration_ms=result.query_duration_ms,
+    )
+    return recorded, _request(
+        check,
+        recorded,
+        {
+            verdict.group.grouping_key: _Move(before=verdict.snapshot.state, after=verdict.outcome.new_state)
+            for verdict in decision.verdicts
+        },
+        sends_messages=any(verdict.outcome.notification != NotificationAction.NONE for verdict in decision.verdicts),
+    )
 
 
 def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name: str) -> _Triage:
@@ -653,7 +850,9 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
     evaluable: list[PlatformAlertCheckInput] = []
     muted_ids: set[UUID] = set()
     for check in checks:
-        broken_reason = _detect_broken_filter_config(check.source_config) or _broken_condition(check)
+        broken_reason = (
+            _detect_broken_filter_config(check.source_config) or _broken_condition(check) or _broken_grouping(check)
+        )
         if broken_reason is not None:
             logger.warning(
                 "Marking a logs alert BROKEN for an invalid filter config",
@@ -763,7 +962,11 @@ def _evaluate_admitted(
         checkpoint = None
 
     cohorts: dict[tuple, list[PlatformAlertCheckInput]] = {}
+    grouped: list[PlatformAlertCheckInput] = []
     for check in triage.evaluable:
+        if check.grouping.mode != GroupingMode.SINGLE:
+            grouped.append(check)
+            continue
         cohorts.setdefault(_cohort_key(check, checkpoint, cutoff), []).append(check)
 
     if len(cohorts) > MAX_COHORTS_PER_CYCLE:
@@ -792,6 +995,21 @@ def _evaluate_admitted(
         decided.extend(
             _evaluate_cohort(
                 team, chunk, cohort_key, now=cutoff, query_seconds=query_seconds, muted_ids=triage.muted_ids
+            )
+        )
+    for check in grouped:
+        query_seconds = min(MAX_QUERY_SECONDS, int(deadline - time.monotonic()))
+        if query_seconds < MIN_QUERY_SECONDS:
+            unqueried += 1
+            continue
+        decided.append(
+            _evaluate_grouped(
+                team,
+                check,
+                checkpoint=checkpoint,
+                now=cutoff,
+                query_seconds=query_seconds,
+                muted=check.id in triage.muted_ids,
             )
         )
 

@@ -1,1 +1,1 @@
-0009_platformalertconfiguration_switched_off_at
+0015_backfill_platformalert_last_seen_at

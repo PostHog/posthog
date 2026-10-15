@@ -38,7 +38,7 @@ Choose a connection in the **Data** panel, then select a table below it. **Run**
 
 Single-value filters distinguish selecting **(empty string)** from clearing the input: the former matches an empty value, while the latter removes the condition.
 
-Date dimensions sort oldest first by default, including in tables; explicit sorts still take precedence. Time charts show years centered below their date ticks. Clicking a bar opens the drill-down options for that result.
+Date dimensions sort oldest first by default, including in tables; explicit sorts still take precedence. Generated date dimensions retain their result-column identity, including expressions over column names containing spaces. Time charts show years centered below their date ticks. Clicking a bar opens the drill-down options for that result.
 
 **Auto update** is off by default and remembers your choice. Selecting a table leaves a blank worksheet, even with auto-update enabled. The blank worksheet offers **Start with daily row count** when a date field is available, or **Start with row count** otherwise. The suggestion adds fields only when clicked and respects auto-update. Identifier fields such as `person_id`, `distinct_id`, and `user_id` appear as measures and default to Count; their shelf menu can convert them to dimensions or change the aggregation. A worksheet with dimensions and no selected measure shows **Count of rows** on its shelf and value axis. Turning auto-update off keeps the current result; **Run** applies pending changes.
 
@@ -58,7 +58,7 @@ For older saves without worksheet configuration, discarding query edits preserve
 
 SQL query-scan advisories are hidden in Business intelligence. Query errors and warnings about stale sources or restricted data remain visible.
 
-Saving a worksheet preserves its connection, table, shelves, measures, filters, chart type, limit, sort order, and visualization settings in a `BIVisualizationNode`. The wrapper contains the worksheet configuration and a plain `HogQLQuery` source. Saving keeps the worksheet in the BI editor; dashboard tiles can still use the normal insight view. **Edit** reopens Business intelligence when the feature is enabled, including from a dashboard. Leaving a worksheet with unsaved edits asks for confirmation, including when returning to **Worksheets**. **Discard changes** restores the saved worksheet. **Save as SQL view** exports only the generated SQL to a warehouse view; save a worksheet to retain editable worksheet state.
+Saving a worksheet preserves its connection, table, shelves, measures, filters, chart type, limit, sort order, and visualization settings in a `BIVisualizationNode`. The wrapper contains the worksheet configuration and a plain `HogQLQuery` source. Member aliases, filter labels, ungrouped member handling, and hierarchy drill paths are optional saved definitions; existing worksheets keep their defaults. Saving keeps the worksheet in the BI editor; dashboard tiles can still use the normal insight view. **Edit** reopens Business intelligence when the feature is enabled, including from a dashboard. Leaving a worksheet with unsaved edits asks for confirmation, including when returning to **Worksheets**. **Discard changes** restores the saved worksheet. **Save as SQL view** exports only the generated SQL to a warehouse view; save a worksheet to retain editable worksheet state.
 
 Older saves containing only SQL still open in the SQL editor. Their original shelves cannot be reconstructed without the worksheet configuration from a draft or shared URL.
 
@@ -313,6 +313,10 @@ You'll need to install MS SQL drivers for the PostHog app to connect to a MS SQL
 ```text
 symbol not found in flat namespace '_bcp_batch'
 ```
+
+When groups preserve ungrouped values, named groups and original members retain distinct identities. An ungrouped member whose label matches a group is shown with “(ungrouped)”. Null member aliases also survive saves through MCP. Optional worksheet definitions restore as unset when omitted or null. Saved numeric scatter dimensions remain available as axes even when measure defaults are preferred. Scatter selections require every detail dimension to be representable as a filter; unsupported values cannot broaden a “Keep only” selection.
+
+Repeated dimension pills use distinct result columns so their chart and table bindings stay unambiguous. Generated dimension aliases avoid source identifiers used by measures and filters. Expressions containing percent signs or matching reserved names use supported generated aliases while keeping their original calculation.
 
 BI chart settings preserve custom scatter axes and implicit count formatting. Numeric date parts can be used as scatter axes. Switching to a box plot initializes statistic mappings from matching result column names. Generated axis labels follow field renames, while custom axis labels remain unchanged.
 
