@@ -72,7 +72,10 @@ neither.
 
 - `taxonomic filter search intent predicted`: `query`, `activeTab`,
   `predictedGroupType`, `confidence`, `isConfident`, `suggestsSwitch`,
-  `wouldPromote`, `promptVersion`, `source`, `surface`.
+  `wouldPromote`, `promptVersion`, `source`, `surface`, `variant`,
+  `inTime`, `shown`. The banner funnel in
+  [refreshing-product-reality](refreshing-product-reality.md) reads
+  `variant` and `shown`.
 - `taxonomic filter search intent switched`: `fromGroupType`,
   `toGroupType`, `surface`.
 - `taxonomic filter event match answered`: emitted server side.

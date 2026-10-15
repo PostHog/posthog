@@ -161,18 +161,15 @@ Drives failure mode 1 in [failure-modes](failure-modes.md).
 
 ```sql
 WITH sessions AS (
-  SELECT $session_id AS sid, groupArray(event) AS steps
-  FROM (
-    SELECT $session_id, event, timestamp
-    FROM events
-    WHERE event IN ('taxonomic filter closed', 'taxonomic filter category selected',
-                    'taxonomic filter empty result', 'taxonomic filter item selected')
-      -- the category event has no surface, and only legacy sends it
-      AND (event = 'taxonomic filter category selected' OR coalesce(toString(properties.surface), '') != 'rebuild-menu')
-      AND timestamp >= now() - INTERVAL 7 DAY
-      AND $session_id IS NOT NULL
-    ORDER BY timestamp
-  )
+  -- groupArray does not keep row order, so sort (timestamp, event) pairs explicitly
+  SELECT $session_id AS sid, arrayMap(x -> tupleElement(x, 2), arraySort(groupArray((timestamp, event)))) AS steps
+  FROM events
+  WHERE event IN ('taxonomic filter closed', 'taxonomic filter category selected',
+                  'taxonomic filter empty result', 'taxonomic filter item selected')
+    -- the category event has no surface, and only legacy sends it
+    AND (event = 'taxonomic filter category selected' OR coalesce(toString(properties.surface), '') != 'rebuild-menu')
+    AND timestamp >= now() - INTERVAL 7 DAY
+    AND $session_id IS NOT NULL
   GROUP BY sid
 ),
 opens AS (
@@ -269,6 +266,8 @@ banner shown, then switched. Write back the step ratios.
 - The frontend sends `event match suggested` again when a tab switch
   reuses a cached answer, so the query counts distinct suggestions per
   person, session and suggestion list.
+- Selections have no exposure ID to pair with a suggestion, so the
+  selection step compares person-sessions on both sides.
 - Every experiment arm sends `search intent predicted`, but only the
   `banner` arm can switch. On the banner arm, `shown` can be true when
   `suggestsSwitch` is false (it seems to lag one prediction), so the
@@ -278,8 +277,8 @@ banner shown, then switched. Write back the step ratios.
 SELECT
   round(100 * uniqIf((person_id, $session_id, toString(properties.suggestedEvents)), event = 'taxonomic filter event match suggested')
     / countIf(event = 'taxonomic filter event match answered'), 1) AS match_suggested_per_answer_pct,
-  round(100 * countIf(event = 'taxonomic filter event match selected')
-    / uniqIf((person_id, $session_id, toString(properties.suggestedEvents)), event = 'taxonomic filter event match suggested'), 1) AS match_selected_per_suggestion_pct,
+  round(100 * uniqIf((person_id, $session_id), event = 'taxonomic filter event match selected')
+    / uniqIf((person_id, $session_id), event = 'taxonomic filter event match suggested'), 1) AS sessions_selecting_per_session_suggested_pct,
   round(100 * countIf(event = 'taxonomic filter search intent switched')
     / countIf(event = 'taxonomic filter search intent predicted' AND properties.variant = 'banner'
               AND toString(properties.suggestsSwitch) = 'true' AND toString(properties.shown) = 'true'), 1) AS switched_per_shown_banner_pct
