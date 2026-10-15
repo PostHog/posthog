@@ -37,11 +37,6 @@ impl Cursor {
 pub struct PointerOp {
     pub op_type: String,
     pub completed_at: Option<DateTime<Utc>>,
-    /// The recorded outcome's `results` array, which names the merged
-    /// sources a merge event is owed for. Only that array: the full outcome
-    /// carries the survivor document, and this row is read on every chunk
-    /// of every pointer.
-    pub outcome_results: Option<Value>,
     /// Rows with `role = 'target'`. A merge has exactly one; more would
     /// fan the resolution join out and repeat every source entry under
     /// the same cursor key.
@@ -67,7 +62,6 @@ pub async fn load_op(
         op = "publish_load_op",
         r#"
         SELECT op.op_type, op.completed_at,
-               op.outcome -> 'results' AS "outcome_results: Value",
                (SELECT count(*) FROM {lifecycle_op_person} lop
                 WHERE lop.op_id = op.op_id AND lop.role = 'target') AS "target_rows!",
                (SELECT lop.person_uuid FROM {lifecycle_op_person} lop
@@ -84,6 +78,25 @@ pub async fn load_op(
         op_id
         => fetch_optional(&mut **tx)
     )
+}
+
+/// The recorded outcome's `results` array, which names the merged sources
+/// a merge event is owed for. Read apart from [`load_op`] and only on the
+/// chunk that produces the events: the outcome carries the survivor
+/// document, and even a subfield read detoasts the whole datum.
+pub async fn load_outcome_results(
+    tx: &mut Tx<'_>,
+    tables: &IdentityTables,
+    op_id: Uuid,
+) -> Result<Option<Value>, sqlx::Error> {
+    let results: Option<Option<Value>> = mirrored_query_scalar!(
+        tables.is_validation(),
+        op = "publish_load_outcome_results",
+        r#"SELECT outcome -> 'results' AS "results: Value" FROM {lifecycle_op} WHERE op_id = $1"#,
+        op_id
+        => fetch_optional(&mut **tx)
+    )?;
+    Ok(results.flatten())
 }
 
 /// One `moved` entry, positioned for the cursor. The payload columns are

@@ -45,7 +45,7 @@ use crate::publish::claim::{claim, ClaimedRow, KIND_MERGE_OP};
 use crate::publish::config::MergeEventsAllowlist;
 use crate::publish::messages::{DistinctIdRow, PersonMergeEvent, MERGE_EVENT_SCHEMA_VERSION};
 use crate::publish::pointer::{
-    load_op, merged_sources, outbox_depth, resolve_chunk, Cursor, PointerOp,
+    load_op, load_outcome_results, merged_sources, outbox_depth, resolve_chunk, Cursor, PointerOp,
 };
 use crate::publish::sink::{PublishBatch, PublishError, PublishSink};
 
@@ -65,9 +65,12 @@ const MAX_BACKOFF: Duration = Duration::from_secs(30);
 #[derive(Clone, Debug)]
 pub struct DrainConfig {
     pub batch_size: i64,
-    /// Distinct id rows one pass produces at most. A pointer's chunk is
-    /// bounded by what is left of it, so a pass of large ops stays inside
-    /// the produce timeout instead of failing the same way forever.
+    /// Messages one pass produces at most, distinct id rows and merge
+    /// events together. A pointer's chunk is bounded by what is left of it,
+    /// so a pass of large ops stays inside the produce timeout instead of
+    /// failing the same way forever. A merge's events ride its final chunk
+    /// whole, so one pointer can overshoot by its source count, which the
+    /// merge request cap bounds.
     pub max_rows_per_pass: i64,
     pub interval: Duration,
     pub lag_alert: Duration,
@@ -219,7 +222,7 @@ impl<S: PublishSink> Publisher<S> {
             if remaining <= 0 {
                 break;
             }
-            let before = batch.distinct_id_rows.len();
+            let before = batch.distinct_id_rows.len() + batch.merge_events.len();
             let disposition = if row.is_pointer() {
                 self.resolve_pointer(&mut tx, row, &mut batch, remaining)
                     .await
@@ -237,7 +240,7 @@ impl<S: PublishSink> Publisher<S> {
                 batch.distinct_id_rows.push(mapping_row(row)?);
                 Disposition::Finished
             };
-            remaining -= (batch.distinct_id_rows.len() - before) as i64;
+            remaining -= (batch.distinct_id_rows.len() + batch.merge_events.len() - before) as i64;
             dispositions.push((row, disposition));
         }
         let unprocessed = rows.len() - dispositions.len();
@@ -420,12 +423,12 @@ impl<S: PublishSink> Publisher<S> {
         let Some(new_person_uuid) = op.target_uuid else {
             return Ok(Err(format!("merge op {op_id} has no target row")));
         };
-        let Some(results) = &op.outcome_results else {
+        let Some(results) = load_outcome_results(tx, &self.tables, op_id).await? else {
             return Ok(Err(format!(
                 "merge op {op_id} has no recorded outcome results"
             )));
         };
-        let results: Vec<MergeSourceRecord> = match serde_json::from_value(results.clone()) {
+        let results: Vec<MergeSourceRecord> = match serde_json::from_value(results) {
             Ok(results) => results,
             Err(e) => {
                 return Ok(Err(format!(

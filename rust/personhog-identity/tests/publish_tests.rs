@@ -697,3 +697,27 @@ async fn a_merge_op_whose_outcome_and_rows_disagree_is_deferred_until_repaired()
 
     ctx.cleanup().await.expect("cleanup");
 }
+
+// A merge's events ride its final chunk, so a pass full of merge pointers
+// could enqueue events past the row budget unless they count against it.
+#[tokio::test]
+async fn merge_events_count_against_the_pass_budget() {
+    let ctx = TestContext::new().await;
+    let _drain_lock = ctx.hold_drain_lock().await;
+    let (target, source_a, source_b) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+    insert_merged_op(&ctx, target, source_a, moved(&[("a-1", 1)])).await;
+    insert_merged_op(&ctx, target, source_b, moved(&[("b-1", 1)])).await;
+
+    let sink = RecordingSink::default();
+    let publisher = ctx.publisher_with_merge_events(sink.clone(), 1, MergeEventsAllowlist::All);
+    let first = publisher.drain_once().await.expect("first pass");
+    assert_eq!((first.advanced, first.unprocessed), (1, 1));
+    let second = publisher.drain_once().await.expect("second pass");
+    assert_eq!(
+        (second.finished, second.messages, second.unprocessed),
+        (1, 1, 1)
+    );
+    assert_eq!(sink.merge_events_for_team(ctx.team_id).len(), 1);
+
+    ctx.cleanup().await.expect("cleanup");
+}
