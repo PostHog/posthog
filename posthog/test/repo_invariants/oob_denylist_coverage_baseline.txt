@@ -15,5 +15,4 @@ products/tasks/backend/logic/services/agent_command.py
 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/destinations_load/writers/postgres.py
 products/warehouse_sources/backend/temporal/data_imports/sources/salesforce/auth.py
 products/workflows/backend/providers/ses.py
-rust/common/dns/src/lib.rs
 rust/cymbal/src/modes/processing/stages/resolution/remote/dns.rs
