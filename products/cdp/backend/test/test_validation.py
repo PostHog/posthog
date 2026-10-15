@@ -40,6 +40,10 @@ def validate_inputs(schema, inputs, function_type="destination", is_dwh_source=F
     return serializer.validated_data["inputs"]
 
 
+LITERAL_FIELDS_SCHEMA = [{"key": "fields", "type": "dictionary", "required": True, "templating": False}]
+LIQUID_FIELDS = {"value": {"name": "{{ event.properties.prompt }}"}, "templating": "liquid"}
+
+
 def validate_inputs_schema(data):
     serializer = InputsSchemaItemSerializer(data=data, many=True)
     serializer.is_valid(raise_exception=True)
@@ -423,13 +427,42 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["A"].get("templating") is None
         assert validated["A"].get("value") == "{inputs.X} + A"
 
-    def test_input_without_templating_rejects_liquid_from_the_caller(self):
-        inputs_schema = [{"key": "fields", "type": "dictionary", "required": True, "templating": False}]
-        inputs = {"fields": {"value": {"name": "{{ event.properties.prompt }}"}, "templating": "liquid"}}
-
+    @parameterized.expand(
+        [
+            ("new_liquid", []),
+            ("stored_liquid_with_another_value", [{"fields": {**LIQUID_FIELDS, "value": {"name": "{{ person.id }}"}}}]),
+        ]
+    )
+    def test_input_without_templating_rejects_liquid_the_caller_adds(self, _name, stored_inputs):
         with pytest.raises(ValidationError) as ctx:
-            validate_inputs(inputs_schema, inputs)
+            validate_inputs(
+                LITERAL_FIELDS_SCHEMA, {"fields": LIQUID_FIELDS}, context_extra={"stored_inputs": stored_inputs}
+            )
         assert ctx.value.detail == {"inputs": {"fields": "This input does not support templating."}}
+
+    @parameterized.expand(
+        [
+            ("stored_live", [{"fields": LIQUID_FIELDS}]),
+            ("stored_in_a_draft", [{}, {"fields": LIQUID_FIELDS}]),
+        ]
+    )
+    def test_input_without_templating_keeps_unchanged_stored_liquid_as_literal(self, _name, stored_inputs):
+        validated = validate_inputs(
+            LITERAL_FIELDS_SCHEMA, {"fields": LIQUID_FIELDS}, context_extra={"stored_inputs": stored_inputs}
+        )
+
+        assert validated["fields"] == {"value": LIQUID_FIELDS["value"], "order": 0}
+
+    def test_unchanged_secret_without_templating_keeps_its_stored_value_literal(self):
+        inputs_schema = [{"key": "token", "type": "string", "required": True, "secret": True, "templating": False}]
+        stored_secret = {"value": "Bearer {{ event.uuid }}", "templating": "liquid"}
+
+        validated = validate_inputs(
+            inputs_schema, {"token": {"secret": True}}, context_extra={"encrypted_inputs": {"token": stored_secret}}
+        )
+
+        assert validated["token"]["value"] == "Bearer {{ event.uuid }}"
+        assert "templating" not in validated["token"]
 
     @parameterized.expand(
         [

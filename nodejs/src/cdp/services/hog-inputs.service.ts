@@ -28,7 +28,7 @@ const accessTokenPlaceholderBase = (integrationId: number): string => `${ACCESS_
 
 const signedAccessTokenPlaceholder = (base: string, signature: string): string => `${base}_${signature.slice(0, 32)}`
 
-const untemplatedKeysOf = (schema: HogFunctionInputSchemaType[] | undefined): string[] =>
+const literalKeysOf = (schema: HogFunctionInputSchemaType[] | undefined): string[] =>
     (schema ?? []).filter((input) => input.templating === false).map((input) => input.key)
 
 // A mapping's inputs override the function's inputs of the same key, so its schema decides for exactly those keys.
@@ -37,10 +37,10 @@ const literalInputKeys = (
     mappingInputs: Record<string, any> | undefined,
     mappingSchema: HogFunctionInputSchemaType[] | undefined
 ): Set<string> => {
-    const suppliedByMapping = (key: string): boolean => !!mappingInputs && key in mappingInputs
+    const suppliedByMapping = (key: string): boolean => !!mappingInputs && Object.hasOwn(mappingInputs, key)
     return new Set([
-        ...untemplatedKeysOf(functionSchema).filter((key) => !suppliedByMapping(key)),
-        ...untemplatedKeysOf(mappingSchema).filter(suppliedByMapping),
+        ...literalKeysOf(functionSchema).filter((key) => !suppliedByMapping(key)),
+        ...literalKeysOf(mappingSchema).filter(suppliedByMapping),
     ])
 }
 
@@ -83,12 +83,12 @@ export class HogInputsService {
         for (const schema of hogFunction.inputs_schema ?? []) {
             schemaTypes[schema.key] = schema.type
         }
-        const untemplatedKeys = literalInputKeys(hogFunction.inputs_schema, additionalInputs, additionalInputsSchema)
+        const literalKeys = literalInputKeys(hogFunction.inputs_schema, additionalInputs, additionalInputsSchema)
 
         const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
             // The schema wins over the stored input, so a caller cannot turn templating on for an input
             // that holds instructions or secrets and must never be rendered with event data.
-            if (untemplatedKeys.has(key)) {
+            if (literalKeys.has(key)) {
                 return input.value
             }
             const templating = input.templating ?? 'hog'

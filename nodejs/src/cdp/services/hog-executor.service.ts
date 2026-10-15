@@ -201,15 +201,15 @@ export class HogExecutorService {
                     // Mapping destinations need their per-mapping inputs
                     // re-merged here — they aren't part of the top-level config
                     // and were stripped from the rerun blob.
-                    const matchedMappings = await this.resolveMappingInputs(
+                    const resolvedMappingInputs = await this.resolveMappingInputs(
                         invocation.hogFunction,
                         invocation.state.globals
                     )
                     globals = await this.hogInputsService.buildInputsWithGlobals(
                         invocation.hogFunction,
                         invocation.state.globals,
-                        matchedMappings?.inputs,
-                        matchedMappings?.inputs_schema
+                        resolvedMappingInputs?.inputs,
+                        resolvedMappingInputs?.inputs_schema
                     )
                 }
             } catch (e) {
