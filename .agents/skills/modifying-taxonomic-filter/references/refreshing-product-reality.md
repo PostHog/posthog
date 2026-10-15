@@ -178,6 +178,7 @@ The rebuild is left out, because its close event fires on every close and its ca
 `taxonomic filter category selected` also fires when the user switches to Suggested, Recent or Pinned.
 Those switches do not narrow search, so the query drops them, and "category pick" means a real group.
 The query also drops any open that picked the SQL expression category: legacy commits a SQL expression without sending `taxonomic filter item selected`, so a success there would look like a failure.
+An existing SQL expression filter reopens straight on that tab without a category event, so the query also drops any open whose close has `groupType = 'hogql_expression'`.
 Suggested sends no `taxonomic filter empty result`, so the without-category empty rate is too low.
 The same gap biases `category_then_empty_ratio` upward: an empty search on Suggested followed by a category pick never counts in its base.
 `selection_after_category_pct` and `selection_without_category_pct` do not use empty-result events, so they are the most reliable output of this query.
@@ -189,9 +190,10 @@ WITH sessions AS (
   SELECT
     $session_id AS sid,
     arrayMap(x -> tupleElement(x, 3), arraySort(groupArray((timestamp, event = 'taxonomic filter closed',
-      -- mark SQL expression picks so their opens can be dropped below
-      if(event = 'taxonomic filter category selected' AND toString(properties.groupType) = 'hogql_expression',
-         'sql expression category', event))))) AS steps
+      -- mark SQL expression picks and closes so their opens can be dropped below
+      multiIf(event = 'taxonomic filter category selected' AND toString(properties.groupType) = 'hogql_expression', 'sql expression category',
+              event = 'taxonomic filter closed' AND toString(properties.groupType) = 'hogql_expression', 'taxonomic filter closed on sql expression',
+              event))))) AS steps
   FROM events
   WHERE event IN ('taxonomic filter closed', 'taxonomic filter category selected',
                   'taxonomic filter empty result', 'taxonomic filter item selected')
@@ -207,8 +209,9 @@ WITH sessions AS (
 opens AS (
   -- split after each close, and drop the trailing chunk of an open that has not closed yet
   SELECT arrayFilter(
+    -- has() needs an exact match, so chunks that close on SQL expression drop out here too
     c -> has(c, 'taxonomic filter closed') AND NOT has(c, 'sql expression category'),
-    arraySplit((e, prev) -> prev = 'taxonomic filter closed', steps, arrayPushFront(arrayPopBack(steps), ''))
+    arraySplit((e, prev) -> startsWith(prev, 'taxonomic filter closed'), steps, arrayPushFront(arrayPopBack(steps), ''))
   ) AS chunks
   FROM sessions
 ),

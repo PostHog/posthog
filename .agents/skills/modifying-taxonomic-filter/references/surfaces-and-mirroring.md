@@ -54,15 +54,16 @@ The same concern lives in two files.
 There is **no lint rule or test** enforcing parity; the only guard is "Mirrors the legacy…" comments.
 When you change one, change the other, or tell the reviewer you couldn't.
 
-| Concern                                                  | Legacy                                                            | Rebuild                                                                           |
-| -------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Group definitions (endpoint, excluded props, group meta) | `taxonomicFilterLogic.tsx` `taxonomicGroups` selector             | `utils/buildTaxonomicGroups.tsx`                                                  |
-| Group ordering + SuggestedFilters injection              | `taxonomicFilterLogic.tsx` `taxonomicGroupTypes` selector         | `hooks/useTaxonomicFilter.ts` `resolveTaxonomicGroupTypes`                        |
-| Per-tab fetch / pagination / min-query-length            | `infiniteListLogic.ts`                                            | `hooks/useGroupList.ts` + `useTaxonomicResource.ts` + `fetchTaxonomicListPage.ts` |
-| Data-warehouse config flow                               | inline in `InfiniteList.tsx`                                      | `menu/DwhFlow.tsx`                                                                |
-| `taxonomic filter item selected` / `closed` telemetry    | `taxonomicFilterLogic.tsx`                                        | `menu/TaxonomicFilterMenu.tsx`                                                    |
-| New `TaxonomicFilterGroupType` enum value                | `types.ts` (shared), then add group config in **both** rows above |                                                                                   |
-| Logic-backed group data (Actions, Dashboards, …)         | already in kea                                                    | also register in `hooks/useTaxonomicLocalOverrides.ts`                            |
+| Concern                                                  | Legacy                                                                                         | Rebuild                                                                                            |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Group definitions (endpoint, excluded props, group meta) | `taxonomicFilterLogic.tsx` `taxonomicGroups` selector                                          | `utils/buildTaxonomicGroups.tsx`                                                                   |
+| Group ordering + SuggestedFilters injection              | `taxonomicFilterLogic.tsx` `taxonomicGroupTypes` selector                                      | `hooks/useTaxonomicFilter.ts` `resolveTaxonomicGroupTypes`                                         |
+| Per-tab fetch / pagination / min-query-length            | `infiniteListLogic.ts`                                                                         | `hooks/useGroupList.ts` + `useTaxonomicResource.ts` + `fetchTaxonomicListPage.ts`                  |
+| Data-warehouse config flow                               | inline in `InfiniteList.tsx`                                                                   | `menu/DwhFlow.tsx`                                                                                 |
+| `taxonomic filter item selected` / `closed` telemetry    | `taxonomicFilterLogic.tsx`                                                                     | `menu/TaxonomicFilterMenu.tsx`                                                                     |
+| Standalone Recent and Pinned entries                     | `taxonomicFilterLogic.tsx` `taxonomicGroupTypes` selector (`recent_filters`, `pinned_filters`) | `menu/TaxonomicFilterMenu.tsx` (menu entries) + `menu/Combobox.tsx` (`recent` and `pinned` scopes) |
+| New `TaxonomicFilterGroupType` enum value                | `types.ts` (shared), then add group config in **both** rows above                              |                                                                                                    |
+| Logic-backed group data (Actions, Dashboards, …)         | already in kea                                                                                 | also register in `hooks/useTaxonomicLocalOverrides.ts`                                             |
 
 **Shared, change once:** `types.ts` (the enum), `utils/promoteProperties.ts` (`PROMOTED_PROPERTIES_BY_SEARCH_TERM`), `recentTaxonomicFiltersLogic.ts` and `taxonomicFilterPinnedPropertiesLogic.ts`.
 The rebuild reads recents and pins through these via a bridge; it doesn't fork them.
