@@ -22,6 +22,7 @@ from products.business_knowledge.backend.api.serializers import BusinessKnowledg
 from products.business_knowledge.backend.api.settings import BusinessKnowledgeSettingsViewSet
 from products.business_knowledge.backend.libraries import create_library, replace_library_sources
 from products.business_knowledge.backend.models import (
+    KnowledgeLibrary,
     KnowledgeLibrarySource,
     KnowledgeSource,
     TeamBusinessKnowledgeConfig,
@@ -359,6 +360,21 @@ class TestBusinessKnowledgeSettingsResourceLevelAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).learn_from_support_enabled is False
+
+    def test_a_child_environment_grant_does_not_create_project_libraries(self, _ff) -> None:
+        environment = Team.objects.create(
+            organization=self.organization, parent_team=self.team, project=self.team.project, name="Child environment"
+        )
+        AccessControl.objects.create(
+            team=environment, resource="business_knowledge", access_level="editor", organization_member=self.membership
+        )
+
+        response = self.client.post(
+            f"/api/projects/{environment.id}/business_knowledge/libraries/", {"name": "Docs"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert not KnowledgeLibrary.objects.unscoped().filter(team_id=self.team.id).exists()
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)

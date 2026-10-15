@@ -37,6 +37,12 @@ class CanonicalTeamTokenPermission(BasePermission):
         return True
 
 
+def canonical_user_access_control(view: TeamAndOrgViewSetMixin) -> UserAccessControl:
+    """Access control for rows the parent project owns, so a child environment's own grant does not apply."""
+    team = view.team.parent_team or view.team
+    return UserAccessControl(user=cast(User, view.request.user), team=team, organization_id=view.organization_id)
+
+
 class BusinessKnowledgeSettingsViewSet(TeamAndOrgViewSetMixin, ViewSet):
     scope_object = "business_knowledge"
     # Without this, AccessControlPermission falls through to has_any_specific_access_for_resource,
@@ -62,8 +68,7 @@ class BusinessKnowledgeSettingsViewSet(TeamAndOrgViewSetMixin, ViewSet):
         # AccessControlPermission reads its resource-level check from here. Bind it to the
         # canonical team: the config row belongs to the parent project, so a child environment's
         # own `business_knowledge` grant must not read or change it when the parent grants `none`.
-        team = self.team.parent_team or self.team
-        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
+        return canonical_user_access_control(self)
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         # Combined GET+PATCH is neither list nor partial_update, so the default

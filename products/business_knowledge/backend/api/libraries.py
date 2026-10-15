@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
 
@@ -16,6 +17,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ..github_repos import has_github_repos_feature_flag, selected_repositories
 from ..libraries import (
@@ -36,6 +39,7 @@ from .library_serializers import (
     KnowledgeLibrarySerializer,
     KnowledgeLibraryUpdateSerializer,
 )
+from .settings import CanonicalTeamTokenPermission, canonical_user_access_control
 
 _READ_ACTIONS = frozenset({"list", "retrieve"})
 _WRITE_ACTIONS = frozenset({"create", "partial_update", "destroy"})
@@ -46,10 +50,20 @@ class KnowledgeLibraryViewSet(TeamAndOrgViewSetMixin, ViewSet):
     # A library is project-wide, not an access-controlled object. Without this flag, editor
     # access to one source passes the list check for a member whose resource-level access is "none".
     requires_resource_level_access = True
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    permission_classes = [
+        IsAuthenticated,
+        APIScopePermission,
+        PostHogFeatureFlagPermission,
+        CanonicalTeamTokenPermission,
+    ]
     posthog_feature_flag = "product-business-knowledge"
     throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
     pagination_class = None
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        # Libraries belong to the parent project, so its grants decide for every environment.
+        return canonical_user_access_control(self)
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         if self.action in _WRITE_ACTIONS:
