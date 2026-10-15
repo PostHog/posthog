@@ -1,11 +1,9 @@
 ---
 name: writing-pr-descriptions
 description: >-
-  Shapes a PR body into something a reviewer understands at a glance.
+  Shapes PR descriptions around the actor's need, visible behavior, and reviewable evidence.
   Use ALWAYS before writing or editing a PR description, before `gh pr create` or `gh pr edit --body`, and when asked to improve an existing description.
-  Captures the actor's underlying need in Problem without presupposing the solution, puts the visible effect first in Changes and the mechanism under it, routes each remaining fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), cuts everything a reviewer does not need, then holds what survives to a checkable shape: one fact per bullet, sentences under 25 words, active voice, no idioms.
-  Makes the body stand alone, so a reader who opens no files still knows the product intent behind the PR and what it does, sizes the body to the change so a small PR reads as small, and makes every claim either linked to its evidence or labeled as unchecked.
-  Ends with a scan test over the title and the first lines of Problem and Changes.
+  Covers preserving existing content, leading with product intent, choosing formats, cutting detail, checking wording and claims, and scanning the title, Problem, and Changes.
   Not for commit messages (see AGENTS.md, "Commit types") or user-facing product copy (see `/writing-user-facing-copy`).
 ---
 
