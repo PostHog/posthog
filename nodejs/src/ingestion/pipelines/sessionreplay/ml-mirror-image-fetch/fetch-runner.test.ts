@@ -7,6 +7,7 @@ import { DELAY_TOO_LONG, FetchRunner, FetchRunnerOptions, HOPS_EXHAUSTED } from 
 import { FrontierPublisher, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
 import { ImageFetchOptions, ImageFetchResult, ImageFetcher } from './image-fetcher'
+import type { FetchedImageSink } from './image-sink'
 import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
@@ -59,7 +60,8 @@ function build(
     result: Partial<ImageFetchResult> = {},
     policy: Partial<OriginPolicyDecision> = {},
     republishResult: RepublishResult = 'queued',
-    options: FetchRunnerOptions = OPTIONS
+    options: FetchRunnerOptions = OPTIONS,
+    imageSink?: FetchedImageSink
 ): Harness {
     const fetch = jest.fn((url: string, _options: ImageFetchOptions) =>
         Promise.resolve({ outcome: 'ok', redirects: 0, currentUrl: url, ...result } as ImageFetchResult)
@@ -104,7 +106,8 @@ function build(
         { createPass } as unknown as ConfigurationPolicyService,
         options,
         { createRepublishBatch, publishImage } as unknown as FrontierPublisher,
-        new ImageFetchTopHogMetrics(recordingTopHog.registry)
+        new ImageFetchTopHogMetrics(recordingTopHog.registry),
+        imageSink
     )
     builtRunners.push(runner)
     return { runner, budget, fetch, check, createPass, republish, publishImage, topHogRecords: recordingTopHog.records }
@@ -169,6 +172,21 @@ describe('FetchRunner', () => {
             lost: false,
             history: { kind: 'url', key: candidate().originalRef, nextFetchAtMs: NOW_MS + 30 * 24 * 60 * 60 * 1000 },
         })
+    })
+
+    it("hands an accepted image to the lane's own sink instead of the scrub publisher", async () => {
+        const bytes = Buffer.from('image')
+        const sink = { publishImage: jest.fn(() => Promise.resolve()) }
+        const harness = build({ bytes, contentType: 'image/png' }, {}, 'queued', OPTIONS, sink)
+
+        const [attempt] = await harness.runner.run([candidate()], new Map())
+
+        expect(sink.publishImage).toHaveBeenCalledWith(
+            expect.objectContaining({ originalRef: candidate().originalRef }),
+            expect.objectContaining({ bytes })
+        )
+        expect(harness.publishImage).not.toHaveBeenCalled()
+        expect(attempt).toMatchObject({ outcome: 'ok', finished: true })
     })
 
     it('uses one worker limit across sibling origins', async () => {

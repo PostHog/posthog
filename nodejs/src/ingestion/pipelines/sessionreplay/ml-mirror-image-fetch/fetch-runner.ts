@@ -21,6 +21,7 @@ import {
     RequestScheduleBlockReason,
     TransientFetchOutcome,
 } from './image-fetcher'
+import type { FetchedImageSink } from './image-sink'
 import { ImageFetchPoolMetrics, ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 import { canonicalizeUrl } from './politeness-key'
@@ -132,7 +133,9 @@ export class FetchRunner implements FetchPass {
         private readonly configurationPolicy: ConfigurationPolicyService,
         private readonly options: FetchRunnerOptions,
         private readonly publisher: FrontierPublisher,
-        private readonly topHogMetrics?: ImageFetchTopHogMetrics
+        private readonly topHogMetrics?: ImageFetchTopHogMetrics,
+        // The publisher sends images to the scrub lane. A lane that stores images itself passes its own sink.
+        private readonly imageSink: FetchedImageSink = publisher
     ) {
         requirePositiveSafeInteger(
             'SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN',
@@ -713,7 +716,7 @@ export class FetchRunner implements FetchPass {
         if (result.outcome === 'ok') {
             releaseRegistrableDomainSlot()
             try {
-                await this.publisher.publishImage(attemptedCandidate, result)
+                await this.imageSink.publishImage(attemptedCandidate, result)
             } catch {
                 return {
                     candidate: attemptedCandidate,

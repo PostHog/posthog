@@ -12,6 +12,7 @@ import {
     serializeFrontierRecord,
 } from './collected-urls-record'
 import type { ImageFetchResult } from './image-fetcher'
+import type { FetchedImageSink } from './image-sink'
 import { ImageFetchRequestMetrics, RepublishTopic } from './metrics'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
 
@@ -74,7 +75,8 @@ export interface RepublishBatch {
     flush(): Promise<RepublishFlushResult>
 }
 
-export class FrontierPublisher {
+/** Sends each fetched image to the scrub topic, and URLs that are not done to the frontier or a delay tier. */
+export class FrontierPublisher implements FetchedImageSink {
     private readonly delayTiers: DelayTier[]
     private readonly imagePublishes: ConcurrencyController
     private readonly republishes: ConcurrencyController
