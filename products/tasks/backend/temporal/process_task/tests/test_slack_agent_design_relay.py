@@ -154,6 +154,16 @@ class TestSlackAgentDesignRelay:
             ([*CHECKING, ("agent_text_delta", "Answer.")], "Answer."),
             # A trailing hidden tool, such as a summary update, must not cost the answer.
             ([*CHECKING, ("agent_text_delta", "Answer."), ("agent_status_update", {"phase": None})], "Answer."),
+            # A background sub-agent's call can land in the middle of the answer.
+            (
+                [
+                    *CHECKING,
+                    ("agent_text_delta", "I did not change [P"),
+                    ("agent_status_update", {"phase": "posthog:Execute SQL query", "nested": True}),
+                    ("agent_text_delta", "R #1]."),
+                ],
+                "I did not change [PR #1].",
+            ),
             # The agent server's final text can land while the last deltas of the same answer are still buffered.
             (
                 [
@@ -185,6 +195,7 @@ class TestSlackAgentDesignRelay:
         ids=[
             "answer_after_last_tool",
             "answer_before_hidden_tool",
+            "subagent_call_inside_the_answer",
             "final_text_before_the_last_delta",
             "final_text_of_another_turn",
             "final_text_before_the_turn_starts",
