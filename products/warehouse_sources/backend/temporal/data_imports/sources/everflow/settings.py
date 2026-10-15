@@ -102,3 +102,6 @@ LOOKBACK: dict[str, int] = {
     for name, config in EVERFLOW_ENDPOINTS.items()
     if config.default_incremental_lookback_seconds is not None
 }
+
+# These tables re-read a trailing window each run. Appending would write those rows again.
+MERGE_ONLY = ("conversions", "daily_performance")
