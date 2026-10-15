@@ -9,6 +9,8 @@ from google.genai import types
 from google.genai.errors import APIError
 from pydantic import BaseModel
 
+from posthog.temporal.session_replay.rasterize_recording.types import NavigationChange
+
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _key_moment_session_ms,
@@ -19,7 +21,9 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     _run_steps,
     _step_config,
 )
+from products.replay_vision.backend.temporal.citation_review import CitationPlacement, CitationPlacementResponse
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.events_tool import EventsIndex
 from products.replay_vision.backend.temporal.lookups import Lookup, LookupPlan
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_MAX_OUTPUT_TOKENS,
@@ -134,7 +138,7 @@ async def test_scanner_generations_include_team_attribution() -> None:
             video_clock=_IDENTITY_CLOCK,
             preamble_text="PRE",
             team_id=42,
-            llm_inputs=MagicMock(),
+            llm_inputs=MagicMock(metadata=MagicMock(duration_seconds=60.0)),
             trace_id="trace-1",
         )
 
@@ -395,6 +399,76 @@ async def test_signal_timestamps_use_recording_duration(
     assert len(client.models.calls) == 2 + len(end_times)
     signals_instruction = client.models.calls[2]["contents"][-1].text
     assert (f"The video ends at second {limit}," in signals_instruction) is (limit is not None)
+
+
+@pytest.mark.parametrize(
+    "jev_answers, placed_t, expected_reasoning, expected_calls",
+    [
+        pytest.param([0.9, 0.1], 5, "The user compared plans on billing (t 5).", 3, id="flagged citation moves"),
+        pytest.param([0.9, 0.9], 5, "The user compared plans on billing.", 3, id="still contradicted is removed"),
+        pytest.param([0.9], None, "The user compared plans on billing.", 3, id="a moment not found is removed"),
+        pytest.param([0.1], 5, "The user compared plans on billing (t 30).", 2, id="clean citation costs no turn"),
+        pytest.param(None, 5, "The user compared plans on billing (t 30).", 2, id="jev unavailable keeps it"),
+    ],
+)
+async def test_contradicted_citations_get_one_more_turn_to_be_placed(
+    jev_answers: list[float] | None, placed_t: int | None, expected_reasoning: str, expected_calls: int
+) -> None:
+    scanner = MonitorScanner(prompt="Did they compare plans?")
+    snapshot = ScannerSnapshot(
+        name="monitor",
+        scanner_type=ScannerType.MONITOR,
+        scanner_version=1,
+        model="gemini-3-flash-preview",
+        provider="gemini",
+        emits_signals=False,
+        scanner_config={"prompt": scanner.prompt},
+    )
+    core = MonitorLlmResponse(verdict="yes", reasoning="The user compared plans on billing (t 30).", confidence=0.9)
+    placed = CitationPlacementResponse(citations=[CitationPlacement(n=1, t=placed_t)])
+    client = _FakeClient(
+        [
+            _Resp(text=LookupPlan().model_dump_json()),
+            _Resp(text=core.model_dump_json()),
+            _Resp(text=placed.model_dump_json()),
+        ]
+    )
+    navigation = [
+        NavigationChange(video_s=0, session_s=0, window_id="w", window_number=1, url="https://example.com/billing"),
+        NavigationChange(video_s=20, session_s=20, window_id="w", window_number=1, url="https://example.com/flags"),
+    ]
+    decision_api = MagicMock()
+    decision_api.decisions_available_here.return_value = jev_answers is not None
+    decision_api.decide_when_available.side_effect = [
+        MagicMock(answers={"c1": MagicMock(probability=p)}) for p in jev_answers or []
+    ]
+    module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
+    with (
+        patch(f"{module}.genai.AsyncClient", return_value=client),
+        patch(f"{module}.GoogleGenAIClient"),
+        patch(f"{module}.build_events_index", return_value=EventsIndex(offsets=[], events=[])),
+        patch(f"{module}._maybe_create_video_cache", new=AsyncMock(return_value=None)),
+        patch("products.replay_vision.backend.temporal.citation_review.decision_api", decision_api),
+    ):
+        outcome = await _run_mission(
+            scanner=scanner,
+            snapshot=snapshot,
+            video_part=_VIDEO,
+            video_clock=_IDENTITY_CLOCK,
+            preamble_text="PRE",
+            team_id=1,
+            llm_inputs=MagicMock(metadata=MagicMock(duration_seconds=60.0)),
+            navigation=navigation,
+            trace_id="trace-1",
+        )
+
+    assert cast(MonitorOutput, outcome.finalized).reasoning == expected_reasoning
+    assert len(client.models.calls) == expected_calls
+    if expected_calls == 3:
+        # The turn continues the scan's conversation, and names the page that contradicts the claim.
+        review_turn = client.models.calls[2]["contents"]
+        assert review_turn[0] is _VIDEO
+        assert "At t 30 the screen shows `https://example.com/flags`" in review_turn[-1].text
 
 
 @pytest.mark.parametrize(

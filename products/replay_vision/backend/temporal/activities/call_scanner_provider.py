@@ -4,7 +4,8 @@ Each scan is a shared preamble plus the scanner's ordered `mission_steps` (one s
 is cached once so the steps don't re-process it. Before the core step answers, the model gets one lookup round:
 it lists the moments it wants analytics events and network requests for, and the next turn carries all of them.
 Each step validates its own output and re-prompts once on failure; required steps abort the scan, best-effort steps
-(signals) just contribute nothing.
+(signals) just contribute nothing. A last turn runs only when Jev finds citations the page on screen contradicts, and
+asks the model to place those again (see `citation_review`).
 """
 
 import re
@@ -44,6 +45,7 @@ from products.replay_vision.backend.distinct_ids import replay_vision_distinct_i
 from products.replay_vision.backend.learned_rules import ScanRules, load_scan_rules
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.tags import slugify_tag
+from products.replay_vision.backend.temporal.citation_review import CitationReview
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import build_events_index
@@ -300,6 +302,7 @@ async def run_scan(
         llm_inputs=llm_inputs,
         video_clock=video_clock,
         network_index=network_index,
+        navigation=navigation,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
     # Before citations resolve, so a rewrite keeps the `(t N)` markers the segment parser reads.
@@ -582,6 +585,7 @@ async def _run_mission(
     video_clock: VideoClock,
     trace_id: str,
     network_index: NetworkIndex | None = None,
+    navigation: Sequence[NavigationChange] = (),
 ) -> _MissionOutcome:
     """Cache the video, run every mission step (the core step after its lookup round), then assemble the output +
     side-mission findings.
@@ -646,6 +650,17 @@ async def _run_mission(
                 validate=functools.partial(_validate_signal_timestamps, duration_seconds=signal_duration_s),
             )
         steps.append(step)
+    review = CitationReview(
+        citation_fields=scanner.citation_fields,
+        navigation=navigation,
+        events_index=events_index,
+        last_video_second=_last_video_second(signal_duration_s),
+        team_id=team_id,
+        scanner_type=scanner_type,
+        model=snapshot.model,
+        trace_id=trace_id,
+    )
+    steps.append(review.step())
 
     run = functools.partial(
         _run_steps,
@@ -665,6 +680,7 @@ async def _run_mission(
         if cache is not None:
             await _delete_video_cache(cache_client, cache.name)
 
+    step_outputs = await review.apply(step_outputs)
     finalized, signals = scanner.assemble(step_outputs)
     return _MissionOutcome(
         finalized=finalized,
@@ -773,6 +789,11 @@ async def _run_steps(
         checkpoint = len(convo)
         try:
             instruction = step.instruction
+            if step.prepare is not None:
+                prepared = await step.prepare(step_outputs)
+                if prepared is None:
+                    continue
+                instruction = prepared
             if step.plan_instruction:
                 instruction = await _run_lookup_round(
                     run_step, step=step, plan_instruction=step.plan_instruction, convo=convo, look_up=look_up

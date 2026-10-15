@@ -30,7 +30,7 @@ logger = structlog.get_logger(__name__)
 
 _OutputT = TypeVar("_OutputT", bound=BaseModel)
 
-PII_CHECK_MODEL = "posthog/hogference/jevk5-fp8-0.2"
+JEV_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 # Calibrated offline on production answers: at these values the detector caught 96% of answers that repeated the
 # subject's email unasked, most other flags were real names, and a question that asks for identity scored 0.86.
 PII_FLAG_PROBABILITY = 0.8
@@ -101,7 +101,7 @@ def _yes_probability(team_id: int, state: dict[str, Any], instructions: str, tra
                 team_id=team_id,
                 state=state,
                 questions={"q": DecisionQuestion(type=DecisionQuestionType.NOUL, instructions=instructions)},
-                model=PII_CHECK_MODEL,
+                model=JEV_MODEL,
                 ai_product="replay_vision",
                 trace_id=trace_id,
                 # The state is recording-derived prose, which stays out of the internal AI observability project.

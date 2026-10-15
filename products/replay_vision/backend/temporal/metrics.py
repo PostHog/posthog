@@ -95,6 +95,12 @@ REPLAY_VISION_LOOKUP_PLANS = Counter(
     ["scanner_type", "model", "outcome"],
 )
 
+REPLAY_VISION_CITATION_REVIEWS = Counter(
+    "replay_vision_citation_reviews_total",
+    "Citations checked against the page and events on screen: clean, kept, moved, removed, or unavailable",
+    ["scanner_type", "model", "outcome"],
+)
+
 REPLAY_VISION_NETWORK_STATE = Counter(
     "replay_vision_network_state_total",
     "How each scan described network data to the model: available, clean, or none",
@@ -270,6 +276,12 @@ def record_tool_round(scanner_type: str, model: str, calls: int) -> None:
     labels = {"scanner_type": scanner_type, "model": model}
     REPLAY_VISION_TOOL_ROUNDS.labels(**labels).observe(calls)
     _otel.record_histogram_twin(REPLAY_VISION_TOOL_ROUNDS, calls, labels)
+
+
+def record_citation_review(scanner_type: str, model: str, outcome: str, count: int = 1) -> None:
+    labels = {"scanner_type": scanner_type, "model": model, "outcome": outcome}
+    REPLAY_VISION_CITATION_REVIEWS.labels(**labels).inc(count)
+    _otel.record_counter_twin(REPLAY_VISION_CITATION_REVIEWS, count, labels)
 
 
 def record_lookup_plan(scanner_type: str, model: str, outcome: str) -> None:

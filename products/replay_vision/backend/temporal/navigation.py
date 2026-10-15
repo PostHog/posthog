@@ -27,7 +27,7 @@ def navigation_timeline(changes: Sequence[NavigationChange]) -> tuple[list[Navig
     seen_tabs: set[int] = set()
     last_change: NavigationChange | None = None
     for change in changes:
-        if not _is_navigable_url(change.url):
+        if not is_navigable_url(change.url):
             continue
         # A URL the gate drops can sit between two sightings of the same page, which would repeat it.
         if last_change and last_change.window_number == change.window_number and last_change.url == change.url:
@@ -50,7 +50,7 @@ def navigation_timeline(changes: Sequence[NavigationChange]) -> tuple[list[Navig
     return kept, len(entries) - len(kept)
 
 
-def _is_navigable_url(url: str) -> bool:
+def is_navigable_url(url: str) -> bool:
     """Gate for the prompt timeline. The URL comes from the recording, which the client controls, and lands in the
     trusted preamble, so only values shaped like real web URLs get in: http scheme, printable, no whitespace, and no
     backtick (a raw backtick would escape the prompt's inline-code fencing, and real URLs percent-encode it).

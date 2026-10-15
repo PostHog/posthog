@@ -1,0 +1,11 @@
+Some of your citations may point at the wrong moment: at the cited second, the page on screen does not fit the sentence the citation closes. For each citation below, look at the video again and find the moment its sentence describes. Use the navigation timeline above to find when each page was open.
+
+- If the cited second is right after all, return it unchanged.
+- If the moment happens somewhere else, return the video second it happens at.
+- If you cannot find the moment in the video, return null, and the citation is removed.
+
+Change only the seconds. The text of your answer stays as you wrote it.{% if last_video_second is not none %} The video ends at second {{ last_video_second }}, so no second can be larger than {{ last_video_second }}.{% endif %}
+
+<citations_to_check>
+{% for citation in citations %}{{ citation.n }}. "{{ citation.claim }}" cites t {{ citation.t }}.{% if citation.page %} At t {{ citation.t }} the screen shows `{{ citation.page }}`.{% endif %}
+{% endfor %}</citations_to_check>

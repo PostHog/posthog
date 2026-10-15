@@ -1,7 +1,7 @@
 """Base class for all Replay Vision scanner types."""
 
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, Self
 
@@ -52,6 +52,8 @@ STEP_CORE = "core"
 STEP_SIGNALS = "signals"
 # The lookup round's plan turn. It has no output of its own, but LLM analytics keys its span on this name.
 STEP_LOOKUPS = "lookups"
+# The turn that re-places citations Jev found at odds with the page or events on screen.
+STEP_CITATIONS = "citations"
 
 # Ceiling on one step's response, thought tokens included, because Gemini counts thinking against the cap.
 # Every response schema is a few hundred tokens of JSON, so this only bounds the tail: a model that thinks
@@ -158,6 +160,7 @@ class MissionStep:
     best-effort and simply contribute nothing on failure. `validate` runs an extra semantic check on the parsed
     response and, when it returns an error string, triggers the same re-prompt path as a schema failure.
     `plan_instruction`, when set, runs a lookup round with that instruction before the step answers.
+    `prepare`, when set, builds the instruction from the earlier steps' outputs, and returning None skips the step.
     """
 
     name: str
@@ -166,6 +169,7 @@ class MissionStep:
     required: bool = True
     validate: Callable[[BaseModel], str | None] | None = field(default=None)
     plan_instruction: str | None = None
+    prepare: Callable[[dict[str, BaseModel]], Awaitable[str | None]] | None = None
 
 
 _CONFIDENCE_DESCRIPTION = (
