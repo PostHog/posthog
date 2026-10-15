@@ -31,7 +31,7 @@ from products.cdp.backend.mcp_event_delivery import MCPCallbackError, signing_ke
 from products.cdp.backend.mcp_event_envelope import MCPEventEnvelopeSerializer
 from products.cdp.backend.mcp_event_properties import MCPEventPropertyAccess
 from products.cdp.backend.mcp_events import MCPEventSubscriptions
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionState
 from products.cdp.backend.models.mcp_event_subscription import MCPEventSubscription
 from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
@@ -350,6 +350,27 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         self.assertFalse(MCPEventSubscription.objects.for_team(self.team.pk).exists())
         self.assertFalse(HogFunction.objects.filter(team=self.team).exists())
 
+    def test_renewal_checks_destination_status_after_commit(self) -> None:
+        subscription = self.subscribe()
+        disabled = {"state": HogFunctionState.DISABLED.value}
+        with (
+            patch("products.cdp.backend.mcp_events.reload_hog_functions_on_workers"),
+            patch("products.cdp.backend.models.hog_functions.hog_function.get_hog_function_status") as read_status,
+            patch("products.cdp.backend.models.hog_functions.hog_function.patch_hog_function_status") as write_status,
+        ):
+            read_status.return_value.status_code = 200
+            read_status.return_value.json.return_value = disabled
+            write_status.return_value.status_code = 200
+            write_status.return_value.json.return_value = {"state": HogFunctionState.DEGRADED.value}
+            with self.captureOnCommitCallbacks(execute=True):
+                self.subscribe()
+                read_status.assert_not_called()
+                write_status.assert_not_called()
+            read_status.assert_called_once_with(self.team.pk, subscription.hog_function_id)
+            write_status.assert_called_once_with(
+                self.team.pk, subscription.hog_function_id, HogFunctionState.DEGRADED.value
+            )
+
     def test_callback_failure_leaves_no_subscription_or_destination(self) -> None:
         with patch("products.cdp.backend.mcp_events.verify_callback", side_effect=MCPCallbackError("timeout")):
             response = self.client.post(
@@ -383,11 +404,47 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
             ),
             ("pdi_person", PropertyDefinition.Type.PERSON, {"type": "hogql", "key": "pdi.person IS NOT NULL"}),
             ("pdi", PropertyDefinition.Type.PERSON, {"type": "hogql", "key": "pdi IS NOT NULL"}),
+            (
+                "elements_property",
+                PropertyDefinition.Type.EVENT,
+                {"key": "$elements_chain", "type": "event", "operator": "icontains", "value": "button"},
+                "$elements_chain",
+            ),
+            (
+                "elements_alias",
+                PropertyDefinition.Type.EVENT,
+                {"type": "hogql", "key": "elements_chain != ''"},
+                "$elements_chain",
+            ),
+            (
+                "elements_texts",
+                PropertyDefinition.Type.EVENT,
+                {"type": "hogql", "key": "arrayExists(x -> x = 'example', elements_chain_texts)"},
+                "$elements_chain",
+            ),
+            (
+                "group_key",
+                PropertyDefinition.Type.EVENT,
+                {"key": "$group_0", "type": "event", "operator": "exact", "value": "example"},
+                "$groups.organization",
+            ),
+            (
+                "group_key_alias",
+                PropertyDefinition.Type.EVENT,
+                {"type": "hogql", "key": "`$group_0` = 'example'"},
+                "$groups.organization",
+            ),
         ]
     )
     def test_property_restrictions_apply_to_creation_and_delivery(
-        self, _name: str, property_type: int, property_filter: dict[str, JsonValue]
+        self, _name: str, property_type: int, property_filter: dict[str, JsonValue], property_name: str = "plan"
     ) -> None:
+        group_types = patch(
+            "products.cdp.backend.mcp_event_filters.get_group_types_for_project",
+            return_value=[{"group_type_index": 0, "group_type": "organization"}],
+        )
+        group_types.start()
+        self.addCleanup(group_types.stop)
         subscription = self.subscribe()
         self.payload["arguments"] = {
             "project_id": self.team.pk,
@@ -402,12 +459,14 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         ]
         self.organization.save()
         definition = PropertyDefinition.objects.create(
-            team=self.team, name="plan", property_type="String", type=property_type
+            team=self.team, name=property_name, property_type="String", type=property_type
         )
         PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
         response = self.authorize(subscription)
         self.assertEqual(response.status_code, 200, response.json())
-        expected = {} if property_type == PropertyDefinition.Type.EVENT else {"plan": "enterprise"}
+        expected = (
+            {} if property_type == PropertyDefinition.Type.EVENT and property_name == "plan" else {"plan": "enterprise"}
+        )
         self.assertEqual(json.loads(response.json()["body"])["data"]["properties"], expected)
         forbidden = self.authorize(filtered_subscription)
         self.assertEqual(forbidden.status_code, 403, forbidden.json())
@@ -416,11 +475,11 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         )
         self.assertEqual(creation.status_code, 403, creation.json())
 
-    @parameterized.expand(["test_account", "action"])
+    @parameterized.expand(["test_account", "action", "child_action"])
     def test_filter_refresh_authorizes_new_filters_and_rejects_stale_queued_filters(self, source: str) -> None:
         original = [{"key": "plan", "type": "event", "operator": "exact", "value": "internal"}]
         updated = [{"key": "next_plan", "type": "event", "operator": "exact", "value": "internal"}]
-        if source == "action":
+        if source in ("action", "child_action"):
             action = Action.objects.create(
                 team=self.team, name="Example action", steps_json=[{"event": "example_event", "properties": original}]
             )
@@ -429,15 +488,29 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
             self.team.test_account_filters = original
             self.team.save()
             filters = {"events": [{"id": "example_event", "type": "events"}], "filter_test_accounts": True}
+        parent_subscription: MCPEventSubscription | None = None
+        if source == "child_action":
+            self.payload["arguments"] = {"project_id": self.team.pk, "filters": filters}
+            parent_subscription = self.subscribe()
+            self.team = Team.objects.create(
+                organization=self.organization, project=self.team.project, parent_team=self.team, name="Staging"
+            )
+            self.url = f"/api/projects/{self.team.pk}/mcp_event_subscriptions/"
         self.payload["arguments"] = {"project_id": self.team.pk, "filters": filters}
         subscription = self.subscribe()
         assert subscription.hog_function is not None
         assert subscription.hog_function.filters is not None
         queued_bytecode = deepcopy(subscription.hog_function.filters["bytecode"])
-        if source == "action":
+        if source in ("action", "child_action"):
             action.steps_json = [{"event": "example_event", "properties": updated}]
             action.save()
-            self.assertEqual(refresh_affected_hog_functions(action_id=action.pk), 1)
+            self.assertEqual(refresh_affected_hog_functions(action_id=action.pk), 2 if source == "child_action" else 1)
+            if source == "child_action":
+                assert parent_subscription is not None
+                parent_subscription.refresh_from_db()
+                assert parent_subscription.hog_function is not None
+                assert parent_subscription.hog_function.filters is not None
+                self.assertNotEqual(parent_subscription.hog_function.filters["bytecode"], queued_bytecode)
         else:
             self.team.test_account_filters = updated
             self.team.save()

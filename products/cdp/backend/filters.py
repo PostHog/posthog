@@ -7,7 +7,7 @@ from django.conf import settings
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, ast, property_to_expr
+from posthog.hogql.property import GROUP_KEY_PATTERN, action_to_expr, ast, property_to_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.dataclasses import frozen
@@ -42,6 +42,12 @@ class FilterPropertyReferences(TraversingVisitor):
         chain: list[str | int] = list(node.chain)
         if chain and chain[0] == "events":
             chain = chain[1:]
+        root = chain[0] if chain else None
+        if isinstance(root, str):
+            if root == "elements_chain" or root.startswith("elements_chain_"):
+                chain = ["properties", "$elements_chain", *chain[1:]]
+            elif GROUP_KEY_PATTERN.fullmatch(root):
+                chain = ["properties", *chain]
         if chain == ["pdi"]:
             chain[0] = "person"
         elif chain[:2] == ["pdi", "person"]:

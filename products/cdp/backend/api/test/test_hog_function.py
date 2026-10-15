@@ -1811,16 +1811,19 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
                     assert mock_patch.call_count == 0
 
-                    self.client.patch(
-                        f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
-                        data={"enabled": True},
-                    )
+                    with self.captureOnCommitCallbacks(execute=True):
+                        self.client.patch(
+                            f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+                            data={"enabled": True},
+                        )
+                        assert mock_patch.call_count == 0
 
                     assert mock_patch.call_count == 1
                     mock_patch.assert_called_once_with(
                         f"http://localhost:6738/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/status",
                         headers=internal_api_headers,
                         json={"state": 2},
+                        timeout=10,
                     )
 
         expected_activities = [
