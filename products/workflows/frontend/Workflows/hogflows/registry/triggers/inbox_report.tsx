@@ -1,0 +1,55 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconSelfDriving } from 'lib/lemon-ui/icons'
+
+import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
+
+import { INBOX_REPORT_READY_EVENT, isInboxReportReadyTriggerConfig } from './inboxReportTriggerConfig'
+
+const REPORT_PROPERTIES: { key: string; description: string }[] = [
+    { key: 'report_id', description: 'The report ID' },
+    { key: 'title', description: 'The report title' },
+    { key: 'summary', description: 'The researched summary' },
+    { key: 'priority', description: 'P0 to P4, or empty when the report has no priority' },
+    { key: 'source_products', description: 'The products whose signals the report groups' },
+    { key: 'report_url', description: 'A link to the report in Inbox' },
+]
+
+function StepTriggerConfigurationInboxReportReady(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2 w-full">
+            <p className="mb-0 text-sm text-muted-alt">
+                This workflow runs once for each Inbox report, after its research finishes and the report is ready. Runs
+                have no associated person, so person-dependent steps are unavailable.
+            </p>
+            <p className="mb-0 text-sm text-muted-alt">Use these in later steps:</p>
+            <ul className="mb-0 text-sm list-none p-0 flex flex-col gap-1">
+                {REPORT_PROPERTIES.map(({ key, description }) => (
+                    <li key={key}>
+                        <code>{`{event.properties.${key}}`}</code>
+                        <span className="text-muted-alt"> {description}</span>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    )
+}
+
+registerTriggerType({
+    // The tile's own identity, not the stored config type: `internal-event` carries every internal
+    // event, so naming the tile after it would make this tile claim all of them.
+    value: 'inbox-report-ready',
+    label: 'Inbox report ready',
+    icon: <IconSelfDriving />,
+    description: 'Trigger when an Inbox report finishes research and is ready',
+    group: 'Inbox',
+    featureFlag: FEATURE_FLAGS.WORKFLOW_INBOX_REPORT_TRIGGER,
+    matchConfig: (config) => isInboxReportReadyTriggerConfig(config),
+    buildConfig: () => ({
+        type: 'internal-event',
+        filters: {
+            source: 'internal-events',
+            events: [{ id: INBOX_REPORT_READY_EVENT, type: 'events' }],
+        },
+    }),
+    ConfigComponent: StepTriggerConfigurationInboxReportReady,
+})

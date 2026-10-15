@@ -3158,6 +3158,56 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert event_id in response.json()["detail"]
 
+    def _deny_report_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(team=self.team, resource="task", access_level="none")
+
+    def _api_key_headers(self, scopes: list[str]) -> dict[str, str]:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="workflows", user=self.user, secure_value=hash_key_value(key), scopes=scopes
+        )
+        return {"authorization": f"Bearer {key}"}
+
+    @parameterized.expand(
+        [
+            ("member_who_reads_reports", None, False, 201),
+            ("member_without_report_access", None, True, 400),
+            ("api_key_with_report_read", ["hog_flow:write", "task:read"], False, 201),
+            ("api_key_without_report_read", ["hog_flow:write"], False, 400),
+        ]
+    )
+    def test_hog_flow_inbox_report_trigger_requires_report_read_access(
+        self, _name: str, api_key_scopes: list[str] | None, deny_report_access: bool, expected_status: int
+    ) -> None:
+        # Each run carries a report's title and summary, which Inbox shows only to people who can read
+        # reports. Starting a workflow needs only hog_flow:write, so the trigger asks for both.
+        if deny_report_access:
+            self._deny_report_access()
+        headers = self._api_key_headers(api_key_scopes) if api_key_scopes is not None else {}
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "internal-event",
+                "filters": {"source": "internal-events", "events": [{"id": "$inbox_report_ready", "type": "events"}]},
+            },
+        }
+        hog_flow = {"name": "Triage Inbox reports", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, format="json", headers=headers)
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 400:
+            assert "Inbox reports" in response.json()["detail"]
+
     def test_hog_flow_internal_event_trigger_rejects_a_disallowed_event_alongside_an_allowed_one(self):
         # Checking only the first event would let a second one smuggle the payload out.
         trigger_action = {

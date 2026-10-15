@@ -16,6 +16,10 @@ import { CyclotronJobInputType, CyclotronJobInvocationGlobals, HogFunctionMappin
 import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorTestLogic } from '../../panel/testing/hogFlowEditorTestLogic'
 import { isGithubEventTriggerConfig } from '../../registry/triggers/githubTriggerFilters'
+import {
+    INBOX_REPORT_READY_EVENT,
+    isInboxReportReadyTriggerConfig,
+} from '../../registry/triggers/inboxReportTriggerConfig'
 import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
 import { CustomerTaskWorkflowReferenceInput } from './CustomerTaskWorkflowReferenceInput'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
@@ -162,6 +166,22 @@ export function buildSampleGlobals(
                 branch: null,
                 installation_id: 1,
                 github_event: {},
+            },
+            timestamp: '2024-01-01T12:00:00Z',
+        }
+    } else if (isInboxReportReadyTriggerConfig(trigger)) {
+        // Property names mirror what Signals emits (products/signals/backend/workflow_events.py). No
+        // person: report-triggered runs are person-less.
+        sampleGlobals.event = {
+            event: INBOX_REPORT_READY_EVENT,
+            distinct_id: 'report123',
+            properties: {
+                report_id: 'report123',
+                title: 'Example report title',
+                summary: 'Example report summary',
+                priority: 'P2',
+                source_products: ['error_tracking'],
+                report_url: 'https://us.posthog.com/project/1/inbox/reports/report123',
             },
             timestamp: '2024-01-01T12:00:00Z',
         }

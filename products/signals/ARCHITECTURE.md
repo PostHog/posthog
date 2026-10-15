@@ -175,6 +175,7 @@ Defined in `backend/temporal/summary.py`.
    - If **immediately actionable** → `mark_report_ready_activity`
 8. If new signals arrived during the run, `mark_report_ready_activity` re-promotes the report to `candidate` and the workflow loops internally rather than spawning a new workflow
 9. When a run completes without immediately looping, the workflow publishes a Kafka `signals report completed` message via `publish_report_completed_activity`
+10. After the implementation buffer, `emit_inbox_report_ready_activity` writes one `$inbox_report_ready` internal event, which starts the project's "Inbox report ready" workflows (`workflow_events.py`). `SignalReport.ready_event_emitted_at` holds each report to one event, so a report that settles again does not start them again. A scout's `emit_report` calls the same helper once its report surfaces.
 
 On any unhandled exception, the workflow marks the report `failed` and re-raises.
 

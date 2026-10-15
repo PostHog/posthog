@@ -407,6 +407,10 @@ class SignalReport(UUIDModel):
     # once and never cleared, so it survives past Temporal's history retention window — a workflow
     # ID de-duplication would not. Null for reports that never notified or predate the field.
     inbox_notified_at = models.DateTimeField(null=True, blank=True)
+    # When the report started the project's "Inbox report ready" workflows. Set once and never cleared,
+    # for the same reason as `inbox_notified_at`: a report settles once per research pass, and each
+    # settle would otherwise start every listening workflow again.
+    ready_event_emitted_at = models.DateTimeField(null=True, blank=True)
 
     # The emit key of the scout `emit_report` call that authored this report. An emission can take
     # minutes, so the caller can time out at a proxy while the request keeps running here, and the

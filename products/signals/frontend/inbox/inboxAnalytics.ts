@@ -113,6 +113,7 @@ export const INBOX_REPORT_LINK_SOURCES = [
     'support',
     'task',
     'today',
+    'workflow',
 ] as const
 
 /** `other` is a `source` value outside the fixed set, so a typo or a hand-edited link stays countable. */

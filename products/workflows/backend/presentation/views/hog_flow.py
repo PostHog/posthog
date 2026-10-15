@@ -117,6 +117,7 @@ from products.cdp.backend.presentation.serializers import (
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
+from products.signals.backend.facade.api import may_read_reports
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
@@ -1305,6 +1306,18 @@ class HogFlowActionSerializer(serializers.Serializer):
         self.initial_data = data
         return super().to_internal_value(data)
 
+    def _may_read_inbox_reports(self) -> bool:
+        # Each run carries a report's title and summary, so its author must be able to read the
+        # reports themselves, both as a member and through the token they used.
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
+            return True
+        token_scopes = get_authenticator_scopes(request.successful_authenticator)
+        if token_scopes is not None and not {"*", "task:read", "task:write"} & set(token_scopes):
+            return False
+        return may_read_reports(user=user, team=self.context["get_team"]())
+
     def _reject_behavioral_cohorts_in_audience(self, properties) -> None:
         # Batch/schedule audiences resolve offline by precalculated membership and can't evaluate event
         # behavior the way it's intended; the UI hides behavioral cohorts from the audience picker. Mirror
@@ -1612,6 +1625,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                                 "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
                             }
                         )
+                if _subscribes_to("$inbox_report_ready") and not self._may_read_inbox_reports():
+                    raise serializers.ValidationError(
+                        {"filters": "You need access to Inbox reports to start a workflow when a report is ready."}
+                    )
                 if _subscribes_to("$github_event_received"):
                     _normalize_github_repository_filters(filters)
                     if not is_draft and not _has_exact_string_filter(filters, "repository"):
