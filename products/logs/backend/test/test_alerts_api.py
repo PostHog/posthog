@@ -665,27 +665,29 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("disable", lambda: {"enabled": False}, True, "disabled"),
+            ("disable", lambda: {"enabled": False}, True, "disabled", "source"),
             (
                 "snooze",
                 lambda: {"snooze_until": (datetime.now(UTC) + timedelta(hours=1)).isoformat()},
                 True,
                 "snoozed",
+                "source",
             ),
-            ("threshold_change", lambda: {"threshold_count": 50}, True, "config_changed"),
-            ("filter_change", lambda: {"filters": {"severityLevels": ["warn"]}}, True, "config_changed"),
-            ("window_change", lambda: {"window_minutes": 10}, True, None),
-            ("rename", lambda: {"name": "Renamed"}, True, None),
-            ("disable_without_pagerduty", lambda: {"enabled": False}, False, None),
+            ("threshold_change", lambda: {"threshold_count": 50}, True, "config_changed", "source"),
+            ("filter_change", lambda: {"filters": {"severityLevels": ["warn"]}}, True, "config_changed", "source"),
+            ("window_change", lambda: {"window_minutes": 10}, True, None, "source"),
+            ("rename", lambda: {"name": "Renamed"}, True, None, "source"),
+            ("disable_without_pagerduty", lambda: {"enabled": False}, False, None, "source"),
+            ("disable_owned_by_the_platform", lambda: {"enabled": False}, True, None, "platform"),
         ]
     )
     def test_leaving_firing_through_the_api_closes_the_incident(
-        self, _name, make_payload, has_pagerduty, expected_reason
+        self, _name, make_payload, has_pagerduty, expected_reason, owner
     ):
         created = self._create_via_api()
         if has_pagerduty:
             self._add_pagerduty_destination(created["id"])
-        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing")
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing", owner=owner)
         payload = make_payload()
 
         with (

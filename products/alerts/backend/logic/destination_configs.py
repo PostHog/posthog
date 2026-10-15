@@ -5,8 +5,11 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final, cast
 from urllib.parse import urlsplit
+
+from requests.exceptions import InvalidHeader
+from requests.utils import check_header_validity
 
 from products.alerts_platform.backend.facade.contracts import (
     DEFAULT_PAGERDUTY_REGION,
@@ -114,6 +117,52 @@ def pagerduty_custom_details(spec: EventKindSpec) -> dict[str, str]:
 
 def pagerduty_links(spec: EventKindSpec) -> list[dict[str, str]]:
     return [{"href": action.url, "text": action.label} for action in spec_actions(spec)]
+
+
+# Headers the native transport sets itself: the stock ones every webhook destination is built
+# with, and the ones that frame the request or name the host the connection was pinned to.
+_TRANSPORT_HEADER_NAMES: Final = frozenset(
+    [*(name.lower() for name in WEBHOOK_HEADERS), "host", "content-length", "transfer-encoding", "connection"]
+)
+
+
+# The HTTP token grammar (RFC 9110). requests accepts a space or a tab inside a name, which receivers reject.
+_HEADER_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+# A field value may hold a tab but no other control character. requests rejects only CR and LF.
+_CONTROL_CHARACTER = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
+
+
+def _added_webhook_headers(headers: Any) -> dict[str, str]:
+    """The headers a user added to a webhook destination, such as an auth token.
+
+    A value with a `{` is a Hog template, which only the HogFunction path can render. Sending it
+    unrendered would send the template text as the credential, so it is left out. So is a header
+    the native client cannot send, which would otherwise fail every delivery to the destination.
+    """
+    if not isinstance(headers, dict):
+        return {}
+    added: dict[str, str] = {}
+    for raw_name, raw_value in headers.items():
+        if not isinstance(raw_name, str) or not isinstance(raw_value, str):
+            continue
+        name, value = raw_name.strip(), raw_value.strip()
+        if (
+            name.lower() in _TRANSPORT_HEADER_NAMES
+            or "{" in value
+            or not _HEADER_NAME.fullmatch(name)
+            or _CONTROL_CHARACTER.search(value)
+        ):
+            continue
+        try:
+            check_header_validity((name, value))
+            # http.client encodes a name as ASCII and a value as latin-1, and raises past the
+            # sender's error handling on anything else.
+            name.encode("ascii")
+            value.encode("latin-1")
+        except (InvalidHeader, UnicodeEncodeError):
+            continue
+        added[name] = value
+    return dict(sorted(added.items()))
 
 
 def _input_value(inputs: dict[str, Any], key: str) -> Any:
@@ -227,6 +276,19 @@ class WebhookDestination(_WebhookUrlDestination):
     type = DestinationType.WEBHOOK
     template_id = "template-webhook"
     url_input_key = "url"
+
+    def read(self, inputs: dict[str, Any]) -> AlertDestinationData:
+        data = super().read(inputs)
+        headers = _added_webhook_headers(_input_value(inputs, "headers"))
+        if headers:
+            data["webhook_headers"] = headers
+        return data
+
+    def redact(self, data: AlertDestinationData) -> AlertDestinationData:
+        return cast(
+            AlertDestinationData,
+            {key: value for key, value in super().redact(data).items() if key != "webhook_headers"},
+        )
 
     def build_name(self, data: AlertDestinationData) -> str:
         return f"Webhook {url_hostname(data['webhook_url'])}"
@@ -370,9 +432,13 @@ def _redact_routing_key(value: str) -> str:
     return f"••••{value[-4:]}"
 
 
-# Email reaches an alert's subscribers and is never stored as a HogFunction, so it has no spec.
+# Email and in-app notifications reach an alert's subscribers and are never stored as a HogFunction,
+# so they have no spec. Listed by hand so that a new HogFunction type without a spec fails the
+# one-to-one test against `DESTINATION_SPECS`.
 HOG_FUNCTION_DESTINATION_TYPES: tuple[DestinationType, ...] = tuple(
-    destination_type for destination_type in DestinationType if destination_type != DestinationType.EMAIL
+    destination_type
+    for destination_type in DestinationType
+    if destination_type not in (DestinationType.EMAIL, DestinationType.IN_APP)
 )
 
 DESTINATION_SPECS: dict[DestinationType, DestinationSpec] = {

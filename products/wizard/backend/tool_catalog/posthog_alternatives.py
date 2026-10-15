@@ -2,9 +2,9 @@ from posthog.schema_enums import ProductKey
 
 from products.warehouse_sources.backend.facade.codebase_detection import Detection, detect
 
-# Competitors with no released warehouse source. Every source declares its own `codebase_detection`,
+# PostHog alternatives with no released warehouse source. Every source declares its own `codebase_detection`,
 # so only these live here. The wizard detects and reports them, and never offers them as a source.
-COMPETITORS_WITHOUT_SOURCE: dict[str, Detection] = {
+POSTHOG_ALTERNATIVES_WITHOUT_SOURCE: dict[str, Detection] = {
     "Heap": detect(
         script_hosts=(
             "cdn.heapanalytics.com",
@@ -60,7 +60,7 @@ COMPETITORS_WITHOUT_SOURCE: dict[str, Detection] = {
             "github.com/heap/heap-ios-sdk",
             "github.com/heap/heap-swiftui-sdk",
         ),
-        competes_with=(ProductKey.PRODUCT_ANALYTICS,),
+        alternative_to=(ProductKey.PRODUCT_ANALYTICS,),
     ),
     "Hotjar": detect(
         env=("^HOTJAR_",),
@@ -75,6 +75,6 @@ COMPETITORS_WITHOUT_SOURCE: dict[str, Detection] = {
             "gatsby-plugin-hotjar",
             "nuxt-module-hotjar",
         ),
-        competes_with=(ProductKey.SESSION_REPLAY, ProductKey.HEATMAPS, ProductKey.SURVEYS),
+        alternative_to=(ProductKey.SESSION_REPLAY, ProductKey.HEATMAPS, ProductKey.SURVEYS),
     ),
 }

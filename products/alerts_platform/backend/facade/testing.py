@@ -24,7 +24,7 @@ from products.alerts_platform.backend.models import PlatformAlert, PlatformAlert
 
 def _configuration_snapshot(row: PlatformAlertConfiguration) -> PlatformConfigurationSnapshot:
     return PlatformConfigurationSnapshot(
-        id=row.id, next_check_at=row.next_check_at, consecutive_failures=row.consecutive_failures
+        id=row.id, next_check_at=row.next_check_at, consecutive_failures=row.consecutive_failures, owner=row.owner
     )
 
 
@@ -44,6 +44,14 @@ def configuration(configuration_id: UUID) -> PlatformConfigurationSnapshot:
     return _configuration_snapshot(PlatformAlertConfiguration.objects.get(id=configuration_id))
 
 
+def copy_of(legacy_configuration_id: UUID) -> PlatformConfigurationSnapshot:
+    """The platform copy of a source's configuration, which a source's test made through its own code."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    return _configuration_snapshot(
+        PlatformAlertConfiguration.objects.get(legacy_configuration_id=legacy_configuration_id)
+    )
+
+
 def set_due_at(configuration_id: UUID, due_at: datetime) -> None:
     """Move a configuration's due time, so a test can run two checks against one schedule."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
@@ -54,6 +62,16 @@ def count_still_due(configuration_ids: Iterable[UUID], *, at: datetime) -> int:
     """How many of these configurations a tick would still pick up at `at`."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     return PlatformAlertConfiguration.objects.filter(id__in=list(configuration_ids), next_check_at__lte=at).count()
+
+
+def start_firing(configuration_id: UUID, *, team_id: int, at: datetime) -> None:
+    """Put a configuration's instance inside a firing, as live delivery can leave one."""
+    PlatformAlert.objects.update_or_create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        grouping_key="",
+        defaults={"state": "firing", "firing_started_at": at},
+    )
 
 
 def alert_for(configuration_id: UUID, *, grouping_key: str = "") -> PlatformAlertSnapshot | None:

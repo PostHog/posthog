@@ -2665,6 +2665,8 @@ export namespace Schemas {
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
       /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
       mergeFederatedAggregateJoins?: boolean | null;
+      /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
+      negatedPersonFiltersNotIn?: boolean | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -7334,6 +7336,14 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExecutionTarget = typeof ExecutionTarget[keyof typeof ExecutionTarget];
+
+
+    export const ExecutionTarget = {
+      Default: 'default',
+      ManagedTrino: 'managed_trino',
+    } as const;
+
     export interface HogQLFilters {
       /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
       breakdownFilter?: BreakdownFilter | null;
@@ -7510,6 +7520,8 @@ export namespace Schemas {
     export interface HogQLQuery {
       /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
       connectionId?: string | null;
+      /** Compile and run this query against the hosted Trino target. */
+      executionTarget?: ExecutionTarget | null;
       explain?: boolean | null;
       /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
       filters?: HogQLFilters | null;
@@ -10884,6 +10896,7 @@ export namespace Schemas {
       datePart?: DatePart | null;
       expression: string;
       id: string;
+      label?: string | null;
       localDefinition?: BILocalFieldDefinition1 | BILocalFieldDefinition2 | BILocalFieldDefinition3 | null;
       localFieldId?: string | null;
       name: string;
@@ -40104,16 +40117,6 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    /**
-     * * `duckdb` - duckdb
-     * * `postgres` - postgres
-     * * `mysql` - mysql
-     * * `snowflake` - snowflake
-     * * `redshift` - redshift
-     * * `clickhouse` - clickhouse
-     * * `motherduck` - motherduck
-     * * `trino` - trino
-     */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
 
@@ -48086,16 +48089,7 @@ export namespace Schemas {
       readonly schema_name: string | null;
       /** @nullable */
       readonly prefix: string | null;
-      /** Backend engine detected for the direct connection.
-       *
-       * * `duckdb` - duckdb
-       * * `postgres` - postgres
-       * * `mysql` - mysql
-       * * `snowflake` - snowflake
-       * * `redshift` - redshift
-       * * `clickhouse` - clickhouse
-       * * `motherduck` - motherduck
-       * * `trino` - trino */
+      /** Backend engine detected for the direct connection. */
       readonly engine: EngineEnum | null;
       /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
        *
@@ -53447,6 +53441,8 @@ export namespace Schemas {
       introScreenDescription?: string;
       /** Translated intro screen button text. */
       introScreenButtonText?: string;
+      /** Translated back button text. */
+      backButtonText?: string;
     }
 
     /**
@@ -55583,8 +55579,20 @@ export namespace Schemas {
       created_at?: number;
       updated_at?: number;
       filters?: HogFunctionFilters | null;
-      /** @maxLength 100 */
-      type: string;
+      /** One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.
+       *
+       * * `trigger` - trigger
+       * * `function` - function
+       * * `function_email` - function_email
+       * * `function_sms` - function_sms
+       * * `function_push` - function_push
+       * * `delay` - delay
+       * * `wait_until_condition` - wait_until_condition
+       * * `wait_until_time_window` - wait_until_time_window
+       * * `conditional_branch` - conditional_branch
+       * * `random_cohort_branch` - random_cohort_branch
+       * * `exit` - exit */
+      type: HogFlowActionTypeEnum;
       config: unknown;
       output_variable?: unknown;
     }
@@ -73637,6 +73645,11 @@ export namespace Schemas {
       readonly summary_lead: string;
       /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
+      /**
+         * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
+         * @nullable
+         */
+      readonly monitoring_started_at?: string | null;
       readonly total_weight: number;
       readonly signal_count: number;
       readonly signals_at_run: number;
@@ -95322,6 +95335,11 @@ export namespace Schemas {
       readonly summary_lead: string;
       /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
+      /**
+         * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
+         * @nullable
+         */
+      readonly monitoring_started_at?: string | null;
       readonly total_weight: number;
       readonly signal_count: number;
       readonly signals_at_run: number;
@@ -114265,8 +114283,8 @@ export namespace Schemas {
        * * `in-cli` - In the terminal
        * * `deep-link` - In the app */
       wizard_setup_mode: WizardSetupModeEnum | null;
-      /** PostHog products this tool competes with. */
-      competes_with: string[];
+      /** PostHog products this tool is an alternative to. */
+      alternative_to: string[];
       /** Kinds that reach the same data through a more specific source. When one of them also matches, the wizard drops this tool. */
       superseded_by: string[];
       /** How the wizard detects the tool in a codebase. */
