@@ -6,7 +6,6 @@ from django.core.management.base import BaseCommand, CommandError
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
@@ -136,7 +135,6 @@ class Command(BaseCommand):
                     "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
                     "report_id": ast.Constant(value=str(report.id)),
                 },
-                ch_user=ClickHouseUser.SIGNALS,
             )
 
             signals = []

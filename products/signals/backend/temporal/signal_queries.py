@@ -705,7 +705,6 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
             "source_products": ast.Tuple(exprs=[ast.Constant(value=sp) for sp in source_products]),
         },
-        ch_user=ClickHouseUser.SIGNALS,
     )
 
     return {row[0] for row in (result.results or []) if row[0]}
@@ -756,7 +755,6 @@ def fetch_report_ids_for_scout_names(team: Team, scout_names: list[str]) -> set[
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
             "scout_names": ast.Tuple(exprs=[ast.Constant(value=name) for name in scout_names]),
         },
-        ch_user=ClickHouseUser.SIGNALS,
     )
 
     return {row[0] for row in (result.results or []) if row[0]}
@@ -798,7 +796,6 @@ def fetch_report_ids_for_scout_prefix(team: Team, scout_prefix: str) -> set[str]
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
             "scout_prefix": ast.Constant(value=scout_prefix),
         },
-        ch_user=ClickHouseUser.SIGNALS,
     )
 
     return {row[0] for row in (result.results or []) if row[0]}
@@ -866,7 +863,6 @@ def fetch_report_ids_for_source_ids(team: Team, source_ids: list[str]) -> dict[s
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
             "source_ids": ast.Tuple(exprs=[ast.Constant(value=sid) for sid in source_ids]),
         },
-        ch_user=ClickHouseUser.SIGNALS,
     )
 
     return {row[0]: row[1] for row in (result.results or []) if row[0] and row[1]}
@@ -925,7 +921,6 @@ def fetch_live_report_ids_for_source_ids(
         query=ch_query,
         team=team,
         placeholders=placeholders,
-        ch_user=ClickHouseUser.SIGNALS,
     )
 
     return {row[0]: list(row[1]) for row in (result.results or []) if row[0] and row[1]}

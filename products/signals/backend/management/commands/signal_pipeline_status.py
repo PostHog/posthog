@@ -7,7 +7,6 @@ from django.core.management.base import BaseCommand, CommandError
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 
 from products.signals.backend.models import SignalReport
@@ -247,7 +246,6 @@ class Command(BaseCommand):
                 query=count_query,
                 team=team,
                 placeholders=placeholders,
-                ch_user=ClickHouseUser.SIGNALS,
             )
 
             if result.results and result.results[0]:

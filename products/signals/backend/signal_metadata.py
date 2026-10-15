@@ -148,7 +148,12 @@ class ReportSignalMeta:
     scout_name: str | None
 
 
-def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict[str, ReportSignalMeta]:
+def fetch_source_products_for_reports(
+    team: Team,
+    report_ids: list[str],
+    *,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> dict[str, ReportSignalMeta]:
     """Return a mapping of report_id -> `ReportSignalMeta` (distinct source_products + authoring scout).
 
     Only includes non-deleted signals. Source products are returned in sorted order. `scout_name` is
@@ -204,6 +209,7 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
+        ch_user=ch_user,
         query_type="SignalsFetchSourceProductsForReports",
         query=ch_query,
         team=team,
@@ -212,7 +218,6 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
             "report_ids": ast.Tuple(exprs=[ast.Constant(value=rid) for rid in report_ids]),
         },
-        ch_user=ClickHouseUser.SIGNALS,
     )
 
     return {
@@ -276,7 +281,6 @@ def fetch_signal_stats_for_source_slice(
         query=ch_query,
         team=team,
         placeholders=placeholders,
-        ch_user=ClickHouseUser.SIGNALS,
     )
     rows = result.results or []
     if not rows:
@@ -303,7 +307,12 @@ _LABEL_RE = re.compile(r"^[A-Za-z0-9#/_.-]{1,64}$")
 _URL_RE = re.compile(r"^https?://[^\s()<>\[\]]{1,500}$")
 
 
-def fetch_source_references_for_report(team: Team, report_id: str) -> list[SignalSourceReference]:
+def fetch_source_references_for_report(
+    team: Team,
+    report_id: str,
+    *,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> list[SignalSourceReference]:
     """Return issue references (label + URL) for the report's non-deleted Linear/GitHub signals.
 
     Sources whose signals don't carry a stable human-facing URL (e.g. Zendesk's `url` extra is the
@@ -349,6 +358,7 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
+        ch_user=ch_user,
         query_type="SignalsFetchSourceReferencesForReport",
         query=ch_query,
         team=team,
@@ -358,7 +368,6 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
             # Headroom over the reference cap for rows the URL checks below drop.
             "row_cap": ast.Constant(value=_SOURCE_REFERENCE_CAP * 10),
         },
-        ch_user=ClickHouseUser.SIGNALS,
     )
 
     references: list[SignalSourceReference] = []
@@ -435,7 +444,6 @@ def fetch_origin_sources_for_report(team: Team, report_id: str) -> list[OriginSo
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
             "report_id": ast.Constant(value=report_id),
         },
-        ch_user=ClickHouseUser.SIGNALS,
     )
     return [
         OriginSource(
@@ -487,6 +495,7 @@ def fetch_signals_for_report_sync(
     report_id: str,
     newest: int | None = None,
     *,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     workload: Workload = Workload.DEFAULT,
 ) -> list[dict]:
     """Fetch the signals of a report from ClickHouse, including full metadata. Synchronous.
@@ -495,7 +504,7 @@ def fetch_signals_for_report_sync(
     """
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
-        ch_user=ClickHouseUser.SIGNALS,
+        ch_user=ch_user,
         workload=workload,
         query_type="SignalsDebugFetchForReport",
         query=_signals_for_report_query(limit=newest, newest_first=newest is not None),

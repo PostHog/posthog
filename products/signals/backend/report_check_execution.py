@@ -37,6 +37,7 @@ from posthog.schema import (
     InsightThresholdType,
 )
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -252,7 +253,9 @@ def measure_check(check: SignalReportCheck, *, deadline: float) -> CheckVerdict:
                 },
             }
         tag_queries(trigger="signals_report_check")
-        measurement = measure_metric(query, check.report.team, deadline=deadline, include_series=False)
+        measurement = measure_metric(
+            query, check.report.team, deadline=deadline, include_series=False, ch_user=ClickHouseUser.SIGNALS
+        )
     except Exception as error:
         logger.exception("signals.report_check.measurement_failed", check_id=str(check.id), team_id=check.team_id)
         return CheckVerdict(outcome="errored", explanation=_errored_explanation(error, subject=check.title))

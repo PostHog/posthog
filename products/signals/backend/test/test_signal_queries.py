@@ -111,7 +111,10 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
         # Guards the early return: an empty list would otherwise compile to `report_id IN ()` and raise.
         assert fetch_source_products_for_reports(self.team, []) == {}
 
-    def test_maps_each_report_to_its_sorted_distinct_source_products(self) -> None:
+    @parameterized.expand([("web", None), ("pipeline", ClickHouseUser.SIGNALS)])
+    def test_maps_each_report_to_its_sorted_distinct_source_products(
+        self, _name: str, ch_user: ClickHouseUser | None
+    ) -> None:
         self._emit_version(document_id="d1", report_id="rA", source_product="errors", inserted_at=self.base)
         self._emit_version(document_id="d2", report_id="rA", source_product="replay", inserted_at=self.base)
         # duplicate source_product within a report collapses to one entry
@@ -122,9 +125,11 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
             self.assertNumQueries(FuzzyInt(0, 1)),
             patch("products.signals.backend.signal_metadata.execute_hogql_query", wraps=execute_hogql_query) as query,
         ):
-            result = fetch_source_products_for_reports(self.team, ["rA", "rB"])
+            result = fetch_source_products_for_reports(
+                self.team, ["rA", "rB"], **({"ch_user": ch_user} if ch_user else {})
+            )
 
-        assert query.call_args.kwargs["ch_user"] == ClickHouseUser.SIGNALS
+        assert query.call_args.kwargs["ch_user"] == (ch_user or ClickHouseUser.DEFAULT)
 
         assert result == {
             "rA": ReportSignalMeta(source_products=["errors", "replay"], scout_name=None),
