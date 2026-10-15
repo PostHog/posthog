@@ -1,6 +1,5 @@
 """The main serializer for project settings."""
 
-import re
 from typing import Any, Literal, cast
 
 from django.conf import settings
@@ -9,8 +8,6 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from rest_framework import exceptions, serializers
-
-from posthog.schema import HogQLQueryModifiers
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import validate_authorized_url_wildcards
@@ -48,29 +45,18 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
-from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (
-    MAX_CUSTOM_BOT_DEFINITIONS,
-    assert_patterns_compile as assert_custom_bot_patterns_compile,
-    compiled_patterns as compiled_custom_bot_patterns,
-    parse_rules as parse_custom_bot_rules,
-    validate_rule as validate_custom_bot_rule,
-    validate_rule_set as validate_custom_bot_rule_set,
+
+from . import (
+    conversations_settings,
+    live_events,
+    marketing_config,
+    query_modifiers,
+    session_recording_settings,
+    settings_validation,
+    team_config,
 )
 
-from . import conversations_settings, live_events, marketing_config, settings_validation, team_config
-
 tracer = trace.get_tracer(__name__)
-
-
-def merge_modifiers(requested: dict | None, existing: object) -> dict | None:
-    # Django admin can store a scalar or list here. Treat it as empty rather than raising.
-    stored = existing if isinstance(existing, dict) else {}
-    if requested is not None:
-        return {**stored, **requested}
-    # PostHog staff set useNewEventsSchema per project, so a client that clears its modifiers keeps it.
-    if "useNewEventsSchema" in stored:
-        return {"useNewEventsSchema": stored["useNewEventsSchema"]}
-    return None
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
@@ -306,299 +292,35 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
-        if value is None:
-            return None
-
-        if not isinstance(value, dict):
-            raise exceptions.ValidationError("Must provide a dictionary or None.")
-        received_keys = value.keys()
-        valid_keys = [
-            {"id", "key"},
-            {"id", "key", "variant"},
-        ]
-        if received_keys not in valid_keys:
-            raise exceptions.ValidationError(
-                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
-            )
-
-        flag_id = settings_validation._replay_gate_flag_id(value["id"])
-        if flag_id is None:
-            raise exceptions.ValidationError("Must provide an integer 'id'.")
-        return {**value, "id": flag_id}
+        return session_recording_settings.validate_session_recording_linked_flag(value)
 
     @staticmethod
     def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:
-        if value not in ["all", "any", None]:
-            raise exceptions.ValidationError(
-                "Must provide a valid trigger match type. Only 'all' or 'any' or None are allowed."
-            )
-
-        return value
+        return session_recording_settings.validate_session_recording_trigger_match_type_config(value)
 
     @staticmethod
     def validate_session_recording_trigger_groups(value) -> dict | None:
-        """
-        Validate V2 trigger groups configuration.
-
-        Expected schema:
-        {
-            "version": 2,
-            "groups": [
-                {
-                    "id": "string",
-                    "name": "string" (optional),
-                    "sampleRate": 0.0-1.0,
-                    "minDurationMs": 0-30000 (optional),
-                    "conditions": {
-                        "matchType": "any" | "all",
-                        "events": ["event1", ...] (optional),
-                        "urls": [{"url": "regex", "matching": "regex"}] (optional),
-                        "flag": "flag-key" | {"id": 1, "key": "flag-key", "variant": "test"} (optional, single flag)
-                    }
-                }
-            ]
-        }
-        """
-        if value is None:
-            return None
-
-        if not isinstance(value, dict):
-            raise exceptions.ValidationError("Must provide a dictionary or None.")
-
-        # Validate version
-        if "version" not in value:
-            raise exceptions.ValidationError("Missing required field: 'version'.")
-
-        if value["version"] != 2:
-            raise exceptions.ValidationError(f"Invalid version: {value['version']}. Only version 2 is supported.")
-
-        # Validate groups array
-        if "groups" not in value:
-            raise exceptions.ValidationError("Missing required field: 'groups'.")
-
-        if not isinstance(value["groups"], list):
-            raise exceptions.ValidationError("Field 'groups' must be an array.")
-
-        # Validate each group
-        groups: list[dict[str, Any]] = []
-        for idx, group in enumerate(value["groups"]):
-            # Inline validation of each trigger group
-            if not isinstance(group, dict):
-                raise exceptions.ValidationError(f"Group {idx}: must be a dictionary.")
-
-            # Required fields
-            required_fields = ["id", "sampleRate", "conditions"]
-            for field in required_fields:
-                if field not in group:
-                    raise exceptions.ValidationError(f"Group {idx}: missing required field '{field}'.")
-
-            # Validate sampleRate
-            rate = group["sampleRate"]
-            if isinstance(rate, bool) or not isinstance(rate, (int, float)) or not (0 <= rate <= 1):
-                raise exceptions.ValidationError(
-                    f"Group {idx}: invalid sampleRate '{rate}'. Must be a number between 0 and 1."
-                )
-
-            # Validate minDurationMs if present
-            if "minDurationMs" in group:
-                min_duration = group["minDurationMs"]
-                if isinstance(min_duration, bool) or not isinstance(min_duration, int):
-                    raise exceptions.ValidationError(
-                        f"Group {idx}: 'minDurationMs' must be an integer, got {type(min_duration).__name__}."
-                    )
-                if min_duration < 0 or min_duration > 30000:
-                    raise exceptions.ValidationError(
-                        f"Group {idx}: 'minDurationMs' must be between 0 and 30000 (30 seconds). Got: {min_duration}."
-                    )
-
-            # Validate conditions
-            conditions = group["conditions"]
-            if not isinstance(conditions, dict):
-                raise exceptions.ValidationError(f"Group {idx}: field 'conditions' must be a dictionary.")
-
-            # Validate matchType
-            if "matchType" in conditions:
-                if conditions["matchType"] not in ["any", "all"]:
-                    raise exceptions.ValidationError(
-                        f"Group {idx}: invalid matchType '{conditions['matchType']}'. Must be 'any' or 'all'."
-                    )
-
-            # Validate events array if present
-            if "events" in conditions:
-                if not isinstance(conditions["events"], list):
-                    raise exceptions.ValidationError(f"Group {idx}: field 'events' must be an array.")
-                for event_idx, event in enumerate(conditions["events"]):
-                    if isinstance(event, str):
-                        pass  # Simple event name is valid
-                    elif isinstance(event, dict):
-                        if "name" not in event or not isinstance(event["name"], str):
-                            raise exceptions.ValidationError(
-                                f"Group {idx}: event {event_idx} object must have a string 'name' field."
-                            )
-                        if "properties" in event:
-                            settings_validation._validate_trigger_property_filters(
-                                event["properties"], f"Group {idx}, event '{event['name']}'"
-                            )
-                    else:
-                        raise exceptions.ValidationError(
-                            f"Group {idx}: event {event_idx} must be a string or object with 'name'."
-                        )
-
-            # Validate URLs array if present
-            if "urls" in conditions:
-                if not isinstance(conditions["urls"], list):
-                    raise exceptions.ValidationError(f"Group {idx}: field 'urls' must be an array.")
-                for url_config in conditions["urls"]:
-                    if not isinstance(url_config, dict):
-                        raise exceptions.ValidationError(f"Group {idx}: URL config must be a dictionary.")
-                    if "url" not in url_config or "matching" not in url_config:
-                        raise exceptions.ValidationError(
-                            f"Group {idx}: URL config must have 'url' and 'matching' fields."
-                        )
-                    if url_config["matching"] != "regex":
-                        raise exceptions.ValidationError(
-                            f"Group {idx}: URL matching must be 'regex'. Got: '{url_config['matching']}'."
-                        )
-                    # Validate regex pattern
-                    try:
-                        re.compile(url_config["url"])
-                    except re.error:
-                        raise exceptions.ValidationError(
-                            f"Group {idx}: invalid regex pattern in URL: '{url_config['url']}'."
-                        )
-
-            # Validate flag (single) if present
-            if "flag" in conditions:
-                flag_config = conditions["flag"]
-                if isinstance(flag_config, str):
-                    pass  # Simple flag key is valid
-                elif isinstance(flag_config, dict):
-                    # LinkedFeatureFlag object with id, key, and optional variant
-                    if "key" not in flag_config:
-                        raise exceptions.ValidationError(f"Group {idx}: flag object must have 'key' field.")
-                    if not isinstance(flag_config["key"], str):
-                        raise exceptions.ValidationError(f"Group {idx}: flag 'key' must be a string.")
-                    # id and variant are optional
-                    if "id" in flag_config:
-                        flag_id = settings_validation._replay_gate_flag_id(flag_config["id"])
-                        if flag_id is None:
-                            raise exceptions.ValidationError(f"Group {idx}: flag 'id' must be an integer.")
-                        group = {**group, "conditions": {**conditions, "flag": {**flag_config, "id": flag_id}}}
-                elif flag_config is not None:
-                    raise exceptions.ValidationError(
-                        f"Group {idx}: 'flag' must be a string (flag key), object (LinkedFeatureFlag), or null."
-                    )
-
-            # Validate group-level property filters (shared WHERE clause for all triggers in group)
-            if "properties" in conditions:
-                settings_validation._validate_trigger_property_filters(conditions["properties"], f"Group {idx}")
-
-            groups.append(group)
-
-        # Note: All matching groups are evaluated independently
-        # If any group's sample rate hits, the session is recorded (union behavior)
-
-        # Validate fallback sample rate if present
-        if "fallbackSampleRate" in value:
-            rate = value["fallbackSampleRate"]
-            if isinstance(rate, bool) or not isinstance(rate, (int, float)) or not (0 <= rate <= 1):
-                raise exceptions.ValidationError(
-                    f"Invalid fallbackSampleRate: {rate}. Must be a number between 0 and 1."
-                )
-
-        return {**value, "groups": groups}
+        return session_recording_settings.validate_session_recording_trigger_groups(value)
 
     @staticmethod
     def validate_session_recording_retention_period(value) -> Literal["30d", "90d", "1y", "5y"] | None:
-        if not validate_retention_period(value):
-            raise exceptions.ValidationError(
-                f"Must provide a valid retention period. Options are: {VALID_RETENTION_PERIODS}."
-            )
-
-        return value
+        return session_recording_settings.validate_session_recording_retention_period(value)
 
     @staticmethod
     def validate_session_recording_network_payload_capture_config(value) -> dict | None:
-        if value is None:
-            return None
-
-        if not isinstance(value, dict):
-            raise exceptions.ValidationError("Must provide a dictionary or None.")
-
-        if not all(key in ["recordHeaders", "recordBody"] for key in value.keys()):
-            raise exceptions.ValidationError(
-                "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys."
-            )
-
-        return value
+        return session_recording_settings.validate_session_recording_network_payload_capture_config(value)
 
     @staticmethod
     def validate_session_recording_masking_config(value) -> dict | None:
-        if value is None:
-            return None
-
-        if not isinstance(value, dict):
-            raise exceptions.ValidationError("Must provide a dictionary or None.")
-
-        allowed_keys = {"maskAllInputs", "maskTextSelector", "blockSelector"}
-
-        if not all(key in allowed_keys for key in value.keys()):
-            raise exceptions.ValidationError(
-                f"Must provide a dictionary with only known keys: {', '.join(allowed_keys)}."
-            )
-
-        if "maskAllInputs" in value:
-            if not isinstance(value["maskAllInputs"], bool):
-                raise exceptions.ValidationError("maskAllInputs must be a boolean.")
-
-        if "maskTextSelector" in value:
-            if not isinstance(value["maskTextSelector"], str):
-                raise exceptions.ValidationError("maskTextSelector must be a string.")
-
-        if "blockSelector" in value:
-            if not isinstance(value["blockSelector"], str):
-                raise exceptions.ValidationError("blockSelector must be a string.")
-
-        return value
+        return session_recording_settings.validate_session_recording_masking_config(value)
 
     @staticmethod
     def validate_session_replay_config(value) -> dict | None:
-        if value is None:
-            return None
-
-        if not isinstance(value, dict):
-            raise exceptions.ValidationError("Must provide a dictionary or None.")
-
-        known_keys = ["record_canvas", "ai_config"]
-        if not all(key in known_keys for key in value.keys()):
-            raise exceptions.ValidationError(
-                f"Must provide a dictionary with only known keys. One or more of {', '.join(known_keys)}."
-            )
-
-        if "ai_config" in value:
-            TeamSerializer.validate_session_replay_ai_summary_config(value["ai_config"])
-
-        return value
+        return session_recording_settings.validate_session_replay_config(value)
 
     @staticmethod
     def validate_session_replay_ai_summary_config(value: dict | None) -> dict | None:
-        if value is not None:
-            if not isinstance(value, dict):
-                raise exceptions.ValidationError("Must provide a dictionary or None.")
-
-            allowed_keys = [
-                "included_event_properties",
-                "opt_in",
-                "preferred_events",
-                "excluded_events",
-                "important_user_properties",
-            ]
-            if not all(key in allowed_keys for key in value.keys()):
-                raise exceptions.ValidationError(
-                    f"Must provide a dictionary with only allowed keys: {', '.join(allowed_keys)}."
-                )
-
-        return value
+        return session_recording_settings.validate_session_replay_ai_summary_config(value)
 
     def validate_access_control(self, value) -> None:
         """Validate that access_control field is not being used as it's deprecated."""
@@ -835,69 +557,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @staticmethod
     def validate_modifiers(value: dict | None) -> dict | None:
-        if value is None:
-            return value
-
-        if not isinstance(value, dict):
-            raise exceptions.ValidationError("Must provide a dictionary or None.")
-
-        # The native JSON events table is an internal rollout switch that PostHog staff set per project in Django
-        # admin. Dropping the key keeps a client from setting or clearing it, including a settings page that echoes
-        # the whole modifiers dict back.
-        value = {key: item for key, item in value.items() if key not in {"useNewEventsSchema", "useNewEventsCluster"}}
-
-        if "bounceRateDurationSeconds" in value:
-            bounce_rate = value["bounceRateDurationSeconds"]
-            if bounce_rate is not None:
-                if not isinstance(bounce_rate, (int, float)):
-                    raise exceptions.ValidationError({"bounceRateDurationSeconds": "Must be a number."})
-                if bounce_rate < 1 or bounce_rate > 120:
-                    raise exceptions.ValidationError(
-                        {"bounceRateDurationSeconds": "Must be between 1 and 120 seconds."}
-                    )
-
-        if "customBotDefinitions" in value and isinstance(value["customBotDefinitions"], list):
-            # Cap before parsing, so an oversized list is rejected without instantiating a model
-            # per entry.
-            if len(value["customBotDefinitions"]) > MAX_CUSTOM_BOT_DEFINITIONS:
-                raise exceptions.ValidationError(
-                    {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
-                )
-            # Strict, so a malformed rule is rejected with a specific error rather than the
-            # generic "Invalid modifier key.", and the stored list is normalized.
-            try:
-                parsed = parse_custom_bot_rules(value["customBotDefinitions"], strict=True)
-            except ValueError as error:
-                raise exceptions.ValidationError({"customBotDefinitions": str(error)})
-            value = {**value, "customBotDefinitions": [rule.model_dump(exclude_none=True) for rule in parsed]}
-
-        try:
-            modifiers = HogQLQueryModifiers(**value)
-        except Exception:
-            raise exceptions.ValidationError(f"Invalid modifier key.")
-
-        if "customBotDefinitions" in value:
-            rules = modifiers.customBotDefinitions or []
-            if len(rules) > MAX_CUSTOM_BOT_DEFINITIONS:
-                raise exceptions.ValidationError(
-                    {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
-                )
-            for rule in rules:
-                # An unusable pattern would break every query that reads $virt_is_bot for this
-                # project, so it is rejected here rather than dropped silently at query time.
-                try:
-                    validate_custom_bot_rule(rule)
-                except ValueError as error:
-                    # An empty name would render as an orphaned leading colon.
-                    message = f"{rule.name}: {error}" if rule.name else str(error)
-                    raise exceptions.ValidationError({"customBotDefinitions": message})
-            try:
-                validate_custom_bot_rule_set(rules)
-                assert_custom_bot_patterns_compile(compiled_custom_bot_patterns(rules))
-            except ValueError as error:
-                raise exceptions.ValidationError({"customBotDefinitions": str(error)})
-
-        return value
+        return query_modifiers.validate_modifiers(value)
 
     def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
         if not value or settings.DEBUG:
@@ -1053,7 +713,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data:
-            validated_data["modifiers"] = merge_modifiers(validated_data["modifiers"], instance.modifiers)
+            validated_data["modifiers"] = query_modifiers.merge_modifiers(
+                validated_data["modifiers"], instance.modifiers
+            )
 
         # Persist only the fields this request changes. A full-row save() writes back every
         # column from this request's snapshot of the team, so two concurrent PATCHes clobber

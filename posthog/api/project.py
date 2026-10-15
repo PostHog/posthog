@@ -29,6 +29,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin
 # expected to move project-side (or to a neutral module) in a later PR once /api/environments/ is retired —
 # project.py must NOT depend on the team API package at that point. The parity *logic* (config writes, retention check,
 # and the team-config actions) is defined locally below rather than imported, so it survives that removal.
+from posthog.api.team import query_modifiers, session_recording_settings
 from posthog.api.team.conversations_settings import (
     LOCKED_CONVERSATIONS_COLUMNS,
     ConversationsSettingsField,
@@ -65,7 +66,6 @@ from posthog.api.team.team_serializer import (
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
     TeamSerializer,
-    merge_modifiers,
 )
 from posthog.api.team.viewsets import EventIngestionRestrictionSerializer, team_event_ingestion_restrictions_view
 from posthog.api.utils import validate_authorized_url_wildcards
@@ -1108,27 +1108,27 @@ class ProjectBackwardCompatSerializer(
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
-        return TeamSerializer.validate_session_recording_linked_flag(value)
+        return session_recording_settings.validate_session_recording_linked_flag(value)
 
     @staticmethod
     def validate_session_recording_network_payload_capture_config(value) -> dict | None:
-        return TeamSerializer.validate_session_recording_network_payload_capture_config(value)
+        return session_recording_settings.validate_session_recording_network_payload_capture_config(value)
 
     @staticmethod
     def validate_session_recording_masking_config(value) -> dict | None:
-        return TeamSerializer.validate_session_recording_masking_config(value)
+        return session_recording_settings.validate_session_recording_masking_config(value)
 
     @staticmethod
     def validate_session_recording_trigger_groups(value) -> dict | None:
-        return TeamSerializer.validate_session_recording_trigger_groups(value)
+        return session_recording_settings.validate_session_recording_trigger_groups(value)
 
     @staticmethod
     def validate_session_replay_config(value) -> dict | None:
-        return TeamSerializer.validate_session_replay_config(value)
+        return session_recording_settings.validate_session_replay_config(value)
 
     @staticmethod
     def validate_session_replay_ai_summary_config(value: dict | None) -> dict | None:
-        return TeamSerializer.validate_session_replay_ai_summary_config(value)
+        return session_recording_settings.validate_session_replay_ai_summary_config(value)
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_receive_org_level_activity_logs(cast(TeamSerializer, self), value)
@@ -1138,7 +1138,7 @@ class ProjectBackwardCompatSerializer(
 
     @staticmethod
     def validate_modifiers(value: dict | None) -> dict | None:
-        return TeamSerializer.validate_modifiers(value)
+        return query_modifiers.validate_modifiers(value)
 
     @staticmethod
     def validate_test_account_filters(value: object) -> list[dict[str, object]]:
@@ -1376,7 +1376,7 @@ class ProjectBackwardCompatSerializer(
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data:
-            validated_data["modifiers"] = merge_modifiers(validated_data["modifiers"], team.modifiers)
+            validated_data["modifiers"] = query_modifiers.merge_modifiers(validated_data["modifiers"], team.modifiers)
 
         # Persist only the fields this request changes. A full-row save() writes back every
         # column from this request's snapshot of the team, so two concurrent PATCHes clobber
