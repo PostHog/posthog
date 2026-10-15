@@ -49,8 +49,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
     parse_ttl_schedule,
 )
-from products.engineering_analytics.backend.facade.contracts import STORED_READS_FEATURE_FLAG
-from products.engineering_analytics.backend.logic.feature_flags import team_flag
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     CI_LOOKBACK,
     JOB_FLOOR_SLACK_ON_RUN_STARTED,
@@ -257,7 +255,7 @@ def refresh_after_load(team: Team) -> None:
     """Store the days that a data load made out of date, for every repository of the team that syncs
     both runs and jobs, while the team is in use. A load that lands while a refresh of the team runs
     starts no second one, and neither does a load that lands soon after an insert failed."""
-    if not cache.get(_in_use_key(team)) or not team_flag(STORED_READS_FEATURE_FLAG, team):
+    if not cache.get(_in_use_key(team)):
         return
     running = f"engineering_analytics:ci_precompute_refresh:{team.pk}"
     if not cache.add(running, True, timeout=REFRESH_TASK_TIME_LIMIT_SECONDS):
@@ -296,8 +294,7 @@ def _refresh(team: Team) -> bool:
     for source in sources:
         for stored in (STORED_RUNS, STORED_JOBS):
             remaining = deadline - time.monotonic()
-            # The flag is checked before each table, so turning it off also stops a running refresh.
-            if remaining <= 0 or not team_flag(STORED_READS_FEATURE_FLAG, team):
+            if remaining <= 0:
                 return failed
             result = ensure_stored(
                 stored,

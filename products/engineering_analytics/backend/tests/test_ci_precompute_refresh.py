@@ -32,7 +32,6 @@ class TestRefreshAfterLoad(SimpleTestCase):
 
         with (
             patch(f"{_MODULE}.cache", LocMemCache(self.id(), {})),
-            patch(f"{_MODULE}.team_flag", return_value=True),
             patch(f"{_MODULE}.resolve_precompute_sources", return_value=[source]),
             patch(f"{_MODULE}.Database.create_for"),
             patch(f"{_MODULE}.create_default_modifiers_for_team"),
@@ -52,20 +51,16 @@ class TestRefreshAfterLoad(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("in_use", True, [True, True, True], 2),
-            ("not_read_within_the_hour", False, [True, True, True], 0),
-            ("flag_turned_off_mid_refresh", True, [True, True, False], 1),
+            ("in_use", True, 2),
+            ("not_read_within_the_hour", False, 0),
         ]
     )
-    def test_a_load_stores_days_only_while_the_team_is_read_and_flagged(
-        self, _name: str, in_use: bool, flag_values: list[bool], inserts: int
-    ) -> None:
+    def test_a_load_stores_days_only_while_the_team_is_read(self, _name: str, in_use: bool, inserts: int) -> None:
         team = SimpleNamespace(pk=1)
         source = SimpleNamespace(source_id="source", repository="posthog/posthog")
 
         with (
             patch(f"{_MODULE}.cache", LocMemCache(self.id(), {})),
-            patch(f"{_MODULE}.team_flag", side_effect=flag_values),
             patch(f"{_MODULE}.resolve_precompute_sources", return_value=[source]),
             patch(f"{_MODULE}.Database.create_for"),
             patch(f"{_MODULE}.create_default_modifiers_for_team"),
