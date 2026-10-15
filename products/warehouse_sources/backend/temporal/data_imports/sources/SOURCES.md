@@ -538,6 +538,7 @@ the row lists both.
 | matomo                           | HTTP                        | requests                                                        | ✅                          |
 | maxio                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | medusa                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| megaphone                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | membrain                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mention                          | HTTP                        | requests                                                        | ✅                          |
 | mercado_pago                     | HTTP                        | requests                                                        | ✅                          |

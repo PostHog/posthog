@@ -1840,6 +1840,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `LoopReturns` - LoopReturns
  * * `Mastodon` - Mastodon
  * * `Meetup` - Meetup
+ * * `Megaphone` - Megaphone
  * * `Memberful` - Memberful
  * * `MercadoPago` - MercadoPago
  * * `Meteostat` - Meteostat
@@ -3227,6 +3228,7 @@ export const ExternalDataSourceTypeEnumApi = {
     LoopReturns: 'LoopReturns',
     Mastodon: 'Mastodon',
     Meetup: 'Meetup',
+    Megaphone: 'Megaphone',
     Memberful: 'Memberful',
     MercadoPago: 'MercadoPago',
     Meteostat: 'Meteostat',
@@ -4756,6 +4758,7 @@ export interface ExternalDataSourceCreateApi {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -6650,6 +6653,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -8117,6 +8121,7 @@ export interface DatabaseSchemaRequestApi {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -9508,6 +9513,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -10953,6 +10959,7 @@ export interface SourcePreviewRequestApi {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -12379,6 +12386,7 @@ export interface SourceSetupApi {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -13812,6 +13820,7 @@ export interface SourceCredentialCreateApi {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
