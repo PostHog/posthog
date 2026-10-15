@@ -468,10 +468,11 @@ impl MergeOpExecutor {
         let engine = self.engine.clone();
         let driver = self.driver.clone();
         let frozen = frozen.clone();
-        let terminal = engine.wait_for_lease_lapse(op_id).await;
+        let deadline = engine.execute_deadline();
+        let terminal = engine.wait_for_lease_lapse(op_id, deadline).await;
         let drive = async move {
             engine
-                .execute(driver.as_ref(), op_id, team_id, &frozen)
+                .execute_by(driver.as_ref(), op_id, team_id, &frozen, deadline)
                 .await
                 .inspect_err(|err| {
                     if matches!(err, SagaError::Db(_) | SagaError::CorruptState(_)) {

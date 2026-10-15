@@ -287,13 +287,32 @@ impl Engine {
         team_id: i64,
         request: &Value,
     ) -> Result<OpRow, SagaError> {
-        self.create_or_attach(driver, op_id, team_id, request)
-            .await?;
-        self.drive(driver, op_id, true).await
+        self.execute_by(driver, op_id, team_id, request, self.execute_deadline())
+            .await
     }
 
-    pub async fn wait_for_lease_lapse(&self, op_id: Uuid) -> Result<bool, SagaError> {
-        let deadline = tokio::time::Instant::now() + self.config.execute_timeout;
+    pub fn execute_deadline(&self) -> tokio::time::Instant {
+        tokio::time::Instant::now() + self.config.execute_timeout
+    }
+
+    pub async fn execute_by(
+        &self,
+        driver: &dyn OpDriver,
+        op_id: Uuid,
+        team_id: i64,
+        request: &Value,
+        deadline: tokio::time::Instant,
+    ) -> Result<OpRow, SagaError> {
+        self.create_or_attach(driver, op_id, team_id, request)
+            .await?;
+        self.drive(driver, op_id, true, deadline).await
+    }
+
+    pub async fn wait_for_lease_lapse(
+        &self,
+        op_id: Uuid,
+        deadline: tokio::time::Instant,
+    ) -> Result<bool, SagaError> {
         loop {
             let Some(row) = self.load(op_id).await? else {
                 return Ok(false);
@@ -402,7 +421,8 @@ impl Engine {
     /// sweeper a live lease means "not abandoned", so this bails with `Busy`
     /// instead of polling out the execute timeout.
     pub async fn resume(&self, driver: &dyn OpDriver, op_id: Uuid) -> Result<OpRow, SagaError> {
-        self.drive(driver, op_id, false).await
+        self.drive(driver, op_id, false, self.execute_deadline())
+            .await
     }
 
     async fn drive(
@@ -410,9 +430,9 @@ impl Engine {
         driver: &dyn OpDriver,
         op_id: Uuid,
         wait_for_lease: bool,
+        deadline: tokio::time::Instant,
     ) -> Result<OpRow, SagaError> {
         let drive_start = tokio::time::Instant::now();
-        let deadline = drive_start + self.config.execute_timeout;
         // The attempt number returned by our claim, used as a fencing token:
         // renew/release only touch the lease while `attempt` still matches,
         // so a driver whose lease was stolen (the stealer bumped `attempt`)

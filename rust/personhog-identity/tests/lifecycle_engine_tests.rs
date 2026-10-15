@@ -1216,7 +1216,7 @@ async fn waiting_for_a_lease_lapse_returns_at_once_for_a_missing_or_finished_op(
 
     let missing = Uuid::now_v7();
     assert!(!engine
-        .wait_for_lease_lapse(missing)
+        .wait_for_lease_lapse(missing, engine.execute_deadline())
         .await
         .expect("a missing op is claimable"));
 
@@ -1226,7 +1226,7 @@ async fn waiting_for_a_lease_lapse_returns_at_once_for_a_missing_or_finished_op(
         .await
         .expect("drive to completion");
     assert!(engine
-        .wait_for_lease_lapse(finished)
+        .wait_for_lease_lapse(finished, engine.execute_deadline())
         .await
         .expect("a finished op is reported terminal"));
 
@@ -1252,7 +1252,7 @@ async fn waiting_for_a_lease_lapse_polls_until_it_lapses_and_gives_up_at_the_dea
     insert_leased_op(&ctx, lapsing, "now() + interval '150 milliseconds'").await;
     let started = std::time::Instant::now();
     assert!(!short_engine
-        .wait_for_lease_lapse(lapsing)
+        .wait_for_lease_lapse(lapsing, short_engine.execute_deadline())
         .await
         .expect("the lease lapses"));
     assert!(started.elapsed() >= std::time::Duration::from_millis(100));
@@ -1260,10 +1260,49 @@ async fn waiting_for_a_lease_lapse_polls_until_it_lapses_and_gives_up_at_the_dea
     let held = Uuid::now_v7();
     insert_leased_op(&ctx, held, "now() + interval '1 hour'").await;
     let err = short_engine
-        .wait_for_lease_lapse(held)
+        .wait_for_lease_lapse(held, short_engine.execute_deadline())
         .await
         .expect_err("a lease held past the deadline is reported as busy");
     assert!(matches!(err, SagaError::Busy));
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_shared_deadline_bounds_the_lease_wait_and_the_drive_together() {
+    let ctx = TestContext::new().await;
+    let engine = personhog_identity::lifecycle::engine::Engine::new(
+        ctx.pools.clone(),
+        personhog_identity::lifecycle::engine::EngineConfig {
+            lease: std::time::Duration::from_secs(5),
+            execute_timeout: std::time::Duration::from_millis(200),
+            poll_interval: std::time::Duration::from_millis(10),
+            attempt_alert_threshold: 5,
+            gc_batch_limit: 10_000,
+        },
+        ctx.tables.clone(),
+    );
+    let driver = DummyDriver::paced(std::time::Duration::from_millis(100));
+    let op_id = Uuid::now_v7();
+    insert_leased_op(&ctx, op_id, "now() + interval '150 milliseconds'").await;
+
+    let started = std::time::Instant::now();
+    let deadline = engine.execute_deadline();
+    assert!(!engine
+        .wait_for_lease_lapse(op_id, deadline)
+        .await
+        .expect("the lease lapses inside the budget"));
+    let err = engine
+        .execute_by(&driver, op_id, ctx.team_id, &json!({}), deadline)
+        .await
+        .expect_err("the drive inherits what is left of the budget");
+    assert!(matches!(err, SagaError::DeadlineElapsed));
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(400),
+        "the two phases shared one budget instead of taking one each"
+    );
+    let (_, _, _, completed) = op_row(&ctx, op_id).await;
+    assert!(!completed);
 
     ctx.cleanup().await.expect("cleanup");
 }
