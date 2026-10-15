@@ -1,25 +1,25 @@
 import { LemonButton } from '@posthog/lemon-ui'
 
-import type { SpanNode } from 'products/tracing/frontend/spanTree'
-
-import { INDENT_PX, MAX_INDENT_DEPTH } from './TraceDialogSpanRow'
+import type { TraceDialogRow } from './traceDialogRows'
+import { indentPx, TraceDialogTreeLines } from './TraceDialogTreeLines'
 
 export interface TraceDialogMoreSpansRowProps {
-    parent: SpanNode
-    hiddenCount: number
+    row: Extract<TraceDialogRow, { kind: 'more' }>
     onShowAll: (spanId: string) => void
 }
 
-export function TraceDialogMoreSpansRow({ parent, hiddenCount, onShowAll }: TraceDialogMoreSpansRowProps): JSX.Element {
+export function TraceDialogMoreSpansRow({ row, onShowAll }: TraceDialogMoreSpansRowProps): JSX.Element {
+    const { parent, hiddenCount } = row
     return (
         <div className="flex items-center w-full h-full gap-2 text-xs text-muted border-l-[3px] border-l-transparent">
             <span className="w-16 shrink-0" aria-hidden />
             <span
-                className="flex items-center gap-2"
+                className="relative self-stretch w-96 shrink-0 flex items-center gap-2"
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{ paddingLeft: Math.min(parent.depth + 1, MAX_INDENT_DEPTH) * INDENT_PX }}
+                style={{ paddingLeft: indentPx(row.depth) + 22 }}
             >
-                <span>
+                <TraceDialogTreeLines row={row} />
+                <span className="relative">
                     {hiddenCount.toLocaleString()} more {hiddenCount === 1 ? 'span' : 'spans'}
                 </span>
                 <LemonButton
