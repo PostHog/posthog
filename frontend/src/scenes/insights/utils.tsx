@@ -13,6 +13,8 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
+import { queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
+import { isWarehouseSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -22,6 +24,7 @@ import { examples } from '~/queries/examples'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
+    ExperimentDataWarehouseNode,
     BreakdownFilter,
     DashboardFilter,
     FileSystemIconType,
@@ -41,11 +44,13 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
+    isBIVisualizationNode,
     isDataTableNode,
-    isAnyDataWarehouseNode,
     isEventsNode,
     isGroupNode,
+    isHogQLQuery,
     isInsightVizNode,
+    isNodeWithSource,
 } from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -119,7 +124,7 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export const getDisplayNameFromEntityNode = (
-    node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
+    node: AnyEntityNode<AnyDataWarehouseNode | ExperimentDataWarehouseNode> | GroupNode,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
@@ -141,7 +146,7 @@ export const getDisplayNameFromEntityNode = (
         name = 'All events'
     }
 
-    const id = isAnyDataWarehouseNode(node)
+    const id = isWarehouseSeriesNode(node)
         ? node.table_name
         : isEventsNode(node)
           ? node.event
@@ -308,7 +313,16 @@ function formatNumericBreakdownLabel(
         return BREAKDOWN_NULL_DISPLAY
     }
 
-    if (formatPropertyValueForDisplay) {
+    const breakdownType = (
+        typeof multipleBreakdownIndex === 'number'
+            ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]?.type
+            : breakdownFilter?.breakdown_type
+    ) as string | undefined
+
+    // Element breakdown values (tag_name, text, href) have no matching property definition — the type
+    // falls back to Event, so a same-named DateTime/Duration event property would otherwise reformat
+    // a numeric-looking element value into a date or duration.
+    if (formatPropertyValueForDisplay && breakdownType !== 'element') {
         const nestedBreakdown =
             typeof multipleBreakdownIndex === 'number'
                 ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]
@@ -519,6 +533,7 @@ export const INSIGHT_TYPE_URLS: Record<InsightType | string, string> = {
     [InsightType.PATHS]: urls.insightNew({ type: InsightType.PATHS }),
     [InsightType.JOURNEYS]: urls.insightNew({ type: InsightType.JOURNEYS }),
     [InsightType.WEB_ANALYTICS]: urls.insightNew({ type: InsightType.WEB_ANALYTICS }),
+    [InsightType.METRICS]: urls.insightNew({ type: InsightType.METRICS }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
     SQL: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery)['query'] }),
@@ -858,6 +873,9 @@ export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
 }
 
 export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
+    if (isBIVisualizationNode(query)) {
+        return 'business_intelligence'
+    }
     if (!query?.kind) {
         return 'product_analytics'
     }
@@ -889,13 +907,27 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
 }
 
 export const getOverrideWarningPropsForButton = (
+    query: Node | null | undefined,
     filtersOverride: DashboardFilter | null | undefined,
     variablesOverride: Record<string, HogQLVariable> | null | undefined
 ): Pick<LemonButtonProps, 'icon' | 'tooltip'> => {
+    // The backend applies dashboard filters to a SQL query only through a {filters} placeholder, and
+    // dashboard variables only to the variables the query declares. Other overrides do not change
+    // the result, so editing discards nothing.
+    const hogQLSource = isHogQLQuery(query)
+        ? query
+        : isNodeWithSource(query) && isHogQLQuery(query.source)
+          ? query.source
+          : null
     const filterOverridesExist =
         isObject(filtersOverride) &&
-        Object.values(filtersOverride).some((value) => value !== null && (!Array.isArray(value) || value.length > 0))
-    const variableOverridesExist = isObject(variablesOverride) && !isEmptyObject(variablesOverride)
+        Object.values(filtersOverride).some((value) => value !== null && (!Array.isArray(value) || value.length > 0)) &&
+        (!hogQLSource || queryUsesFiltersPlaceholder(hogQLSource.query))
+    const variableOverridesExist =
+        isObject(variablesOverride) &&
+        (hogQLSource
+            ? Object.keys(variablesOverride).some((variableId) => !!hogQLSource.variables?.[variableId])
+            : !isEmptyObject(variablesOverride))
 
     const overrideType =
         filterOverridesExist && variableOverridesExist ? 'overrides' : filterOverridesExist ? 'filters' : 'variables'

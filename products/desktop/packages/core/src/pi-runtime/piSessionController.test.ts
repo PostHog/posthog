@@ -1222,6 +1222,7 @@ describe("PiSessionController", () => {
     });
     vi.mocked(session.client.prompt).mockImplementation(async () => {
       await pending;
+      return "started";
     });
     const controller = createController(session);
 

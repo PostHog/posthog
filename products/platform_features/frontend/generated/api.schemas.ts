@@ -42,6 +42,34 @@ export const OrganizationPluginsAccessLevelEnumApi = {
     Number9: 9,
 } as const
 
+/**
+ * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
+ * Also used for nested serializers.
+ */
+export interface OrganizationTeamBasicApi {
+    readonly id: number
+    readonly uuid: string
+    readonly organization: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    readonly project_id: number
+    readonly api_token: string
+    readonly name: string
+    readonly completed_snippet_onboarding: boolean
+    readonly has_completed_onboarding_for: unknown
+    readonly ingested_event: boolean
+    readonly is_demo: boolean
+    readonly timezone: string
+    readonly access_control: boolean
+    /**
+     * The project group shown in the organization project switcher, or null if it has no group.
+     * @nullable
+     */
+    readonly project_group: string | null
+}
+
 export interface OrganizationMemberNoticeActionApi {
     /**
      * Text on the button shown next to the notice.
@@ -65,8 +93,6 @@ export interface OrganizationMemberNoticeApi {
     action?: OrganizationMemberNoticeActionApi | null
 }
 
-export type OrganizationApiTeamsItem = { [key: string]: unknown }
-
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type OrganizationApiMetadata = { [key: string]: string }
@@ -82,8 +108,13 @@ export interface OrganizationApi {
     readonly created_at: string
     readonly updated_at: string
     readonly membership_level: OrganizationMembershipLevelEnumApi
+    /**
+     * When the requesting user joined this organization. Null if the user is not a member.
+     * @nullable
+     */
+    readonly membership_joined_at: string | null
     readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
-    readonly teams: readonly OrganizationApiTeamsItem[]
+    readonly teams: readonly OrganizationTeamBasicApi[]
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features: readonly unknown[] | null
@@ -175,8 +206,6 @@ export interface PaginatedOrganizationListApi {
     results: OrganizationApi[]
 }
 
-export type PatchedOrganizationApiTeamsItem = { [key: string]: unknown }
-
 export type PatchedOrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type PatchedOrganizationApiMetadata = { [key: string]: string }
@@ -192,8 +221,13 @@ export interface PatchedOrganizationApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly membership_level?: OrganizationMembershipLevelEnumApi
+    /**
+     * When the requesting user joined this organization. Null if the user is not a member.
+     * @nullable
+     */
+    readonly membership_joined_at?: string | null
     readonly plugins_access_level?: OrganizationPluginsAccessLevelEnumApi
-    readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
+    readonly teams?: readonly OrganizationTeamBasicApi[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features?: readonly unknown[] | null
@@ -1359,6 +1393,7 @@ export type ActivityLogListParams = {
      * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
      *
      * * `Cohort` - Cohort
+     * * `CrossProjectDashboard` - CrossProjectDashboard
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -1433,6 +1468,8 @@ export type ActivityLogListParams = {
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `KnowledgeSource` - KnowledgeSource
+     * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
@@ -1442,9 +1479,13 @@ export type ActivityLogListParams = {
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
+     * * `WarehouseSuggestion` - WarehouseSuggestion
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
+     * * `ReviewRepository` - ReviewRepository
+     * * `ReviewProjectSettings` - ReviewProjectSettings
+     * * `ReviewInstallationClaim` - ReviewInstallationClaim
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1462,6 +1503,7 @@ export type ActivityLogListScope = (typeof ActivityLogListScope)[keyof typeof Ac
 
 export const ActivityLogListScope = {
     Cohort: 'Cohort',
+    CrossProjectDashboard: 'CrossProjectDashboard',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1536,6 +1578,8 @@ export const ActivityLogListScope = {
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    KnowledgeSource: 'KnowledgeSource',
+    KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
@@ -1545,13 +1589,18 @@ export const ActivityLogListScope = {
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
     DataQualityCheckSchedule: 'DataQualityCheckSchedule',
+    WarehouseSuggestion: 'WarehouseSuggestion',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
+    ReviewRepository: 'ReviewRepository',
+    ReviewProjectSettings: 'ReviewProjectSettings',
+    ReviewInstallationClaim: 'ReviewInstallationClaim',
 } as const
 
 /**
  * * `Cohort` - Cohort
+ * * `CrossProjectDashboard` - CrossProjectDashboard
  * * `FeatureFlag` - FeatureFlag
  * * `Person` - Person
  * * `Group` - Group
@@ -1626,6 +1675,8 @@ export const ActivityLogListScope = {
  * * `DashboardWidget` - DashboardWidget
  * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
+ * * `KnowledgeSource` - KnowledgeSource
+ * * `KnowledgeLibrary` - KnowledgeLibrary
  * * `InstanceSetting` - InstanceSetting
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
@@ -1635,14 +1686,19 @@ export const ActivityLogListScope = {
  * * `TableCertification` - TableCertification
  * * `DataQualityCheck` - DataQualityCheck
  * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
+ * * `WarehouseSuggestion` - WarehouseSuggestion
  * * `Billing` - Billing
  * * `Loop` - Loop
  * * `StamphogRepoConfig` - StamphogRepoConfig
+ * * `ReviewRepository` - ReviewRepository
+ * * `ReviewProjectSettings` - ReviewProjectSettings
+ * * `ReviewInstallationClaim` - ReviewInstallationClaim
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
 export const ActivityLogListScopesItem = {
     Cohort: 'Cohort',
+    CrossProjectDashboard: 'CrossProjectDashboard',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1717,6 +1773,8 @@ export const ActivityLogListScopesItem = {
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    KnowledgeSource: 'KnowledgeSource',
+    KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
@@ -1726,9 +1784,13 @@ export const ActivityLogListScopesItem = {
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
     DataQualityCheckSchedule: 'DataQualityCheckSchedule',
+    WarehouseSuggestion: 'WarehouseSuggestion',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
+    ReviewRepository: 'ReviewRepository',
+    ReviewProjectSettings: 'ReviewProjectSettings',
+    ReviewInstallationClaim: 'ReviewInstallationClaim',
 } as const
 
 export type AdvancedActivityLogsListParams = {

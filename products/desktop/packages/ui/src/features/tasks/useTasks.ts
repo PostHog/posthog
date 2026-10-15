@@ -24,20 +24,36 @@ export function useTasks(
     repository?: string;
     showAllUsers?: boolean;
     showInternal?: boolean;
+    sources?: readonly string[];
+    limit?: number;
+    ordering?: "-last_activity_at" | "-created_at";
   },
   options?: { enabled?: boolean; subscribed?: boolean },
 ) {
   const { data: currentUser } = useMeQuery();
   const createdBy = filters?.showAllUsers ? undefined : currentUser?.id;
   const internal = filters?.showInternal ? true : undefined;
+  const sources = filters?.sources?.length
+    ? [...filters.sources].sort()
+    : undefined;
 
   return useAuthenticatedQuery(
-    taskKeys.list({ repository: filters?.repository, createdBy, internal }),
+    taskKeys.list({
+      repository: filters?.repository,
+      createdBy,
+      internal,
+      sources,
+      limit: filters?.limit,
+      ordering: filters?.ordering,
+    }),
     (client) =>
       client.getTasks({
         repository: filters?.repository,
         createdBy,
         internal,
+        sources,
+        limit: filters?.limit,
+        ordering: filters?.ordering,
         // The sidebar and every other full-list consumer narrow the task before use
         // and never read its description, so ask for the basic payload without it.
         basic: true,
@@ -47,6 +63,25 @@ export function useTasks(
       subscribed: options?.subscribed,
       refetchInterval: TASK_LIST_POLL_INTERVAL_MS,
     },
+  );
+}
+
+// A pin can be on any task the user can see, also one older than the recent list reaches. The
+// server cuts each page at 100 rows, so this reads every page to keep every pin. It polls like the
+// other task lists: a pin on another user's task, or from a source the work list hides, has no
+// other path to a fresh status. It goes stale as fast as the pin IDs in usePinnedTasks, so a
+// window focus reloads both and a pin made on another device shows up.
+export function usePinnedTaskRecords() {
+  return useAuthenticatedQuery(
+    taskKeys.list({ pinned: true }),
+    async (client) =>
+      (
+        await client.getTasksWithStatus(
+          { pinned: true, basic: true },
+          { fetchAll: true },
+        )
+      ).tasks as unknown as Task[],
+    { staleTime: 30_000, refetchInterval: TASK_LIST_POLL_INTERVAL_MS },
   );
 }
 

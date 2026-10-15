@@ -28,7 +28,11 @@ from products.tasks.backend.temporal.babysit_pr.prompts import (
 )
 from products.tasks.backend.temporal.babysit_pr.snapshot import AttentionSet, BabysitJournal, PRSnapshot
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
-from products.tasks.backend.temporal.metrics import increment_pr_babysit_decision
+from products.tasks.backend.temporal.metrics import (
+    increment_pr_babysit_decision,
+    record_agent_boot_milestone_ms,
+    sandbox_runtime_label,
+)
 from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
 from products.tasks.backend.temporal.process_task.activities.get_pr_babysit_snapshot import (
     GetPrBabysitSnapshotInput,
@@ -156,6 +160,7 @@ _PATCH_ID_CANCEL_SANDBOX_CREATION_ON_COMPLETION = "tasks-cancel-sandbox-creation
 _PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE = "tasks-continue-after-repository-clone-failure"
 _PATCH_ID_ASYNC_AGENT_SHADOW_RESULT = "tasks-async-agent-shadow-result"
 _PATCH_ID_AGENT_BOOT_INTERACTION_TELEMETRY = "tasks-agent-boot-interaction-telemetry"
+_PATCH_ID_SHARED_STARTUP_TIMING = "tasks-shared-startup-timing"
 
 
 class _TaskCompletedDuringSandboxCreation(Exception):
@@ -615,6 +620,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._boot_path: str | None = None
         self._image_source: str | None = None
         self._agent_ready_at: datetime | None = None
+        self._startup_worker_started_at: datetime | None = None
+        self._startup_context_loaded_at: datetime | None = None
+        # Milestones the agent hits before readiness is stamped, sampled once it is.
+        self._boot_milestones_before_ready: list[tuple[str, datetime]] = []
         self._boot_telemetry_tasks: list[asyncio.Task[None]] = []
         self._progress_chain: asyncio.Task[None] | None = None
         self._slack_setup_chain: asyncio.Task[None] | None = None
@@ -1293,6 +1302,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
+        if (
+            input.resumed_sandbox is None
+            and workflow.in_workflow()
+            and workflow.patched(_PATCH_ID_SHARED_STARTUP_TIMING)
+        ):
+            self._startup_worker_started_at = workflow.now()
         sandbox_id = None
         sandbox_cleaned = False
         run_stream_completed = False
@@ -1312,6 +1327,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         try:
             self._context = await self._get_task_processing_context(input)
+            if self._startup_worker_started_at is not None:
+                self._startup_context_loaded_at = workflow.now()
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
             # A local-environment run is driven by the user's desktop agent — QUEUED does not
             # mean "awaiting a cloud workflow". Executing it here would boot a sandbox the repo
@@ -1876,8 +1893,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "task_id": self.context.task_id,
                 "repository": self.context.repository,
                 "team_id": self.context.team_id,
-                "loop_id": self.context.loop_id,
-                "loop_trigger_id": self.context.loop_trigger_id,
             },
         )
 
@@ -1918,6 +1933,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             agent_server_output = await self._start_agent_server(sandbox_output, boot_excluded_ms=wizard_ms)
         self._agent_shadow_launched = bool(sandbox_output.agent_shadow_launched or agent_server_output.shadow_launched)
         self._agent_ready_at = workflow.now() if self._agent_boot_interaction_telemetry_enabled else None
+        self._flush_boot_milestones_before_ready()
         await self._emit_progress("agent", "completed", "Agent ready", "setup", wait=False)
 
         await self._track_workflow_event(
@@ -1962,8 +1978,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "agent_session_dependencies_ms": agent_server_output.boot_phases_ms.get("session_dependencies"),
                 "agent_session_create_ms": agent_server_output.boot_phases_ms.get("session_create"),
                 "agent_shadow_launched": self._agent_shadow_launched,
-                "loop_id": self.context.loop_id,
-                "loop_trigger_id": self.context.loop_trigger_id,
             },
         )
         return sandbox_id, agent_server_output.sandbox_url, agent_server_output.connect_token
@@ -2744,10 +2758,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "organization": self.context.organization_id,
                 "project": self.context.team_uuid,
             },
-            capture_analytics=capture_analytics
-            and not bool(
-                (self.context.state or {}).get("scout_trial") or (self.context.state or {}).get("scout_trial_judge")
-            ),
+            capture_analytics=capture_analytics,
         )
         await workflow.execute_activity(
             track_workflow_event,
@@ -2758,15 +2769,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     def _schedule_boot_milestone(self, event_name: str) -> None:
         now = workflow.now()
+        since_agent_ready_ms = (
+            max(0, int((now - self._agent_ready_at).total_seconds() * 1000)) if self._agent_ready_at else None
+        )
+        runtime = sandbox_runtime_label(self.context.use_modal_vm_sandbox)
         properties = {
             "run_id": self.context.run_id,
             "task_id": self.context.task_id,
             "sandbox_id": self._sandbox_id_for_cleanup,
             "elapsed_ms": max(0, int((now - self._chain_start_time()).total_seconds() * 1000)),
-            "since_agent_ready_ms": (
-                max(0, int((now - self._agent_ready_at).total_seconds() * 1000)) if self._agent_ready_at else None
-            ),
+            "since_agent_ready_ms": since_agent_ready_ms,
             "boot_path": self._boot_path,
+            "runtime": runtime,
             "image_source": self._image_source,
             "origin_product": self.context.origin_product,
             "mode": self.context.mode,
@@ -2777,18 +2791,80 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             "transport": "sequenced_ingest" if self.context.sandbox_event_ingest_enabled else "sse",
             "prewarmed": self._prewarmed,
         }
+        if self._startup_worker_started_at is not None:
+            properties.update(
+                {
+                    "observed_at": now.isoformat(),
+                    "workflow_accepted_at": workflow.info().start_time.isoformat(),
+                    "worker_started_at": self._startup_worker_started_at.isoformat(),
+                    "context_loaded_at": self._startup_context_loaded_at.isoformat()
+                    if self._startup_context_loaded_at
+                    else None,
+                    "startup_requested_at": (self.context.state or {}).get("startup_requested_at"),
+                    "run_environment": self.context.environment,
+                    "agent_ready_at": self._agent_ready_at.isoformat() if self._agent_ready_at else None,
+                }
+            )
+            requested_at = properties["startup_requested_at"]
+            if isinstance(requested_at, str) and not is_same_run_resume_state(self.context.state or {}):
+                try:
+                    requested = datetime.fromisoformat(requested_at)
+                    if requested.tzinfo is not None and requested <= now:
+                        properties["since_startup_requested_ms"] = int((now - requested).total_seconds() * 1000)
+                        properties["handoff_ms"] = max(
+                            0, int((workflow.info().start_time - requested).total_seconds() * 1000)
+                        )
+                except ValueError:
+                    pass
+            properties["worker_wait_ms"] = max(
+                0, int((self._startup_worker_started_at - workflow.info().start_time).total_seconds() * 1000)
+            )
+            if self._startup_context_loaded_at is not None:
+                properties["task_setup_ms"] = max(
+                    0, int((self._startup_context_loaded_at - self._startup_worker_started_at).total_seconds() * 1000)
+                )
+        if since_agent_ready_ms is not None:
+            self._record_boot_milestone_sample(event_name, since_agent_ready_ms)
+        else:
+            # A non-interactive agent can start its first turn before the readiness
+            # activity returns; the sample is taken once readiness is stamped.
+            self._boot_milestones_before_ready.append((event_name, now))
         task = asyncio.create_task(self._track_boot_milestone(event_name, properties))
         self._boot_telemetry_tasks.append(task)
         task.add_done_callback(self._boot_telemetry_tasks.remove)
 
+    def _record_boot_milestone_sample(self, event_name: str, since_agent_ready_ms: int) -> None:
+        record_agent_boot_milestone_ms(
+            since_agent_ready_ms,
+            milestone=event_name,
+            origin_product=self.context.origin_product,
+            boot_path=self._boot_path,
+            runtime=sandbox_runtime_label(self.context.use_modal_vm_sandbox),
+            sandbox_backend=self.context.sandbox_backend,
+            runtime_adapter=self.context.runtime_adapter,
+            prewarmed=self._prewarmed,
+        )
+
+    def _flush_boot_milestones_before_ready(self) -> None:
+        if self._agent_ready_at is None:
+            return
+        for event_name, observed_at in self._boot_milestones_before_ready:
+            since_agent_ready_ms = max(0, int((observed_at - self._agent_ready_at).total_seconds() * 1000))
+            self._record_boot_milestone_sample(event_name, since_agent_ready_ms)
+        self._boot_milestones_before_ready.clear()
+
     def _record_first_command_dispatched(self) -> None:
         if self._first_command_dispatched_recorded or not self._agent_boot_interaction_telemetry_enabled:
+            return
+        if self._context is None:
             return
         self._first_command_dispatched_recorded = True
         self._schedule_boot_milestone("agent_first_command_dispatched")
 
     def _record_first_agent_activity(self) -> None:
         if self._first_agent_activity_recorded or not self._agent_boot_interaction_telemetry_enabled:
+            return
+        if self._context is None:
             return
         self._first_agent_activity_recorded = True
         self._schedule_boot_milestone("agent_first_activity_observed")

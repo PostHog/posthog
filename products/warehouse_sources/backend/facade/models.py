@@ -12,6 +12,7 @@ at ``django.setup()``.
 Consumers that only read fields should use ``facade.api`` (contracts) instead.
 """
 
+from products.warehouse_sources.backend.facade.contracts import UnsupportedSyncTypeError
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.credential import (
@@ -37,9 +38,11 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEMA_RESOURCE_ID_METADATA_KEY,
     ExternalDataSchema,
     auto_enable_new_schemas,
+    discovered_schema_finder,
     get_all_schemas_for_source_id,
     get_schemas_for_direct_reconciliation,
     mark_schema_running_unless_halted,
+    resolve_sync_type,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
@@ -106,6 +109,7 @@ __all__ = [
     "acreate_datawarehousetable",
     "asave_datawarehousetable",
     "auto_enable_new_schemas",
+    "discovered_schema_finder",
     "create_datawarehousetable",
     "get_all_schemas_for_source_id",
     "get_schemas_for_direct_reconciliation",
@@ -135,6 +139,8 @@ __all__ = [
     "update_should_sync",
     "mark_schema_running_unless_halted",
     "update_sync_type_config_keys",
+    "UnsupportedSyncTypeError",
+    "resolve_sync_type",
     "CDC_SNAPSHOT_LANE_KEY",
     "validate_source_prefix",
     "validate_warehouse_table_url_pattern",

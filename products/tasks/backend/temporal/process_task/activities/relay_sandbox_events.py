@@ -20,6 +20,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import agent_plan_steps, phase_for_tool_call, tool_call_from_acp_update
+from products.tasks.backend.facade.api import record_run_failure_cause
 from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
 from products.tasks.backend.logic.services.agent_command import (
     is_hogland_sandbox_url,
@@ -559,6 +560,7 @@ async def _relay_loop(
                                         # A pi runtime error ends the turn but is not a
                                         # successful completion — fail the run outright rather
                                         # than reporting the turn as answered.
+                                        await asyncio.to_thread(record_run_failure_cause, run_id, "pi_runtime_error")
                                         await _signal_safely(
                                             workflow_handle, "complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE]
                                         )

@@ -50,6 +50,18 @@ pub(crate) fn split_by_size(
     chunks
 }
 
+/// How a send settled once the worker took it.
+#[derive(Debug)]
+pub enum SendOutcome {
+    Accepted(u32),
+    /// The worker finished every message except `unfinished`, which come back
+    /// in send order.
+    Partial {
+        accepted: u32,
+        unfinished: Vec<SerializedKafkaMessage>,
+    },
+}
+
 /// Failure from a worker stream send, carrying back the sub-batch's messages
 /// so the caller can defer/replay them (the worker may have died mid-send and
 /// the messages were never accepted).
@@ -141,7 +153,7 @@ mod tests {
 
     fn message_with_value(offset: i64, value_len: usize) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
-            topic: "t".to_string(),
+            topic: "t".into(),
             partition: 0,
             offset,
             timestamp: 0,

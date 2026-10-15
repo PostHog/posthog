@@ -4,12 +4,12 @@ import { getSeriesColor } from 'lib/colors'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { uuid } from 'lib/utils/dom'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { SeriesNode, isActionsSeriesNode, isEventsSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
 import {
     AnyEntityNode,
     Breakdown,
     CachedNewExperimentQueryResponse,
-    EventsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentFunnelMetricStep,
@@ -36,7 +36,6 @@ import {
     ExperimentMetricMathType,
     FeatureFlagBasicType,
     FeatureFlagType,
-    FilterType,
     FunnelConversionWindowTimeUnit,
     MultivariateFlagVariant,
     type InsightModel,
@@ -47,6 +46,7 @@ import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/const
 import type {
     ExperimentFeatureFlagFiltersApi,
     ExperimentFeatureFlagInputApi,
+    ExperimentToSavedMetricApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
 import { EXPOSURE_DEFAULT_EVENT, resolvedExposureEvent } from './exposureContract'
@@ -62,7 +62,7 @@ export function filterLowMultipleVariant<T extends { variant: string; percentage
 
 /**
  * Resolves the effective multi-variant handling, applying the backend default when unset.
- * See posthog/hogql_queries/experiments/exposure_query_logic.py (default = `EXCLUDE`).
+ * See products/experiments/backend/hogql_queries/exposure_query_logic.py (default = `EXCLUDE`).
  */
 export function resolveMultipleVariantHandling(
     handling: 'exclude' | 'first_seen' | undefined
@@ -516,70 +516,44 @@ export function getExperimentMetricFromInsight(insight: InsightModel | null): Ex
     return undefined
 }
 
-/**
- * Used when setting a custom exposure criteria
- */
-export function exposureConfigToFilter(exposure_config: ExperimentExposureConfig): FilterType {
-    if (exposure_config.kind === NodeKind.ExperimentEventExposureConfig) {
-        return {
-            events: [
-                {
-                    id: exposure_config.event,
-                    name: exposure_config.event,
-                    kind: NodeKind.EventsNode,
-                    type: 'events',
-                    properties: exposure_config.properties,
-                } as EventsNode,
-            ],
-            actions: [],
-            data_warehouse: [],
-        }
+export function exposureConfigToSeries(exposureConfig: ExperimentExposureConfig): SeriesNode[] {
+    if (exposureConfig.kind === NodeKind.ExperimentEventExposureConfig) {
+        return [
+            {
+                kind: NodeKind.EventsNode,
+                event: exposureConfig.event,
+                name: exposureConfig.event,
+                properties: exposureConfig.properties,
+            },
+        ]
     }
-    if (exposure_config.kind === NodeKind.ActionsNode) {
-        return {
-            events: [],
-            actions: [
-                {
-                    id: exposure_config.id,
-                    name: exposure_config.name || '',
-                    kind: NodeKind.ActionsNode,
-                    type: 'actions' as const,
-                    properties: exposure_config.properties,
-                },
-            ],
-            data_warehouse: [],
-        }
+    if (exposureConfig.kind === NodeKind.ActionsNode) {
+        return [exposureConfig]
     }
-
-    return {}
+    return []
 }
 
 /**
- * Used when setting a custom exposure criteria
+ * Only an event or an action can mark exposure, so any other series gives no config.
  */
-export function filterToExposureConfig(entity: Record<string, any> | undefined): ExperimentExposureConfig | undefined {
-    if (!entity) {
-        return undefined
-    }
-
-    // Check type first since ActionFilter may set kind incorrectly
-    if (entity.type === 'actions') {
-        return {
-            kind: NodeKind.ActionsNode,
-            id: entity.id,
-            name: entity.name,
-            properties: entity.properties,
-        }
-    }
-
-    if (entity.type === 'events' || entity.kind === NodeKind.EventsNode) {
+export function seriesToExposureConfig(series: SeriesNode[]): ExperimentExposureConfig | undefined {
+    const [node] = series
+    if (isEventsSeriesNode(node)) {
         return {
             kind: NodeKind.ExperimentEventExposureConfig,
-            event: entity.id,
-            properties: entity.properties,
+            // "All events" leaves `event` null, which the API rejects as an exposure event.
+            event: node.event as string,
+            properties: node.properties ?? [],
         }
     }
-
+    if (isActionsSeriesNode(node)) {
+        return {
+            kind: NodeKind.ActionsNode,
+            id: node.id,
+            name: node.name,
+            properties: node.properties,
+        }
+    }
     return undefined
 }
 
@@ -835,10 +809,11 @@ export function getDisplayOrderedIndices(
     return ordered
 }
 
-export type ExperimentSavedMetric = {
-    id: number
-    experiment: number
-    saved_metric: number
+/**
+ * A shared metric's link to an experiment, as the experiment API returns it. The generated type leaves
+ * `query` and `metadata` untyped, so this narrows them to the shapes the experiment scene reads and edits.
+ */
+export type ExperimentSavedMetric = Omit<ExperimentToSavedMetricApi, 'metadata' | 'query' | 'effective_query'> & {
     metadata: {
         type: 'primary' | 'secondary'
         breakdowns?: Breakdown[]
@@ -846,47 +821,32 @@ export type ExperimentSavedMetric = {
         breakdownAttributionValue?: number
         breakdown_limit?: number
     }
-    created_at: string
     query: ExperimentMetric
-    name: string
+    // Optional because a new frontend can briefly receive a response from an API server that predates the field.
+    effective_query?: ExperimentMetric | null
 }
 
 /**
- * The effective definition of a shared metric on one experiment: the saved query with the link overrides
- * applied. The backend calculates and fingerprints the same definition with `resolve_saved_metric_definition`
- * in products/experiments/backend/metric_resolution.py, so a change here must change it there too,
- * or the results the page queries and the stored results describe different metrics.
+ * The backend applies the link overrides to the saved query and serves the result as `effective_query`.
+ * A legacy shared metric takes no overrides and has no effective query, so its saved query applies as is.
+ * A link that carries no query gets an empty metric. Results map to metrics by position, and the callers
+ * read fields of every metric, so the link must keep its position.
  */
-export function resolveSharedMetric({
+export const sharedMetricEffectiveQuery = ({
     query,
-    metadata,
-}: Pick<ExperimentSavedMetric, 'query' | 'metadata'>): ExperimentMetric {
-    const breakdowns = metadata?.breakdowns || []
-    const hasBreakdowns = breakdowns.length > 0
-    return {
-        ...query,
-        ...(hasBreakdowns &&
-            query?.metric_type === ExperimentMetricType.FUNNEL &&
-            metadata?.breakdownAttributionType != null && {
-                breakdownAttributionType: metadata.breakdownAttributionType,
-                breakdownAttributionValue: metadata.breakdownAttributionValue ?? undefined,
-            }),
-        breakdownFilter: {
-            ...query?.breakdownFilter,
-            breakdowns,
-            ...(hasBreakdowns && metadata?.breakdown_limit != null && { breakdown_limit: metadata.breakdown_limit }),
-        },
-    } as ExperimentMetric
-}
+    effective_query,
+}: Pick<ExperimentSavedMetric, 'query' | 'effective_query'>): ExperimentMetric =>
+    effective_query ?? query ?? ({} as ExperimentMetric)
 
 export const sharedMetricsToExperimentMetrics = (
     sharedMetrics: ExperimentSavedMetric[] | undefined,
     type: 'primary' | 'secondary'
-): ExperimentMetric[] => (sharedMetrics || []).filter(({ metadata }) => metadata.type === type).map(resolveSharedMetric)
+): ExperimentMetric[] =>
+    (sharedMetrics || []).filter(({ metadata }) => metadata.type === type).map(sharedMetricEffectiveQuery)
 
 function enrichSharedMetric(sharedMetric: ExperimentSavedMetric): ExperimentMetric {
     return {
-        ...resolveSharedMetric(sharedMetric),
+        ...sharedMetricEffectiveQuery(sharedMetric),
         name: sharedMetric.name,
         sharedMetricId: sharedMetric.saved_metric,
         isSharedMetric: true,
@@ -918,6 +878,15 @@ export type ExperimentUpdatePayload = Omit<Partial<Experiment>, 'feature_flag'> 
     feature_flag?: ExperimentFeatureFlagInputApi | Experiment['feature_flag']
     update_feature_flag_params?: boolean
     original_experiment?: Record<string, any>
+}
+
+export type ExperimentUpdateRequest = ExperimentUpdatePayload & {
+    /**
+     * After a 409 conflict, show the server's copy of the sent fields instead of keeping the rejected values for
+     * review. A control that applies its value at once sets this. A kept value would look saved there, and the
+     * next save would send it over the change that caused the conflict.
+     */
+    discardOnConflict?: boolean
 }
 
 /** The scalar fields experiment surfaces PATCH, sent as base values so the server can three-way
@@ -1082,26 +1051,3 @@ export const metricResults =
             metricIndex: index,
         }))
     }
-
-/**
- * {@link metricResults} over both sections' arrays, picking one. Kept for the legacy per-metric
- * results path and its selectors.
- */
-export function getOrderedMetricsWithResults(
-    experiment: Experiment,
-    primaryMetricsResults: CachedNewExperimentQueryResponse[],
-    primaryMetricsResultsErrors: any[],
-    secondaryMetricsResults: CachedNewExperimentQueryResponse[],
-    secondaryMetricsResultsErrors: any[],
-    isSecondary: boolean
-): Array<{
-    metric: ExperimentMetric
-    result: any
-    error: any
-    displayIndex: number
-    metricIndex: number
-}> {
-    return isSecondary
-        ? metricResults(experiment)(secondaryMetricsResults, secondaryMetricsResultsErrors, 'secondary')
-        : metricResults(experiment)(primaryMetricsResults, primaryMetricsResultsErrors, 'primary')
-}

@@ -73,7 +73,7 @@ Person properties are query-time in this project. `person.properties.*` on the e
 """.strip()
 
 # https://platform.openai.com/docs/guides/flex-processing
-OPENAI_FLEX_MODELS = ["o3", "o4-mini", "gpt5", "gpt5-mini", "gpt5-nano"]
+OPENAI_FLEX_MODELS = ["o3", "gpt-5.6-terra", "gpt5", "gpt5-mini", "gpt5-nano"]
 
 # Map "http://", "https://", and "all://" to None in Client's mounts to bypass proxies for MaxChatAnthropic.
 _BYPASS_PROXY_MOUNTS: dict[str, None] = {"http://": None, "https://": None, "all://": None}

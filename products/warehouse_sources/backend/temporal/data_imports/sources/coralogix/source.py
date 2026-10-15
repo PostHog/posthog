@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,29 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoralogixSource(ResumableSource[CoralogixSourceConfig, CoralogixResumeConfig]):
+    codebase_detection = detect(
+        env=("^CORALOGIX_",),
+        script_hosts=("cdn.rum-ingress-coralogix.com",),
+        npm=("coralogix-logger", "@coralogix/browser", "@coralogix/react-native-plugin"),
+        pypi=("coralogix-logger",),
+        cocoapods=("Coralogix",),
+        go=(
+            "github.com/coralogix/coralogix-management-sdk",
+            "github.com/coralogix/coralogix-opentelemetry-go",
+            "github.com/coralogix/coralogix-operator",
+        ),
+        maven=("com.coralogix.sdk:coralogix-sdk", "com.coralogix:android-sdk", "com.coralogix:coralogix-jdbc"),
+        pub=("cx_flutter_plugin",),
+        rubygems=(
+            "coralogix_logger",
+            "coralogix_fluentd_logger",
+            "fluent-plugin-coralogix",
+            "logstash-output-coralogix",
+            "logstash-output-coralogix_logger",
+        ),
+        swiftpm=("github.com/coralogix/cx-ios-sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

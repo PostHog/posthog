@@ -631,7 +631,7 @@ describe("ClaudeAcpAgent session creation", () => {
         await vi.waitFor(() => {
           expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(1);
         });
-        await vi.advanceTimersByTimeAsync(30_001);
+        await vi.advanceTimersByTimeAsync(61_001);
 
         await expect(promise).rejects.toThrow(error);
         expect(createdQueryOptions[0]?.abortController?.signal.aborted).toBe(
@@ -650,6 +650,37 @@ describe("ClaudeAcpAgent session creation", () => {
       }
     },
   );
+
+  it("retries a failed model switch once and keeps the session", async () => {
+    vi.useFakeTimers();
+    try {
+      let attempts = 0;
+      nextSetModel = () =>
+        attempts++ === 0
+          ? Promise.reject(new Error("set model boom"))
+          : Promise.resolve();
+      const agent = makeAgent();
+      const params = {
+        sessionId: "0197a000-0000-7000-8000-0000000000fb",
+        cwd,
+        mcpServers: [],
+        _meta: { taskRunId: "run-set-model-transient" },
+      };
+
+      const promise = agent.newSession(params);
+      await vi.waitFor(() => {
+        expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(1);
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      await expect(promise).resolves.toHaveProperty("sessionId");
+      expect(createdQueries).toHaveLength(1);
+      expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(2);
+      expect(createdQueries[0]?.close).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("preserves RequestError metadata when naming a rejected startup control", async () => {
     const requestError = new RequestError(42, "set model boom", {
@@ -929,6 +960,7 @@ describe("ClaudeAcpAgent session creation", () => {
       const settings = String(createdQueryOptions[0]?.extraArgs?.settings);
       expect(settings.startsWith(configDir)).toBe(true);
       expect(existsSync(settings)).toBe(true);
+      nextSetModel = () => Promise.reject(new Error("set model boom"));
       rejectSetModel(new Error("set model boom"));
       await rejection;
 

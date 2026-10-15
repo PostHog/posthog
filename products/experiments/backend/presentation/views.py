@@ -43,7 +43,12 @@ from posthog.models.activity_logging.activity_page import ActivityLogPaginatedRe
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import get_authenticator_scoped_team_ids, is_service_auth, posthog_feature_flag_enabled
+from posthog.permissions import (
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+    is_service_auth,
+    posthog_feature_flag_enabled,
+)
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -56,6 +61,7 @@ from posthog.rate_limit import (
     SessionEventDeltasBurstRateThrottle,
     SessionEventDeltasSustainedRateThrottle,
 )
+from posthog.scopes import scopes_not_covered
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
@@ -68,6 +74,8 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.facade.api import get_experiment_health_findings
+from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
     migrate_experiment as migrate_legacy_experiment,
@@ -94,6 +102,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentHealthSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
     ExperimentMetricsRecalculationJobSerializer,
@@ -134,7 +143,7 @@ from products.experiments.backend.running_time_calculator import (
     calculate_variance_from_stats,
 )
 from products.experiments.backend.session_buckets import (
-    SessionBucket,
+    ExperimentSessionBucket,
     SessionBucketUnavailable,
     finalize_session_bucket,
     get_experiment_session_bucket,
@@ -322,7 +331,7 @@ EXPERIMENT_LIST_FILTER_PARAMETERS = [
         name="search",
         location=OpenApiParameter.QUERY,
         type=str,
-        description="Free-text search applied to the experiment name (case-insensitive).",
+        description="Free-text search applied to the experiment name and its feature flag key (case-insensitive).",
         required=False,
     ),
     OpenApiParameter(
@@ -518,6 +527,10 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
+        if self.action == "health":
+            # The facade reads the experiment again with the joins its checks need, so the object lookup
+            # here only checks access.
+            queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
         if self.action == "list":
             # ExperimentBasicSerializer omits metrics/saved_metrics, so drop the saved-metric
             # prefetch and defer the heavy JSON columns. The ?event= filter reads metrics via its
@@ -884,6 +897,51 @@ class EnterpriseExperimentsViewSet(
         service = ExperimentService(team=self.team, user=request.user)
         target = service.get_cleanup_repository_target(experiment)
         return Response(ExperimentFlagCleanupTargetSerializer(target).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentHealthSerializer,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
+    def health(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Health check findings for this experiment: problems in its configuration and its feature flag
+        that keep it from producing trustworthy results, each with a fix.
+
+        The checks here read the experiment, its flag, its linked metrics, and the changes of the
+        flag's variant split since launch. The checks that read exposure counts come with the
+        exposure query. The split-change check compares the split changes with the exposures only
+        for exposure criteria that name an event without property filters. When the split changed
+        after launch and the criteria have filters or an action, or an API key lacks `query:read`,
+        it returns an info finding with the subcode `not_checked` and the cause in
+        `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
+        flag and, with an API key, `activity_log:read`) gets that finding for every running
+        experiment, because the changes are not read.
+        """
+        experiment: Experiment = self.get_object()
+        findings = get_experiment_health_findings(
+            team_id=self.team_id,
+            experiment_id=experiment.id,
+            reader_access=self._health_reader_access(request, experiment),
+        )
+        return Response(ExperimentHealthSerializer({"findings": findings}).data)
+
+    def _health_reader_access(self, request: Request, experiment: Experiment) -> ExperimentHealthReaderAccess:
+        # The split history is flag history, which `activity` keeps behind the flag's own access controls and
+        # `activity_log:read`. It also queries events, which a scoped token reaches only with `query:read`.
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        missing_scopes = (
+            set()
+            if scopes is None or "*" in scopes
+            else set(scopes_not_covered(scopes, ["activity_log:read", "query:read"]))
+        )
+        can_view_flag = experiment.feature_flag_id is None or self.user_access_control.check_access_level_for_object(
+            experiment.feature_flag, required_level="viewer"
+        )
+        return ExperimentHealthReaderAccess(
+            can_read_flag_history=bool(can_view_flag) and "activity_log:read" not in missing_scopes,
+            can_query_events="query:read" not in missing_scopes,
+        )
 
     @validated_request(
         query_serializer=ExperimentActivityQuerySerializer,
@@ -1363,6 +1421,12 @@ class EnterpriseExperimentsViewSet(
         responses={
             200: ExperimentMetricsRecalculationJobSerializer,
             201: ExperimentMetricsRecalculationJobSerializer,
+            429: OpenApiResponse(
+                description=(
+                    "A manual trigger arrived less than five minutes after the latest completed run finished. "
+                    "Retry-After carries the seconds until the next run is allowed."
+                )
+            ),
         },
     )
     @action(
@@ -1375,7 +1439,8 @@ class EnterpriseExperimentsViewSet(
         """Trigger a batch recalculation of all metrics for this experiment.
 
         Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
-        already pending or in progress for this experiment. The response payload intentionally does not
+        already pending or in progress for this experiment. A manual trigger within five minutes after the latest
+        completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
         include the `results` array — at POST time the workflow has just been queued and no per-metric
         results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
         progresses.
@@ -1763,7 +1828,7 @@ class EnterpriseExperimentsViewSet(
                 # property-level access control.
                 user=cast(User, request.user),
                 experiment=experiment,
-                bucket=SessionBucket(request.validated_data["bucket"]),
+                bucket=ExperimentSessionBucket(request.validated_data["bucket"]),
                 metric_uuids=request.validated_data["metric_uuids"],
                 variant=request.validated_data["variant"],
                 limit=request.validated_data["limit"],

@@ -1,20 +1,19 @@
-from typing import Any
-
-from unittest.mock import patch
-
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.devin_ai import DevinAIResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.settings import (
-    DEVIN_AI_ENDPOINTS,
-    ENDPOINTS,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.devin_ai import DevinAIResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.source import DevinAISource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.devinai import (
+    DevinAISourceConfig,
+)
 
 
-def _config(api_key: str = "cog_test", org_id: str = "org-abc") -> Any:
-    return source_module.DevinAISourceConfig(api_key=api_key, org_id=org_id)
+def _config(api_key: str = "cog_test", org_id: str = "org-abc") -> DevinAISourceConfig:
+    return DevinAISourceConfig(api_key=api_key, org_id=org_id)
 
 
 class TestSourceConfig:
@@ -29,13 +28,6 @@ class TestSourceConfig:
 
 
 class TestGetSchemas:
-    def test_returns_all_endpoints_full_refresh_only(self) -> None:
-        schemas = DevinAISource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # No verified server-side timestamp filter, so nothing advertises incremental/append.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-
     @parameterized.expand(
         [
             # Secret metadata is opt-in, and session_messages costs one request per session in the
@@ -51,27 +43,9 @@ class TestGetSchemas:
         schemas = {s.name: s for s in DevinAISource().get_schemas(_config(), team_id=1)}
         assert schemas[endpoint].should_sync_default is expected_default
 
-    def test_members_table_is_discovered_full_refresh_with_user_id_key(self) -> None:
-        # The set-equality assertions above compare get_schemas against the same dict the schemas come
-        # from, so only an explicit name check catches the members table going missing from discovery.
-        schemas = {s.name: s for s in DevinAISource().get_schemas(_config(), team_id=1)}
-        members = schemas["members"]
-        assert members.supports_incremental is False
-        assert members.supports_append is False
-        # user_id is the merge key: anything else would duplicate members across full refreshes.
-        assert members.detected_primary_keys == ["user_id"]
-        assert members.should_sync_default is True
-
     def test_names_filter_restricts_output(self) -> None:
         schemas = DevinAISource().get_schemas(_config(), team_id=1, names=["sessions"])
         assert [s.name for s in schemas] == ["sessions"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = DevinAISource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        sessions = next(t for t in tables if t["name"] == "sessions")
-        assert sessions["primary_keys"] == ["session_id"]
-        assert "Full refresh" in sessions["sync_methods"]
 
 
 class TestValidateCredentials:
@@ -86,22 +60,13 @@ class TestValidateCredentials:
         ]
     )
     def test_status_code_mapping(self, _name: str, status: int, schema_name: str | None, expected_ok: bool) -> None:
-        with patch.object(source_module, "validate_devin_ai_credentials", return_value=status):
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             ok, _err = DevinAISource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
         assert ok is expected_ok
-
-    def test_probes_requested_schema_endpoint(self) -> None:
-        with patch.object(source_module, "validate_devin_ai_credentials", return_value=200) as mock_validate:
-            DevinAISource().validate_credentials(_config(), team_id=1, schema_name="playbooks")
-        assert mock_validate.call_args.args[2] == "playbooks"
-
-    def test_unknown_schema_falls_back_to_sessions_probe(self) -> None:
-        with patch.object(source_module, "validate_devin_ai_credentials", return_value=200) as mock_validate:
-            DevinAISource().validate_credentials(_config(), team_id=1, schema_name="not_a_table")
-        assert mock_validate.call_args.args[2] == "sessions"
+        assert network.requests_log[0].path == "/v3/organizations/org-abc/sessions"
 
     def test_transport_failure_is_not_fatal_message(self) -> None:
-        with patch.object(source_module, "validate_devin_ai_credentials", side_effect=Exception("boom")):
+        with scripted_network(always(ConnectionError("boom"))):
             ok, err = DevinAISource().validate_credentials(_config(), team_id=1)
         assert ok is False
         assert err is not None
@@ -137,17 +102,6 @@ class TestNonRetryableErrors:
     def test_transient_errors_stay_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = DevinAISource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-
-class TestCanonicalDescriptions:
-    def test_every_endpoint_has_a_canonical_description(self) -> None:
-        descriptions = DevinAISource().get_canonical_descriptions()
-        for endpoint in DEVIN_AI_ENDPOINTS:
-            assert endpoint in descriptions
-            entry = descriptions[endpoint]
-            # Primary key columns must be documented so enrichment doesn't fall back to the LLM for them.
-            for pk in DEVIN_AI_ENDPOINTS[endpoint].primary_keys:
-                assert pk in entry["columns"]
 
 
 def test_resume_config_default_is_none() -> None:

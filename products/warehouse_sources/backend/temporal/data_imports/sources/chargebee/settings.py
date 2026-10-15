@@ -1,11 +1,13 @@
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 ENDPOINTS = (
+    "CreditUnits",
     "Customers",
     "Events",
     "Invoices",
     "ItemPrices",
     "Items",
+    "Meters",
     "Orders",
     "Subscriptions",
     "Transactions",

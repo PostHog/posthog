@@ -30,6 +30,7 @@ from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
+from rest_framework.utils.urls import replace_query_param
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning, ProductKey, QueryStatus
@@ -463,13 +464,18 @@ class _InsightQuerySchema(RootModel):
     """The query definition for this insight. The `kind` field determines the query type:
     - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
     - `DataVisualizationNode` — SQL insights using HogQL
+    - `BIVisualizationNode` — business intelligence worksheets with a HogQL source
     - `DataTableNode` — raw data tables
     - `HogQuery` — Hog language queries
     """
 
-    root: schema.InsightVizNode | schema.DataTableNode | schema.DataVisualizationNode | schema.HogQuery = PydanticField(
-        discriminator="kind"
-    )
+    root: (
+        schema.InsightVizNode
+        | schema.DataTableNode
+        | schema.DataVisualizationNode
+        | schema.BIVisualizationNode
+        | schema.HogQuery
+    ) = PydanticField(discriminator="kind")
 
 
 @extend_schema_field(_InsightQuerySchema)  # type: ignore[arg-type]
@@ -1085,7 +1091,7 @@ class InsightSerializer(InsightBasicSerializer):
         if (
             query
             and isinstance(query, dict)
-            and query.get("kind") == "DataVisualizationNode"
+            and query.get("kind") in ("DataVisualizationNode", "BIVisualizationNode")
             and query.get("source", {}).get("variables")
         ):
             query["source"]["variables"] = map_stale_to_latest(
@@ -1514,7 +1520,8 @@ class MCPInsightSerializer(InsightSerializer):
 
     Accepts raw product analytics queries and normalizes them into the correct saved-insight
     wrapper before persisting: HogQLQuery → DataVisualizationNode, insight queries
-    (TrendsQuery, FunnelsQuery, PathsQuery) → InsightVizNode.
+    (TrendsQuery, FunnelsQuery, PathsQuery) → InsightVizNode, EventsQuery → DataTableNode. MetricsQuery and
+    MetricsHistogramQuery stay bare.
     """
 
     query = QueryFieldSerializer(required=False, allow_null=True)
@@ -1533,19 +1540,48 @@ class MCPInsightSerializer(InsightSerializer):
         except PydanticValidationError:
             pass
 
+        try:
+            return schema.DataTableNode(source=schema.EventsQuery.model_validate(value)).model_dump(
+                exclude_none=True, mode="json"
+            )
+        except PydanticValidationError:
+            pass
+
         # Already-wrapped node → use as-is
-        for wrapped_cls in (schema.DataVisualizationNode, schema.InsightVizNode):
+        for wrapped_cls in (
+            schema.DataVisualizationNode,
+            schema.BIVisualizationNode,
+            schema.InsightVizNode,
+            schema.DataTableNode,
+        ):
             try:
                 wrapped_node = wrapped_cls.model_validate(value)
+                if isinstance(wrapped_node, schema.DataTableNode) and not isinstance(
+                    wrapped_node.source, schema.EventsQuery
+                ):
+                    raise serializers.ValidationError("MCP data table insights must have an EventsQuery source.")
                 normalized_query = wrapped_node.model_dump(exclude_none=True, mode="json")
-                if isinstance(wrapped_node, schema.DataVisualizationNode):
+                if isinstance(wrapped_node, (schema.DataVisualizationNode, schema.BIVisualizationNode)):
                     box_plot = wrapped_node.chartSettings.boxPlot if wrapped_node.chartSettings else None
                     if box_plot is not None:
                         normalized_box_plot = normalized_query.setdefault("chartSettings", {}).setdefault("boxPlot", {})
                         for field in ("xAxisColumn", "seriesColumn"):
                             if field in box_plot.model_fields_set and getattr(box_plot, field) is None:
                                 normalized_box_plot[field] = None
+                if isinstance(wrapped_node, schema.BIVisualizationNode):
+                    for entry in normalized_query["config"].get("memberAliases", []):
+                        for alias in entry["aliases"]:
+                            alias.setdefault("value", None)
+                    if "colorBy" in wrapped_node.config.model_fields_set and wrapped_node.config.colorBy is None:
+                        normalized_query["config"]["colorBy"] = None
                 return normalized_query
+            except PydanticValidationError:
+                pass
+
+        # A metrics insight saves its query bare, as the metrics editor and the metrics dashboard builders do
+        for metrics_cls in (schema.MetricsQuery, schema.MetricsHistogramQuery):
+            try:
+                return metrics_cls.model_validate(value).model_dump(exclude_none=True, mode="json")
             except PydanticValidationError:
                 pass
 
@@ -1721,8 +1757,29 @@ Background calculation can be tracked using the `query_status` response field.""
             ),
             OpenApiParameter(
                 name="insight",
-                enum=["TRENDS", "FUNNELS", "RETENTION", "PATHS", "JOURNEYS", "STICKINESS", "LIFECYCLE", "JSON", "SQL"],
-                description="Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.",
+                enum=[
+                    "TRENDS",
+                    "FUNNELS",
+                    "RETENTION",
+                    "PATHS",
+                    "JOURNEYS",
+                    "STICKINESS",
+                    "LIFECYCLE",
+                    "JSON",
+                    "SQL",
+                    "BI",
+                ],
+                description="Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries; `BI` matches editable worksheets.",
+            ),
+            OpenApiParameter(
+                name="exclude_bi",
+                type=OpenApiTypes.BOOL,
+                description="Exclude Business intelligence worksheets from the insight list.",
+            ),
+            OpenApiParameter(
+                name="order",
+                type=OpenApiTypes.STR,
+                description="Sort by an insight field, with a leading minus for descending order. Supports last_modified_at and last_viewed_at.",
             ),
             OpenApiParameter(
                 name="date_from",
@@ -1994,8 +2051,11 @@ class InsightViewSet(
         try:
             days = int(request.GET.get("days", "7"))
             limit = min(int(request.GET.get("limit", "10")), 100)
+            offset = int(request.GET.get("offset", "0"))
         except (ValueError, TypeError):
-            raise ValidationError("days and limit must be valid integers")
+            raise ValidationError("days, limit and offset must be valid integers")
+        if limit <= 0 or offset < 0:
+            raise ValidationError("limit must be positive and offset must not be negative")
 
         cutoff_date = now() - timedelta(days=days)
 
@@ -2009,13 +2069,16 @@ class InsightViewSet(
                 )
             )
             .filter(view_count__gt=0)
-            .order_by("-view_count", "-last_modified_at")
+            .order_by("-view_count", "-last_modified_at", "-id")
         )
 
         queryset = self._filter_queryset_by_access_level(queryset)
-        queryset = queryset[:limit]
+        # Fetch one extra row to know if a next page exists without a separate count query.
+        queryset = queryset[offset : offset + limit + 1]
         queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
         insights = list(queryset)
+        has_next = len(insights) > limit
+        insights = insights[:limit]
 
         # Batch fetch viewers once to avoid N+1 queries
         viewers_by_insight = recent_viewers_by_insight(
@@ -2032,8 +2095,19 @@ class InsightViewSet(
         # Wrap in the standard paginated envelope so the response shape matches the auto-generated
         # OpenAPI schema (drf-spectacular wraps `many=True` responses as `Paginated*List` when the
         # viewset has a paginator). This keeps the MCP-generated client and any other typed consumer
-        # happy. There's no real pagination — `limit` already caps the result set.
-        return Response({"count": len(data), "next": None, "previous": None, "results": data})
+        # happy. `count` is the size of this page, not the total.
+        page_url = request.build_absolute_uri()
+        next_url = (
+            replace_query_param(replace_query_param(page_url, "offset", offset + limit), "limit", limit)
+            if has_next
+            else None
+        )
+        previous_url = (
+            replace_query_param(replace_query_param(page_url, "offset", max(offset - limit, 0)), "limit", limit)
+            if offset > 0
+            else None
+        )
+        return Response({"count": len(data), "next": next_url, "previous": previous_url, "results": data})
 
     @staticmethod
     @tracer.start_as_current_span("InsightViewSet._apply_search")
@@ -2079,6 +2153,9 @@ class InsightViewSet(
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
                 queryset = queryset.filter(Q(favorited=True))
+            elif key == "exclude_bi":
+                if str_to_bool(request.GET["exclude_bi"]):
+                    queryset = queryset.exclude(query__kind="BIVisualizationNode")
             elif key == "hide_feature_flag_insights":
                 if str_to_bool(request.GET["hide_feature_flag_insights"]):
                     from posthog.helpers.dashboard_templates import feature_flag_generated_insight_q
@@ -2104,7 +2181,9 @@ class InsightViewSet(
                     "STICKINESS": schema.NodeKind.STICKINESS_QUERY,
                     "LIFECYCLE": schema.NodeKind.LIFECYCLE_QUERY,
                 }
-                if insight == "JSON":
+                if insight == "BI":
+                    queryset = queryset.filter(query__kind="BIVisualizationNode")
+                elif insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.exclude(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
                     queryset = queryset.exclude(

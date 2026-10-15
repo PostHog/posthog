@@ -10,12 +10,19 @@ import type { EmailFieldErrors, EmailTemplate } from 'scenes/hog-functions/email
 import { IntegrationType } from '~/types'
 
 import { EmailSetupModal } from '../../Channels/EmailSetup/EmailSetupModal'
+import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
 import { UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
-import { BroadcastEmailValue, DEFAULT_BROADCAST_EMAIL, broadcastWizardLogic } from '../broadcastWizardLogic'
+import {
+    BroadcastEmailValue,
+    DEFAULT_BROADCAST_EMAIL,
+    broadcastWizardLogic,
+    getMissingSenderIds,
+    getSenderIds,
+} from '../broadcastWizardLogic'
 
 export function BroadcastContentStep(): JSX.Element {
-    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings } =
+    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings, aiEmailDraftStatus } =
         useValues(broadcastWizardLogic)
     const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
@@ -26,13 +33,34 @@ export function BroadcastContentStep(): JSX.Element {
 
     const hasSenders = !!integrations?.some((integration) => integration.kind === 'email')
     const senderUnverified = !!selectedSender && selectedSender.config?.verified !== true
+    // A deleted sender would otherwise show as its bare id, so the picker leaves it out.
+    const missingSenderIds = integrations ? getMissingSenderIds(email.from, integrations) : []
+    const remainingSenderIds = getSenderIds(email.from).filter((id) => !missingSenderIds.includes(id))
+    const editorValue = missingSenderIds.length
+        ? {
+              ...email,
+              from: {
+                  ...email.from,
+                  integrationId: remainingSenderIds[0],
+                  integrationIds: remainingSenderIds.length > 1 ? remainingSenderIds : undefined,
+              },
+          }
+        : email
 
     // Closing the modal after Continue also keeps the sender it created or verified.
     const closeSenderSetup = (integrationId?: number): void => {
         setSenderSetup(null)
         if (integrationId) {
             loadIntegrations()
-            setEmail({ ...email, from: { ...email.from, integrationId } })
+            setEmail({
+                ...email,
+                from: {
+                    ...email.from,
+                    integrationId,
+                    integrationIds:
+                        senderSetup !== 'new' && remainingSenderIds.length > 1 ? remainingSenderIds : undefined,
+                },
+            })
         }
     }
 
@@ -92,11 +120,12 @@ export function BroadcastContentStep(): JSX.Element {
                     onComplete={closeSenderSetup}
                 />
             ) : null}
+            {aiEmailDraftStatus ? <AiEmailDraftStatus {...aiEmailDraftStatus} /> : null}
             <EmailTemplater
                 type="native_email"
                 templating="liquid"
                 liveChanges
-                value={email as unknown as EmailTemplate}
+                value={editorValue as unknown as EmailTemplate}
                 defaultValue={DEFAULT_BROADCAST_EMAIL as unknown as EmailTemplate}
                 onChange={(value) => setEmail(value as unknown as BroadcastEmailValue)}
                 variables={buildSampleGlobals({ type: 'batch' }, null)}

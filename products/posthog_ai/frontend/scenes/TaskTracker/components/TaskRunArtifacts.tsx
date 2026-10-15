@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { KeyboardEvent, useEffect, useMemo, useState } from 'react'
 
 import {
@@ -12,7 +12,6 @@ import {
     IconEllipsis,
     IconExpand45,
     IconExternal,
-    IconLock,
     IconPencil,
     IconShare,
     IconHide,
@@ -77,8 +76,8 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SHEET_PARTS } from '~/layout/today/todayMenuParts'
 import { TodaySheetMenu } from '~/layout/today/TodaySheetMenu'
 
+import { taskCommentContextsLogic } from '../../../logics/taskCommentContextsLogic'
 import { isCommentableArtifact, regionAnchorAt, supportsSelectionComments } from '../artifactComments'
-import { withStrictCsp } from '../artifactHtml'
 import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
 import {
     ArtifactFile,
@@ -96,7 +95,12 @@ import {
     objectPageUrl,
     postHogObjectRef,
 } from '../taskRunArtifacts'
-import { FullPageSource, artifactDownloadUrl, taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
+import {
+    ArtifactHtmlPreview,
+    FullPageSource,
+    artifactDownloadUrl,
+    taskRunArtifactsLogic,
+} from '../taskRunArtifactsLogic'
 import { ArtifactCommentActions } from './ArtifactCommentActions'
 import { ArtifactCommentsButton, ArtifactCommentsPage } from './ArtifactCommentsPage'
 import { ArtifactEditor } from './ArtifactEditor'
@@ -124,7 +128,9 @@ function commentLogicProps(
     artifact: RunArtifact | null,
     kind: ArtifactPreviewKind | null
 ): TaskArtifactCommentsLogicProps | null {
-    return isCommentableArtifact(artifact) && kind ? { taskId, artifactId: artifact.id, kind } : null
+    return isCommentableArtifact(artifact) && kind
+        ? { taskId, artifactId: artifact.id, kind, artifactName: artifact.name }
+        : null
 }
 
 /** Size for a file, the object kind for a cited PostHog object, where the agent sent a living document. */
@@ -195,19 +201,71 @@ function IconAction({
     )
 }
 
-/**
- * Agent-written HTML is untrusted. An empty `sandbox` gives the document an opaque origin with scripts,
- * forms, popups and top navigation all off, so it cannot reach the app's cookies, storage or DOM.
- */
-function SandboxedHtmlFrame({ html, name }: { html: string; name: string }): JSX.Element {
+function SandboxedHtmlFrame({ url, name, scripts }: { url: string; name: string; scripts: boolean }): JSX.Element {
     return (
         <iframe
             className="size-full border-0 bg-white"
-            sandbox=""
+            sandbox={scripts ? 'allow-scripts' : ''}
             referrerPolicy="no-referrer"
-            srcDoc={withStrictCsp(html)}
+            src={url}
             title={`Preview of ${name}`}
         />
+    )
+}
+
+function HtmlScriptsBar({
+    preview,
+    loading,
+    onRunScripts,
+    onStopScripts,
+    onReload,
+}: {
+    preview: ArtifactHtmlPreview
+    loading: boolean
+    onRunScripts: () => void
+    onStopScripts: () => void
+    onReload: () => void
+}): JSX.Element {
+    const message = preview.scriptsError
+        ? preview.scriptsError
+        : preview.scriptsEnabled
+          ? 'Scripts are on. This page can send its content and what you type in it to other sites.'
+          : preview.scriptsAvailable
+            ? 'Scripts are off. Run them only if you trust this file. A page with scripts can send its content to other sites.'
+            : 'Scripts are off. Only files made with full network access can run scripts.'
+    return (
+        <div
+            className={cn(
+                'flex min-h-9 shrink-0 items-center gap-2 border-b border-border px-3 py-1.5',
+                preview.scriptsEnabled ? 'bg-warning text-warning-foreground' : 'bg-background'
+            )}
+        >
+            <Text size="xs" render={<span />} className="min-w-0">
+                {message}
+            </Text>
+            <Button
+                size="xs"
+                variant="outline"
+                className="ml-auto shrink-0"
+                disabled={loading}
+                onClick={onReload}
+                data-attr="task-artifact-reload-preview"
+            >
+                Reload
+            </Button>
+            {(preview.scriptsEnabled || preview.scriptsAvailable) && (
+                <Button
+                    size="xs"
+                    variant="outline"
+                    className="shrink-0"
+                    loading={loading}
+                    onClick={preview.scriptsEnabled ? onStopScripts : onRunScripts}
+                    data-attr={preview.scriptsEnabled ? 'task-artifact-stop-scripts' : 'task-artifact-run-scripts'}
+                >
+                    {preview.scriptsEnabled ? 'Turn off scripts' : 'Run scripts'}
+                </Button>
+            )}
+        </div>
     )
 }
 
@@ -276,14 +334,16 @@ function CommentableImage({
     src: string
     alt: string
 }): JSX.Element {
-    const { pinMode } = useValues(taskArtifactCommentsLogic(logicProps))
+    const { pinMode, writing } = useValues(taskArtifactCommentsLogic(logicProps))
     const { setPendingAnchor } = useActions(taskArtifactCommentsLogic(logicProps))
     return (
         <ArtifactImageViewer
             src={src}
             alt={alt}
             overlay={<ArtifactImagePins logicProps={logicProps} />}
-            onPlace={pinMode ? (x, y) => setPendingAnchor(regionAnchorAt(x, y), null) : undefined}
+            onPlace={
+                pinMode && writing !== 'pending' ? (x, y) => setPendingAnchor(regionAnchorAt(x, y), null) : undefined
+            }
         />
     )
 }
@@ -408,11 +468,14 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
         currentProjectId,
         artifactTextLoading,
         todayPhone,
+        htmlPreview,
+        htmlPreviewLoading,
     } = useValues(taskRunArtifactsLogic({ taskId }))
-    const { ensureSelectedText, loadArtifactText } = useActions(taskRunArtifactsLogic({ taskId }))
+    const { ensureSelectedText, fetchHtmlPreview, loadArtifactText, loadHtmlPreview, runHtmlPreviewScripts } =
+        useActions(taskRunArtifactsLogic({ taskId }))
     useEffect(() => {
-        ensureSelectedText()
-    }, [selectedArtifact?.id, selectedRun?.id, currentProjectId, ensureSelectedText])
+        ensureSelectedText(mode === 'source')
+    }, [selectedArtifact?.id, selectedRun?.id, currentProjectId, mode, ensureSelectedText])
     if (!selectedArtifact || !selectedKind) {
         return null
     }
@@ -458,6 +521,60 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
             </Empty>
         )
     }
+    if (selectedKind === 'html' && mode === 'rendered') {
+        if (
+            !htmlPreview ||
+            htmlPreview.artifactId !== selectedArtifact.id ||
+            (htmlPreviewLoading && !htmlPreview.url)
+        ) {
+            return (
+                <div className="flex h-full items-center justify-center">
+                    <Spinner />
+                </div>
+            )
+        }
+        if (!htmlPreview.url) {
+            return (
+                <Empty className="h-full">
+                    <EmptyHeader>
+                        <EmptyTitle>This HTML preview didn't load</EmptyTitle>
+                        <EmptyDescription>{htmlPreview.error}</EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent>
+                        <Button
+                            variant="outline"
+                            loading={htmlPreviewLoading}
+                            onClick={() => loadHtmlPreview(selectedArtifact)}
+                            data-attr="task-artifact-retry-preview"
+                        >
+                            Try again
+                        </Button>
+                    </EmptyContent>
+                </Empty>
+            )
+        }
+        return (
+            <div className="flex h-full flex-col">
+                <HtmlScriptsBar
+                    preview={htmlPreview}
+                    loading={htmlPreviewLoading}
+                    onRunScripts={() => runHtmlPreviewScripts(selectedArtifact)}
+                    onStopScripts={() => loadHtmlPreview(selectedArtifact)}
+                    onReload={() =>
+                        fetchHtmlPreview({ artifact: selectedArtifact, scripts: htmlPreview.scriptsEnabled })
+                    }
+                />
+                <div className="min-h-0 flex-1">
+                    <SandboxedHtmlFrame
+                        key={htmlPreview.url}
+                        url={htmlPreview.url}
+                        name={selectedArtifact.name}
+                        scripts={htmlPreview.scriptsEnabled}
+                    />
+                </div>
+            </div>
+        )
+    }
     if (!selectedText) {
         return selectedKind === 'html' ? (
             <div className="flex h-full items-center justify-center">
@@ -501,9 +618,6 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
     }
     if (mode === 'source') {
         return <SourceView text={selectedText.text} />
-    }
-    if (selectedKind === 'html') {
-        return <SandboxedHtmlFrame html={selectedText.text} name={selectedArtifact.name} />
     }
     if (selectedKind === 'csv') {
         return <CsvPreview text={selectedText.text} />
@@ -807,18 +921,6 @@ function ArtifactToolbar({
                 </TooltipContent>
             </Tooltip>
             {versioned && selectedFile && <VersionSelect taskId={taskId} file={selectedFile} />}
-            {kind === 'html' && (
-                <Tooltip>
-                    <TooltipTrigger render={<Badge className="shrink-0" />}>
-                        <IconLock />
-                        Sandboxed
-                    </TooltipTrigger>
-                    <TooltipContent>
-                        This page runs with scripts off and no network. It can't read your PostHog data, cookies or
-                        session.
-                    </TooltipContent>
-                </Tooltip>
-            )}
             <div className="ml-auto flex shrink-0 items-center gap-1">
                 {hasRenderedForm && (
                     <ToggleGroup
@@ -1245,6 +1347,7 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
 export function TaskRunTabs({ taskId, conversation }: { taskId: string; conversation: JSX.Element }): JSX.Element {
     const { activeTab, files } = useValues(taskRunArtifactsLogic({ taskId }))
     const { setActiveTab } = useActions(taskRunArtifactsLogic({ taskId }))
+    useMountedLogic(taskCommentContextsLogic({ taskId }))
     return (
         <TooltipProvider>
             <Tabs

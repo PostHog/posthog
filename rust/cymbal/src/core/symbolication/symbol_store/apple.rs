@@ -8,7 +8,7 @@ use posthog_symbol_data::{read_symbol_data_with_byte_count, AppleDsym};
 use crate::{
     error::{AppleError, ResolveError, UnhandledError},
     metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
-    symbolication::symbol_store::{native::ParsedNativeSymbols, Fetcher, Parser},
+    symbolication::symbol_store::{native::ParsedNativeSymbols, Fetcher, ParsePermit, Parser},
 };
 
 pub struct AppleProvider {}
@@ -33,11 +33,16 @@ impl Parser for AppleProvider {
     type Set = ParsedNativeSymbols;
     type Err = ResolveError;
 
-    async fn parse(&self, source: Self::Source) -> Result<ParsedNativeSymbols, ResolveError> {
+    async fn parse(
+        &self,
+        source: Self::Source,
+        permit: ParsePermit,
+    ) -> Result<ParsedNativeSymbols, ResolveError> {
         // dSYM parsing is the heaviest CPU work in the system: zstd decompress, ZIP
         // expansion, DWARF parse, and symcache conversion. Always offload from the tokio
         // runtime.
         tokio::task::spawn_blocking(move || -> Result<ParsedNativeSymbols, ResolveError> {
+            let _permit = permit;
             // Try to unwrap symbol_data container first (new format),
             // fall back to raw ZIP for backward compatibility with existing uploads.
             // TODO(2026-09-24): Remove raw ZIP fallback once all old uploads have expired.

@@ -1,4 +1,5 @@
 import json
+import hashlib
 
 import time_machine
 from posthog.test.base import (
@@ -87,6 +88,54 @@ class TestQueryTraceCorrelation(SimpleTestCase):
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
 
+    @parameterized.expand(
+        [
+            ("ascii", "abc"),
+            ("utf8_digest", "99937"),
+            ("trailing_nul_digest", "25"),
+            ("utf8_trailing_nul_digest", "19130574"),
+            ("empty", ""),
+            ("unicode", "ünïcødé-😀"),
+            ("nul", "a\0b"),
+            ("long", "a" * 1000),
+        ]
+    )
+    def test_hogql_sha1_results_are_json_safe_and_cached(self, _name: str, value: str) -> None:
+        query = HogQLQuery(
+            query="""
+                SELECT sha1({value}), [sha1({value})], tuple(sha1({value}), 'plain text'),
+                    map('digest', sha1({value})), map(sha1({value}), 'digest'),
+                    length(sha1({value})), sha1(NULL), sha1(toNullableString({value})),
+                    toTypeName(sha1({value})),
+                    accurateCast('abc', 'FixedString(3)'), accurateCast('abc', 'FixedString(20)')
+            """,
+            values={"value": value},
+        )
+        digest = hashlib.sha1(value.encode()).hexdigest()
+        expected = [
+            [
+                digest,
+                [digest],
+                [digest, "plain text"],
+                {"digest": digest},
+                {digest: "digest"},
+                40,
+                None,
+                digest,
+                "String",
+                "abc",
+                "abc",
+            ]
+        ]
+        for refresh, is_cached in (("force_blocking", False), ("force_cache", True)):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": query.model_dump(), "refresh": refresh},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["results"], expected)
+            self.assertEqual(response.json()["is_cached"], is_cached)
+
     def test_concurrency_limit_returns_friendly_message_without_internal_key(self):
         # A concurrency block must surface as a 429 with a user-facing message — not str(exc),
         # which embeds the limiter's internal Redis key + task id and used to leak into the UI.
@@ -122,6 +171,53 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, ClickHouseQueryTimeOut.status_code)
         self.assertNotIn("Retry-After", response)
         self.assertEqual(mock_capture.called, expect_capture)
+
+    @parameterized.expand(
+        [
+            (
+                "known_code",
+                158,
+                "This query reads or returns more data than the limit allows. Use a shorter date range, "
+                "add filters, or add a LIMIT clause. Then run the query again.",
+            ),
+            (
+                "unknown_identifier",
+                47,
+                "A column in this query doesn't exist in the data. Check the column names. "
+                "If the query uses a view, check that the view still matches its source table.",
+            ),
+            ("unsupported_method", 1, "ClickHouse rejected the query with error UNSUPPORTED_METHOD."),
+            ("syntax_error", 62, "ClickHouse error while executing query."),
+            ("unknown_code", 999_999, "ClickHouse error while executing query."),
+            *[
+                (
+                    storage_error,
+                    499,
+                    "PostHog couldn't read from storage while running this query. Wait a few minutes, "
+                    "then run the query again. If the problem continues, contact support.",
+                    f"DB::Exception: {storage_error} reading managed/table.parquet (S3_ERROR)",
+                )
+                for storage_error in ["SlowDown", "InternalError"]
+            ],
+        ]
+    )
+    def test_internal_clickhouse_error_hides_raw_message(
+        self, _name, code, expected_detail, raw_message="DB::Exception: raw server detail"
+    ):
+        error = InternalCHQueryError(raw_message, code=code)
+
+        with (
+            patch("posthog.api.query.process_query_model", side_effect=error),
+            patch("posthog.api.query.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select 1").model_dump()},
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["detail"], expected_detail)
+        mock_capture.assert_called_once_with(error)
 
     @parameterized.expand(
         [
@@ -1350,18 +1446,58 @@ class TestQueryRetrieve(APIBaseTest):
         self.assertEqual(response.status_code, 500)
         self.assertTrue(response.json()["query_status"]["error"])
 
-    def test_failed_query_with_exposed_error(self):
+    @parameterized.expand(
+        [
+            (
+                "server_failure",
+                "too_many_parts",
+                "The database had a temporary problem while it ran this query. Wait a few minutes, "
+                "then run the query again. If the problem continues, contact support.",
+            ),
+            (
+                "internal_query_rejection",
+                "unknown_identifier",
+                "A column in this query doesn't exist in the data. Check the column names. "
+                "If the query uses a view, check that the view still matches its source table.",
+            ),
+        ]
+    )
+    def test_explained_internal_failure_keeps_http_500(self, _name, error_code, message):
         self.redis_client_mock.get.return_value = json.dumps(
             {
                 "id": self.valid_query_id,
                 "team_id": self.team_id,
                 "error": True,
-                "error_message": "Try changing the time range",
+                "error_message": None,
+                "error_code": error_code,
+            }
+        ).encode()
+        response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["query_status"]["error_message"], message)
+        self.assertEqual(response.json()["query_status"]["error_code"], error_code)
+
+    @parameterized.expand(
+        [
+            ("validation", "Try changing the time range", None),
+            ("timeout", "Query timed out", "error"),
+            ("memory_limit", "Query memory limit exceeded", "clickhouse_memory_limit_exceeded"),
+        ]
+    )
+    def test_failed_query_with_exposed_error(self, _name, message, error_code):
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "error": True,
+                "error_message": message,
+                "error_code": error_code,
             }
         ).encode()
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 400)
         self.assertTrue(response.json()["query_status"]["error"])
+        self.assertEqual(response.json()["query_status"]["error_message"], message)
 
     def test_destroy(self):
         self.redis_client_mock.get.return_value = json.dumps(

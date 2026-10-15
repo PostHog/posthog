@@ -150,13 +150,16 @@ class TestFileSystemAPI(APIBaseTest):
         queries = [
             {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
             {"kind": "InsightVizNode", "source": {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery"}}},
+            {"kind": "BIVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
             None,
         ]
-        for query, expected_type in zip(queries, ["hog", "hog", "paths"]):
+        for query, expected_type in zip(queries, ["hog", "hog", "bi", "paths"]):
             Insight.objects.filter(team=self.team, pk=insight.pk).update(query=query, filters={"insight": "JOURNEYS"})
             response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"type": "insight"})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json()["results"][0]["meta"]["insight_type"], expected_type)
+            if expected_type == "bi":
+                self.assertEqual(response.json()["results"][0]["href"], f"/bi/{insight.short_id}")
 
     def test_list_rejects_invalid_content_type_parameter(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"include_content_type": "invalid"})
@@ -333,17 +336,23 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual([listed["results"], searched["results"], counted["count"]], [[], [], 0])
         self.assertEqual(retrieved.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_recents_skip_views_of_retired_types(self) -> None:
+    @parameterized.expand([("retired_type",), ("scene",), ("deleted_object",)])
+    def test_recents_skip_views_without_an_entry(self, unlisted_view: str) -> None:
         _folder, retired = self._create_retired_row_in_folder()
         dashboard = Dashboard.objects.create(team=self.team, name="Viewed earlier", created_by=self.user)
         entry = FileSystem.objects.create(
             team=self.team, path="Viewed earlier", type="dashboard", ref=str(dashboard.id), created_by=self.user
         )
+        view_type, view_ref = {
+            "retired_type": ("link", retired.ref),
+            "scene": ("scene", "ProjectHomepage"),
+            "deleted_object": ("dashboard", "999999"),
+        }[unlisted_view]
         base = f"/api/projects/{self.team.id}/file_system"
         self.client.post(
             f"{base}/log_view/", {"type": "dashboard", "ref": entry.ref, "viewed_at": "2026-09-01T00:00:00Z"}
         )
-        self.client.post(f"{base}/log_view/", {"type": "link", "ref": retired.ref, "viewed_at": "2026-09-02T00:00:00Z"})
+        self.client.post(f"{base}/log_view/", {"type": view_type, "ref": view_ref, "viewed_at": "2026-09-02T00:00:00Z"})
 
         recents = self.client.get(f"{base}/?order_by=-last_viewed_at&limit=1").json()
 

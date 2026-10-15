@@ -17,6 +17,7 @@ sys.path.insert(0, str(_ENGINE_DIR))
 import gates  # noqa: E402
 import policy  # noqa: E402
 
+from products.stamphog.backend.logic.engine_pregate import run_engine_pregate  # noqa: E402
 from products.stamphog.backend.temporal import activities  # noqa: E402
 from products.stamphog.backend.temporal.activities import (  # noqa: E402
     _clone_pr,
@@ -97,6 +98,58 @@ def test_overlay_of_partial_repo_policy_validates_through_engine_loader(tmp_path
     loaded = _load_engine_policy(merged_path)
     assert loaded.size_gate.max_lines == 123
     assert loaded.size_gate.max_files == 7
+
+
+@pytest.mark.parametrize(
+    "path, denied_category",
+    [
+        ("apps/billing/values.yaml", None),
+        (".github/workflows/maintenance.yml", None),
+        ("apps/billing-ledger/values.yaml", "billing"),
+        (".github/workflows/restricted.yml", "new_guard"),
+        ("apps/billing/secret.yaml", "crypto_secrets"),
+        (".github/CODEOWNERS", "stamphog_policy"),
+    ],
+)
+def test_deny_exceptions_preserve_inherited_guards(path: str, denied_category: str | None) -> None:
+    default = yaml.safe_load(_DEFAULT_POLICY.read_text())
+    default["deny"]["billing"]["match"]["any"].append("ledger")
+    default["deny"]["new_guard"] = {"match": {"paths": [r"^\.github/workflows/restricted\.yml$"]}}
+    repo_policy = yaml.safe_dump(
+        {
+            "deny_exceptions": {
+                "billing": [
+                    {
+                        "keyword": "billing",
+                        "path_prefixes": ["apps/"],
+                        "extensions": [".yaml", ".yml"],
+                    }
+                ],
+                "infra_cicd": [{"path_prefixes": [".github/"]}],
+            }
+        }
+    )
+    effective = activities._overlay_policy_yaml("example/widgets", yaml.safe_dump(default), repo_policy)
+    context = {
+        "repo": "example/widgets",
+        "pr": {
+            "number": 1,
+            "title": "chore: update configuration",
+            "state": "open",
+            "user": {"login": "maintainer", "type": "User"},
+        },
+        "files": [{"filename": path, "status": "modified", "additions": 1, "deletions": 1, "patch": "+setting"}],
+        "folder_policies_known": True,
+    }
+    outcome = run_engine_pregate(context, {STAMPHOG_POLICY_ENTRYPOINT: effective}, environment={})
+    if denied_category is None:
+        assert not outcome.final
+        assert outcome.not_final_reason == "no_failing_gate"
+    else:
+        assert outcome.result is not None
+        assert outcome.final
+        assert outcome.result["final_verdict"] == "REFUSED"
+        assert denied_category in outcome.result["classification"]["deny_categories"]
 
 
 def test_repo_guidance_and_steering_pass_through() -> None:

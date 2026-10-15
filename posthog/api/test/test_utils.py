@@ -15,7 +15,6 @@ from posthog.api.utils import (
     check_definition_ids_inclusion_field_sql,
     format_paginated_url,
     get_data,
-    get_target_entity,
     hostname_in_allowed_url_list,
     is_async_query,
     is_insight_query,
@@ -27,7 +26,6 @@ from posthog.api.utils import (
     strip_url_userinfo,
     unparsed_hostname_in_allowed_url_list,
 )
-from posthog.models.filters.filter import Filter
 from posthog.test.base import BaseTest
 
 
@@ -116,38 +114,6 @@ class TestUtils(BaseTest):
             "api/some_url?offset=0",
         )
 
-    def test_get_target_entity(self):
-        request = lambda url: cast(Any, RequestFactory().get(url))
-        filter = Filter(
-            data={
-                "entity_id": "$pageview",
-                "entity_type": "events",
-                "events": [{"id": "$pageview", "type": "events"}],
-            }
-        )
-        entity = get_target_entity(filter)
-
-        assert entity.id == "$pageview"
-        assert entity.type == "events"
-        assert entity.math is None
-
-        filter = Filter(
-            data={
-                "entity_id": "$pageview",
-                "entity_type": "events",
-                "entity_math": "unique_group",
-                "events": [
-                    {"id": "$pageview", "type": "events", "math": "unique_group"},
-                    {"id": "$pageview", "type": "events"},
-                ],
-            }
-        )
-        entity = get_target_entity(filter)
-
-        assert entity.id == "$pageview"
-        assert entity.type == "events"
-        assert entity.math == "unique_group"
-
     def test_check_definition_ids_inclusion_field_sql(self):
         definition_ids = [
             "",
@@ -176,7 +142,7 @@ class TestUtils(BaseTest):
             assert query == "(id = ANY (%(named_key)s::uuid[]))"
             assert ids == ordered_expected_ids
 
-    # keep in sync with posthog/plugin-server/tests/utils.test.ts::safeClickhouseString
+    # keep in sync with nodejs/tests/utils.test.ts::safeClickhouseString
     def test_safe_clickhouse_string_valid_strings(self):
         valid_strings = [
             "$autocapture",
@@ -202,21 +168,21 @@ class TestUtils(BaseTest):
         for s in valid_strings:
             self.assertEqual(safe_clickhouse_string(s), s)
 
-    # keep in sync with posthog/plugin-server/tests/utils.test.ts::safeClickhouseString
+    # keep in sync with nodejs/tests/utils.test.ts::safeClickhouseString
     def test_safe_clickhouse_string_surrogates(self):
         # flake8: noqa
         self.assertEqual(safe_clickhouse_string("foo \ud83d\ bar"), "foo \\ud83d\\ bar")
         self.assertEqual(safe_clickhouse_string("\ud83d\ bar"), "\\ud83d\\ bar")
         self.assertEqual(safe_clickhouse_string("\ud800\ \ud803\ "), "\\ud800\\ \\ud803\\ ")
 
-    # keep in sync with posthog/plugin-server/tests/utils.test.ts::safeClickhouseString
+    # keep in sync with nodejs/tests/utils.test.ts::safeClickhouseString
     def test_safe_clickhouse_string_unicode_non_surrogates(self):
         self.assertEqual(safe_clickhouse_string("✨"), "✨")
         self.assertEqual(safe_clickhouse_string("foo \u2728\ bar"), "foo \u2728\ bar")
         self.assertEqual(safe_clickhouse_string("💜 \u1f49c\ 💜"), "💜 \u1f49c\ 💜")
 
     def test_raise_if_user_provided_url_unsafe(self):
-        # Sync test cases with plugin-server/src/utils/fetch.test.ts
+        # Sync test cases with nodejs/src/common/utils/request.test.ts
         raise_if_user_provided_url_unsafe("https://google.com?q=20")  # Safe
         raise_if_user_provided_url_unsafe("https://posthog.com")  # Safe
         raise_if_user_provided_url_unsafe("https://posthog.com/foo/bar")  # Safe, with path
@@ -285,6 +251,12 @@ class TestUtils(BaseTest):
             ("TrendsQuery is insight", {"kind": "TrendsQuery"}, True, True),
             ("FunnelsQuery is insight", {"kind": "FunnelsQuery"}, True, True),
             ("HogQLQuery is insight", {"kind": "HogQLQuery"}, True, True),
+            (
+                "BIVisualizationNode wrapping HogQLQuery",
+                {"kind": "BIVisualizationNode", "source": {"kind": "HogQLQuery"}},
+                True,
+                True,
+            ),
             ("TracesQuery gets extended timeout only", {"kind": "TracesQuery"}, False, True),
             ("ExperimentQuery gets extended timeout only", {"kind": "ExperimentQuery"}, False, True),
             (

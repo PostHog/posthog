@@ -1,9 +1,10 @@
 """Champion promotion rule.
 
 A candidate replaces the champion when it is at least as good on every head the champion could
-read, has at least one readable head itself, and enough days have passed since the last promotion
-(scores are consumed by an online shadow read, and a champion that changes every day muddies it).
-Pure function over the two metadata records so the rule is testable without S3.
+read, has at least one readable head itself, and enough days have passed since the last promotion.
+The quality gates run before the wait, so `gates_passed` says whether the candidate is good enough
+even on a day the wait blocks it. Pure function over the two metadata records so the rule is
+testable without S3.
 
 `champion_grades` holds the champion's holdout booster graded on the candidate's holdout, so both
 models are compared on one set of reports; the stored AUCs are the fallback for a head without one.
@@ -45,6 +46,8 @@ ECE_TOLERANCE = 0.02
 class PromotionDecision:
     promote: bool
     reason: str
+    # True when the candidate passed every quality gate, whether or not the wait blocked it.
+    gates_passed: bool
     # Champion-readable heads whose shared holdout had too few positives to compare.
     skipped_heads: tuple[str, ...] = ()
 
@@ -77,12 +80,10 @@ def decide_promotion(
     """`skip_gates` waives `min_days` (the wait since the last promotion), `ece` (the calibration
     check) and `min_holdout_positives` (a head whose candidate holdout has fewer positives than its
     minimum is skipped rather than blocking)."""
-    candidate_aucs = _readable_aucs(candidate)
-    candidate_heads = {head["head"]: head for head in candidate.get("heads", [])}
-    if not candidate_aucs:
-        return PromotionDecision(promote=False, reason="candidate has no readable head")
+    if not _readable_aucs(candidate):
+        return PromotionDecision(promote=False, reason="candidate has no readable head", gates_passed=False)
     if champion is None:
-        return PromotionDecision(promote=True, reason="no champion yet")
+        return PromotionDecision(promote=True, reason="no champion yet", gates_passed=True)
 
     # A backfill replays old partitions, so reject any candidate not newer than the champion to keep
     # the pointer from moving backwards to a stale model. model_version is the partition date, and
@@ -91,45 +92,72 @@ def decide_promotion(
         return PromotionDecision(
             promote=False,
             reason=f"candidate {candidate['model_version']} is not newer than champion {champion['model_version']}",
+            gates_passed=False,
         )
 
+    decision = _compare_to_champion(candidate, champion, champion_grades or {}, min_holdout_positives or {}, skip_gates)
     promoted_at = datetime.datetime.fromisoformat(champion["promoted_at"])
-    if "min_days" not in skip_gates and now - promoted_at < datetime.timedelta(days=min_days_between):
+    if (
+        decision.promote
+        and "min_days" not in skip_gates
+        and now - promoted_at < datetime.timedelta(days=min_days_between)
+    ):
         return PromotionDecision(
-            promote=False, reason=f"champion {champion['model_version']} promoted less than {min_days_between}d ago"
+            promote=False,
+            reason=f"candidate passed every gate but champion {champion['model_version']} promoted less than {min_days_between}d ago",
+            gates_passed=True,
+            skipped_heads=decision.skipped_heads,
         )
+    return decision
+
+
+def _compare_to_champion(
+    candidate: Mapping[str, Any],
+    champion: Mapping[str, Any],
+    champion_grades: Mapping[str, HoldoutGrade],
+    min_holdout_positives: Mapping[str, int],
+    skip_gates: Collection[str],
+) -> PromotionDecision:
+    candidate_aucs = _readable_aucs(candidate)
+    candidate_heads = {head["head"]: head for head in candidate.get("heads", [])}
     skipped: list[str] = []
     for head, stored_auc in _readable_aucs(champion).items():
         candidate_positives = candidate_heads.get(head, {}).get("holdout_positives")
         if (
             "min_holdout_positives" in skip_gates
             and candidate_positives is not None
-            and candidate_positives < (min_holdout_positives or {}).get(head, 0)
+            and candidate_positives < min_holdout_positives.get(head, 0)
         ):
             skipped.append(head)
             continue
-        grade = (champion_grades or {}).get(head)
+        grade = champion_grades.get(head)
         if grade is None:
             # No shared holdout: readability was read on two different holdouts, so compare it as stored.
             candidate_auc = candidate_aucs.get(head)
             if candidate_auc is None:
-                return PromotionDecision(promote=False, reason=f"{head} readable on champion but not on candidate")
+                return PromotionDecision(
+                    promote=False, reason=f"{head} readable on champion but not on candidate", gates_passed=False
+                )
             champion_auc = stored_auc
         else:
             if head not in candidate_heads:
-                return PromotionDecision(promote=False, reason=f"{head} not trained on candidate")
-            if grade.positives < (min_holdout_positives or {}).get(head, 0):
+                return PromotionDecision(promote=False, reason=f"{head} not trained on candidate", gates_passed=False)
+            if grade.positives < min_holdout_positives.get(head, 0):
                 skipped.append(head)
                 continue
             # The candidate is graded whether or not it cleared its null margin: a weak head fails on its numbers.
             raw_auc = candidate_heads[head].get("holdout_auc")
             if raw_auc is None:
-                return PromotionDecision(promote=False, reason=f"{head} has no holdout AUC on candidate")
+                return PromotionDecision(
+                    promote=False, reason=f"{head} has no holdout AUC on candidate", gates_passed=False
+                )
             candidate_auc = float(raw_auc)
             champion_auc = grade.auc if grade.auc is not None else stored_auc
         if candidate_auc < champion_auc - AUC_TOLERANCE:
             return PromotionDecision(
-                promote=False, reason=f"{head} regressed: {candidate_auc:.3f} vs champion {champion_auc:.3f}"
+                promote=False,
+                reason=f"{head} regressed: {candidate_auc:.3f} vs champion {champion_auc:.3f}",
+                gates_passed=False,
             )
         champion_ece = grade.expected_calibration_error if grade is not None else None
         raw_ece = candidate_heads.get(head, {}).get("holdout_expected_calibration_error")
@@ -143,14 +171,18 @@ def decide_promotion(
             return PromotionDecision(
                 promote=False,
                 reason=f"{head} calibration regressed: ECE {candidate_ece:.3f} vs champion {champion_ece:.3f}",
+                gates_passed=False,
             )
     if skipped:
         return PromotionDecision(
             promote=True,
             reason=f"candidate at or above champion on every comparable head (skipped: {', '.join(skipped)})",
+            gates_passed=True,
             skipped_heads=tuple(skipped),
         )
-    return PromotionDecision(promote=True, reason="candidate at or above champion on every readable head")
+    return PromotionDecision(
+        promote=True, reason="candidate at or above champion on every readable head", gates_passed=True
+    )
 
 
 def apply_promotion_override(

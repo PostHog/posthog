@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,33 @@ CONEKTA_API_KEYS_URL = "https://panel.conekta.com/developers/api-keys"
 
 @SourceRegistry.register
 class ConektaSource(ResumableSource[ConektaSourceConfig, ConektaResumeConfig]):
+    codebase_detection = detect(
+        env=("^CONEKTA_",),
+        script_hosts=("cdn.conekta.io", "pay.conekta.com"),
+        npm=("conekta",),
+        pypi=("conekta",),
+        composer=("conekta/conekta-php", "conekta/conekta_payments"),
+        go=("github.com/conekta/conekta-go",),
+        maven=(
+            "io.conekta:ct-conekta-java",
+            "io.conekta:conekta-java",
+            "io.conekta:conekta-elements-compose",
+            "io.conekta:conekta-elements-compose-android",
+            "io.conekta:conekta-elements-compose-iosarm64",
+            "io.conekta:conekta-elements-compose-iossimulatorarm64",
+            "io.conekta:conekta-elements-compose-iosx64",
+            "io.conekta:conekta-elements-shared",
+            "io.conekta:conekta-elements-shared-android",
+            "io.conekta:conekta-elements-shared-iosarm64",
+            "io.conekta:conekta-elements-shared-iossimulatorarm64",
+            "io.conekta:conekta-elements-shared-iosx64",
+            "io.conekta:conekta-elements-shared-js",
+            "io.conekta:conektasdk",
+        ),
+        rubygems=("conekta",),
+        swiftpm=("github.com/conekta/conekta-components-ios",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Conekta pins the response format with an `Accept: application/vnd.conekta-v<version>+json`
     # header, which `conekta.build_headers` sends on every request. 2.3.0 is the current version.

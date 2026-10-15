@@ -6,13 +6,27 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch, IconWarning } from '@posthog/icons'
+import {
+    IconArchive,
+    IconCheck,
+    IconLock,
+    IconPin,
+    IconPinFilled,
+    IconPlus,
+    IconSearch,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
-import { EntityFilterInfo, getSeriesRename } from 'lib/components/EntityFilterInfo'
+import {
+    DisplayableEntity,
+    EntityFilterInfo,
+    getSeriesRename,
+    toDisplayEntityFilter,
+} from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
@@ -43,8 +57,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { EntityFilter, EventDefinition, PropertyDefinition } from '~/types'
+import { EventDefinition, PropertyDefinition } from '~/types'
 
+import { HiddenEventExplanation } from './HiddenEventExplanation'
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
 import { TaxonomicEventMatchSuggestions } from './TaxonomicEventMatchSuggestions'
 
@@ -168,15 +183,14 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
  * the user clicked.
  */
 const getSelectedItemRenameMeta = (
-    selectedItemMeta: EntityFilter | null | undefined,
+    selectedItemMeta: DisplayableEntity | null | undefined,
     itemValue: string | number | null | undefined
-): EntityFilter | null => {
-    if (
-        !selectedItemMeta ||
-        selectedItemMeta.id == null ||
-        itemValue == null ||
-        String(selectedItemMeta.id) !== String(itemValue)
-    ) {
+): DisplayableEntity | null => {
+    if (!selectedItemMeta || itemValue == null) {
+        return null
+    }
+    const { id } = toDisplayEntityFilter(selectedItemMeta)
+    if (id == null || String(id) !== String(itemValue)) {
         return null
     }
     return getSeriesRename(selectedItemMeta) ? selectedItemMeta : null
@@ -208,7 +222,7 @@ const renderItemContents = ({
     itemGroup: TaxonomicFilterGroup
     eventNames: string[]
     isActive: boolean
-    selectedRenameMeta?: EntityFilter | null
+    selectedRenameMeta?: DisplayableEntity | null
 }): JSX.Element | string => {
     if (isQuickFilterItem(item)) {
         const icon = itemGroup.getIcon ? (
@@ -374,7 +388,7 @@ interface InfiniteListRowProps {
     groupType: TaxonomicFilterGroupType | undefined
     value: string | number | null | undefined
     selectedProperties: TaxonomicFilterGroupValueMap
-    selectedItemMeta: EntityFilter | null | undefined
+    selectedItemMeta: DisplayableEntity | null | undefined
     eventNames: string[]
     highlightedIndex: number
     isActiveTab: boolean
@@ -791,9 +805,7 @@ function InfiniteListEmptyState(): JSX.Element {
                         <strong>{hiddenEventSearched}</strong> isn't available here
                     </span>
                     <span className="max-w-80 text-center text-secondary">
-                        PostHog still collects this event, but you can't build a saved query on it. Its data is moving,
-                        so a saved query would stop returning results. To see how a flag is used, open the flag and
-                        check its Usage tab.
+                        <HiddenEventExplanation />
                     </span>
                 </div>
             ) : (
@@ -859,21 +871,34 @@ function InfiniteListEmptyState(): JSX.Element {
 }
 
 function InfiniteListErrorState(): JSX.Element {
+    const { group, remoteFetchForbidden } = useValues(infiniteListLogic)
     const { retryRemoteItems } = useActions(infiniteListLogic)
 
     return (
         <div className="no-infinite-results flex flex-col gap-y-1 items-center">
-            <IconWarning className="text-5xl text-tertiary" />
-            <span className="text-center">Couldn't load results</span>
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                data-attr="taxonomic-retry-remote-items"
-                onClick={retryRemoteItems}
-            >
-                Try again
-            </LemonButton>
-            <span className="text-center text-secondary italic">If it keeps happening, contact support.</span>
+            {remoteFetchForbidden ? (
+                <>
+                    <IconLock className="text-5xl text-tertiary" />
+                    <span className="text-center">
+                        You don't have access to {group?.searchPlaceholder || 'these results'} in this project.
+                    </span>
+                    <span className="text-center text-secondary">Ask a project admin for access.</span>
+                </>
+            ) : (
+                <>
+                    <IconWarning className="text-5xl text-tertiary" />
+                    <span className="text-center">Couldn't load results</span>
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        data-attr="taxonomic-retry-remote-items"
+                        onClick={retryRemoteItems}
+                    >
+                        Try again
+                    </LemonButton>
+                    <span className="text-center text-secondary italic">If it keeps happening, contact support.</span>
+                </>
+            )}
         </div>
     )
 }

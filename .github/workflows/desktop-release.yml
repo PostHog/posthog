@@ -324,7 +324,9 @@ jobs:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: products/desktop
+                  sparse-checkout: |
+                      products/desktop
+                      packages/agent
                   sparse-checkout-cone-mode: false
                   persist-credentials: false
 
@@ -348,10 +350,10 @@ jobs:
                   package-manager-cache: false
 
             - name: Install e2e dependencies
-              run: pnpm install --frozen-lockfile --ignore-scripts --filter code --filter "@posthog/agent..."
+              run: pnpm install --frozen-lockfile --ignore-scripts --filter code
 
-            - name: Build agent package
-              run: pnpm --filter "@posthog/agent..." run build
+            - name: Build agent workspace
+              run: node scripts/build-agent-workspace.mjs
 
             - name: Download the x64 app
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

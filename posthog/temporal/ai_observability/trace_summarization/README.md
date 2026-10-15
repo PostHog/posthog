@@ -144,6 +144,9 @@ The coordinator runs hourly via Temporal schedule (configured in `schedule.py`).
 ### Team Discovery
 
 Teams are discovered dynamically via `team_discovery.py`: guaranteed teams (in `GUARANTEED_TEAM_IDS`) plus a configurable random sample of teams with AI events.
+The coordinator passes its summarization window to discovery, so the sample only holds teams with AI events in that window.
+A team with no AI events in the window has nothing to summarize, and it would still cost a child workflow and a sampling query.
+The clustering coordinators pass no window, so their discovery uses `discovery_lookback_days` from the flag payload.
 Every discovered team must also pass the consent gate below, guaranteed teams included.
 
 ### AI data processing consent

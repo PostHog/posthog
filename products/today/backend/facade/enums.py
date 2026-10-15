@@ -2,6 +2,8 @@
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 
 class BriefingStatus(StrEnum):
     COLLECTING = "collecting"
@@ -57,3 +59,61 @@ class ItemState(StrEnum):
     DONE = "done"
     # Dismissed or deleted since the briefing was written.
     DISMISSED = "dismissed"
+    # The report no longer names the viewer as a reviewer, while it stays open for the team.
+    LEFT = "left"
+
+
+class KeyClauseRole(LabeledStrEnum):
+    PROBLEM = "problem", "Problem"
+    CAUSE = "cause", "Cause"
+    FIX = "fix", "Fix"
+
+
+class CitedSource(LabeledStrEnum):
+    CODE = "code", "Code"
+    SLACK = "slack", "Slack"
+
+
+class FigureText(LabeledStrEnum):
+    LEAD = "lead", "Lead"
+    IMPACT = "impact", "Impact"
+
+
+class ImpactNumberKey(LabeledStrEnum):
+    TICKETS = "tickets", "Support tickets"
+    QUERY_HOURS = "query-hours", "Database hours"
+
+
+class FigureSourceKind(LabeledStrEnum):
+    SIGNAL = "signal", "Signal"
+    RESEARCH = "research", "Agent's research"
+
+
+class HighlightLabel(LabeledStrEnum):
+    RISK = "risk", "Risk"
+    OPPORTUNITY = "opportunity", "Opportunity"
+
+
+class HighlightsStatus(LabeledStrEnum):
+    COMPUTING = "computing", "Computing"
+    READY = "ready", "Ready"
+    FAILED = "failed", "Failed"
+
+
+class HighlightPriority(LabeledStrEnum):
+    P1 = "P1", "P1"
+    P2 = "P2", "P2"
+    P3 = "P3", "P3"
+    P4 = "P4", "P4"
+
+
+class HighlightUnit(LabeledStrEnum):
+    EVENTS = "events", "Events"
+    PEOPLE = "people", "People"
+    NUMBER = "number", "Number"
+
+
+class HighlightInterval(LabeledStrEnum):
+    DAY = "day", "Day"
+    WEEK = "week", "Week"
+    MONTH = "month", "Month"

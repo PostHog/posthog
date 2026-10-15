@@ -147,13 +147,14 @@ class ConfigError:
     # Presentation text. Never carries property values, seeds or metadata: the path in
     # ``attr`` identifies the field and the code identifies the problem.
     detail: str
-    # Dotted path from the flag's ``filters`` field, e.g. ``filters.rules[2].seed``.
-    attr: str
+    # Dotted path from the flag's ``filters`` field, e.g. ``filters.rules[2].seed``; None for a repeated key.
+    attr: str | None
 
 
 class ConfigValidationError(ValueError):
     def __init__(self, errors: list[ConfigError]) -> None:
-        super().__init__(f"{errors[0].attr}: {errors[0].detail}")
+        first = errors[0]
+        super().__init__(first.detail if first.attr is None else f"{first.attr}: {first.detail}")
         self.errors = tuple(errors)
 
 

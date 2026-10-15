@@ -1,6 +1,7 @@
-import React, { useCallback, useMemo, useRef } from 'react'
+import React, { useCallback, useMemo } from 'react'
 
 import { findClosestSeriesKey } from '../../overlays/tooltipUtils'
+import { originatesInElement, originatesInInteractiveOverlay } from '../dom-events'
 import {
     buildLabelPositions,
     buildPointClickData,
@@ -22,26 +23,14 @@ import type {
 } from '../types'
 import { useDragToZoom } from './useDragToZoom'
 import { useLatest } from './useLatest'
+import { useTapTracking } from './useTapTracking'
 import { useTooltipLifecycle } from './useTooltipLifecycle'
-
-function originatesInElement(e: React.SyntheticEvent, selector: string): boolean {
-    return e.target instanceof Element && !!e.target.closest(selector)
-}
 
 /** The tooltip is portaled out of the wrapper's DOM tree, but React portals still bubble
  *  synthetic events through the React tree — so a click or drag that starts inside the pinned
  *  tooltip reaches the wrapper's handlers and would dismiss the pin or start a zoom drag. */
 function originatesInTooltip(e: React.SyntheticEvent): boolean {
     return originatesInElement(e, '[data-hog-charts-tooltip]')
-}
-
-/** An interactive overlay child (e.g. a clickable exemplar marker) renders inside the same
- *  wrapper this hook's mousemove handler is bound to, so every hover over it still bubbles here.
- *  Without this guard the chart's own nearest-point tooltip fights the overlay child's tooltip
- *  for the cursor. An overlay opts out of chart hover tracking by marking its interactive root
- *  with this attribute. */
-function originatesInInteractiveOverlay(e: React.SyntheticEvent): boolean {
-    return originatesInElement(e, '[data-hog-charts-interactive-overlay]')
 }
 
 interface UseChartInteractionOptions<Meta> {
@@ -56,6 +45,8 @@ interface UseChartInteractionOptions<Meta> {
     /** See `TooltipConfig.resolveClickToNearestSeries`. */
     resolveClickToNearestSeries?: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** See `ChartProps.isPointClickable`. */
+    isPointClickable?: (dataIndex: number) => boolean
     onDateRangeZoom?: (data: DateRangeZoomData) => void
     /** 2D brush — see `ChartProps.onAreaSelect`. Receives the committed `scales` so chart-type
      *  adapters can map the y pixel range onto their own bands. */
@@ -135,6 +126,7 @@ export function useChartInteraction<Meta = unknown>({
     pinnable,
     resolveClickToNearestSeries = false,
     onPointClick,
+    isPointClickable,
     onDateRangeZoom,
     onAreaSelect,
     resolveValue = defaultResolveValue,
@@ -353,24 +345,7 @@ export function useChartInteraction<Meta = unknown>({
         clearTooltip()
     }, [isPinned, clearTooltip])
 
-    // Touch support state. Touch devices fire no mousemove before a tap, so hover state is
-    // absent (or stale) when the tap's click arrives; the click handler must resolve the tapped
-    // point itself. `lastPointerTypeRef` tells it whether the click came from a touch, and
-    // `tapDownTooltipIndexRef` records which point's tooltip was showing when the gesture
-    // started. Both are captured at pointerdown because a tap's compatibility mouse events
-    // (mouseover/mousemove/mousedown) fire after pointerup, which means by click time the
-    // tooltip state may already reflect this very tap.
-    const tooltipCtxRef = useLatest(tooltipCtx)
-    const lastPointerTypeRef = useRef<string>('mouse')
-    const tapDownTooltipIndexRef = useRef<number>(-1)
-
-    const onPointerDown = useCallback(
-        (e: React.PointerEvent<HTMLDivElement>) => {
-            lastPointerTypeRef.current = e.pointerType
-            tapDownTooltipIndexRef.current = tooltipCtxRef.current?.dataIndex ?? -1
-        },
-        [tooltipCtxRef]
-    )
+    const { lastPointerTypeRef, tapDownTooltipIndexRef, onPointerDown } = useTapTracking(tooltipCtx)
 
     const onClick = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
@@ -382,6 +357,8 @@ export function useChartInteraction<Meta = unknown>({
                 return
             }
 
+            const canClick = (index: number): boolean =>
+                !!onPointClick && index < labels.length && (isPointClickable?.(index) ?? true)
             let currentIndex = hoverIndexRef.current
             let clickPosition = hoverPositionRef.current
 
@@ -409,7 +386,7 @@ export function useChartInteraction<Meta = unknown>({
                             ctx &&
                             pinnable &&
                             resolveClickToNearestSeries &&
-                            onPointClick &&
+                            canClick(index) &&
                             ctx.seriesData.length > 1
                         ) {
                             const clickData = resolveNearestSeriesClickData(
@@ -421,7 +398,7 @@ export function useChartInteraction<Meta = unknown>({
                                 position
                             )
                             if (clickData) {
-                                onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                                onPointClick?.(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
                                 return
                             }
                         }
@@ -449,7 +426,7 @@ export function useChartInteraction<Meta = unknown>({
             if (pinnable && tooltipCtx && tooltipCtx.seriesData.length > 1) {
                 // Opt-in: a click nearer one series than the others is unambiguous, so resolve it
                 // and fire onPointClick directly instead of making the user pin then pick a row.
-                if (resolveClickToNearestSeries && onPointClick && clickPosition) {
+                if (resolveClickToNearestSeries && canClick(currentIndex) && clickPosition) {
                     const clickData = resolveNearestSeriesClickData(
                         currentIndex,
                         series,
@@ -459,7 +436,7 @@ export function useChartInteraction<Meta = unknown>({
                         clickPosition
                     )
                     if (clickData) {
-                        onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                        onPointClick?.(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
                         return
                     }
                 }
@@ -467,15 +444,16 @@ export function useChartInteraction<Meta = unknown>({
                 return
             }
 
-            if (onPointClick) {
+            if (canClick(currentIndex)) {
                 const clickData = buildPointClickData(currentIndex, series, labels, resolveValue, clickPosition)
                 if (clickData) {
-                    onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                    onPointClick?.(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
                 }
             }
         },
         [
             onPointClick,
+            isPointClickable,
             series,
             labels,
             resolveValue,
@@ -489,6 +467,8 @@ export function useChartInteraction<Meta = unknown>({
             unpin,
             shouldSwallowClick,
             hoverIndexRef,
+            lastPointerTypeRef,
+            tapDownTooltipIndexRef,
             hoverPositionRef,
             wrapClickData,
             scales,

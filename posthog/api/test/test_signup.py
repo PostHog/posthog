@@ -704,13 +704,15 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(Team.objects.count(), team_count)
 
     def test_cant_sign_up_with_weak_passwords(self):
+        next_step = "Try a longer password that isn't a common word or pattern."
         cases = [
-            ["password", "Add another word or two. Uncommon words are better."],
+            ["password", f"This is a top-10 common password. {next_step}"],
             [
                 "test test test",
-                "Add another word or two. Uncommon words are better. Avoid repeated words and characters.",
+                f'Repeats like "abcabcabc" are only slightly harder to guess than "abc". {next_step}',
             ],
-            ["12345678", "Add another word or two. Uncommon words are better."],
+            ["12345678", f"This is a top-10 common password. {next_step}"],
+            ["correcthorse", f"This password is too easy to guess. {next_step}"],
         ]
 
         for password, detail in cases:
@@ -3033,6 +3035,23 @@ class TestInviteSignupAPI(APIBaseTest):
             1,
         )
 
+    def test_api_social_sign_up_accepts_a_blank_role(self):
+        Organization.objects.all().delete()  # Can only create organizations in fresh instances
+        session = self.client.session
+        session.update({"backend": "google-oauth2", "email": "blank_role@posthog.com"})
+        session.save()
+
+        response = self.client.post(
+            "/api/social_signup",
+            {
+                "organization_name": "Org blank role",
+                "first_name": "Max",
+                "role_at_organization": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     def test_api_social_invite_sign_up_if_email_verification_on(self, email_mock, email_available_mock):
@@ -3165,7 +3184,9 @@ class TestInviteSignupAPI(APIBaseTest):
 
     def test_process_social_invite_signup_returns_none_for_nonexistent_invite(self):
         nonexistent_id = str(uuid.uuid4())
-        result = process_social_invite_signup(mock.MagicMock(), nonexistent_id, "test@example.com", "Test User")
+        result = process_social_invite_signup(
+            mock.MagicMock(), nonexistent_id, "test@example.com", "Test User", backend=mock.MagicMock()
+        )
         self.assertIsNone(result)
 
     @pytest.mark.skip_on_multitenancy
@@ -3565,3 +3586,16 @@ class TestSAMLInviteLookup(APIBaseTest):
 
     def test_unknown_identifier_returns_nothing(self):
         assert lookup_invite_for_saml("joiner@example.com", "not-an-identifier") is None
+
+    @parameterized.expand([("expired", INVITE_DAYS_VALIDITY + 5), ("still_valid", 0)])
+    def test_reports_no_invite_for_someone_who_is_already_a_member(self, _name, days_old):
+        identifier = self._saml_identifier_for("member.example.com")
+        member = User.objects.create_and_join(
+            organization=self.organization, email="member@member.example.com", password=None
+        )
+        invite = OrganizationInvite.objects.create(organization=self.organization, target_email=member.email)
+        if days_old:
+            invite.created_at = timezone.now() - timedelta(days=days_old)
+            invite.save(update_fields=["created_at"])
+
+        assert lookup_invite_for_saml(member.email, identifier) is None

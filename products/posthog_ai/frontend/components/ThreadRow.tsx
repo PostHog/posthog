@@ -8,16 +8,16 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-assistant-messages'
 
-import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
-
 import { DebugMessage } from '../messages/DebugMessage'
 import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem, ToolInvocation } from '../types/streamTypes'
-import { resolveToolCall } from '../utils/toolResolver'
+import { commentScreenshotNames } from '../utils/commentContext'
+import { toolInvocationToMessage } from '../utils/toolCallMessage'
 import { userMessageDisplayText } from '../utils/userMessageDisplay'
 import { Activity } from './ActivityPrimitives'
+import { HumanMessageText } from './HumanMessageText'
 import { QuillAssistantMessage, QuillHumanMessage } from './quill/QuillMessages'
 import { QuillSeparatorRow } from './quill/QuillSeparatorRow'
 import { useQuillThread } from './quill/quillThreadContext'
@@ -25,31 +25,6 @@ import { RunErrorRow } from './RunErrorRow'
 import { ThreadAttachments } from './ThreadAttachments'
 import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
 import { ToolCallCard } from './tool/ToolCallCard'
-
-/** Maps a raw merged `ToolInvocation` into the flat `ToolCallMessage` the registry renderers read. */
-function toolInvocationToMessage(invocation: ToolInvocation | undefined): ToolCallMessage | null {
-    if (!invocation) {
-        return null
-    }
-    const resolved = resolveToolCall(invocation)
-    return {
-        id: invocation.toolCallId,
-        resolvedKey: resolved.resolvedKey,
-        rawServerName: invocation.rawServerName,
-        rawToolName: invocation.rawToolName,
-        innerToolName: resolved.innerToolName,
-        claudeToolName: resolved.claudeToolName,
-        rawInput: invocation.input,
-        innerInput: resolved.innerInput,
-        rawOutput: invocation.output,
-        content: invocation.contentBlocks,
-        status: invocation.status,
-        title: invocation.title,
-        kind: invocation.kind,
-        locations: invocation.locations,
-        error: invocation.error,
-    }
-}
 
 function progressStepText(step: ProgressStep): string {
     return step.detail ? `${step.label}\n\n${step.detail}` : step.label
@@ -152,14 +127,15 @@ export const ThreadRow = memo(function ThreadRow({
             return <QuillHumanMessage item={item} />
         }
         const text = userMessageDisplayText(item.text ?? '')
+        const screenshotNames = commentScreenshotNames(item.text ?? '')
         return (
             <MessageTemplate
                 type="human"
                 className="group"
                 action={<HumanMessageFooter startedAt={item.startedAt} text={text} />}
             >
-                <MarkdownMessage content={text || '*No text.*'} id={item.id} />
-                {item.attachments && <ThreadAttachments attachments={item.attachments} />}
+                <HumanMessageText text={item.text ?? ''} id={item.id} attachments={item.attachments} />
+                {item.attachments && <ThreadAttachments attachments={item.attachments} badgeNames={screenshotNames} />}
             </MessageTemplate>
         )
     }

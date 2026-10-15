@@ -3,13 +3,8 @@ import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
 } from "@posthog/host-router/client";
-import { SERVER_AGENT_INSTRUCTIONS_FLAG } from "@posthog/shared";
 import { createAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStore } from "@posthog/ui/features/auth/store";
-import {
-  FEATURE_FLAGS,
-  type FeatureFlags,
-} from "@posthog/ui/features/feature-flags/identifiers";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { logger } from "@posthog/ui/shell/logger";
 import { inject, injectable } from "inversify";
@@ -36,20 +31,16 @@ export class ServerAgentInstructionsContribution implements Contribution {
   constructor(
     @inject(HOST_TRPC_CLIENT)
     private readonly hostClient: HostTrpcClient,
-    @inject(FEATURE_FLAGS)
-    private readonly flags: FeatureFlags,
   ) {}
 
   start(): void {
     const run = () => void this.reconcile();
-    this.flags.onFlagsLoaded(run);
     useSettingsStore.subscribe(run);
     useAuthStore.subscribe(run);
     run();
   }
 
   private async reconcile(): Promise<void> {
-    if (!this.flags.isEnabled(SERVER_AGENT_INSTRUCTIONS_FLAG)) return;
     const settings = useSettingsStore.getState();
     const authState = useAuthStore.getState().authState;
     const projectId = authState.currentProjectId;

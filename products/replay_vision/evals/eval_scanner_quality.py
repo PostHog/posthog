@@ -1,7 +1,7 @@
 """Golden-dataset quality suite for Replay Vision scanner prompts.
 
 Each case re-runs the production scan pipeline (same Jinja templates, response schemas, events
-tool, and citation handling, via run_scan) against a collected session video plus its event
+round, and citation handling, via run_scan) against a collected session video plus its event
 snapshot, then scores the fresh output against the recorded output and its human thumbs label.
 Edit the templates under backend/temporal/scanners/prompts/ and re-run to compare experiments
 in the local logs (this suite is private; nothing is sent to Braintrust).
@@ -20,6 +20,8 @@ from google.genai import (
     Client as RawGenAIClient,
     types as genai_types,
 )
+
+from posthog.temporal.session_replay.rasterize_recording.types import NavigationChange
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -159,6 +161,7 @@ async def _scan_task(
                 # A case collected before the map was captured scores as if nothing was cut.
                 video_clock=video_clock_from_export_context({"inactivity_periods": golden.inactivity_periods})
                 or VideoClock(spans=()),
+                navigation=[NavigationChange.model_validate(change) for change in golden.navigation],
             )
         except ScannerFailureError as exc:
             # A scan the model cannot complete is a prompt-quality signal (broken schema compliance),

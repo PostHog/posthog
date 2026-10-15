@@ -19,8 +19,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.quo.settings import (
+    DATED_ENDPOINTS_BY_VERSION,
+    QUO_API_VERSION_HEADER,
+    QUO_API_VERSION_V1,
     QUO_BASE_URL,
     QUO_ENDPOINTS,
+    QuoDatedEndpointConfig,
     QuoEndpointConfig,
 )
 
@@ -28,6 +32,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.quo.settin
 @frozen
 class QuoResumeConfig:
     page_token: str
+    # The dated version the cursor was issued under. None is the v1 wire, which pages with incompatible cursors.
+    api_version: str | None = None
 
 
 def _to_iso(value: Any) -> Optional[str]:
@@ -41,12 +47,29 @@ def _auth_headers(api_key: str) -> dict[str, str]:
     return {"Accept": "application/json", "Authorization": api_key}
 
 
-def validate_credentials(api_key: str) -> bool:
-    """Confirm the API key is valid. /v1/phone-numbers is a cheap authenticated probe with no required params."""
+def _dated_endpoints(api_version: str) -> Optional[dict[str, QuoDatedEndpointConfig]]:
+    """Return the dated endpoint map for a version, or None for v1. Unknown versions raise rather than send no header."""
+    if api_version == QUO_API_VERSION_V1:
+        return None
+    try:
+        return DATED_ENDPOINTS_BY_VERSION[api_version]
+    except KeyError:
+        raise ValueError(f"Unsupported Quo API version: {api_version}")
+
+
+def validate_credentials(api_key: str, api_version: str) -> bool:
+    """Confirm the API key is valid. Listing phone numbers is a cheap authenticated probe with no required params."""
+    dated_endpoints = _dated_endpoints(api_version)
+    headers = _auth_headers(api_key)
+    if dated_endpoints is None:
+        url = f"{QUO_BASE_URL}/v1/phone-numbers"
+    else:
+        url = f"{QUO_BASE_URL}{dated_endpoints['phone_numbers'].path}"
+        headers[QUO_API_VERSION_HEADER] = api_version
     ok, _status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
-        f"{QUO_BASE_URL}/v1/phone-numbers",
-        headers=_auth_headers(api_key),
+        url,
+        headers=headers,
     )
     return ok
 
@@ -57,6 +80,19 @@ def _build_params(
     params: dict[str, Any] = {}
     if config.page_size is not None:
         params["maxResults"] = config.page_size
+    if watermark_iso is not None and cursor_field is not None:
+        server_filter = config.incremental_params.get(cursor_field)
+        if server_filter is not None:
+            params[server_filter] = watermark_iso
+    return params
+
+
+def _build_dated_params(
+    config: QuoDatedEndpointConfig, cursor_field: Optional[str], watermark_iso: Optional[str]
+) -> dict[str, Any]:
+    params: dict[str, Any] = {"limit": config.page_size}
+    if config.include is not None:
+        params["include"] = config.include
     if watermark_iso is not None and cursor_field is not None:
         server_filter = config.incremental_params.get(cursor_field)
         if server_filter is not None:
@@ -116,29 +152,38 @@ def _fan_out_rows(api_key: str, config: QuoEndpointConfig, params: dict[str, Any
 
 def _rest_source(
     api_key: str,
-    config: QuoEndpointConfig,
+    name: str,
+    path: str,
+    dated_version: Optional[str],
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[QuoResumeConfig],
     params: dict[str, Any],
     db_incremental_field_last_value: Optional[Any],
 ):
+    headers = {"Accept": "application/json"}
+    if dated_version is not None:
+        headers[QUO_API_VERSION_HEADER] = dated_version
+        paginator = JSONResponseCursorPaginator(cursor_path="nextCursor", cursor_param="after")
+    else:
+        # Also used for the endpoints documented as unpaginated: with no nextPageToken in the
+        # body it stops after one page, and it follows the cursor if Quo ever adds one.
+        paginator = JSONResponseCursorPaginator(cursor_path="nextPageToken", cursor_param="pageToken")
+
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": QUO_BASE_URL,
-            "headers": {"Accept": "application/json"},
+            "headers": headers,
             # The framework auth redacts the key from logs. Quo's Authorization header carries
             # the raw key, which is exactly what api_key auth with the default name sends.
             "auth": {"type": "api_key", "api_key": api_key, "name": "Authorization", "location": "header"},
-            # Also used for the endpoints documented as unpaginated: with no nextPageToken in the
-            # body it stops after one page, and it follows the cursor if Quo ever adds one.
-            "paginator": JSONResponseCursorPaginator(cursor_path="nextPageToken", cursor_param="pageToken"),
+            "paginator": paginator,
         },
         "resources": [
             {
-                "name": config.name,
+                "name": name,
                 "endpoint": {
-                    "path": config.path,
+                    "path": path,
                     "data_selector": "data",
                     "params": params,
                 },
@@ -149,14 +194,16 @@ def _rest_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.api_version == dated_version:
             initial_paginator_state = {"cursor": resume.page_token}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only while a next page remains; the state is saved after the page it covers
         # is yielded, so a crash re-yields that page and merge dedupes it.
         if state and state.get("cursor"):
-            resumable_source_manager.save_state(QuoResumeConfig(page_token=str(state["cursor"])))
+            resumable_source_manager.save_state(
+                QuoResumeConfig(page_token=str(state["cursor"]), api_version=dated_version)
+            )
 
     return rest_api_resource(
         rest_config,
@@ -191,14 +238,32 @@ def quo_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[QuoResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = schema_for_resource(QUO_ENDPOINTS, endpoint)
+    dated_endpoints = _dated_endpoints(api_version)
+    dated_config = dated_endpoints.get(endpoint) if dated_endpoints is not None else None
 
     last_value = db_incremental_field_last_value if should_use_incremental_field else None
     cursor_field = incremental_field or (config.incremental_fields[0]["field"] if config.incremental_fields else None)
+
+    if dated_config is not None:
+        resource = _rest_source(
+            api_key,
+            config.name,
+            dated_config.path,
+            api_version,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            _build_dated_params(dated_config, cursor_field, _to_iso(last_value)),
+            last_value,
+        )
+        return _source_response(endpoint, config, lambda: resource)
+
     params = _build_params(config, cursor_field, _to_iso(last_value))
 
     if config.fan_out_over_conversations:
@@ -206,7 +271,9 @@ def quo_source(
 
     resource = _rest_source(
         api_key,
-        config,
+        config.name,
+        config.path,
+        None,
         team_id,
         job_id,
         resumable_source_manager,
