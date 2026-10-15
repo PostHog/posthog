@@ -139,6 +139,9 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
 
                 const team = await this.deps.teamManager.getTeam(change.team_id)
                 if (!team) {
+                    // The team has active cohort-triggered workflows, so a missing team means the lookup is broken.
+                    logger.warn('Team not found for a cohort membership change', { teamId: change.team_id })
+                    counterCohortMembershipTriggerSkipped.labels({ reason: 'team_not_found' }).inc()
                     return
                 }
 
