@@ -1,3 +1,4 @@
+import math
 from collections.abc import Sequence
 
 from pydantic import BaseModel, Field
@@ -32,7 +33,7 @@ def navigation_timeline(changes: Sequence[NavigationChange]) -> tuple[list[Navig
     for change in changes:
         # Every change ends the visit on screen, including one to a URL the gate drops.
         if ends and ends[-1] is None:
-            ends[-1] = max(entries[-1].vid_t, int(change.video_s) - 1)
+            ends[-1] = max(entries[-1].vid_t, _first_whole_second(change.video_s) - 1)
         if not _is_navigable_url(change.url):
             continue
         # A URL the gate drops can sit between two sightings of the same page, which would repeat it.
@@ -44,7 +45,9 @@ def navigation_timeline(changes: Sequence[NavigationChange]) -> tuple[list[Navig
         new_window = bool(seen_tabs) and change.window_number not in seen_tabs
         seen_tabs.add(change.window_number)
         entries.append(
-            NavigationEntry(vid_t=int(change.video_s), tab=change.window_number, url=url, new_window=new_window)
+            NavigationEntry(
+                vid_t=_first_whole_second(change.video_s), tab=change.window_number, url=url, new_window=new_window
+            )
         )
         ends.append(None)
     entries = [entry.model_copy(update={"end_t": end}) for entry, end in zip(entries, ends)]
@@ -57,6 +60,11 @@ def navigation_timeline(changes: Sequence[NavigationChange]) -> tuple[list[Navig
         kept.append(entry)
         url_chars += len(entry.url)
     return kept, len(entries) - len(kept)
+
+
+def _first_whole_second(video_s: float) -> int:
+    # A citation seeks to the whole second it names, so a page that appears mid-second is on screen from the next one.
+    return math.ceil(video_s - 1e-6)
 
 
 def _is_navigable_url(url: str) -> bool:

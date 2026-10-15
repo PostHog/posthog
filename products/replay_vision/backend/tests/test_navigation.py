@@ -21,7 +21,7 @@ class TestNavigationTimeline:
 
         entries, dropped = navigation_timeline(changes)
 
-        assert [(e.vid_t, e.tab, e.new_window) for e in entries] == [(0, 1, False), (252, 2, True), (259, 1, False)]
+        assert [(e.vid_t, e.tab, e.new_window) for e in entries] == [(0, 1, False), (253, 2, True), (259, 1, False)]
         assert dropped == 0
 
     def test_drops_urls_that_could_escape_the_prompt_without_repeating_the_page_around_them(self) -> None:
@@ -64,10 +64,10 @@ class TestNavigationTimeline:
         entries, _ = navigation_timeline(changes)
 
         assert [(e.url[-1], e.vid_t, e.end_t) for e in entries] == [
-            ("a", 0, 19),
-            ("b", 20, 39),
+            ("a", 0, 20),
+            ("b", 21, 39),
             ("c", 40, 40),
-            ("d", 40, None),
+            ("d", 41, None),
         ]
 
     def test_the_last_kept_visit_ends_at_the_first_change_the_budget_drops(self) -> None:
