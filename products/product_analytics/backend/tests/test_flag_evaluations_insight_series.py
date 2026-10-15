@@ -301,8 +301,7 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
         ]:
             create_group(team_id=self.team.pk, group_type_index=0, group_key=group_key, timestamp=group_created_at)
         # Carol, org-b and org-c predate the date range, so their first call in it makes them resurrecting, not new.
-        # Bob is org-b's only caller and was created inside the range.
-        # So by_group reads org-b as new if it uses the person's creation time instead of the group's.
+        # Bob, org-b's only caller, was created in the range, so org-b reads new if by_group uses person creation time.
         carol = _create_person(team_id=self.team.pk, distinct_ids=["carol"], created_at=BEFORE_DATE_RANGE)
         self._create_flag_call(
             "carol",
