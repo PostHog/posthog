@@ -59,12 +59,19 @@ def sync_organization_active_state_to_billing(organization_id: str) -> None:
         return
 
     organization = Organization.objects.get(id=organization_id)
+    # is_active is nullable; the rest of the app (block page, quota checks) treats only an
+    # explicit False as deactivated, so null counts as active here too.
     BillingManager(license, None).set_organizations_deactivated(
-        [str(organization.id)], deactivated=not organization.is_active
+        [str(organization.id)], deactivated=organization.is_active is False
     )
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    ignore_result=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+)
 @skip_team_scope_audit
 def reconcile_organization_active_state_to_billing() -> None:
     """Nightly sweep: realign billing's deactivated flags with Organization.is_active.
@@ -86,6 +93,8 @@ def reconcile_organization_active_state_to_billing() -> None:
 
     manager = BillingManager(license, None)
     billing_deactivated = set(manager.get_deactivated_organizations())
+    # is_active is nullable: only an explicit False counts as deactivated, so null is active
+    # and belongs in the reactivation side, consistent with the per-org sync task.
     inactive = {str(pk) for pk in Organization.objects.filter(is_active=False).values_list("id", flat=True)}
 
     to_deactivate = sorted(inactive - billing_deactivated)
@@ -93,7 +102,9 @@ def reconcile_organization_active_state_to_billing() -> None:
     # (e.g. a deleted org) is not ours to flip back.
     to_reactivate = sorted(
         str(pk)
-        for pk in Organization.objects.filter(is_active=True, id__in=billing_deactivated).values_list("id", flat=True)
+        for pk in Organization.objects.filter(id__in=billing_deactivated)
+        .exclude(is_active=False)
+        .values_list("id", flat=True)
     )
     # Billing caps a batch at 1000 organization ids.
     batch_size = 500

@@ -133,6 +133,15 @@ class TestSyncTasks(BaseTest):
         set_mock.assert_called_once_with([str(self.organization.pk)], deactivated=True)
 
     @patch("ee.billing.billing_manager.BillingManager.set_organizations_deactivated")
+    def test_sync_task_treats_null_is_active_as_active(self, set_mock):
+        self.organization.is_active = None
+        self.organization.save(update_fields=["is_active"])
+
+        self._run_with_cloud(sync_organization_active_state_to_billing, str(self.organization.pk))
+
+        set_mock.assert_called_once_with([str(self.organization.pk)], deactivated=False)
+
+    @patch("ee.billing.billing_manager.BillingManager.set_organizations_deactivated")
     def test_sync_task_does_nothing_outside_cloud(self, set_mock):
         with patch("posthog.cloud_utils.is_cloud", return_value=False):
             sync_organization_active_state_to_billing(str(self.organization.pk))
@@ -153,6 +162,16 @@ class TestSyncTasks(BaseTest):
         set_mock.assert_any_call([str(inactive_org.pk)], deactivated=True)
         set_mock.assert_any_call([str(stale_org.pk)], deactivated=False)
         assert set_mock.call_count == 2
+
+    @patch("ee.billing.billing_manager.BillingManager.set_organizations_deactivated")
+    @patch("ee.billing.billing_manager.BillingManager.get_deactivated_organizations")
+    def test_reconciliation_reactivates_null_is_active_orgs(self, get_mock, set_mock):
+        null_org = Organization.objects.create(name="null org", is_active=None)
+        get_mock.return_value = [str(null_org.pk)]
+
+        self._run_with_cloud(reconcile_organization_active_state_to_billing)
+
+        set_mock.assert_called_once_with([str(null_org.pk)], deactivated=False)
 
     @patch("ee.billing.billing_manager.BillingManager.set_organizations_deactivated")
     @patch("ee.billing.billing_manager.BillingManager.get_deactivated_organizations")
