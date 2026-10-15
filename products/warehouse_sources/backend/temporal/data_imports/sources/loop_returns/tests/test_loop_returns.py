@@ -225,7 +225,6 @@ class TestLoopReturnsSource:
         ("label", "last_next_page_url"),
         [
             ("null_next_link", None),
-            ("next_link_without_cursor", "https://api.loopreturns.com/api/v1/orders?limit=250"),
         ],
     )
     def test_a_cursor_endpoint_walks_pages_until_the_next_link_ends(
@@ -253,19 +252,29 @@ class TestLoopReturnsSource:
         assert result.params("sort_order") == ["asc", "asc"]
         assert result.saved_states == [LoopReturnsResumeConfig(cursor="c1")]
 
-    def test_a_cursor_endpoint_fails_when_the_cursor_repeats(self) -> None:
-        link = "https://api.loopreturns.com/api/v1/orders?cursor=c1"
+    @pytest.mark.parametrize(
+        ("label", "second_link", "message"),
+        [
+            ("repeated_cursor", "https://api.loopreturns.com/api/v1/orders?cursor=c1", "not advancing"),
+            ("link_without_cursor", "https://api.loopreturns.com/api/v1/orders?limit=250", "no usable cursor"),
+        ],
+    )
+    def test_a_cursor_endpoint_fails_when_the_next_link_cannot_be_followed(
+        self, label: str, second_link: str, message: str
+    ) -> None:
         result = self._driver().run(
             "orders",
             [
-                ScriptedResponse(json={"orders": [{"id": 1}], "next_page_url": link}),
-                ScriptedResponse(json={"orders": [{"id": 2}], "next_page_url": link}),
+                ScriptedResponse(
+                    json={"orders": [{"id": 1}], "next_page_url": "https://api.loopreturns.com/api/v1/orders?cursor=c1"}
+                ),
+                ScriptedResponse(json={"orders": [{"id": 2}], "next_page_url": second_link}),
             ],
             api_version=API_VERSION,
         )
 
         assert isinstance(result.raised, ValueError)
-        assert "not advancing" in str(result.raised)
+        assert message in str(result.raised)
 
     def test_a_resumed_cursor_endpoint_starts_at_the_saved_cursor(self) -> None:
         result = self._driver().run(

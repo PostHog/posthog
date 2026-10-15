@@ -125,6 +125,15 @@ def resolve_filter_field(should_use_incremental_field: bool, incremental_field: 
     return FILTER_FIELDS[0]
 
 
+def _has_next_link(response: Response, link_key: str) -> bool:
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+
+    return isinstance(body, dict) and bool(body.get(link_key))
+
+
 def next_cursor(response: Response, link_key: str = "nextPageUrl") -> Optional[str]:
     """The `cursor` value of the response's next page link, or `None` on the last page.
 
@@ -320,6 +329,9 @@ class LoopCursorPaginator(BasePaginator):
             self._cursor = cursor
             self._has_next_page = True
             return
+
+        if _has_next_link(response, "next_page_url"):
+            raise ValueError("Loop Returns next_page_url carried no usable cursor")
 
         self._has_next_page = False
 
