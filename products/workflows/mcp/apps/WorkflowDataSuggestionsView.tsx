@@ -14,6 +14,7 @@ export interface WorkflowDataSuggestion {
 export interface WorkflowDataSuggestionsData {
     status: 'ready' | 'generating' | 'ai_not_approved' | 'unavailable'
     suggestions: WorkflowDataSuggestion[]
+    email_sender_ready?: boolean
 }
 
 export interface WorkflowDataSuggestionMissingInput {
@@ -54,6 +55,12 @@ export function WorkflowDataSuggestionsView({
 
     return (
         <div className="flex flex-col gap-3 p-4">
+            {data.email_sender_ready === false ? (
+                <p className="m-0 text-sm text-muted-foreground">
+                    This project can't send email yet. You can create these as drafts now, then add and verify a sending
+                    domain under Workflows &gt; Channels before you turn them on.
+                </p>
+            ) : null}
             {data.suggestions.map((suggestion, index) => (
                 <SuggestionCard
                     key={suggestion.id}

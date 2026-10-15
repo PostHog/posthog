@@ -123,6 +123,7 @@ tools:
                     suggestions.*.reason,
                     suggestions.*.trigger_event,
                     suggestions.*.weekly_count,
+                    email_sender_ready,
                 ]
         ui_app: workflow-data-suggestions
     workflows-data-suggestions-list:
@@ -142,7 +143,9 @@ tools:
             the suggestions as cards with a Create workflow button, so do not list them again. Otherwise show one line
             per suggestion, like 'Welcome new sign-ups: a welcome email, then tips (user_signed_up, 57 this week)',
             and ask which one to create. Always let the user pick, even when they only asked to set up a workflow;
-            create one without asking only when they already named it. Never show the ids; the user picks by name or number, and you pass that
+            create one without asking only when they already named it. When email_sender_ready is false, say that
+            first: the project has no verified email sender, so email workflows can be saved as drafts but cannot send
+            until a sending domain is added and verified under Workflows > Channels. Then offer the suggestions. Never show the ids; the user picks by name or number, and you pass that
             suggestion's id to workflows-data-suggestions-create. 'ai_not_approved' means the organization has not
             approved AI data processing; 'unavailable' means there is nothing to suggest right now.
         response:
@@ -155,6 +158,7 @@ tools:
                     suggestions.*.reason,
                     suggestions.*.trigger_event,
                     suggestions.*.weekly_count,
+                    email_sender_ready,
                 ]
         ui_app: workflow-data-suggestions
     workflows-discard-draft:

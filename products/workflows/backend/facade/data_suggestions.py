@@ -7,6 +7,7 @@ from products.workflows.backend.facade.contracts import BuiltSuggestion, DataSug
 from products.workflows.backend.services.data_suggestions import service
 from products.workflows.backend.services.data_suggestions.service import (
     build_caller,
+    email_sender_ready,
     get_data_suggestions,
     needs_new_build,
     needs_new_generation,
@@ -15,6 +16,7 @@ from products.workflows.backend.tasks.data_suggestions import build_data_suggest
 
 __all__ = [
     "build_caller",
+    "email_sender_ready",
     "get_data_suggestions",
     "needs_new_build",
     "needs_new_generation",

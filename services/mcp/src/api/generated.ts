@@ -30063,6 +30063,8 @@ export namespace Schemas {
       status: DataSuggestionsStatusEnum;
       /** Up to 3 suggested workflows, ranked by lifecycle stage and then by weekly volume. */
       suggestions: DataSuggestion[];
+      /** Whether the project has a verified email sender. Without one, an email workflow can be saved as a draft but cannot send until a sending domain is added and verified. */
+      readonly email_sender_ready: boolean;
     }
 
     export interface DataWarehouseExpression {

@@ -138,7 +138,12 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert dict(context.events) == {"trial_started": 3, "user_registered": 3, "query executed": 30}
         assert body["status"] == "ready"
         assert [(s["trigger_event"], s["weekly_count"]) for s in body["suggestions"]] == [("trial_started", 3)]
-        assert self._list()["suggestions"] == body["suggestions"]
+        assert body["email_sender_ready"] is False
+        Integration.objects.create(team=self.team, kind="email", config={"email": "hi@example.com", "verified": True})
+        cached = self._list()
+        assert cached["suggestions"] == body["suggestions"]
+        # The flag is read on every call, so a sender verified after the cards were cached shows up right away.
+        assert cached["email_sender_ready"] is True
         assert suggest_ideas.call_count == 1
 
     @patch(f"{SERVICE}.classify_event_stages")
@@ -215,8 +220,8 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         classify.return_value = {}
         suggest_ideas.return_value = ideas
 
-        assert self._list() == {"status": "unavailable", "suggestions": []}
-        assert self._list() == {"status": "unavailable", "suggestions": []}
+        assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
+        assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
         assert classify.call_count == 1
 
     @patch(f"{SERVICE}.suggest_ideas")
@@ -224,7 +229,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         suggest_ideas.return_value = [_idea("made_up_event")]
 
         with time_machine.travel(timezone.now(), tick=False) as clock:
-            assert self._list() == {"status": "ready", "suggestions": []}
+            assert self._list() == {"status": "ready", "suggestions": [], "email_sender_ready": False}
             clock.shift(FAILURE_CACHE_TTL_SECONDS + 60)
             self._list()
 
@@ -296,8 +301,8 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         execute.side_effect = error
 
-        assert self._list() == {"status": "unavailable", "suggestions": []}
-        assert self._list() == {"status": "unavailable", "suggestions": []}
+        assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
+        assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
         assert execute.call_count == 1
 
     @parameterized.expand(
@@ -386,7 +391,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         self.jev_configured.return_value = jev_configured
         self.privacy_mode.return_value = privacy_mode
 
-        assert self._list() == {"status": status, "suggestions": []}
+        assert self._list() == {"status": status, "suggestions": [], "email_sender_ready": False}
         suggest_ideas.assert_not_called()
 
     @patch(f"{SERVICE}.classify_event_stages")
@@ -399,8 +404,8 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         suggestions = self._list()["suggestions"]
         classify.side_effect = StageClassificationFailed()
 
-        assert self._list(refresh=True) == {"status": "ready", "suggestions": suggestions}
-        assert self._list() == {"status": "ready", "suggestions": suggestions}
+        assert self._list(refresh=True) == {"status": "ready", "suggestions": suggestions, "email_sender_ready": False}
+        assert self._list() == {"status": "ready", "suggestions": suggestions, "email_sender_ready": False}
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
@@ -494,7 +499,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert self._list()["status"] == "ready"
         cache.add(_generation_lock_key(self.team), "another-run", 60)
 
-        assert self._list(refresh=True) == {"status": "generating", "suggestions": []}
+        assert self._list(refresh=True) == {"status": "generating", "suggestions": [], "email_sender_ready": False}
         assert suggest_ideas.call_count == 1
 
         cache.delete(_generation_lock_key(self.team))

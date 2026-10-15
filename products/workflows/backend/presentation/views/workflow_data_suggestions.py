@@ -3,7 +3,7 @@ from typing import Any
 from django.db import models
 
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
@@ -15,9 +15,10 @@ from posthog.event_usage import get_event_source
 from posthog.models import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
-from products.workflows.backend.facade.contracts import DataSuggestionNotFound
+from products.workflows.backend.facade.contracts import DataSuggestionNotFound, DataSuggestionsResult
 from products.workflows.backend.facade.data_suggestions import (
     build_caller,
+    email_sender_ready,
     get_data_suggestions,
     needs_new_build,
     needs_new_generation,
@@ -88,6 +89,14 @@ class DataSuggestionsResponseSerializer(serializers.Serializer):
     suggestions = DataSuggestionSerializer(
         many=True, help_text="Up to 3 suggested workflows, ranked by lifecycle stage and then by weekly volume."
     )
+    email_sender_ready = serializers.SerializerMethodField(
+        help_text="Whether the project has a verified email sender. Without one, an email workflow can be saved as a "
+        "draft but cannot send until a sending domain is added and verified."
+    )
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_email_sender_ready(self, _result: object) -> bool:
+        return bool(self.context.get("email_sender_ready"))
 
 
 class DataSuggestionGenerateRequestSerializer(serializers.Serializer):
@@ -190,7 +199,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["get"])
     def current(self, request: Request, **kwargs: Any) -> Response:
         self._user_with_feature(request)
-        return Response(DataSuggestionsResponseSerializer(get_data_suggestions(team=self.team)).data)
+        return self._suggestions_response(get_data_suggestions(team=self.team))
 
     @extend_schema(
         operation_id="workflow_data_suggestions_generate",
@@ -203,7 +212,12 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         payload = DataSuggestionGenerateRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         result = start_data_suggestions(team=self.team, user=user, refresh=payload.validated_data["refresh"])
-        return Response(DataSuggestionsResponseSerializer(result).data)
+        return self._suggestions_response(result)
+
+    def _suggestions_response(self, result: DataSuggestionsResult) -> Response:
+        # Read on every call rather than cached with the cards, so it changes as soon as a domain verifies.
+        ready = email_sender_ready(team=self.team)
+        return Response(DataSuggestionsResponseSerializer(result, context={"email_sender_ready": ready}).data)
 
     @extend_schema(
         operation_id="workflow_data_suggestions_build",

@@ -120,6 +120,10 @@ def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[str]
     return _GENERATING
 
 
+def email_sender_ready(*, team: Team) -> bool:
+    return team_context.has_verified_email_sender(team)
+
+
 def needs_new_generation(*, team: Team, refresh: bool) -> bool:
     """Whether a generate call would start a run, the only case that costs model time."""
     # A refresh always counts, because the run it joins can end before the request reaches the lock.

@@ -34,16 +34,25 @@ const card: SuggestionCard = {
 
 describe('workflowDataSuggestionsLogic', () => {
     beforeEach(() => {
-        jest.mocked(workflowDataSuggestionsGenerate).mockResolvedValue({ status: 'ready', suggestions: [] })
+        jest.mocked(workflowDataSuggestionsGenerate).mockResolvedValue({
+            status: 'ready',
+            suggestions: [],
+            email_sender_ready: true,
+        })
         initKeaTests()
     })
 
     it('polls while the background run generates the cards', async () => {
         jest.useFakeTimers()
         try {
-            jest.mocked(workflowDataSuggestionsGenerate).mockResolvedValue({ status: 'generating', suggestions: [] })
+            jest.mocked(workflowDataSuggestionsGenerate).mockResolvedValue({
+                status: 'generating',
+                suggestions: [],
+                email_sender_ready: true,
+            })
             jest.mocked(workflowDataSuggestionsCurrent).mockResolvedValue({
                 status: 'ready',
+                email_sender_ready: true,
                 suggestions: [
                     {
                         id: 'suggestion-1',

@@ -87,6 +87,7 @@ export const List: Story = {
 
 const suggestionsData: WorkflowDataSuggestionsData = {
     status: 'ready',
+    email_sender_ready: true,
     suggestions: [
         {
             id: 'suggestion-1',
@@ -123,7 +124,7 @@ export const DataSuggestions: Story = {
 export const DataSuggestionsBuilt: Story = {
     render: () => (
         <WorkflowDataSuggestionsView
-            data={suggestionsData}
+            data={{ ...suggestionsData, email_sender_ready: false }}
             builds={{
                 'suggestion-1': {
                     status: 'ready',
