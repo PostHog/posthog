@@ -275,6 +275,7 @@ _NOT_READY_REASONS = {
     "start_error": "A startup script failed, so some setup may be missing.",
     "start_timeout": "A startup script ran past its time limit, so some setup may be missing.",
     "wait_timeout": "Its startup scripts are still running.",
+    "build_failed": "Its latest build failed.",
     "stopped": "It stopped before its startup scripts finished.",
     "agent_timeout": "Its agent did not connect to Coder.",
     "unavailable": "hogli could not read its status from Coder.",

@@ -1318,39 +1318,51 @@ class TestTemplatePresetResolution:
             assert "Warning" not in output
 
 
+def _running_build(agent: dict[str, str]) -> dict[str, object]:
+    return {"status": "running", "resources": [{"agents": [agent]}]}
+
+
 class TestWaitForAgentReady:
     @pytest.mark.parametrize(
-        "agent_polls, expected",
+        "builds, expected",
         [
-            ([{"lifecycle_state": "starting"}, {"lifecycle_state": "ready"}], "ready"),
-            ([{"lifecycle_state": "starting"}, {"lifecycle_state": "start_error"}], "start_error"),
-            ([{"lifecycle_state": "created"}, {"lifecycle_state": "start_timeout"}], "start_timeout"),
-            ([{"lifecycle_state": "starting"}, {"lifecycle_state": "shutting_down"}], "stopped"),
-            ([{"lifecycle_state": "created", "status": "timeout"}], "agent_timeout"),
-            ([{"lifecycle_state": "starting"}, None], "unavailable"),
-            ([{"lifecycle_state": "starting"}] * 10, "wait_timeout"),
+            ([_running_build({"lifecycle_state": "starting"}), _running_build({"lifecycle_state": "ready"})], "ready"),
+            (
+                [_running_build({"lifecycle_state": "starting"}), _running_build({"lifecycle_state": "start_error"})],
+                "start_error",
+            ),
+            (
+                [_running_build({"lifecycle_state": "created"}), _running_build({"lifecycle_state": "start_timeout"})],
+                "start_timeout",
+            ),
+            ([_running_build({"lifecycle_state": "starting"}), {"status": "stopped", "resources": []}], "stopped"),
+            ([{"status": "failed", "resources": []}], "build_failed"),
+            ([_running_build({"lifecycle_state": "created", "status": "timeout"})], "agent_timeout"),
+            ([_running_build({"lifecycle_state": "starting"}), None], "unavailable"),
+            ([_running_build({"lifecycle_state": "starting"})] * 10, "wait_timeout"),
         ],
         ids=[
             "ready",
             "script-failed",
             "script-timed-out",
             "stopped",
+            "build-failed",
             "agent-never-connected",
             "box-gone",
             "never-ready",
         ],
     )
     def test_returns_when_startup_scripts_settle(
-        self, monkeypatch: pytest.MonkeyPatch, agent_polls: list[dict[str, str] | None], expected: str
+        self, monkeypatch: pytest.MonkeyPatch, builds: list[dict[str, object] | None], expected: str
     ) -> None:
-        polls = iter(agent_polls)
-        clock = iter(range(0, 1000, 10))
+        polls = iter(builds)
+        clock = iter(range(0, 1000, 5))
 
-        def get_workspace(name: str) -> dict[str, object] | None:
-            agent = next(polls)
-            return None if agent is None else {"latest_build": {"resources": [{"agents": [agent]}]}}
+        def list_workspaces(*, timeout: float | None = None) -> list[dict[str, object]]:
+            build = next(polls)
+            return [] if build is None else [{"name": "devbox-test-user", "latest_build": build}]
 
-        monkeypatch.setattr(coder, "get_workspace", get_workspace)
+        monkeypatch.setattr(coder, "_list_workspaces", list_workspaces)
         monkeypatch.setattr(coder.time, "monotonic", lambda: next(clock))
         monkeypatch.setattr(coder.time, "sleep", lambda seconds: None)
 

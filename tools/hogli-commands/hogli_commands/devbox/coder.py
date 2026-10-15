@@ -228,9 +228,11 @@ def _resolve_coder(args: list[str]) -> list[str]:
     return args
 
 
-def _run(args: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
+def _run(
+    args: list[str], *, capture_output: bool = False, timeout: float | None = None
+) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent text handling."""
-    return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True)
+    return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True, timeout=timeout)
 
 
 def _run_or_exit(args: list[str]) -> None:
@@ -1127,9 +1129,12 @@ def get_default_workspace_prefix() -> str:
     return f"{_WORKSPACE_PREFIX}-{get_username()}"
 
 
-def _list_workspaces() -> list[dict[str, Any]]:
+def _list_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]]:
     """Return raw workspace payloads from the Coder CLI."""
-    result = _run(["coder", "list", "--output", "json"], capture_output=True)
+    try:
+        result = _run(["coder", "list", "--output", "json"], capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return []
     if result.returncode != 0:
         return []
 
@@ -1491,6 +1496,9 @@ AGENT_READY_TIMEOUT = 960
 AGENT_READY_POLL_INTERVAL = 3
 _AGENT_START_FAILED_STATES = frozenset({"start_error", "start_timeout"})
 _AGENT_SHUTDOWN_STATES = frozenset({"shutting_down", "shutdown_error", "shutdown_timeout", "off"})
+# A build that is not starting or running lists no agents, so its agent states
+# alone never end the wait.
+_BUILD_STOPPED_STATUSES = frozenset({"stopping", "stopped", "canceling", "canceled", "deleting", "deleted"})
 
 
 def _agents(workspace: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1505,15 +1513,20 @@ def wait_for_agent_ready(name: str, *, timeout: int = AGENT_READY_TIMEOUT) -> st
     """Block until the workspace's startup scripts finish, so "started" means usable.
 
     Returns the state that ended the wait: ``ready``, a Coder lifecycle state
-    (``start_error``, ``start_timeout``), ``stopped`` when the box shut down,
-    ``agent_timeout`` when the agent never connected, ``unavailable`` when
-    `coder list` did not return the box, or ``wait_timeout``.
+    (``start_error``, ``start_timeout``), ``build_failed``, ``stopped`` when the
+    box shut down, ``agent_timeout`` when the agent never connected,
+    ``unavailable`` when `coder list` did not return the box, or ``wait_timeout``.
     """
     deadline = time.monotonic() + timeout
     while True:
-        workspace = get_workspace(name)
+        workspace = get_workspace(name, _list_workspaces(timeout=deadline - time.monotonic()))
         if workspace is None:
-            return "unavailable"
+            return "wait_timeout" if time.monotonic() >= deadline else "unavailable"
+        build_status = get_workspace_status(workspace)
+        if build_status == "failed":
+            return "build_failed"
+        if build_status in _BUILD_STOPPED_STATUSES:
+            return "stopped"
         agents = _agents(workspace)
         states = {str(agent.get("lifecycle_state", "")) for agent in agents}
         if states == {"ready"}:
