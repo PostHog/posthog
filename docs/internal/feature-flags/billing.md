@@ -231,6 +231,8 @@ Daily reports, usage reports v2, and quota limiting read the billed request coun
 Each counter's feature flag selects `legacy`, `both`, or `realtime`.
 A counter in `RECORD_REALTIME_BLOCKERS` resolves `realtime` to `both` until its producer discrepancy is resolved or confirmed as intended billing behavior.
 These guards cover event, enhanced-person, and exception timestamp attribution, Django local-evaluation requests, replay sessions, and workflow invocations.
+Feature-flag request records use Rust flush time, while legacy billing events use the later Celery export time.
+That counter remains guarded until cutover reconciles requests across those dates.
 They also cover producer gaps in the exemptions for product-tour survey responses, wallet-billed AI gateway events, and sponsored relay events.
 Guarded counters still collect comparisons while legacy totals remain authoritative.
 `legacy` queries billing events. `both` queries billing events and `billing_usage_records`, and keeps the legacy count authoritative.

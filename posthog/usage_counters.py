@@ -156,6 +156,10 @@ _EVENT_DATE_ATTRIBUTION = (
     "Event usage records use capture time; legacy queries use source event time. "
     "A cutover must prevent counting the same event under both dates or omitting it from both."
 )
+_FLAG_REQUEST_DATE_ATTRIBUTION = (
+    "Flag usage records use Rust flush time; legacy billing events use the later Celery export time. "
+    "A cutover must reconcile these dates to avoid missing or double-counting requests."
+)
 _LOCAL_EVALUATION_UNDERCOUNT = (
     "Django's feature-flag list endpoint counts older SDK requests in Redis but emits no usage records. "
     "Only the Rust definitions endpoint contributes to the record total."
@@ -169,6 +173,7 @@ RECORD_REALTIME_BLOCKERS = {
     UsageCounter.MOBILE_RECORDINGS: _REPLAY_UNDERCOUNT,
     UsageCounter.MOBILE_BILLABLE_RECORDINGS: _REPLAY_UNDERCOUNT,
     UsageCounter.WORKFLOW_INVOCATIONS: _WORKFLOW_PUSH_UNDERCOUNT,
+    UsageCounter.FEATURE_FLAG_REQUESTS: _FLAG_REQUEST_DATE_ATTRIBUTION,
     UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: _LOCAL_EVALUATION_UNDERCOUNT,
     UsageCounter.SURVEY_RESPONSES: "Survey usage records include product-tour responses that legacy billing exempts.",
     UsageCounter.AI_EVENTS: "AI usage records omit the legacy exemptions for wallet-billed gateway and sponsored relay events.",

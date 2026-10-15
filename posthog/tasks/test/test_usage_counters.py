@@ -43,6 +43,7 @@ REALTIME_GUARDED_COUNTERS = {
     UsageCounter.MOBILE_RECORDINGS,
     UsageCounter.MOBILE_BILLABLE_RECORDINGS,
     UsageCounter.WORKFLOW_INVOCATIONS,
+    UsageCounter.FEATURE_FLAG_REQUESTS,
     UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
     UsageCounter.SURVEY_RESPONSES,
     UsageCounter.AI_EVENTS,
@@ -492,9 +493,11 @@ class TestUsageCounterReport(SimpleTestCase):
         records.assert_called_once_with(period, ("cdp_billable_invocations", "workflow_emails_sent"), "daily_report")
         email_legacy.assert_called_once_with(period.start, period.end)
 
-    @parameterized.expand(list(product(UsageCounterMode, ("flag", "override"))))
+    @parameterized.expand(
+        list(product(UsageCounterMode, ("flag", "override"), ("daily_report", "usage_reports_v2", "quota_limiting")))
+    )
     def test_remaining_readers_preserve_counts_and_exception_breakdowns(
-        self, mode: UsageCounterMode, source: str
+        self, mode: UsageCounterMode, source: str, caller: UsageCounterCaller
     ) -> None:
         period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
         counter_keys = {
@@ -532,22 +535,28 @@ class TestUsageCounterReport(SimpleTestCase):
             patch("posthoganalytics.get_feature_flag", return_value=mode if source == "flag" else "legacy"),
         ):
             service = UsageCounterService()
-            plan = service.resolve_plan(period, caller="daily_report", complete=True, counters=tuple(counter_keys))
+            plan = service.resolve_plan(
+                period, caller=caller, complete=caller != "quota_limiting", counters=tuple(counter_keys)
+            )
         report = service.fetch_report(period, plan=plan)
 
         for index, (counter, (_, quantity)) in enumerate(counter_keys.items()):
             reads_records = plan.modes[counter] == UsageCounterMode.REALTIME
             assert reads_records == (mode == UsageCounterMode.REALTIME and counter not in REALTIME_GUARDED_COUNTERS)
             assert report.counts[counter] == [(1, quantity if reads_records else index + 1)]
-        assert report.counts["teams_with_web_exceptions_captured_in_period"] == [(1, 3)]
-        assert report.counts["teams_with_js_lite_exceptions_captured_in_period"] == [(1, 5)]
+        if caller == "quota_limiting":
+            assert "teams_with_web_exceptions_captured_in_period" not in report.counts
+            assert "teams_with_js_lite_exceptions_captured_in_period" not in report.counts
+        else:
+            assert report.counts["teams_with_web_exceptions_captured_in_period"] == [(1, 3)]
+            assert report.counts["teams_with_js_lite_exceptions_captured_in_period"] == [(1, 5)]
         self.exceptions.assert_called_once_with(period.start, period.end)
         self.legacy[UsageCounter.CDP_INVOCATIONS].assert_not_called()
         if mode == UsageCounterMode.LEGACY:
             self.records.assert_not_called()
             assert report.counter_comparisons is None
         else:
-            self.records.assert_called_once_with(period, tuple(dict(counter_keys.values())), "daily_report")
+            self.records.assert_called_once_with(period, tuple(dict(counter_keys.values())), caller)
             assert report.counter_comparisons == {
                 counter.value.removeprefix("teams_with_"): UsageCounterComparisonRows(
                     legacy_by_team={1: index + 1}, realtime_by_team={1: {"org-a": quantity}}
