@@ -4393,6 +4393,11 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
             for name, stored, submitted in (
                 ("ai_reply_modes_must_be_an_object", None, {"ai_reply_modes": ["not", "a", "dict"]}),
                 (
+                    "changed_ai_reply_modes_must_be_an_object",
+                    {"ai_reply_modes": ["old"]},
+                    {"ai_reply_modes": ["new"]},
+                ),
+                (
                     "changed_display_name_over_200_characters",
                     {"slack_bot_display_name": "a" * 201},
                     {"slack_bot_display_name": "b" * 201},
@@ -4439,6 +4444,30 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
                     {"slack_bot_display_name": "a" * 201},
                     {"slack_bot_display_name": "a" * 201},
                     {"slack_bot_display_name": "a" * 201},
+                ),
+                (
+                    "unchanged_non_object_ai_reply_modes_is_kept",
+                    {"ai_reply_modes": ["old"]},
+                    {"ai_reply_modes": ["old"]},
+                    {"ai_reply_modes": ["old"]},
+                ),
+                (
+                    "unchanged_bot_reply_mode_is_kept",
+                    {"ai_reply_modes": {"slack": {"diagnostic": "bot_reply"}}},
+                    {"ai_reply_modes": {"slack": {"diagnostic": "bot_reply"}}},
+                    {"ai_reply_modes": {"slack": {"diagnostic": "bot_reply"}}},
+                ),
+                (
+                    "unchanged_widget_domains_is_kept",
+                    {"widget_domains": _TOO_MANY_WILDCARDS},
+                    {"widget_domains": _TOO_MANY_WILDCARDS},
+                    {"widget_domains": _TOO_MANY_WILDCARDS},
+                ),
+                (
+                    "changed_value_is_cleaned_with_unchanged_value_present",
+                    {"ai_reply_modes": ["old"], "slack_alert_channel_id": "old"},
+                    {"ai_reply_modes": ["old"], "slack_alert_channel_id": " new "},
+                    {"ai_reply_modes": ["old"], "slack_alert_channel_id": "new"},
                 ),
             )
         ]
