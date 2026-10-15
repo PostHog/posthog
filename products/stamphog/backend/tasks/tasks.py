@@ -710,7 +710,7 @@ def _label_cooldown_message(trigger_label: str, cooldown_ends_at: Any) -> str:
     )
 
 
-def _reject_label_in_cooldown(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> None:
+def _reject_label_in_cooldown(repo_config: StamphogRepoConfig, pr: dict[str, Any], delivery_id: str) -> None:
     """Take the trigger label back off a PR that was relabeled inside the cooldown, and say why.
 
     Left alone, the label would sit on the PR as if a review had been requested while nothing runs.
@@ -730,6 +730,15 @@ def _reject_label_in_cooldown(repo_config: StamphogRepoConfig, pr: dict[str, Any
             .first()
         )
         if incoming_updated_at and stored_updated_at and incoming_updated_at < stored_updated_at:
+            return
+        # A late redelivery of the add that armed the cooldown can outlive the delivery dedup.
+        if (
+            delivery_id
+            and ReviewRun.objects.for_team(repo_config.team_id)
+            .using(router.db_for_write(ReviewRun))
+            .filter(delivery_id=delivery_id)
+            .exists()
+        ):
             return
         cooldown_ends_at = cache.get(_label_cooldown_key(repo_config, pr_number))
         client = StamphogGitHubClient(repo_config.installation_id)
@@ -1252,7 +1261,7 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 logger.exception("stamphog_pr_event_label_skip_dismiss_failed", delivery_id=delivery_id, error=str(e))
                 raise cast(Any, process_pull_request_event).retry(exc=e)
         if mode_skip_reason == "label_cooldown":
-            _reject_label_in_cooldown(repo_config, pr)
+            _reject_label_in_cooldown(repo_config, pr, delivery_id)
         logger.info("stamphog_pr_event_skipped", repo=repo, pr_number=pr_number, reason=mode_skip_reason)
         if delivery_id:
             _mark_pr_event_processed(delivery_id)

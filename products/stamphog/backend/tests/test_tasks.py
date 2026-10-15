@@ -29,6 +29,7 @@ from products.stamphog.backend.models import (
 )
 from products.stamphog.backend.tasks.tasks import (
     _INBOX_OPT_OUT_DISMISS_MESSAGE,
+    STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX,
     _parse_pr_url,
     _upsert_pull_request,
     process_inbox_pr_review,
@@ -392,13 +393,18 @@ def test_review_mode_gates_events(team, repo_config, review_mode, payload_kwargs
 
 
 @pytest.mark.parametrize(
-    "retrigger_updated_at,expect_label_removed",
-    [("2026-10-15T14:03:30Z", True), ("2026-10-15T14:00:20Z", True), ("2026-10-15T14:00:10Z", False)],
-    ids=["fresh_relabel_rejected", "same_second_relabel_rejected", "stale_delivery_left_alone"],
+    "retrigger_updated_at,redeliver,expect_label_removed",
+    [
+        ("2026-10-15T14:03:30Z", False, True),
+        ("2026-10-15T14:00:20Z", False, True),
+        ("2026-10-15T14:00:10Z", False, False),
+        ("2026-10-15T14:00:20Z", True, False),
+    ],
+    ids=["fresh_relabel", "same_second_relabel", "stale_delivery", "late_redelivery"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_labeled_rereview_cooldown_skips_rapid_retrigger(
-    team, repo_config, retrigger_updated_at: str, expect_label_removed: bool
+    team, repo_config, retrigger_updated_at: str, redeliver: bool, expect_label_removed: bool
 ):
     # Removing and re-adding the trigger label within the cooldown must not queue a second sandbox +
     # LLM run — the cheap re-review spam the cooldown exists for.
@@ -409,10 +415,13 @@ def test_labeled_rereview_cooldown_skips_rapid_retrigger(
     def labeled(updated_at: str) -> dict:
         return _pr_payload(action="labeled", labels=["stamphog"], added_label="stamphog", updated_at=updated_at)
 
+    first_delivery = f"delivery-label-1-{uuid.uuid4()}"
     with time_machine.travel("2026-10-15T14:00:20Z", tick=False):
-        first = _run_task(labeled("2026-10-15T14:00:20Z"), f"delivery-label-1-{uuid.uuid4()}", team.id)
+        first = _run_task(labeled("2026-10-15T14:00:20Z"), first_delivery, team.id)
+    retrigger_delivery = first_delivery if redeliver else f"delivery-label-2-{uuid.uuid4()}"
+    cache.delete(f"{STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX}{retrigger_delivery}")
     with time_machine.travel("2026-10-15T14:03:30Z", tick=False):
-        mock_execute = _run_task(labeled(retrigger_updated_at), f"delivery-label-2-{uuid.uuid4()}", team.id)
+        mock_execute = _run_task(labeled(retrigger_updated_at), retrigger_delivery, team.id)
 
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 1
