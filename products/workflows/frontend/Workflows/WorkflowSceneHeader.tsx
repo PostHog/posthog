@@ -208,6 +208,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 onDescriptionChange={(description) => setWorkflowValue('description', description)}
                 isLoading={workflowLoading && !workflow}
                 renameDebounceMs={200}
+                hideProductSetupButton
                 actions={
                     <>
                         {isManualWorkflow && <HogFlowManualTriggerButton {...props} />}
