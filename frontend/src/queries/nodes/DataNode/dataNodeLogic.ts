@@ -443,8 +443,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
-            | null
-            | undefined,
+            | null,
         payload?: {
             overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
@@ -468,7 +467,6 @@ export interface dataNodeLogicActions {
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
             | null
-            | undefined
         payload?: {
             overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean

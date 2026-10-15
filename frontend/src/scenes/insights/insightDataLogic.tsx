@@ -220,8 +220,7 @@ export interface insightDataLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
-            | null
-            | undefined,
+            | null,
         payload?:
             | {
                   overrideQuery: DataNode<Record<string, any>> | undefined
@@ -253,7 +252,6 @@ export interface insightDataLogicActions {
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
             | null
-            | undefined
     } // dataNodeLogic
     setInsightData: (
         response:

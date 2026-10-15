@@ -76,8 +76,7 @@ export interface retentionPeopleLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | null
-            | import('~/queries/schema').TraceSpansTreeQueryResponse
-            | undefined,
+            | import('~/queries/schema').TraceSpansTreeQueryResponse,
         payload?:
             | {
                   overrideQuery: DataNode<Record<string, any>> | undefined
@@ -109,7 +108,6 @@ export interface retentionPeopleLogicActions {
             | TraceSpansQueryResponse
             | null
             | import('~/queries/schema').TraceSpansTreeQueryResponse
-            | undefined
     } // insightVizDataLogic
     clearPeople: () => {
         value: true
