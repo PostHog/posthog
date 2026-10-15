@@ -62,6 +62,7 @@ export const MetricsViewer = (): JSX.Element => {
         metricsDisplay,
         heatmapEligible,
         histogramQueryNode,
+        metricsQueryNode,
     } = useValues(logic)
     const {
         setLiveRefresh,
@@ -308,6 +309,7 @@ export const MetricsViewer = (): JSX.Element => {
                                 fallbackName={formula || metricName || (language === 'promql' ? queryText : 'metric')}
                                 display={metricsDisplay}
                                 exemplars={chartMarkers}
+                                query={metricsQueryNode ?? undefined}
                             />
                         ) : !queryLoading ? (
                             <div className="h-full flex items-center justify-center text-secondary text-sm">

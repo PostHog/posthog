@@ -133,6 +133,11 @@ keeps the live sandbox. The event relay stays active until startup finishes, and
 an abandoned handoff with new activity requests a fresh snapshot.
 Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
 and agent state. Paths outside that directory are not included.
+Cloud launches set `POSTHOG_AGENT_STATE_DIR=/tmp/workspace/.posthog/agent-state`.
+The agent server links Claude's projects, session environment, plans and todos, and
+Codex's sessions and shell snapshots into that directory before starting a session.
+Authentication and platform configuration stay outside these mappings. Pi restores
+its session history through the task-session API.
 
 ## Running via the UI
 
@@ -326,6 +331,13 @@ In cloud, emission is additionally gated per run by the `tasks-agent-run-otel-te
 The agent-server exports run/turn/tool lifecycle metadata (never message content or tool arguments), tagged with `run_id`/`task_id`/`team_id`/`user_id`/`distinct_id` resource attributes and `service.name=posthog-code-agent`.
 Telemetry stays off when either of the first two vars is unset.
 For local Docker sandboxes the localhost URLs are rewritten to `host.docker.internal` automatically; local ingestion requires the `capture-logs` service to be running.
+
+The trace id of a run is its run UUID without dashes, so `/tracing?trace=<run UUID without dashes>` in the telemetry project opens the run.
+The agent-server spans, the mirrored run logs and the `process-task` Temporal workflow spans all carry that trace id.
+The workflow spans carry it only when the run has the telemetry flag on.
+Those runs are also marked as sampled, so a parent-based sampler on the worker keeps every one of them.
+They show up in the same trace only if the Temporal worker's collector forwards to the telemetry project.
+The workflow and the agent-server share a trace id but no parent span, so the workflow spans sit under a `<parent span missing>` row beside `task_run`.
 
 ### MCP server `.env`
 
