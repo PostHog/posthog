@@ -6,6 +6,7 @@ import {
     funnelsMathTypes,
 } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
 
+import { cleanEntityProperties } from '~/queries/nodes/InsightQuery/utils/cleanProperties'
 import {
     ActionsNode,
     AnyDataWarehouseNode,
@@ -31,16 +32,6 @@ import {
     isDataWarehouseFilter,
     isGroupFilter,
 } from '~/types'
-
-import { cleanEntityProperties } from './cleanProperties'
-
-export type FilterTypeActionsAndEvents = {
-    events?: ActionFilter[]
-    actions?: ActionFilter[]
-    data_warehouse?: AnyDataWarehouseFilter[]
-    new_entity?: ActionFilter[]
-    groups?: ActionFilter[]
-}
 
 type DataWarehouseNodeKind =
     | NodeKind.DataWarehouseNode
@@ -175,52 +166,6 @@ export const legacyEntityToNode = (
     ) as any
 }
 
-type FilterTypeActionsAndEventsWithGroups = FilterTypeActionsAndEvents & { groups: ActionFilter[] }
-type FilterTypeActionsAndEventsWithoutGroups = Omit<FilterTypeActionsAndEvents, 'groups'> & { groups?: undefined }
-
-export function actionsAndEventsToSeries(
-    filters: FilterTypeActionsAndEventsWithGroups,
-    includeProperties: boolean,
-    includeMath: MathAvailability,
-    dataWarehouseNodeKind?: NodeKind.DataWarehouseNode
-): (AnyEntityNode | GroupNode)[]
-export function actionsAndEventsToSeries(
-    filters: FilterTypeActionsAndEventsWithoutGroups,
-    includeProperties: boolean,
-    includeMath: MathAvailability,
-    dataWarehouseNodeKind: NodeKind.LifecycleDataWarehouseNode
-): AnyEntityNode<LifecycleDataWarehouseNode>[]
-export function actionsAndEventsToSeries(
-    filters: FilterTypeActionsAndEventsWithoutGroups,
-    includeProperties: boolean,
-    includeMath: MathAvailability,
-    dataWarehouseNodeKind: NodeKind.FunnelsDataWarehouseNode
-): AnyEntityNode<FunnelsDataWarehouseNode>[]
-export function actionsAndEventsToSeries(
-    filters: FilterTypeActionsAndEventsWithoutGroups,
-    includeProperties: boolean,
-    includeMath: MathAvailability,
-    dataWarehouseNodeKind?: NodeKind.DataWarehouseNode
-): AnyEntityNode[]
-export function actionsAndEventsToSeries(
-    { actions, events, data_warehouse, new_entity, groups }: FilterTypeActionsAndEvents,
-    includeProperties: boolean,
-    includeMath: MathAvailability,
-    dataWarehouseNodeKind: DataWarehouseNodeKind = NodeKind.DataWarehouseNode
-): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<AnyDataWarehouseNode>)[] {
-    const series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<AnyDataWarehouseNode>)[] = [
-        ...(actions || []),
-        ...(events || []),
-        ...(data_warehouse || []),
-        ...(new_entity || []),
-        ...(groups || []),
-    ]
-        .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
-        .map((f) => legacyEntityToNode(f, includeProperties, includeMath, dataWarehouseNodeKind))
-
-    return series
-}
-
 export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): RetentionEntity | undefined => {
     if (!entity) {
         return undefined
@@ -236,13 +181,4 @@ export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): Re
         ...('uuid' in entity ? { uuid } : {}),
         ...('custom_name' in entity ? { custom_name } : {}),
     }
-}
-
-/** Expand GroupNodes into individual EventsNode/ActionsNode for insight types that don't support GroupNode */
-export const expandGroupNodes = (
-    series: (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[]
-): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
-    return series.flatMap((item) =>
-        item.kind === NodeKind.GroupNode ? (item.nodes as (EventsNode | ActionsNode | DataWarehouseNode)[]) : [item]
-    )
 }
