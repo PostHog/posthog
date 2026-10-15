@@ -12,10 +12,12 @@ from products.warehouse_sources.backend.facade.source_config import (
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.blueshift.blueshift import (
     BlueshiftResumeConfig,
+    BlueshiftStatsCursor,
     blueshift_source,
     probe_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.blueshift.settings import (
+    BLUESHIFT_ENDPOINTS,
     DEFAULT_REGION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -24,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
@@ -38,7 +41,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class BlueshiftSource(ResumableSource[BlueshiftSourceConfig, BlueshiftResumeConfig]):
+class BlueshiftSource(
+    ResumableSource[BlueshiftSourceConfig, BlueshiftResumeConfig],
+    CursorSource[BlueshiftStatsCursor],
+):
     codebase_detection = detect(
         env=("^BLUESHIFT_",),
         script_hosts=("cdn.getblueshift.com",),
@@ -95,6 +101,12 @@ Use a **user API key** from **Account settings > API keys** in Blueshift. Pick t
             ),
         )
 
+    def cursor_class(self) -> type[BlueshiftStatsCursor]:
+        return BlueshiftStatsCursor
+
+    def merge_cursors(self, current: BlueshiftStatsCursor, candidate: BlueshiftStatsCursor) -> BlueshiftStatsCursor:
+        return max(current, candidate, key=lambda cursor: cursor.next_date)
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.blueshift.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
@@ -117,7 +129,8 @@ Use a **user API key** from **Account settings > API keys** in Blueshift. Pick t
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Every stats sync reads its last day again, so append would store that day twice.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=["campaign_stats"])
 
     def validate_credentials(
         self,
@@ -126,7 +139,9 @@ Use a **user API key** from **Account settings > API keys** in Blueshift. Pick t
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        is_valid, status = probe_credentials(config.region, config.api_key)
+        if schema_name is not None and schema_name not in BLUESHIFT_ENDPOINTS:
+            return False, f"Blueshift has no table named {schema_name}."
+        is_valid, status = probe_credentials(config.region, config.api_key, schema_name)
         if is_valid:
             return True, None
         if status == 401:
@@ -135,8 +150,13 @@ Use a **user API key** from **Account settings > API keys** in Blueshift. Pick t
                 "Blueshift rejected the API key. Check that you pasted a user API key for the selected region.",
             )
         if status == 403 and schema_name is None:
-            # The key is genuine but cannot list segments; a table it cannot read fails at sync with a clear message.
+            # The key is genuine but cannot list segments. A table it cannot read fails at sync with a clear message.
             return True, None
+        if status == 403:
+            return (
+                False,
+                f"The Blueshift API key can't read {schema_name}. Use a key with access to it, or deselect the table.",
+            )
         return False, "Couldn't reach Blueshift with these credentials. Check the API key and region, then try again."
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BlueshiftResumeConfig]:
@@ -157,5 +177,9 @@ Use a **user API key** from **Account settings > API keys** in Blueshift. Pick t
             resumable_source_manager=resumable_source_manager,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
+            else None,
+            # A full refresh rebuilds the table, so it starts from the backfill and keeps no cursor.
+            cursor_manager=self.get_cursor_manager(inputs)
+            if inputs.schema_name == "campaign_stats" and inputs.should_use_incremental_field
             else None,
         )

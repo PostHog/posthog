@@ -7,8 +7,12 @@ import time_machine
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.blueshift.blueshift import BlueshiftResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.blueshift.blueshift import (
+    BlueshiftResumeConfig,
+    BlueshiftStatsCursor,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.blueshift.source import BlueshiftSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -26,6 +30,10 @@ NOW = datetime(2026, 10, 15, 12, tzinfo=UTC)
 
 def _driver(region: Literal["us", "eu"] = "us") -> SourceDriver:
     return SourceDriver(BlueshiftSource(), BlueshiftSourceConfig(api_key=API_KEY, region=region))
+
+
+def _no_stored_cursor() -> SourceCursorManager[BlueshiftStatsCursor]:
+    return SourceCursorManager(BlueshiftStatsCursor, None, BlueshiftSource())
 
 
 def _campaign(uuid: str) -> dict[str, Any]:
@@ -118,7 +126,9 @@ class TestBlueshiftCampaignStats:
                 return ScriptedResponse(json={"campaigns": []})
             return ScriptedResponse(json={"campaigns": [_campaign(f"c-{day}")]})
 
-        result = _driver().run("campaign_stats", answer, incremental_field="date", **kwargs)
+        result = _driver().run(
+            "campaign_stats", answer, incremental_field="date", source_cursor=_no_stored_cursor(), **kwargs
+        )
 
         assert result.raised is None
         start_days = [value[:10] for value in result.params("start_time") if value]
@@ -128,6 +138,21 @@ class TestBlueshiftCampaignStats:
         assert all(row["date"] == row["uuid"][2:] for row in result.rows)
         assert "2026-10-14" not in {row["date"] for row in result.rows}
         assert result.committed_states[-1] == BlueshiftResumeConfig(next_date="2026-10-15")
+
+    @time_machine.travel(NOW, tick=False)
+    def test_quiet_account_starts_from_the_stored_cursor_and_advances_it(self) -> None:
+        source = BlueshiftSource()
+        cursor = SourceCursorManager(BlueshiftStatsCursor, BlueshiftStatsCursor(next_date="2026-10-14"), source)
+        result = SourceDriver(source, BlueshiftSourceConfig(api_key=API_KEY, region="us")).run(
+            "campaign_stats",
+            always(ScriptedResponse(json={"campaigns": []})),
+            incremental_field="date",
+            source_cursor=cursor,
+        )
+
+        assert result.raised is None
+        assert result.params("start_time") == ["2026-10-14T00:00:00.000Z", "2026-10-15T00:00:00.000Z"]
+        assert cursor.staged == BlueshiftStatsCursor(next_date="2026-10-15")
 
     @time_machine.travel(NOW, tick=False)
     def test_first_sync_backfills_a_year(self) -> None:
@@ -143,6 +168,7 @@ class TestBlueshiftCampaignStats:
             "campaign_stats",
             [ScriptedResponse(status=401, json={"errors": "Invalid API key"})],
             incremental_field="date",
+            source_cursor=_no_stored_cursor(),
             db_incremental_field_last_value=date(2026, 10, 15),
         )
 
@@ -152,6 +178,25 @@ class TestBlueshiftCampaignStats:
 
 
 class TestBlueshiftValidateCredentials:
+    @parameterized.expand(
+        [
+            ("source_create", None, "/api/v1/segments/list", "per_page"),
+            ("stats_table", "campaign_stats", "/api/v1/campaigns.json", "start_time"),
+            ("single_page_table", "tags", "/api/v1/tag_contexts/list", None),
+        ]
+    )
+    def test_probes_the_table_being_configured(
+        self, _name: str, schema_name: str | None, path: str, param: str | None
+    ) -> None:
+        config = BlueshiftSourceConfig(api_key=API_KEY, region="us")
+        with scripted_network(always(ScriptedResponse(json={}))) as network:
+            valid, _ = BlueshiftSource().validate_credentials(config, team_id=1, schema_name=schema_name)
+
+        assert valid is True
+        assert [r.path for r in network.requests_log] == [path]
+        if param is not None:
+            assert network.requests_log[0].param(param) is not None
+
     @pytest.mark.parametrize(
         ("status", "schema_name", "expected_valid"),
         [

@@ -1,7 +1,8 @@
 import base64
 from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
+from urllib.parse import urlencode
 
 from posthog.dataclasses import frozen
 
@@ -13,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.blueshift.
     STATS_BACKFILL_DAYS,
     BlueshiftEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -42,6 +44,18 @@ class BlueshiftResumeConfig:
     next_page: Optional[int] = None
     # Next UTC day (ISO date) the stats walk fetches.
     next_date: Optional[str] = None
+
+
+@frozen
+class BlueshiftStatsCursor:
+    """The first UTC day (ISO date) the next `campaign_stats` sync reads.
+
+    Days with no campaign activity yield no rows, so the row watermark cannot record that they
+    were read. Without this cursor every sync of a quiet account would walk the whole backfill again.
+    """
+
+    cursor_kind: ClassVar[str] = "blueshift_campaign_stats_day"
+    next_date: str
 
 
 def base_url(region: str) -> str:
@@ -102,6 +116,7 @@ def _campaign_stats_rows(
     api_key: str,
     resumable_source_manager: ResumableSourceManager[BlueshiftResumeConfig],
     db_incremental_field_last_value: Optional[Any],
+    cursor_manager: Optional[SourceCursorManager[BlueshiftStatsCursor]],
 ) -> Iterator[list[dict[str, Any]]]:
     """Yield the per-campaign performance summary for each UTC day, oldest first, through today."""
     config = BLUESHIFT_ENDPOINTS["campaign_stats"]
@@ -112,12 +127,18 @@ def _campaign_stats_rows(
     today = datetime.now(UTC).date()
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    stored = cursor_manager.load() if cursor_manager is not None else None
     last_value = parse_datetime_value(db_incremental_field_last_value)
+    # The watermark day and the cursor day were still in progress when the last sync read them,
+    # so the walk reads them again.
+    known_starts = [
+        *([date.fromisoformat(stored.next_date)] if stored is not None else []),
+        *([last_value.date()] if last_value is not None else []),
+    ]
     if resume is not None and resume.next_date is not None:
         day = date.fromisoformat(resume.next_date)
-    elif last_value is not None:
-        # Re-read the watermark day: it was still in progress when the last sync read it.
-        day = last_value.date()
+    elif known_starts:
+        day = max(known_starts)
     else:
         day = today - timedelta(days=STATS_BACKFILL_DAYS)
 
@@ -134,6 +155,9 @@ def _campaign_stats_rows(
         else:
             yield [{"date": day.isoformat(), **campaign} for campaign in campaigns]
         day = next_day
+
+    if cursor_manager is not None:
+        cursor_manager.stage(BlueshiftStatsCursor(next_date=today.isoformat()))
 
 
 def _source_response(config: BlueshiftEndpointConfig, items: Callable[[], Iterable[Any]]) -> SourceResponse:
@@ -157,13 +181,16 @@ def blueshift_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[BlueshiftResumeConfig],
     db_incremental_field_last_value: Optional[Any],
+    cursor_manager: Optional[SourceCursorManager[BlueshiftStatsCursor]] = None,
 ) -> SourceResponse:
     config = BLUESHIFT_ENDPOINTS[endpoint]
 
     if endpoint == "campaign_stats":
         return _source_response(
             config,
-            lambda: _campaign_stats_rows(region, api_key, resumable_source_manager, db_incremental_field_last_value),
+            lambda: _campaign_stats_rows(
+                region, api_key, resumable_source_manager, db_incremental_field_last_value, cursor_manager
+            ),
         )
 
     rest_config: RESTAPIConfig = {
@@ -192,11 +219,23 @@ def blueshift_source(
     return _source_response(config, lambda: resource)
 
 
-def probe_credentials(region: str, api_key: str) -> tuple[bool, int | None]:
+def _probe_url(region: str, schema_name: Optional[str]) -> str:
+    config = BLUESHIFT_ENDPOINTS[schema_name or "segments"]
+    if config.name == "campaign_stats":
+        params = _stats_window(datetime.now(UTC).date())
+    elif config.pagination == "page":
+        params = {"per_page": "1"}
+    else:
+        params = {}
+    return f"{base_url(region)}{config.path}" + (f"?{urlencode(params)}" if params else "")
+
+
+def probe_credentials(region: str, api_key: str, schema_name: Optional[str] = None) -> tuple[bool, int | None]:
+    """Probe the table `schema_name` reads, or the segments list when no table is named."""
     auth_value = _basic_auth_value(api_key)
     return validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key, auth_value)),
-        f"{base_url(region)}{BLUESHIFT_ENDPOINTS['segments'].path}?per_page=1",
+        _probe_url(region, schema_name),
         headers={"Authorization": auth_value, "Accept": "application/json"},
         ok_statuses=(200,),
     )
