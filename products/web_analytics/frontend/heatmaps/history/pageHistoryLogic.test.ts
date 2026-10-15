@@ -273,6 +273,20 @@ describe('pageHistoryLogic', () => {
             expect(dataLogic.values.dateRangeOverride).toBeNull()
         })
 
+        it('loads history once the page history flag turns on after mount', async () => {
+            const late = pageHistoryLogic({ id: 'hm_test', teamId: 998 })
+            late.mount()
+            await expectLogic(late).toFinishAllListeners()
+            expect(late.values.history).toBeNull()
+
+            await expectLogic(late, () =>
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.HEATMAPS_PAGE_HISTORY]: true })
+            ).toFinishAllListeners()
+
+            expect(late.values.history).toEqual(historyResponse(captures))
+            late.unmount()
+        })
+
         it('drops the previous page history when the saved page changes', async () => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.HEATMAPS_PAGE_HISTORY]: true })
             await expectLogic(logic, () => logic.actions.selectCapture('cap-1')).toFinishAllListeners()
