@@ -32,7 +32,7 @@ class MCPEventPropertyAccess:
         for index in range(GROUP_TYPES_LIMIT):
             alias = f"$group_{index}"
             group_type = group_types.get(index)
-            canonical = f"$groups.{group_type}" if group_type is not None else "$groups"
+            canonical = (f"$groups.{group_type}" if group_type is not None else "$groups").replace("%2E", ".")
             if any(cls._paths_overlap(key, canonical) for key in keys):
                 expanded.add(alias)
             if any(cls._paths_overlap(key, alias) for key in keys):

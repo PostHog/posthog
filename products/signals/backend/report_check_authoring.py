@@ -470,18 +470,15 @@ def cancel_check(
     return bool(cancelled)
 
 
-def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime) -> int:
-    """Start the clock on a resolved report's pending checks. Returns how many were armed.
+def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime, armed_at: datetime) -> int:
+    """Arm rows individually because each check carries its own soak and schedule.
 
-    Called from the report's `post_save` receiver, so every resolve path reaches it: the pull
-    request merge webhook, a manual resolve in the inbox, and an MCP state write alike.
-
-    Each row is armed individually rather than in one UPDATE, because `next_run_at` and `expires_at`
-    are derived from the row's own soak and schedule.
+    The measurement origin can precede this write when implementation completes before the status update.
+    Expiry eligibility and the write timestamp use the arming time instead.
     """
     pending = list(
         SignalReportCheck.objects.for_team(team_id)
-        .filter(report_id=report_id, status=SignalReportCheck.Status.PENDING, expires_at__gt=resolved_at)
+        .filter(report_id=report_id, status=SignalReportCheck.Status.PENDING, expires_at__gt=armed_at)
         .select_related("report__team")
     )
     armed = 0
@@ -510,7 +507,7 @@ def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at
                 next_run_at=next_run_at,
                 measurement_start_at=resolved_at if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD else None,
                 expires_at=expires_at,
-                updated_at=resolved_at,
+                updated_at=armed_at,
             )
         )
     return armed
@@ -522,13 +519,23 @@ def arm_pending_checks(
     report_id: str | uuid.UUID,
     resolved_at: datetime,
     monitoring_enabled: bool | None = None,
+    expected_monitoring_started_at: datetime | None = None,
 ) -> int:
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
-        if (
-            report is None
-            or effective_report_status(report.status, team_id=team_id, monitoring_enabled=monitoring_enabled)
-            != SignalReport.Status.RESOLVED
-        ):
+        if report is None:
             return 0
-        return _arm_pending_checks(team_id=team_id, report_id=report_id, resolved_at=resolved_at)
+        status = effective_report_status(report.status, team_id=team_id, monitoring_enabled=monitoring_enabled)
+        if expected_monitoring_started_at is not None:
+            if (
+                status != SignalReport.Status.MONITORING
+                or report.monitoring_started_at != expected_monitoring_started_at
+            ):
+                return 0
+            resolved_at = expected_monitoring_started_at
+            armed_at = timezone.now()
+        elif status == SignalReport.Status.RESOLVED:
+            armed_at = resolved_at
+        else:
+            return 0
+        return _arm_pending_checks(team_id=team_id, report_id=report_id, resolved_at=resolved_at, armed_at=armed_at)
