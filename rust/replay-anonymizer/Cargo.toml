@@ -30,7 +30,6 @@ sha2 = { workspace = true }
 simd-json = { version = "0.15", features = ["serde_impl"] }
 percent-encoding = { workspace = true }
 public-suffix = { workspace = true }
-roxmltree = "0.21"
 url = { workspace = true }
 zstd = { workspace = true }
 

@@ -464,7 +464,7 @@ mod tests {
             ),
             (
                 Ctx::with_image_collection(&allow, lane()),
-                "data:image/svg+xml;base64,PHN2Zz4=".to_string(),
+                "data:image/svg+xml;base64,bm90IHN2Zw==".to_string(),
                 crate::collect::DROP_SVG,
             ),
             (

@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn collectable_rejects_broken_svg_non_base64_and_non_image() {
-        assert!(collectable("data:image/svg+xml;base64,PHN2Zz4=").is_none());
+        assert!(collectable("data:image/svg+xml;base64,bm90IHN2Zw==").is_none());
         assert!(collectable("data:image/bmp;base64,Qk0=").is_none());
         assert!(collectable("data:image/x-bmp;base64,Qk0=").is_none());
         assert!(collectable("data:image/x-ms-bmp;base64,Qk0=").is_none());
@@ -437,10 +437,18 @@ mod tests {
 
     #[test]
     fn collectable_mime_checks_are_case_insensitive() {
-        // MIME types are case-insensitive; a mixed-case SVG must not dodge the text-format
-        // exclusion, and a mixed-case raster/base64 marker must still collect.
-        assert!(collectable("data:image/SVG+xml;base64,PHN2Zz4=").is_none());
-        assert!(collectable("data:image/Svg+Xml;base64,PHN2Zz4=").is_none());
+        // MIME types are case-insensitive; a mixed-case SVG must still take the SVG path, which
+        // alone accepts a URL-encoded payload, and a mixed-case raster/base64 marker must collect.
+        for uri in [
+            "data:image/SVG+xml;utf8,<svg/>",
+            "data:image/Svg+Xml;utf8,<svg/>",
+        ] {
+            assert_eq!(
+                collectable(uri).as_deref(),
+                Some(b"<svg/>".as_slice()),
+                "{uri}"
+            );
+        }
         assert_eq!(
             collectable("data:image/PNG;BASE64,aGVsbG8=").as_deref(),
             Some(b"hello".as_slice())

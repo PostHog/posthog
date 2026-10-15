@@ -1,4 +1,5 @@
-import { UndecodableImageError } from './image-input.ts'
+import { ImageOptOutError, UndecodableImageError } from './image-input.ts'
+import { ScrubAbandonedError } from './pool.ts'
 import { type SvgRasterizer, isSvgDocument, startSvgRasterizer } from './svg.ts'
 
 // cwd-relative rather than import.meta, which jest's CJS transform cannot load (see qr.ts).
@@ -37,6 +38,24 @@ describe('svg', () => {
         const png = await rasterizer.rasterize(SQUARE)
         expect(png.subarray(0, 4).toString('latin1')).toBe('\x89PNG')
         await expect(rasterizer.rasterize(Buffer.from('<svg'))).rejects.toMatchObject({ reason: 'svg_refused' })
+    })
+
+    it('refuses an svg whose metadata opts out of AI training before rendering it', async () => {
+        rasterizer = await startSvgRasterizer(1, CHILD, 5_000, 10_000)
+        const optedOut = Buffer.from(
+            "<svg xmlns='http://www.w3.org/2000/svg' xmlns:plus='http://ns.useplus.org/ldf/xmp/1.0/' width='8' height='8'>" +
+                '<metadata><plus:DataMining>http://ns.useplus.org/ldf/vocab/DMI-PROHIBITED</plus:DataMining></metadata></svg>'
+        )
+        await expect(rasterizer.rasterize(optedOut)).rejects.toBeInstanceOf(ImageOptOutError)
+    })
+
+    it('drops a request whose caller hung up while it waits behind a slow render', async () => {
+        rasterizer = await startSvgRasterizer(1, CHILD, 10_000, 30_000)
+        const slow = rasterizer.rasterize(SLOW).catch(() => 'slow settled')
+        const controller = new AbortController()
+        const waiting = rasterizer.rasterize(SQUARE, controller.signal)
+        controller.abort()
+        await expect(Promise.race([waiting, slow])).rejects.toBeInstanceOf(ScrubAbandonedError)
     })
 
     it('kills a render that runs past its deadline and serves the next one', async () => {

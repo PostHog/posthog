@@ -262,10 +262,12 @@ On a dev machine, `npm run build:native` builds it into `native/`.
 
 ## SVG
 
-The anonymizer sends an SVG data URI as its decoded document, after it refuses DTDs, filters, masks, patterns, `foreignObject`, deep nesting and more than 8 `<use>` elements.
-Those checks bound the document, not the render: a few hundred bytes of huge strokes, markers or clip paths can take minutes to draw.
-So the sidecar renders the document to PNG in a separate process (`src/svg-rasterizer-process.mjs`, through the addon's `rasterizeSvg`) and kills that process when a render runs past `IMAGE_SCRUB_SVG_TIMEOUT_MS` (2s).
+The anonymizer sends an SVG data URI as its decoded document, checking only its size and that it starts with markup.
+Parsing and rendering both cost more than the document's size suggests: a few hundred bytes of huge strokes, markers or clip paths can take minutes to draw, and thousands of attributes on one element make the XML parser quadratic.
+So both run in a separate process (`src/svg-rasterizer-process.mjs`, through the addon's `rasterizeSvg`), which the sidecar kills when a render runs past `IMAGE_SCRUB_SVG_TIMEOUT_MS` (2s).
 A worker thread inside a native call cannot be stopped, but a process can.
+The renderer refuses DTDs, filters, masks, patterns, `foreignObject`, deep nesting and more than 8 `<use>` elements before it draws anything.
+Rendering drops the document's metadata, so the sidecar reads the XMP training opt-out from the SVG itself first.
 The PNG then goes through the same scrub as any other image.
 
 The renderer has no text or raster-image support and refuses every nested image reference, so the PNG holds only shapes.

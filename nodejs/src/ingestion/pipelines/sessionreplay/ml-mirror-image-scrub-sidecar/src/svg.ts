@@ -1,16 +1,19 @@
 /* eslint-disable no-console -- sidecar logs to stdout */
 import { type ChildProcess, fork } from 'node:child_process'
 
-import { UndecodableImageError } from './image-input.ts'
+import { ImageOptOutError, UndecodableImageError } from './image-input.ts'
 import { ScrubAbandonedError } from './pool.ts'
+import { xmpProhibitsAiTraining } from './xmp.ts'
 
 const READY_TIMEOUT_MS = 30_000
 const RESTART_BACKOFF_BASE_MS = 500
 const RESTART_BACKOFF_MAX_MS = 30_000
+// Abandonment is otherwise checked only on dispatch, which never comes while every renderer is down.
+const QUEUE_SWEEP_MS = 1_000
 
 /**
- * The lane sends an SVG only as the document the anonymizer parsed as XML, and no raster format the
- * scrub takes starts with `<`, so markup after an optional BOM and whitespace is enough to tell.
+ * The lane sends an SVG only as a document that starts with markup, and no raster format the scrub
+ * takes starts with `<`, so markup after an optional BOM and whitespace is enough to tell.
  */
 export function isSvgDocument(input: Buffer): boolean {
     let i = input[0] === 0xef && input[1] === 0xbb && input[2] === 0xbf ? 3 : 0
@@ -61,8 +64,8 @@ export async function startSvgRasterizer(
         job.signal?.aborted === true || performance.now() - job.queuedAt > abandonAfterMs
 
     const pump = (): void => {
-        while (queue.length > 0 && abandoned(queue[0])) {
-            const dead = queue.shift()!
+        for (const dead of queue.filter(abandoned)) {
+            queue.splice(queue.indexOf(dead), 1)
             dead.reject(new ScrubAbandonedError(`svg job ${dead.id} was abandoned before it ran`))
         }
         for (const slot of slots) {
@@ -175,11 +178,23 @@ export async function startSvgRasterizer(
     }
 
     await Promise.all(Array.from({ length: size }, (_unused, i) => spawn(i)))
+    const sweep = setInterval(pump, QUEUE_SWEEP_MS)
+    sweep.unref()
 
     return {
         rasterize(input: Buffer, signal?: AbortSignal): Promise<Buffer> {
             if (closing) {
                 return Promise.reject(new Error('svg rasterizer is closing'))
+            }
+            // Rendering drops the document's metadata, so its training opt-out is read first.
+            let optedOut: boolean
+            try {
+                optedOut = xmpProhibitsAiTraining(input)
+            } catch {
+                return Promise.reject(new UndecodableImageError('svg_refused', 'svg is not well-formed XML'))
+            }
+            if (optedOut) {
+                return Promise.reject(new ImageOptOutError('image metadata prohibits AI training'))
             }
             return new Promise<Buffer>((resolve, reject) => {
                 queue.push({ id: nextJobId++, input, resolve, reject, signal, queuedAt: performance.now() })
@@ -191,6 +206,7 @@ export async function startSvgRasterizer(
         },
         async close(): Promise<void> {
             closing = true
+            clearInterval(sweep)
             for (const job of queue.splice(0)) {
                 job.reject(new Error('svg rasterizer is closing'))
             }

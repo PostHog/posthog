@@ -18,6 +18,7 @@ posthog-replay-anonymizer = { path = "../replay-anonymizer", default-features = 
 brotlic = "0.8"
 # No text or embedded raster images: SVG text never renders, and nothing beyond the document is read.
 resvg = { version = "0.48", default-features = false }
+roxmltree = "0.21"
 lru = "0.12"
 serde = { workspace = true }
 serde_json = { workspace = true }
