@@ -339,14 +339,13 @@ class _StoredCiRowsMixin(_WarehouseMixin):
         self.addCleanup(self._assert_stored_reads_answered)
 
     def _execute(self, **kwargs: Any) -> Any:
-        if not kwargs["query_type"].endswith(STORED_QUERY_TYPE_SUFFIX):
-            return execute_hogql_query(**kwargs)
+        stored = kwargs["query_type"].endswith(STORED_QUERY_TYPE_SUFFIX)
         try:
             response = execute_hogql_query(**kwargs)
         except Exception:
-            self._failed_stored_reads += 1
+            self._failed_stored_reads += stored
             raise
-        self._stored_reads += 1
+        self._stored_reads += stored
         return response
 
     def _assert_stored_reads_answered(self) -> None:

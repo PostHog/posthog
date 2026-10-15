@@ -252,12 +252,10 @@ class JobSourceTables:
         return depot_ci.with_depot_jobs(self.github_workflow_jobs, self.depot_job_attempts, self.github_workflow_runs)
 
 
-def _repositories_with_jobs(team: Team, source_id: str | None = None) -> list[JobSourceTables]:
-    """Every synced repository with both the jobs and the runs endpoints, of one source when
-    ``source_id`` is given, without its Depot CI."""
+def _repositories_with_jobs(team: Team) -> list[JobSourceTables]:
+    """Every synced repository with both the jobs and the runs endpoints, without its Depot CI."""
     repositories: list[JobSourceTables] = []
-    sources = _github_sources(team)
-    for source in sources.filter(id=source_id) if source_id else sources:
+    for source in _github_sources(team):
         for repository, repo_tables in _synced_tables_by_repo(team=team, source=source).items():
             tables = repo_tables.names
             runs = tables.get(WORKFLOW_RUNS_SCHEMA)
@@ -297,17 +295,15 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
     return [replace(entry, depot_job_attempts=depot_tables.pop(entry.repository, None)) for entry in entries]
 
 
-def resolve_precompute_sources(team: Team, *, source_id: str | None = None) -> list[JobSourceTables]:
-    """The same repositories as ``resolve_job_source_tables``, for the stored CI rows, of one source when
-    ``source_id`` is given.
+def resolve_precompute_sources(team: Team) -> list[JobSourceTables]:
+    """The same repositories as ``resolve_job_source_tables``, for the stored CI rows.
 
     Every source of a repository carries the repository's Depot CI here. Each stored row names its
     source, so a read that filters on one source counts the Depot rows once.
     """
     depot_tables = resolve_depot_job_attempts_tables(team)
     return [
-        replace(entry, depot_job_attempts=depot_tables.get(entry.repository))
-        for entry in _repositories_with_jobs(team, source_id)
+        replace(entry, depot_job_attempts=depot_tables.get(entry.repository)) for entry in _repositories_with_jobs(team)
     ]
 
 

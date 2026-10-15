@@ -16,7 +16,7 @@ into these fragments.
 import math
 import hashlib
 import threading
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -52,11 +52,11 @@ from products.engineering_analytics.backend.logic.ci_precompute import StoredCiR
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
+    JobSourceTables,
     TrunkQuarantineSource,
     resolve_ci_data_freshness,
     resolve_depot_job_attempts_tables,
     resolve_github_tables,
-    resolve_precompute_sources,
     resolve_trunk_merge_queue_table,
     resolve_trunk_quarantined_tests_source,
 )
@@ -258,11 +258,9 @@ class CuratedGitHubSource:
         self._depot_job_attempts_resolved = False
         self._database: Database | None = None
         # Guards the query budget, the catalog and the lazily resolved sources, which concurrent reads share.
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._stored_reader: StoredCiReader | None = None
         self._stored_reader_resolved = False
-        # Not ``_lock``: resolving the stored rows takes ``_lock`` for the catalog and the Depot table.
-        self._stored_reader_lock = threading.Lock()
 
     @property
     def team(self) -> Team:
@@ -340,7 +338,7 @@ class CuratedGitHubSource:
         return self._raw_jobs_source(created_floor=created_floor, include_steps=include_steps)
 
     def _raw_jobs_source(self, *, created_floor: bool, include_steps: bool = False) -> str:
-        jobs_table = self._jobs_table(self._tables.workflow_jobs or "")
+        jobs_table = self._jobs_table()
         query = workflow_jobs.build_query(jobs_table, created_floor=created_floor, include_steps=include_steps)
         return f"({query})"
 
@@ -391,8 +389,10 @@ class CuratedGitHubSource:
             team=self._team, tables=self._tables, user_access_control=self._user_access_control
         )
 
-    def _jobs_table(self, workflow_jobs_table: str) -> workflow_jobs.JobsTable:
-        return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts(), self._tables.workflow_runs)
+    def _jobs_table(self) -> workflow_jobs.JobsTable:
+        return depot_ci.with_depot_jobs(
+            self._tables.workflow_jobs or "", self._depot_job_attempts(), self._tables.workflow_runs
+        )
 
     def trunk_merge_queue_source(self) -> str | None:
         """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the
@@ -549,7 +549,7 @@ class CuratedGitHubSource:
 
     def _raw_job_cost_source(self, *, created_floor: bool) -> str:
         query = job_costs.build_query(
-            jobs_table=self._jobs_table(self._tables.workflow_jobs or ""),
+            jobs_table=self._jobs_table(),
             runs_table=self._runs_table(),
             created_floor=created_floor,
         )
@@ -586,41 +586,34 @@ class CuratedGitHubSource:
         """The stored CI rows while this reader may take them. The handle resolves them once, so
         the concurrent reads of a request share one answer. A stored source and a raw source of one
         request can still differ by the age of the stored rows."""
-        with self._stored_reader_lock:
+        with self._lock:
             if not self._stored_reader_resolved:
                 self._stored_reader = self._resolve_stored_ci_reader()
                 self._stored_reader_resolved = True
             return self._stored_reader
 
-    def _drop_stored_ci_reader(self) -> None:
-        with self._stored_reader_lock:
+    def _abandon_stored_reads(self, event: str, query_type: str) -> None:
+        """Send the rest of the request to the raw tables."""
+        with self._lock:
             self._stored_reader = None
             self._stored_reader_resolved = True
+        logger.warning(event, team_id=self._team.pk, query_type=query_type, exc_info=True)
 
     def _resolve_stored_ci_reader(self) -> StoredCiReader | None:
-        repository = self.repository.casefold()
-        source = next(
-            (
-                stored
-                for stored in resolve_precompute_sources(self._team, source_id=self.source_id)
-                if stored.repository == repository
-            ),
-            None,
-        )
-        if source is None:
+        # The stored rows were built with no user, so this reader takes them only when it may read every
+        # raw table behind them. The framework keys the stored days on the insert query, so a Depot
+        # table other than the one the refresh resolved finds no stored day and the read stays raw.
+        if self._tables.workflow_jobs is None or not self.may_read_ci_tables():
             return None
-        if not self._bypass_warehouse_access_control:
-            # The stored rows were built with no user. This reader takes them only when the raw read would
-            # give the same rows: the same Depot CI, and every raw table behind the stored rows allowed.
-            depot = source.depot_job_attempts
-            raw_tables = (
-                source.github_workflow_runs,
-                source.github_workflow_jobs,
-                source.pull_requests,
-                depot.table if depot else None,
-            )
-            if depot != self._depot_job_attempts() or not self._may_read(filter(None, raw_tables)):
-                return None
+        source = JobSourceTables(
+            github_workflow_jobs=self._tables.workflow_jobs,
+            github_workflow_runs=self._tables.workflow_runs,
+            pull_requests=self._tables.pull_requests,
+            source_id=self.source_id,
+            repository=self.repository.casefold(),
+            workflow_runs_optional_columns=self._tables.workflow_runs_optional_columns,
+            depot_job_attempts=self._depot_job_attempts(),
+        )
         return StoredCiReader(self._team, source)
 
     def runs_cte(self) -> str:
@@ -789,7 +782,7 @@ class CuratedGitHubSource:
         prefix = f"engineering_analytics:{self._team.pk}:{hashlib.sha256(sql.encode()).hexdigest()}"
         cache_keys = {key: f"{prefix}:{key}" for key in keys}
         cached: dict[str, V] = {}
-        if self._may_read(get_table_names(parse_select(sql))):
+        if self._may_read_every_table_in(sql):
             try:
                 cached = cache.get_many(list(cache_keys.values()))
             except Exception:
@@ -805,10 +798,13 @@ class CuratedGitHubSource:
             logger.warning("engineering_analytics_cache_write_failed", exc_info=True)
         return {**values, **loaded}
 
-    def _may_read(self, tables: Iterable[str]) -> bool:
+    def _may_read_every_table_in(self, sql: str) -> bool:
         # The rule HogQL's own query cache applies: posthog/hogql/ACCESS_CONTROL.md, "Query cache partitioning".
         catalog = self._catalog()
-        return all(catalog.has_table(table) and not catalog.is_table_access_denied(table) for table in tables)
+        return all(
+            catalog.has_table(table) and not catalog.is_table_access_denied(table)
+            for table in get_table_names(parse_select(sql))
+        )
 
     def run(
         self,
@@ -847,13 +843,7 @@ class CuratedGitHubSource:
         except Exception:
             # The stored rows only make a read faster, so a failure to find them must not fail the read.
             stored_sql = None
-            self._drop_stored_ci_reader()
-            logger.warning(
-                "engineering_analytics_stored_read_unavailable",
-                team_id=self._team.pk,
-                query_type=query_type,
-                exc_info=True,
-            )
+            self._abandon_stored_reads("engineering_analytics_stored_read_unavailable", query_type)
         if stored_sql is not None:
             try:
                 return self._execute(
@@ -865,13 +855,7 @@ class CuratedGitHubSource:
             except Exception as error:
                 if not _stored_rows_rejected(error):
                     raise
-                self._drop_stored_ci_reader()
-                logger.warning(
-                    "engineering_analytics_stored_read_failed",
-                    team_id=self._team.pk,
-                    query_type=query_type,
-                    exc_info=True,
-                )
+                self._abandon_stored_reads("engineering_analytics_stored_read_failed", query_type)
         return self._execute(
             self._with_raw_ci_sources(sql), query_type=query_type, placeholders=placeholders, workload=workload
         )

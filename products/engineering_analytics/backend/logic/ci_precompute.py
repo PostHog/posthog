@@ -12,7 +12,6 @@ floor, and the UTC day of a stored row. A longer range reads the warehouse table
 """
 
 import time
-import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -317,7 +316,6 @@ class StoredCiReader:
             f"source_id = {source_literal(source.source_id)} AND repository = {repository_literal(source.repository)}"
         )
         self._days: dict[tuple[LazyComputationTable, datetime], str | None] = {}
-        self._lock = threading.Lock()
 
     def runs(self, floor: str) -> str | None:
         rows = self._run_rows(floor)
@@ -371,18 +369,17 @@ class StoredCiReader:
         if since.date() < (datetime.now(UTC) - stored.days).date():
             return None
         key = (stored.table, since)
-        with self._lock:
-            if key not in self._days:
-                result = ensure_stored(
-                    stored,
-                    self._team,
-                    self._source,
-                    since=since,
-                    run_inserts=False,
-                    stale_while_revalidate_seconds=_READ_GRACE_SECONDS,
-                )
-                job_ids = ", ".join(f"'{UUID(str(job_id))}'" for job_id in result.job_ids)
-                # A floor after today spans no day, so the check is ready with no job.
-                servable = result.ready and bool(job_ids)
-                self._days[key] = f"job_id IN ({job_ids}) AND {self._identity}" if servable else None
-            return self._days[key]
+        if key not in self._days:
+            result = ensure_stored(
+                stored,
+                self._team,
+                self._source,
+                since=since,
+                run_inserts=False,
+                stale_while_revalidate_seconds=_READ_GRACE_SECONDS,
+            )
+            job_ids = ", ".join(f"'{UUID(str(job_id))}'" for job_id in result.job_ids)
+            # A floor after today spans no day, so the check is ready with no job.
+            servable = result.ready and bool(job_ids)
+            self._days[key] = f"job_id IN ({job_ids}) AND {self._identity}" if servable else None
+        return self._days[key]
