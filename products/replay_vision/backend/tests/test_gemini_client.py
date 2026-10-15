@@ -159,7 +159,7 @@ class TestReplayGatewayClient:
 
         assert len(asyncio.run(call_after_collection())) == 1
 
-    @pytest.mark.parametrize("code", [401, 402, 403])
+    @pytest.mark.parametrize("code", [400, 401, 402, 403, 404])
     def test_the_gateways_own_refusal_is_ours_and_retryable(self, code: int) -> None:
         body = {
             "error": {
@@ -177,7 +177,7 @@ class TestReplayGatewayClient:
         assert classify_gemini_error(exc_info.value) == FailureKind.INFRA_TRANSIENT
         assert describe_gemini_error(exc_info.value).startswith("PostHog's AI gateway returned HTTP")
 
-    @pytest.mark.parametrize("code", [400, 401, 403])
+    @pytest.mark.parametrize("code", [400, 401, 403, 404])
     def test_a_refusal_google_wrote_stays_a_rejection(self, code: int) -> None:
         body = {
             "error": {

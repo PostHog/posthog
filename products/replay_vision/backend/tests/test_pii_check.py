@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -59,19 +61,16 @@ async def test_answer_still_flagged_after_the_rewrite_fails_the_observation() ->
     assert raised.value.non_retryable
 
 
-@parameterized.expand([("rate_limited", 429), ("unavailable", 503)])
-@pytest.mark.asyncio
-async def test_a_transient_rewrite_failure_reaches_the_activity_retry(_name: str, code: int) -> None:
-    from google.genai import errors as genai_errors
-
-    error = genai_errors.APIError(code, {"error": {"code": code}})
+async def _rewrite_with(side_effect: list[Any]) -> tuple[MonitorOutput, AsyncMock, AsyncMock]:
+    rewrite = AsyncMock(side_effect=side_effect)
+    sleep = AsyncMock()
     with (
         patch.object(pii_check, "asks_for_identity", return_value=False),
         patch.object(pii_check, "contains_pii", side_effect=_detector),
-        patch.object(pii_check, "rewrite_without_pii", new=AsyncMock(side_effect=error)),
-        pytest.raises(genai_errors.APIError) as raised,
+        patch.object(pii_check, "rewrite_without_pii", new=rewrite),
+        patch.object(pii_check.asyncio, "sleep", new=sleep),
     ):
-        await pii_check.keep_unrequested_pii_out(
+        out = await pii_check.keep_unrequested_pii_out(
             MonitorOutput(verdict="yes", reasoning=f"(t 12) {_SUBJECT} paid.", confidence=0.9),
             team_id=1,
             question="What happened?",
@@ -79,18 +78,40 @@ async def test_a_transient_rewrite_failure_reaches_the_activity_retry(_name: str
             scanner_type="monitor",
             trace_id="t",
         )
-    assert raised.value.code == code
+    return out, rewrite, sleep
+
+
+@parameterized.expand([("rate_limited", 429), ("unavailable", 503)])
+@pytest.mark.asyncio
+async def test_a_transient_rewrite_failure_retries_the_rewrite_in_place(_name: str, code: int) -> None:
+    from google.genai import errors as genai_errors
+
+    error = genai_errors.APIError(code, {"error": {"code": code}})
+    out, rewrite, sleep = await _rewrite_with([error, {"reasoning": _CLEAN}])
+    assert out.reasoning == _CLEAN
+    assert rewrite.await_count == 2
+    sleep.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_rewrite_that_stays_transient_reaches_the_activity_retry() -> None:
+    from google.genai import errors as genai_errors
+
+    error = genai_errors.APIError(429, {"error": {"code": 429}})
+    with pytest.raises(genai_errors.APIError) as raised:
+        await _rewrite_with([error, error, error])
+    assert raised.value.code == 429
 
 
 @pytest.mark.asyncio
 async def test_a_rejected_rewrite_still_fails_as_pii_detected() -> None:
     from google.genai import errors as genai_errors
 
-    error = genai_errors.APIError(400, {"error": {"code": 400}})
+    rewrite = AsyncMock(side_effect=genai_errors.APIError(400, {"error": {"code": 400}}))
     with (
         patch.object(pii_check, "asks_for_identity", return_value=False),
         patch.object(pii_check, "contains_pii", side_effect=_detector),
-        patch.object(pii_check, "rewrite_without_pii", new=AsyncMock(side_effect=error)),
+        patch.object(pii_check, "rewrite_without_pii", new=rewrite),
         pytest.raises(ScannerFailureError) as raised,
     ):
         await pii_check.keep_unrequested_pii_out(
@@ -102,3 +123,4 @@ async def test_a_rejected_rewrite_still_fails_as_pii_detected() -> None:
             trace_id="t",
         )
     assert raised.value.kind == FailureKind.PII_DETECTED
+    assert rewrite.await_count == 1
