@@ -302,22 +302,54 @@ describe('pageHistoryLogic', () => {
             expect(exportAction).not.toHaveBeenCalled()
         })
 
-        it('clears loading when a request status poll fails', async () => {
-            jest.useFakeTimers()
-            const poll = jest
-                .spyOn(heatmapApi, 'savedScreenshotHistoryRequestsRetrieve')
-                .mockRejectedValue(new Error('unavailable'))
-            captureLogic.actions.pollRequest('request-1')
-            expect(captureLogic.values.capturing).toBe(true)
-            await jest.advanceTimersByTimeAsync(10000)
-            expect(poll).toHaveBeenCalledWith('997', 'hm_test', 'request-1')
-            expect(captureLogic.values.capturing).toBe(false)
-            expect(captureLogic.values.captureStatusUnknown).toBe(true)
-            expect(captureLogic.values.captureNowDisabledReason).toContain('Check the current capture')
+        it.each([
+            ['no record of the request', null, null],
+            ['a capture that finished', 'cap-3', null],
+            ['a capture that failed', null, "couldn't finish"],
+        ])(
+            'clears loading when a request status poll fails, then reconciles %s',
+            async (_label, completedId, error) => {
+                jest.useFakeTimers()
+                const poll = jest
+                    .spyOn(heatmapApi, 'savedScreenshotHistoryRequestsRetrieve')
+                    .mockRejectedValue(new Error('unavailable'))
+                captureLogic.actions.pollRequest('request-1')
+                expect(captureLogic.values.capturing).toBe(true)
+                await jest.advanceTimersByTimeAsync(10000)
+                expect(poll).toHaveBeenCalledWith('997', 'hm_test', 'request-1')
+                expect(captureLogic.values.capturing).toBe(false)
+                expect(captureLogic.values.captureStatusUnknown).toBe(true)
+                expect(captureLogic.values.captureNowDisabledReason).toContain('Check the current capture')
 
-            await expectLogic(logic, () => logic.actions.loadHistory()).toFinishAllListeners()
-            expect(captureLogic.values.captureStatusUnknown).toBe(false)
-        })
+                jest.useRealTimers()
+                const reconciled =
+                    completedId !== null
+                        ? capture('cap-3', '2024-05-03', { revision: 'request-1' })
+                        : error !== null
+                          ? capture('cap-3', '2024-05-03', {
+                                latest_request: {
+                                    request_id: 'request-1',
+                                    state: 'failed',
+                                    failure_cause: 'browserless_timeout',
+                                    page_status: null,
+                                    deadline: '2024-05-03T12:30:00Z',
+                                    completed_at: '2024-05-03T12:05:00Z',
+                                },
+                            })
+                          : captures[0]
+                jest.spyOn(heatmapApi, 'savedScreenshotHistoryRetrieve').mockResolvedValue(
+                    historyResponse([reconciled, ...captures.slice(1)])
+                )
+                await expectLogic(logic, () => logic.actions.loadHistory()).toFinishAllListeners()
+                expect(captureLogic.values.captureStatusUnknown).toBe(false)
+                expect(captureLogic.values.completedCapture?.id ?? null).toBe(completedId)
+                if (error) {
+                    expect(captureLogic.values.captureError).toContain(error)
+                } else {
+                    expect(captureLogic.values.captureError).toBeNull()
+                }
+            }
+        )
 
         it('offers a completed capture without changing the historical date being analyzed', async () => {
             await expectLogic(logic, () => logic.actions.selectCapture('cap-1')).toFinishAllListeners()
