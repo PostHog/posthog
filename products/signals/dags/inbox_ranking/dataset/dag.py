@@ -155,7 +155,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 9
+FEATURE_SCHEMA_VERSION = 10
 # Apart from FEATURE_SCHEMA_VERSION on purpose: the labels refresh sensor rewrites every labels
 # partition whose stamp is older than that one, and a user-grain change must not set it off.
 USER_INTERACTIONS_SCHEMA_VERSION = 1

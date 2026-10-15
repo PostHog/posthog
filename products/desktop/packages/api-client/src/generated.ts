@@ -224,6 +224,7 @@ export namespace Schemas {
         sessionIdPushdown: boolean | null;
         sessionPropertyPreAggregation: boolean | null;
         sessionTableVersion: SessionTableVersion | null;
+        sessionTimestampBufferMinutes: number | null;
         sessionsV2JoinMode: SessionsV2JoinMode | null;
         timings: boolean | null;
         typeAwareCastSimplification: boolean | null;
@@ -4711,6 +4712,15 @@ export namespace Schemas {
     export type BIQueryLimit = 100 | 1000 | 10000 | 50000;
     export type MemberAliase = { aliases: Array<Alias>; field: BIField };
     export type MissingDates = "gap" | "zero";
+    export type ReferenceLines = "pane" | "worksheet";
+    export type BIPaneSettings = {
+        /**
+         * Ordered dimension IDs used to split returned groups into separate charts.
+         */
+        fields: Array<string>;
+        independentAxes?: (boolean | null) | undefined;
+        referenceLines?: (ReferenceLines | null) | undefined;
+    };
     export type Operator2 =
         | "equals"
         | "not_equals"
@@ -4798,6 +4808,7 @@ export namespace Schemas {
         localFields?: (Array<BIField> | null) | undefined;
         memberAliases?: (Array<MemberAliase> | null) | undefined;
         missingDates?: (MissingDates | null) | undefined;
+        panes?: (BIPaneSettings | null) | undefined;
         resultFilterGroup?: (BIConditionGroup | null) | undefined;
         resultFilters?: (Array<BIResultFilter> | null) | undefined;
         rowFilterGroup?: (BIConditionGroup | null) | undefined;
