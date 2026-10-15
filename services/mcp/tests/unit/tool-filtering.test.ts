@@ -1136,11 +1136,12 @@ describe('Tool Filtering - Feature Flags', () => {
                 'today-rail-nav',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
+                'workflows-data-suggestions',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
         expect(flags).toContain('mcp-events')
-        expect(flags).toHaveLength(39)
+        expect(flags).toHaveLength(40)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

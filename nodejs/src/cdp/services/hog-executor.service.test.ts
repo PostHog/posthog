@@ -1594,14 +1594,22 @@ describe('Hog Executor', () => {
                     url: `${baseUrl}/`,
                     method: 'POST',
                     body: pendingBody,
-                    mcp_event_subscription: subscription,
                 })
-                invocation.queueParameters!.type = 'mcp_event'
+                invocation.queueParameters = {
+                    type: 'mcp_event',
+                    url: `${baseUrl}/`,
+                    body: pendingBody,
+                    mcp_event_subscription: subscription,
+                }
                 invocation.hogFunction.encrypted_inputs = {
                     mcp_credential: { value: 'phx_test_mcp_delivery' },
                 }
                 return invocation
             }
+
+            beforeEach(() => {
+                jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-01-01T00:00:00Z').getTime())
+            })
 
             afterEach(() => {
                 ;(internalFetch as jest.Mock).mockReset()
@@ -1619,7 +1627,7 @@ describe('Hog Executor', () => {
                 mockRequest.mockClear()
                 const invocation = await mcpInvocation()
                 invocation.state.timings = []
-                const result = await executor.executeFetch(invocation)
+                const result = await executor.executeWithAsyncFunctions(invocation)
                 expect(mockRequest).not.toHaveBeenCalled()
                 expect(result.invocation.state.timings.some((timing) => timing.kind === 'async_function')).toBe(true)
                 if (status === 500 || status === 429) {
@@ -1635,15 +1643,15 @@ describe('Hog Executor', () => {
 
             it('rejects an ordinary fetch carrying managed metadata', async () => {
                 const invocation = await mcpInvocation()
-                invocation.queueParameters!.type = 'fetch'
-                const result = await executor.executeFetch(invocation)
+                invocation.queueParameters = parseJSON(JSON.stringify({ ...invocation.queueParameters, type: 'fetch' }))
+                const result = await executor.executeWithAsyncFunctions(invocation)
                 expect(result.finished).toBe(true)
                 expect(result.error).toBeDefined()
                 expect(mockRequest).not.toHaveBeenCalled()
             })
 
-            it.each(['http_error', 'connection_reset'])(
-                'rechecks permissions after %s before retrying',
+            it.each(['success', 'http_error', 'connection_reset', 'rate_limit'])(
+                'handles %s callbacks without bypassing authorization',
                 async (failure) => {
                     ;(internalFetch as jest.Mock)
                         .mockResolvedValueOnce({
@@ -1666,15 +1674,28 @@ describe('Hog Executor', () => {
                             if (failure === 'connection_reset') {
                                 res.destroy()
                             } else {
-                                res.writeHead(500)
+                                res.writeHead(failure === 'success' ? 200 : failure === 'rate_limit' ? 429 : 500, {
+                                    'Retry-After': '45',
+                                })
                                 res.end('retry')
                             }
                         })
                     })
-                    let result = await executor.executeFetch(await mcpInvocation())
+                    let result = await executor.executeWithAsyncFunctions(await mcpInvocation())
                     expect(mockRequest).toHaveBeenCalledTimes(1)
+                    if (failure === 'success') {
+                        expect(result.finished).toBe(true)
+                        expect(result.error).toBeUndefined()
+                        expect(result.invocation.queueScheduledAt).toBeUndefined()
+                        return
+                    }
                     expect(result.invocation.queueScheduledAt).toBeDefined()
-                    result = await executor.executeFetch(result.invocation)
+                    if (failure !== 'connection_reset') {
+                        expect(
+                            result.invocation.queueScheduledAt!.toMillis() - DateTime.utc().toMillis()
+                        ).toBeGreaterThanOrEqual(45_000)
+                    }
+                    result = await executor.executeWithAsyncFunctions(result.invocation)
                     expect(result.finished).toBe(true)
                     expect(result.error).toBeDefined()
                     expect(mockRequest).toHaveBeenCalledTimes(1)

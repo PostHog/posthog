@@ -603,7 +603,7 @@ The marker only controls schema inclusion. The endpoint stays reachable, and aut
 ## HogQL query schemas (WIP)
 
 [`frontend/src/queries/schema/schema-assistant-queries.ts`](https://github.com/PostHog/posthog/blob/master/frontend/src/queries/schema/schema-assistant-queries.ts) defines structured query types
-for the AI assistant (trends, funnels, retention, etc.).
+for the AI assistant (trends, funnels, retention, events tables, etc.).
 
 These schemas describe the shape of analytical queries with rich JSDoc comments
 that help agents generate correct HogQL.
@@ -639,7 +639,9 @@ Delivery uses the source event UUID for both `eventId` and `webhook-id`, sends o
 
 Delivery authorization uses a separate rate-limit budget from client API requests. Queued deliveries carry the compiled filter that matched; authorization checks its recorded property dependencies against the subscriber’s current permissions. Action and test-account filter refreshes update the compiled filter and its permission dependencies together. Newly queued events use the refreshed filter without renewal; queued work from an older filter is rejected. Nested restricted properties and feature-flag aliases are removed before signing. Deleting a subscriber disables the managed destination.
 
-Workers queue managed deliveries as `mcp_event`, so workers without this operation cannot send them. The subscribing credential stays out of resolved invocation globals. Authorization retries honor `Retry-After`, and authorization time counts toward async execution limits. Connection failures return to the queue for fresh authorization before another send. Operator logs record sanitized authorization failure categories and invocation identifiers.
+Managed destinations use a fixed MCP-only Hog program. Workers queue deliveries as `mcp_event`, so workers without this operation cannot send them. Signing keys stay in encrypted subscription configuration, and the subscribing credential stays out of resolved invocation globals.
+
+A dedicated worker job combines authorization and callback delivery under one retry policy. Delivery retries honor `Retry-After`, and authorization time counts toward async execution limits. Connection failures return to the queue for fresh authorization before another send. Operator logs record sanitized authorization failure categories and invocation identifiers.
 
 The backend implementation lives under `products/cdp/backend/`; protocol adaptation lives in `services/mcp/src/hono/event-subscriptions.ts`. Generated tooling is configured in `products/cdp/mcp/tools.yaml`. The wire contract follows the [OpenAI MCP Events integration](https://developers.openai.com/plugins/build/mcp-events).
 

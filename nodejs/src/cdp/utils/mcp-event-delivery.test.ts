@@ -1,4 +1,4 @@
-import type { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
+import type { CyclotronInvocationQueueParametersMcpEventType } from '~/cdp/schema/cyclotron'
 import { logger } from '~/common/utils/logger'
 import { internalFetch } from '~/common/utils/request'
 
@@ -17,10 +17,9 @@ describe('MCP event delivery authorization', () => {
             encrypted_inputs: { mcp_credential: { value: 'fake-user-credential' } },
         },
     } as unknown as CyclotronJobInvocationHogFunction
-    const params: CyclotronInvocationQueueParametersFetchType = {
+    const params: CyclotronInvocationQueueParametersMcpEventType = {
         type: 'mcp_event',
         url: 'https://example.com/callback',
-        method: 'POST',
         body: '{"eventId":"sample-event"}',
         mcp_event_subscription: {
             id: 'b69e52cb-f4de-47dc-95ae-60801343439b',
@@ -55,8 +54,8 @@ describe('MCP event delivery authorization', () => {
             expect.objectContaining({
                 headers: { 'Content-Type': 'application/json', Authorization: 'Bearer fake-user-credential' },
                 body: JSON.stringify({
-                    generation: params.mcp_event_subscription!.generation,
-                    filter_bytecode: params.mcp_event_subscription!.filter_bytecode,
+                    generation: params.mcp_event_subscription.generation,
+                    filter_bytecode: params.mcp_event_subscription.filter_bytecode,
                     function_id: invocation.hogFunction.id,
                     url: params.url,
                     body: params.body,
@@ -67,32 +66,34 @@ describe('MCP event delivery authorization', () => {
     })
 
     it.each([
-        [401, 410],
-        [403, 410],
-        [404, 410],
-        [400, 400],
-        [429, 503],
-        [500, 503],
-        [503, 503],
-    ])('maps authorization status %s to delivery status %s', async (status, expected) => {
+        [401, false],
+        [403, false],
+        [404, false],
+        [400, false],
+        [429, true],
+        [500, true],
+        [503, true],
+    ])('classifies authorization status %s as retryable %s', async (status, expected) => {
         jest.mocked(internalFetch).mockResolvedValue({ status, dump: jest.fn().mockResolvedValue(undefined) } as any)
         expect(await prepareMcpEventDelivery({ invocation, params, internalApiBaseUrl: 'http://web:8000' })).toEqual({
             ok: false,
-            status: expected,
+            retryable: expected,
         })
     })
 
-    it.each(['45', new Date(Date.now() + 45_000).toUTCString()])('preserves Retry-After %s', async (retryAfter) => {
+    it.each(['seconds', 'date'])('preserves Retry-After as %s', async (format) => {
+        const now = new Date('2026-01-01T00:00:00Z').getTime()
+        jest.spyOn(Date, 'now').mockReturnValue(now)
+        const retryAfter = format === 'seconds' ? '45' : new Date(now + 45_000).toUTCString()
         jest.mocked(internalFetch).mockResolvedValue({
             status: 429,
             headers: { 'retry-after': retryAfter },
             dump: jest.fn(),
         } as any)
         const result = await prepareMcpEventDelivery({ invocation, params, internalApiBaseUrl: 'http://web:8000' })
-        expect(result).toMatchObject({ ok: false, status: 503 })
+        expect(result).toMatchObject({ ok: false, retryable: true })
         if (!result.ok) {
-            expect(result.retryAfterMs).toBeGreaterThan(40_000)
-            expect(result.retryAfterMs).toBeLessThanOrEqual(45_000)
+            expect(result.retryAfterMs).toBe(45_000)
         }
     })
 
@@ -110,7 +111,7 @@ describe('MCP event delivery authorization', () => {
         jest.mocked(internalFetch).mockRejectedValue(error)
         expect(await prepareMcpEventDelivery({ invocation, params, internalApiBaseUrl: 'http://web:8000' })).toEqual({
             ok: false,
-            status: 503,
+            retryable: true,
         })
         expect(logger.warn).toHaveBeenCalledWith(
             expect.any(String),
@@ -118,7 +119,7 @@ describe('MCP event delivery authorization', () => {
                 category,
                 teamId: 123,
                 hogFunctionId: invocation.hogFunction.id,
-                subscriptionId: params.mcp_event_subscription!.id,
+                subscriptionId: params.mcp_event_subscription.id,
             })
         )
         expect(JSON.stringify(jest.mocked(logger.warn).mock.calls)).not.toContain('private diagnostic')
@@ -130,7 +131,7 @@ describe('MCP event delivery authorization', () => {
         jest.mocked(internalFetch).mockResolvedValue({ status: 200, text: jest.fn().mockResolvedValue(body) } as any)
         expect(await prepareMcpEventDelivery({ invocation, params, internalApiBaseUrl: 'http://web:8000' })).toEqual({
             ok: false,
-            status: 503,
+            retryable: true,
         })
         expect(logger.warn).toHaveBeenCalledWith(
             expect.any(String),

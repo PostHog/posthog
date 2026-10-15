@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cyclotron'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -20,13 +21,13 @@ import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
 import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { prepareMcpEventDelivery } from '../utils/mcp-event-delivery'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-headers'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
+import { executeMcpEventDelivery } from './mcp-event-delivery.service'
 import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/email-priority'
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
@@ -159,7 +160,13 @@ export class HogExecutorAsyncService {
                                 invocation.queuePriority
                         )
                     } else {
-                        result = await this.executeFetch(nextInvocation, options)
+                        result =
+                            queueParamsType === 'mcp_event'
+                                ? await executeMcpEventDelivery(nextInvocation, {
+                                      ...this.config,
+                                      fetchRetries: options?.maxFetchRetries ?? this.config.fetchRetries,
+                                  })
+                                : await this.executeFetch(nextInvocation, options)
                     }
                 } else if (queueParamsType === 'sendPushNotification') {
                     result = await this.deps.pushNotificationService.executeSendPushNotification(
@@ -352,11 +359,9 @@ export class HogExecutorAsyncService {
         options?: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries'>
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const templateId = invocation.hogFunction.template_id ?? 'unknown'
-        if (invocation.queueParameters?.type !== 'fetch' && invocation.queueParameters?.type !== 'mcp_event') {
+        if (invocation.queueParameters?.type !== 'fetch') {
             throw new Error('Bad invocation')
         }
-
-        const params = invocation.queueParameters
 
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
             invocation,
@@ -366,6 +371,13 @@ export class HogExecutorAsyncService {
             }
         )
         const addLog = createAddLogFunction(result.logs)
+        const parsed = CyclotronInvocationQueueParametersFetchSchema.safeParse(invocation.queueParameters)
+        if (!parsed.success) {
+            result.error = new Error('Invalid fetch queue parameters.')
+            result.finished = true
+            return result
+        }
+        const params = parsed.data
 
         const method = params.method.toUpperCase()
         let headers = params.headers ?? {}
@@ -487,7 +499,7 @@ export class HogExecutorAsyncService {
         // and never persisted back to queueParameters. The `webhook-id` the
         // receiver dedupes on is the exception: it comes from the queue payload,
         // which the retry path preserves, so it stays constant across attempts.
-        if (params.standard_webhooks && !params.mcp_event_subscription) {
+        if (params.standard_webhooks) {
             const resolved = resolveStandardWebhooksKey(params.standard_webhooks, invocation.hogFunction)
             if (!resolved.ok) {
                 return failSigning(resolved.error)
@@ -500,55 +512,13 @@ export class HogExecutorAsyncService {
             })
         }
 
-        let authorizedBody = params.body
-        if ((params.type === 'mcp_event') !== !!params.mcp_event_subscription) {
-            return failSigning('MCP event delivery requires managed subscription metadata.')
-        }
-        if (params.mcp_event_subscription) {
-            const authorizationStarted = performance.now()
-            const prepared = await prepareMcpEventDelivery({
-                invocation,
-                params,
-                internalApiBaseUrl: this.config.internalApiBaseUrl,
-            })
-            result.invocation.state.timings.push({
-                kind: 'async_function',
-                duration_ms: performance.now() - authorizationStarted,
-            })
-            if (!prepared.ok) {
-                result.invocation.state.attempts++
-                if (
-                    prepared.status >= 500 &&
-                    result.invocation.state.attempts < (options?.maxFetchRetries ?? this.config.fetchRetries)
-                ) {
-                    result.invocation.queueParameters = params
-                    result.invocation.queuePriority = invocation.queuePriority + 1
-                    const backoff = Math.min(
-                        this.config.fetchBackoffBaseMs * 2 ** (result.invocation.state.attempts - 1),
-                        this.config.fetchBackoffMaxMs
-                    )
-                    result.invocation.queueScheduledAt = DateTime.utc().plus({
-                        milliseconds: Math.max(backoff, prepared.retryAfterMs ?? 0),
-                    })
-                } else {
-                    result.error = new Error('MCP event delivery could not be authorized.')
-                    result.finished = true
-                }
-                addLog('error', 'MCP event delivery could not be authorized.')
-                return result
-            }
-            signedHeaders = prepared.headers
-            authorizedBody = prepared.body
-        }
-
         const fetchParams: FetchOptions = { method, headers: signedHeaders }
 
-        if (!['GET', 'HEAD'].includes(method) && authorizedBody) {
-            fetchParams.body = authorizedBody
+        if (!['GET', 'HEAD'].includes(method) && params.body) {
+            fetchParams.body = params.body
         }
 
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({
-            retryConnectionErrors: !params.mcp_event_subscription,
             url: params.url,
             fetchParams,
             templateId,
@@ -563,12 +533,7 @@ export class HogExecutorAsyncService {
 
         result.invocation.state.attempts++
 
-        if (
-            !fetchResponse ||
-            fetchResponse.status >= 400 ||
-            (params.mcp_event_subscription && fetchResponse.status < 200) ||
-            (params.mcp_event_subscription && fetchResponse.status >= 300)
-        ) {
+        if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
             const nonFailureSchemaEntry = invocation.hogFunction.inputs_schema?.find(
                 (s) => s.type === 'non_failure_status_codes'
             )
@@ -581,10 +546,7 @@ export class HogExecutorAsyncService {
             const isNonFailure = isNonFailureStatus(fetchResponse?.status, nonFailureConfig)
 
             const backoffMs = Math.min(
-                this.config.fetchBackoffBaseMs *
-                    (params.mcp_event_subscription
-                        ? 2 ** (result.invocation.state.attempts - 1)
-                        : result.invocation.state.attempts) +
+                this.config.fetchBackoffBaseMs * result.invocation.state.attempts +
                     Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
                 this.config.fetchBackoffMaxMs
             )

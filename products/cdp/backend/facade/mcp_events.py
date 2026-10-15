@@ -7,7 +7,6 @@ from pydantic import JsonValue
 
 from posthog.models import Team, User
 
-from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.facade.mcp_event_types import (
     MCPEventSubscriptionNotFoundError,
     MCPEventSubscriptionPage,
@@ -99,7 +98,6 @@ class MCPEventSubscriptionsAPI:
             credential=credential,
             ttl_ms=ttl_ms,
             credential_expires_at=credential_expires_at,
-            serializer_class=HogFunctionSerializer,
         )
         return _subscription_record(subscription)
 

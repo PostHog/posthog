@@ -3,7 +3,7 @@ from typing import cast
 from django.db.models import TextChoices
 
 import posthoganalytics
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema
 from pydantic import JsonValue
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -29,26 +29,7 @@ from products.cdp.backend.facade.mcp_events import (
     validate_mcp_callback_url,
     validate_mcp_signing_secret,
 )
-from products.cdp.backend.presentation.serializers import HogFunctionFiltersSerializer
-
-
-@extend_schema_field(
-    {
-        "type": "object",
-        "additionalProperties": {
-            "nullable": True,
-            "oneOf": [
-                {"type": "string"},
-                {"type": "number"},
-                {"type": "boolean"},
-                {"type": "object", "additionalProperties": True},
-                {"type": "array", "items": {}},
-            ],
-        },
-    }
-)
-class MCPEventPropertiesField(serializers.JSONField):
-    pass
+from products.cdp.backend.presentation.serializers import HogFunctionFiltersSerializer, MCPEventEnvelopeSerializer
 
 
 class MCPEventSource(TextChoices):
@@ -191,24 +172,6 @@ class MCPEventSubscriptionSerializer(serializers.Serializer):
     )
     active = serializers.BooleanField(read_only=True, help_text="Whether this subscription is enabled.")
     created_at = serializers.DateTimeField(read_only=True, help_text="Time when this subscription was created.")
-
-
-class MCPEventDataSerializer(serializers.Serializer):
-    event = serializers.CharField(help_text="Original captured event name.")
-    distinct_id = serializers.CharField(help_text="Distinct ID attached to the captured event.")
-    properties = MCPEventPropertiesField(help_text="Event properties the subscriber is allowed to read.")
-
-
-class MCPEventEnvelopeSerializer(serializers.Serializer):
-    eventId = serializers.CharField(help_text="Stable source event ID used to deduplicate deliveries.")
-    name = serializers.CharField(help_text="Subscribed MCP event type.")
-    timestamp = serializers.DateTimeField(help_text="Event occurrence time.")
-    cursor = serializers.CharField(allow_null=True, help_text="Null because replay is unavailable.")
-
-    def get_fields(self) -> dict[str, serializers.Field]:
-        fields = super().get_fields()
-        fields["data"] = MCPEventDataSerializer(help_text="Captured event data.")
-        return fields
 
 
 class MCPEventPreviewSerializer(serializers.Serializer):

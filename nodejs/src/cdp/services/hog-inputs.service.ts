@@ -106,13 +106,8 @@ export class HogInputsService {
             return (input1?.order ?? -1) - (input2?.order ?? -1)
         })
 
-        const managedMcp = Object.hasOwn(hogFunction.encrypted_inputs ?? {}, 'mcp_credential')
         for (const [key, input] of orderedInputs) {
             if (key === 'mcp_credential') {
-                continue
-            }
-            if (managedMcp && key === 'signing_secret') {
-                newGlobals.inputs[key] = ''
                 continue
             }
             if (!input) {

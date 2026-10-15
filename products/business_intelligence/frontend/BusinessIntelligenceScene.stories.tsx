@@ -37,7 +37,15 @@ const config: BIConfig = {
 }
 const tabId = 'bi-exploration-story'
 
-function WorksheetStage({ config, width = 1200 }: { config: BIConfig; width?: number }): JSX.Element {
+function WorksheetStage({
+    config,
+    width = 1200,
+    sqlPreview = false,
+}: {
+    config: BIConfig
+    width?: number
+    sqlPreview?: boolean
+}): JSX.Element {
     useEffect(() => {
         const logic = biSceneLogic({ tabId })
         const unmount = logic.mount()
@@ -48,8 +56,11 @@ function WorksheetStage({ config, width = 1200 }: { config: BIConfig; width?: nu
         }
         logic.actions.restoreWorksheet(node)
         logic.actions.recordWorksheet(true)
+        if (sqlPreview) {
+            logic.actions.setSqlPreviewOpen(true)
+        }
         return unmount
-    }, [config])
+    }, [config, sqlPreview])
     return (
         <div className="h-[850px] max-w-full" style={{ width }}>
             <BusinessIntelligenceScene tabId={tabId} />
@@ -184,6 +195,7 @@ export default meta
 
 export const FiltersAndHierarchy: StoryObj = { render: () => <WorksheetStage config={config} /> }
 export const Narrow: StoryObj = { render: () => <WorksheetStage config={config} width={520} /> }
+export const SQLPreview: StoryObj = { render: () => <WorksheetStage config={config} sqlPreview /> }
 const dailyConfig: BIConfig = {
     ...config,
     chartType: ChartDisplayType.ActionsLineGraph,

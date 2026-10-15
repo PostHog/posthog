@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import JsonValue
@@ -34,3 +35,19 @@ class MCPEventSubscriptionNotFoundError(Exception):
 
 class MCPEventSubscriptionPermissionError(Exception):
     pass
+
+
+@frozen
+class MCPEventData:
+    event: str
+    distinct_id: str
+    properties: dict[str, JsonValue]
+
+
+@frozen
+class MCPEventEnvelope:
+    eventId: str
+    name: Literal["posthog.event_captured"]
+    timestamp: datetime
+    data: MCPEventData
+    cursor: None
