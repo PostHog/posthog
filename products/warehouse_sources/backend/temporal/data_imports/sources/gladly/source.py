@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -28,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gla
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import (
     ENDPOINTS,
+    EVENT_ENDPOINTS,
     INCREMENTAL_FIELDS,
     INCREMENTAL_LOOKBACK_SECONDS,
     REPORT_ENDPOINTS,
@@ -38,6 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
+    codebase_detection = detect(env=("^GLADLY_",), script_hosts=("cdn.gladly.com", "chat-sdk.cdn.gladly.com"))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developer.gladly.com"
@@ -115,7 +119,7 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
             label="Gladly",
             caption="""Connect your Gladly account to pull your customer service data into the PostHog Data warehouse.
 
-Your organization is the part of your Gladly URL before `.gladly.com`. For `myorg.gladly.com` enter `myorg`, and for `myorg.us-1.gladly.com` enter `myorg.us-1`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Leave the domain on Production unless you are connecting a Gladly sandbox, which is served on `gladly.qa`. Data comes from Gladly's scheduled export jobs, which retain files for 14 days. History older than that requires asking Gladly support to regenerate exports. The conversations table is built from Gladly's Conversation Export report instead, so it is not limited to the 14-day export window. The conversation timestamps, contact timestamps, and work session events tables also come from Gladly's reports and reach back 90 days on their first sync. The teams and inboxes tables are read in full on every sync.""",
+Your organization is the part of your Gladly URL before `.gladly.com`. For `myorg.gladly.com` enter `myorg`, and for `myorg.us-1.gladly.com` enter `myorg.us-1`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Leave the domain on Production unless you are connecting a Gladly sandbox, which is served on `gladly.qa`. Data comes from Gladly's scheduled export jobs, which retain files for 14 days. History older than that requires asking Gladly support to regenerate exports. The voice transcripts table reads the calls and voicemails in those same exports and makes one request per call. The conversations and tasks tables are built from Gladly's Conversation Export and Task Export reports instead, so they are not limited to the 14-day export window. The conversation timestamps, contact timestamps, and work session events tables also come from Gladly's reports and reach back 90 days on their first sync. The teams, inboxes, and answers tables are read in full on every sync. Gladly keeps events for 24 hours only, so the events table needs to sync more often than once a day, for example every 12 hours, to keep a full history.""",
             iconPath="/static/services/gladly.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gladly",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -169,14 +173,15 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Report windows are re-read on resume and behind the watermark, so
-        # appending would duplicate rows (merge_only). The event-grain report
-        # tables are high-volume, so they start opt-in (should_sync_default).
+        # Report and event windows are re-read on resume and behind the
+        # watermark, so appending would duplicate rows (merge_only). The
+        # event-grain tables are high-volume, so they start opt-in
+        # (should_sync_default).
         schemas = build_endpoint_schemas(
             ENDPOINTS,
             INCREMENTAL_FIELDS,
             names,
-            merge_only=REPORT_ENDPOINTS,
+            merge_only=(*REPORT_ENDPOINTS, *EVENT_ENDPOINTS),
             should_sync_default=SHOULD_SYNC_DEFAULT,
         )
         # Conversation and work-session report rows restate in place as records

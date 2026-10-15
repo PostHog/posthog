@@ -1,5 +1,4 @@
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.zendesk.template_zendesk import template as template_zendesk
 
 

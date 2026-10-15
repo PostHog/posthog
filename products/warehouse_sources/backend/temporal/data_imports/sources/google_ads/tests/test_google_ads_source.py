@@ -71,12 +71,14 @@ _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
 
 @pytest.mark.parametrize("repeated", [False, True])
 @pytest.mark.parametrize("version", ["v23", "v24", "v25"])
-def test_change_resource_proto_plus_serializes_to_json(repeated, version):
+@pytest.mark.parametrize("as_int", [False, True])
+def test_change_resource_proto_plus_serializes_to_json(repeated, version, as_int):
     enum_types = importlib.import_module(f"google.ads.googleads.{version}.enums.types")
+    message_type = enum_types.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.MESSAGE
     value = ChangeEvent.ChangedResource(campaign={"name": "Example campaign"})
     column = GoogleAdsColumn(
         qualified_name="change_event.new_resource",
-        data_type=enum_types.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.MESSAGE,
+        data_type=int(message_type) if as_int else message_type,
         is_repeatable=repeated,
         type_url="google.ads.googleads.v23.resources.ChangeEvent.ChangedResource",
     )
@@ -621,7 +623,7 @@ def _google_ads_exception_with_trigger(request_error: int, trigger_value: str) -
 def _string_column(qualified_name: str) -> GoogleAdsColumn:
     return GoogleAdsColumn(
         qualified_name=qualified_name,
-        data_type=ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.STRING,  # type: ignore[arg-type]
+        data_type=ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.STRING,
         is_repeatable=False,
         type_url="",
     )

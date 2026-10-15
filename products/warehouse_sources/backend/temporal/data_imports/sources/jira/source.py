@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JiraSource(ResumableSource[JiraSourceConfig, JiraResumeConfig]):
+    codebase_detection = detect(
+        env=("^JIRA_",),
+        script_hosts=("jsd-widget.atlassian.com",),
+        npm=("jira-client", "jira.js", "@forge/jira-bridge", "@forge/ui-jira", "jira-connector"),
+        pypi=("jira", "atlassian-python-api"),
+        cargo=("gouqi", "goji"),
+        composer=("lesstif/php-jira-rest-client", "chobie/jira-api-restclient"),
+        go=("github.com/andygrunwald/go-jira", "github.com/ctreminiom/go-atlassian"),
+        maven=("com.atlassian.jira:jira-rest-java-client-core", "net.rcarz:jira-client"),
+        rubygems=("jira-ruby",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("3",)
     default_version = "3"

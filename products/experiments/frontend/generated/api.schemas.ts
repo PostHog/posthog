@@ -2271,6 +2271,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
  * * `forced_variant_release_condition` - Forced Variant Release Condition
+ * * `flag_variants_mismatch` - Flag Variants Mismatch
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2285,6 +2286,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+    FlagVariantsMismatch: 'flag_variants_mismatch',
 } as const
 
 /**
@@ -2339,7 +2341,8 @@ export interface ExperimentHealthFindingApi {
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
-     * * `forced_variant_release_condition` - Forced Variant Release Condition */
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `flag_variants_mismatch` - Flag Variants Mismatch */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -4482,7 +4485,7 @@ export interface ExperimentSetupPreviousExperimentApi {
     stats_method: string
     /** Whether the experiment uses a holdout group. */
     has_holdout: boolean
-    /** From the completed result that covers the latest data in the experiment's current run. A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples are the analyzed population. Null when no result exists for that run, which is also the case for older metric definitions that results are never stored for. */
+    /** From the completed result that covers the latest data under the experiment's current configuration. A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples are the analyzed population. Null when no result exists for that configuration, for example after a relaunch or a settings edit until the results are recalculated, and for older metric definitions that results are never stored for. */
     outcome: ExperimentSetupOutcomeApi | null
 }
 

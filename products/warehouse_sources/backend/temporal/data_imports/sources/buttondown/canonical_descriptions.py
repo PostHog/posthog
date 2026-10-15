@@ -6,6 +6,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 # https://docs.buttondown.com/api-introduction
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "automation_attempts": {
+        "description": "An attempt to run an automation for one subscriber, with its scheduled time, status, and any error.",
+        "docs_url": "https://docs.buttondown.com/api-subscribers-automations",
+        "columns": {
+            "actions": "The resolved actions the automation will take for this subscriber.",
+            "automation_id": "The ID of the automation that was triggered.",
+            "error": "Code for why the attempt was skipped or failed; null when it succeeded, hasn't run yet, or was skipped by hand.",
+            "execution_date": "When the automation attempt is scheduled to execute (or executed).",
+            "id": "The ID of this automation attempt.",
+            "name": "The name of the automation that was triggered.",
+            "status": "The status of the automation attempt (e.g. `pending`, `completed`, `skipped`).",
+            "subscriber_id": "The ID of the subscriber the automation ran for.",
+        },
+    },
     "automations": {
         "description": "An automation: a trigger, optional filters, and the actions Buttondown runs when a subscriber matches.",
         "docs_url": "https://docs.buttondown.com/api-automations-list",
@@ -99,6 +113,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "title": "The human-readable title of the form, shown in the UI and on the hosted form page.",
         },
     },
+    "notes": {
+        "description": "A note attached to a subscriber, email, or other object in the newsletter.",
+        "docs_url": "https://docs.buttondown.com/api-notes-list",
+        "columns": {
+            "body": "The text content of the note.",
+            "creation_date": "The date and time at which the object was first created.",
+            "id": "A unique TypeID associated with the object.",
+            "metadata": "Additional metadata for the note.",
+            "model_id": "The UUID or TypeID of the object this note is attached to.",
+            "model_type": "The type of object this note is attached to (e.g., 'email', 'subscriber').",
+            "source": "The source of the note: `admin` if a Buttondown admin created it, otherwise `user`.",
+            "user_id": "The ID of the user who wrote the note, if any.",
+        },
+    },
     "prices": {
         "description": "A price for a paid subscription to the newsletter, backed by a Stripe product.",
         "docs_url": "https://docs.buttondown.com/api-prices-list",
@@ -113,6 +141,36 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "product_id": "The ID of the Stripe product this price belongs to.",
             "style": "The pricing style: 'fixed', 'pay-what-you-want', or 'usage-based'.",
             "suggested_amount": "The suggested amount for pay-what-you-want prices.",
+        },
+    },
+    "referrals": {
+        "description": "A subscriber who signed up through another subscriber's referral, with the full subscriber record of the referred subscriber.",
+        "docs_url": "https://docs.buttondown.com/api-subscribers-referrals",
+        "columns": {
+            "creation_date": "The date and time at which the referred subscriber was first created.",
+            "email_address": "The email address of the referred subscriber.",
+            "id": "The ID of the referred subscriber.",
+            "referral_code": "The referred subscriber's own unique referral code.",
+            "referrer_subscriber_id": "The ID of the subscriber who made the referral.",
+            "type": "The referred subscriber's lifecycle state (e.g. `regular`, `premium`, `unsubscribed`).",
+        },
+    },
+    "stripe_subscriptions": {
+        "description": "A Stripe subscription that belongs to a subscriber, covering active and ended paid subscriptions.",
+        "docs_url": "https://docs.buttondown.com/api-subscribers-stripe-subscriptions",
+        "columns": {
+            "amount": "The subscription amount in the smallest currency unit (e.g. cents). Null for tiered-pricing plans.",
+            "application_fee_percent": "The application fee percent for the subscription.",
+            "cadence": "The billing cadence (e.g. `month`, `year`).",
+            "creation_date": "The date and time at which the object was first created.",
+            "currency": "The three-letter ISO currency code (e.g. `usd`).",
+            "ending_date": "When the subscription ended, or null if still active.",
+            "product": "The name of the product which the subscriber is subscribed to.",
+            "source": "Where the subscription came from (`substack` or `buttondown`), when Buttondown can detect it.",
+            "status": "The Stripe subscription status (e.g. `active`, `canceled`, `past_due`).",
+            "subscriber_id": "The ID of the subscriber this subscription belongs to.",
+            "subscription_id": "The Stripe subscription ID (e.g. `sub_...`).",
+            "url": "A deep link to the subscription in the Stripe dashboard.",
         },
     },
     "subscribers": {

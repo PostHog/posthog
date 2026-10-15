@@ -92,8 +92,7 @@ APIScopeObject = Literal[
     "llm_provider_key",
     "llm_skill",
     "logs",
-    "loop",
-    "loop_context_internal",
+    "loop",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "marketing_analytics",
     "mcp_builtin_agent",
     "mcp_analytics",
@@ -194,8 +193,6 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # it on the internal products that share the PostHog Desktop OAuth app so a user's
         # own credential can't reach them — see services/llm-gateway products/config.py.
         "internal_run",
-        # Grants context maintenance tools only to Loop runs configured with update_context.
-        "loop_context_internal",
         # Marks a sandbox OAuth token as belonging to a trusted built-in agent.
         # MCP Store uses it to deny the human/member control plane and force the
         # agent through its own explicit gateway grants.
@@ -261,9 +258,7 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Conversations external ticket API reads, mirroring the account scope above so
     # service integrations don't need the team-wide secret_api_token (#63111).
     ("support_ticket", "read"),
-    # First write-capable PSAK scope: lets a service credential fire a loop via
-    # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
-    # in the project (accepted).
+    # Endpoints are gone; kept so existing keys that hold it stay saveable.
     ("loop", "write"),
     # Read-only export of experiment definitions (list/retrieve), so services syncing
     # experiments into a warehouse don't need a credential tied to one person's account.

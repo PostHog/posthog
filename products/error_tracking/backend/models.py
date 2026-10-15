@@ -105,7 +105,12 @@ class ErrorTrackingIssue(UUIDTModel):
                 fields=["team", "-state_updated_at"],
                 name="et_issue_team_state_idx",
                 condition=models.Q(state_updated_at__isnull=False),
-            )
+            ),
+            models.Index(
+                fields=["team", "-created_at"],
+                name="et_issue_active_created_idx",
+                condition=models.Q(status="active"),
+            ),
         ]
 
     def merge(

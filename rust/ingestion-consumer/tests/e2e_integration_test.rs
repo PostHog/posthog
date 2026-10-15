@@ -420,6 +420,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
                         status: SubBatchStatus::Failed as i32,
                         accepted: 0,
                         error: reason.to_string(),
+                        unfinished: vec![],
                     })),
                 }));
             };
@@ -475,6 +476,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
                         status: SubBatchStatus::Ok as i32,
                         accepted: reported,
                         error: String::new(),
+                        unfinished: vec![],
                     })),
                 }));
             }
@@ -1422,7 +1424,7 @@ async fn partial_send_failure_replays_only_the_failed_subbatch(#[case] kind: Sch
         guards.push(Some(w.block().await));
     }
 
-    // Two equal-size keys → bin-packed one per worker: one batch, two
+    // Two keys over two workers → P2C places one per worker: one batch, two
     // sub-batches, one per worker. The keys must share one Kafka batch: at
     // max_in_flight=1 a Kafka batch with only one key blocks the next batch,
     // so the second worker would never receive a sub-batch.
@@ -2536,7 +2538,7 @@ async fn full_pool_send_failure_with_multiple_keys_recovers_in_order(
         produce(&producer, &topic, 1, "tok", "user-2", seq).await;
     }
     // One message per request splits the keys into two requests, and
-    // bin-packing places them one per worker. At the production target
+    // P2C places them one per worker. At the production target
     // both keys fit in one request.
     let split = pack_targets == common::ONE_MESSAGE_PER_REQUEST;
     wait_until(Duration::from_secs(10), "work to be in flight", || {

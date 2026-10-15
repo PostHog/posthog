@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 import requests
 
@@ -14,7 +14,7 @@ from posthog.turnstile import (
 )
 
 
-class TestVerifyTurnstileToken(TestCase):
+class TestVerifyTurnstileToken(SimpleTestCase):
     @override_settings(CLOUDFLARE_TURNSTILE_SECRET_KEY="")
     def test_returns_false_when_no_secret_key(self):
         assert verify_turnstile_token("token", "1.2.3.4") is False

@@ -35,6 +35,7 @@ describe('inboxReportDetailLogic', () => {
         beforeEach(async () => {
             useMocks({
                 get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
                     '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
                     '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
                     '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
@@ -153,6 +154,7 @@ describe('inboxReportDetailLogic', () => {
         beforeEach(async () => {
             useMocks({
                 get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
                     '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
                     '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
                     '/api/projects/:team_id/signals/reports/:id/checks/': { results: [openCheck] },
@@ -203,6 +205,7 @@ describe('inboxReportDetailLogic', () => {
         beforeEach(async () => {
             useMocks({
                 get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
                     '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [artefact] },
                     '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
                     '/api/projects/:team_id/signals/reports/available_reviewers/': [],
@@ -229,6 +232,7 @@ describe('inboxReportDetailLogic', () => {
             let refreshStarted = false
             useMocks({
                 get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
                     '/api/projects/:team_id/signals/reports/:id/artefacts/': async () => {
                         refreshStarted = true
                         await heldRefresh
@@ -312,6 +316,7 @@ describe('inboxReportDetailLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
                     '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
                     '/api/projects/:team_id/signals/reports/:id/signals/': {
                         signals: [{ signal_id: 's1' }, { signal_id: 's2' }, { signal_id: 's3' }],
@@ -376,13 +381,14 @@ describe('inboxReportDetailLogic', () => {
         let notePosts: number
         let bareRatingPosts: number
 
-        beforeEach(() => {
+        beforeEach(async () => {
             notePosts = 0
             bareRatingPosts = 0
             useMocks({
                 get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
                     '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
-                    '/api/projects/:team_id/signals/reports/:id/signals/': [],
+                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
                     '/api/projects/:team_id/signals/reports/available_reviewers/': [],
                 },
                 post: {
@@ -400,14 +406,47 @@ describe('inboxReportDetailLogic', () => {
             initKeaTests()
             logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
             logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
         })
 
         afterEach(() => {
             logic.unmount()
         })
 
+        it.each(['positive', 'negative'] as const)('restores and clears a saved %s rating', async (sentiment) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment, note: 'Saved note' },
+                },
+            })
+            logic.actions.loadFeedback()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.feedbackSentiment).toBe(sentiment)
+            expect(logic.values.feedbackSentNote).toBe('Saved note')
+            logic.actions.rateReport(null)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.feedbackSentiment).toBeNull()
+            expect(logic.values.feedbackNoteSent).toBe(false)
+        })
+
+        it('keeps the saved rating and note draft when a write fails', async () => {
+            logic.actions.rateReport('positive')
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setFeedbackNoteDraft('Keep this note')
+            useMocks({ post: { '/api/projects/:team_id/signals/reports/:id/feedback/': [500, {}] } })
+            logic.actions.submitFeedbackNote('Keep this note')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.feedbackNoteDraft).toBe('Keep this note')
+            expect(logic.values.feedbackNoteSent).toBe(false)
+            logic.actions.rateReport(null)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.feedbackSentiment).toBe('positive')
+            expect(logic.values.feedbackSubmitting).toBe(false)
+        })
+
         it('posts once on a double-click and lets a revised note through after re-rating', async () => {
             logic.actions.rateReport('positive')
+            await expectLogic(logic).toFinishAllListeners()
             // A double-click dispatches submit twice before the first request settles.
             logic.actions.submitFeedbackNote('the repro steps were right')
             logic.actions.submitFeedbackNote('the repro steps were right')
@@ -420,6 +459,7 @@ describe('inboxReportDetailLogic', () => {
 
             // Re-rating reopens the note flow; the guard must have reset or this submit is silently dropped.
             logic.actions.rateReport('negative')
+            await expectLogic(logic).toFinishAllListeners()
             logic.actions.submitFeedbackNote('actually this was stale')
             await expectLogic(logic).toFinishAllListeners()
 
@@ -456,8 +496,9 @@ describe('inboxReportDetailLogic', () => {
             requestedPrIds = []
             useMocks({
                 get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
                     '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
-                    '/api/projects/:team_id/signals/reports/:id/signals/': [],
+                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
                     '/api/projects/:team_id/signals/reports/available_reviewers/': [],
                     '/api/projects/:team_id/signals/reports/:id/pr_checks/': ({ request }) => {
                         requestedPrIds.push(new URL(request.url).searchParams.get('pull_request_id'))
@@ -552,8 +593,9 @@ describe('inboxReportDetailLogic', () => {
             const commentsB = [{ id: 2, body: 'B only', kind: 'issue' }]
             useMocks({
                 get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
                     '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
-                    '/api/projects/:team_id/signals/reports/:id/signals/': [],
+                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
                     '/api/projects/:team_id/signals/reports/available_reviewers/': [],
                     '/api/projects/:team_id/signals/reports/:id/pr_checks/': async ({ request }) => {
                         if (new URL(request.url).searchParams.get('pull_request_id') === 'pr-a') {
@@ -645,11 +687,12 @@ describe('inboxReportDetailLogic', () => {
             artefactRequests = 0
             useMocks({
                 get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
                     '/api/projects/:team_id/signals/reports/:id/artefacts/': () => {
                         artefactRequests += 1
                         return { results: [] }
                     },
-                    '/api/projects/:team_id/signals/reports/:id/signals/': [],
+                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
                     '/api/projects/:team_id/signals/reports/available_reviewers/': [],
                 },
             })
@@ -759,6 +802,7 @@ describe('inboxReportDetailLogic', () => {
                 let checkRequests = 0
                 useMocks({
                     get: {
+                        '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
                         '/api/projects/:team_id/signals/reports/:id/checks/': () => {
                             checkRequests++
                             return [200, { results: [replacement] }]
@@ -807,6 +851,7 @@ describe('inboxReportDetailLogic', () => {
                     '/api/projects/:team_id/signals/reports/:id/checks/:check_id/approve/': [200, approved],
                 },
                 get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
                     '/api/projects/:team_id/signals/reports/:id/checks/': async () => {
                         requestStarted()
                         await responseReady

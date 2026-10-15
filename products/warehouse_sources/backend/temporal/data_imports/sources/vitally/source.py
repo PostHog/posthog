@@ -3,6 +3,7 @@ from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VitallySource(SimpleSource[VitallySourceConfig]):
+    codebase_detection = detect(env=("^VITALLY_",), script_hosts=("cdn.vitally.io",))
+
     api_docs_url = "https://docs.vitally.io"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -26,7 +26,6 @@ import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -46,7 +45,7 @@ export function PinToPlaylistButton(): JSX.Element {
                 logicProps.setPinned?.(true)
             }}
             tooltip={tooltip}
-            data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
+            data-attr="pin-to-this-list"
             icon={<IconPlusSmall />}
         />
     ) : (
@@ -63,31 +62,6 @@ export function PinToPlaylistButton(): JSX.Element {
                 {description}
             </PlaylistPopoverButton>
         </AccessControlAction>
-    )
-}
-
-export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
-    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-
-    return (
-        <div className="flex">
-            {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
-                <>
-                    {sessionRecordingId && (
-                        <div className="flex items-center gap-0.5">
-                            <MenuActions size={size} />
-                        </div>
-                    )}
-
-                    <PlayerShareMenu />
-
-                    <InsertInNotebookPlaylistButton size={size} />
-
-                    <PinToPlaylistButton />
-                </>
-            ) : null}
-        </div>
     )
 }
 

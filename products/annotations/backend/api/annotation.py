@@ -146,6 +146,29 @@ class AnnotationSerializer(serializers.ModelSerializer):
         else:
             insight = getattr(self.instance, "dashboard_item", None)
 
+        # A create checks only an explicit scope, because rows created without one take the model
+        # default and have no insight. An update checks the scope the row will have, so clearing the
+        # parent is caught too. A row already stored without its parent, such as a default row or one
+        # whose dashboard was hard-deleted, stays editable, because the UI echoes its scope back.
+        instance = self.instance
+        checked_scope = scope if instance is None else scope or instance.scope
+        if (
+            checked_scope == Annotation.Scope.INSIGHT.value
+            and insight is None
+            and not (instance is not None and instance.scope == checked_scope and instance.dashboard_item_id is None)
+        ):
+            raise serializers.ValidationError(
+                {"dashboard_item": "Set `dashboard_item` to the insight ID when the scope is `dashboard_item`."}
+            )
+        if (
+            checked_scope == Annotation.Scope.DASHBOARD.value
+            and dashboard is None
+            and not (instance is not None and instance.scope == checked_scope and instance.dashboard_id is None)
+        ):
+            raise serializers.ValidationError(
+                {"dashboard_id": "Set `dashboard_id` to the dashboard ID when the scope is `dashboard`."}
+            )
+
         # AnnotationsViewSet.safely_get_queryset hides an annotation whose own scope points at a
         # soft-deleted parent, so accepting one here would strand a row that nothing can list, edit
         # or delete. Project- and organization-scoped rows keep their pointers, which are only used
