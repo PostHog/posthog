@@ -1721,6 +1721,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
 
                 let errorCount = 0
+                const matchingEventUuids = new Set(matchingEvents?.map((event) => event.uuid))
                 for (const event of eventsData || []) {
                     // A malformed or missing event row must not crash the whole inspector list.
                     if (!event) {
@@ -1733,10 +1734,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         errorCount += 1
                     }
 
-                    if (matchingEvents?.length) {
-                        isMatchingEvent = !!matchingEvents.find(
-                            (x: MatchedRecordingEvent) => x.uuid === String(event.id)
-                        )
+                    if (matchingEventUuids.size) {
+                        isMatchingEvent = matchingEventUuids.has(String(event.id))
                     } else if (props.matchingEventsMatchType?.matchType === 'name') {
                         isMatchingEvent = props.matchingEventsMatchType?.eventNames?.includes(event.event)
                     }
