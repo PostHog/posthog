@@ -17,20 +17,23 @@ from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team import Team
 
-# Mirrors what `TraceQueryRunner` loads: no time bounds, one row per uuid, root not counted.
+# Mirrors what `TraceQueryRunner` loads: no time bounds, one row per uuid, and only the states of the root.
 _TRACE_SIZE_SQL = """
 SELECT countIf(event != '$ai_trace') AS event_count, sum(payload_chars) AS payload_chars
 FROM (
     SELECT
         uuid,
         event,
-        lengthUTF8(properties)
-            + lengthUTF8(ifNull(input, ''))
-            + lengthUTF8(ifNull(output, ''))
-            + lengthUTF8(ifNull(output_choices, ''))
-            + lengthUTF8(ifNull(input_state, ''))
-            + lengthUTF8(ifNull(output_state, ''))
-            + lengthUTF8(ifNull(tools, '')) AS payload_chars
+        lengthUTF8(ifNull(input_state, '')) + lengthUTF8(ifNull(output_state, ''))
+            + if(
+                event = '$ai_trace',
+                0,
+                lengthUTF8(properties)
+                    + lengthUTF8(ifNull(input, ''))
+                    + lengthUTF8(ifNull(output, ''))
+                    + lengthUTF8(ifNull(output_choices, ''))
+                    + lengthUTF8(ifNull(tools, ''))
+            ) AS payload_chars
     FROM posthog.ai_events AS ai_events
     WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
       AND trace_id = {trace_id}

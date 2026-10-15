@@ -171,7 +171,7 @@ class TestFetchAndFormatTraceSizePreflight(ClickhouseTestMixin, BaseTest):
                     "properties": {"$ai_trace_id": trace_id, "$ai_input": "x" * input_length},
                 }
                 for event, event_uuid, timestamp, input_length in [
-                    ("$ai_trace", None, window_start + timedelta(minutes=1), 0),
+                    ("$ai_trace", None, window_start + timedelta(minutes=1), 5_000),
                     ("$ai_generation", None, window_start - timedelta(days=3), old_input_length),
                     ("$ai_generation", recent_generation_uuid, window_start + timedelta(minutes=5), 10),
                     ("$ai_generation", recent_generation_uuid, window_start + timedelta(minutes=5), 10),
