@@ -35,6 +35,9 @@ const failForbiddenHits = process.argv.includes('--fail-forbidden-hits')
 // but shifts them onto the eager path), which is why this check exists.
 //
 // Budgets are eager output bytes (shipped JS + the stable build's CSS for the root, minified).
+// The two boot roots also have a file budget: the count of source modules that ship eagerly. A new
+// static import of a small package can add hundreds of modules and still fit the byte headroom, and
+// each module costs parse and evaluation time on boot.
 // Ratchet policy: when a bundle-splitting win lands, lower the budget to lock it in;
 // raise a budget only as a conscious, reviewed decision in the PR that needs it.
 const ROOTS = [
@@ -74,6 +77,8 @@ const ROOTS = [
         // JS (615 files) + 0.80 MiB stable CSS.
         // ~6% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
         budgetBytes: 3_180_000,
+        // 2026-10-15: 607 files. ~5% headroom.
+        budgetFiles: 640,
         forbidden: [
             'node_modules/monaco-editor/',
             // Authenticated-only code. Either of these on the App path means a component that
@@ -105,6 +110,8 @@ const ROOTS = [
         // 2026-10-11: 7.09 MiB eager output = 6.29 MiB JS (2463 files) + 0.80 MiB stable CSS.
         // ~8% headroom so routine churn doesn't trip the warn.
         budgetBytes: 8_015_000,
+        // 2026-10-15: 2537 files. ~5% headroom.
+        budgetFiles: 2_665,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
@@ -224,6 +231,14 @@ function assertReport(reportFilePath) {
             )
             violations++
         }
+        if (r.overFileBudget) {
+            warnViolation(
+                `Eager graph for '${r.root}' ships ${r.files} files, over the ${r.budgetFiles} file budget.\n` +
+                    `Make the offending import lazy (React.lazy / dynamic import()), or raise budgetFiles in ` +
+                    `frontend/bin/check-eager-graph.mjs as a conscious decision in this PR.`
+            )
+            violations++
+        }
         for (const hit of rootForbiddenHits) {
             warnViolation(
                 `'${hit.module}' ships eagerly from '${r.root}' — it must stay behind a dynamic import.\n` +
@@ -232,7 +247,7 @@ function assertReport(reportFilePath) {
             violations++
             forbiddenHits++
         }
-        if (topLevelErrors.length === 0 && !r.overBudget && rootForbiddenHits.length === 0) {
+        if (topLevelErrors.length === 0 && !r.overBudget && !r.overFileBudget && rootForbiddenHits.length === 0) {
             console.info(`🟢 ${r.label}: ${formatMiB(r.bytes)} within ${formatMiB(r.budgetBytes)}`)
         }
     }
@@ -363,7 +378,7 @@ for (const verifySubstr of new Set(ROOTS.flatMap((r) => r.forbidden.map(forbidde
     }
 }
 
-for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
+for (const { root: rootSpec, label, budgetBytes, budgetFiles, forbidden } of ROOTS) {
     // A root is one entry module, or several whose closures are downloaded together.
     const rootModules = Array.isArray(rootSpec) ? rootSpec : [rootSpec]
     const root = rootModules.join(' + ')
@@ -405,6 +420,7 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
     const largest = [...eagerBytesByFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15)
 
     const overBudget = totalBytes > budgetBytes
+    const overFileBudget = budgetFiles !== undefined && eagerBytesByFile.size > budgetFiles
 
     // A forbidden module is a hit when it ships in the eager OUTPUT. The import chain we show
     // is a best-effort trace through the INPUT graph — module-level `import` edges are what a
@@ -436,14 +452,15 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
         }
     }
 
-    const status = overBudget || forbiddenHits.length > 0 ? '🟡' : '🟢'
+    const status = overBudget || overFileBudget || forbiddenHits.length > 0 ? '🟡' : '🟢'
     console.info(`${status} ${label}`)
     console.info(`   root: ${root}`)
+    const fileBudgetSuffix = budgetFiles === undefined ? '' : ` / ${budgetFiles}`
     console.info(
-        `   eager output: ${eagerBytesByFile.size} files, ${formatMiB(totalBytes)} (budget ${formatMiB(budgetBytes)})`
+        `   eager output: ${eagerBytesByFile.size}${fileBudgetSuffix} files, ${formatMiB(totalBytes)} (budget ${formatMiB(budgetBytes)})`
     )
     summaryLines.push(
-        `| ${status} \`${root}\` | ${formatMiB(totalBytes)} | ${formatMiB(budgetBytes)} | ${eagerBytesByFile.size} |`
+        `| ${status} \`${root}\` | ${formatMiB(totalBytes)} | ${formatMiB(budgetBytes)} | ${eagerBytesByFile.size}${fileBudgetSuffix} |`
     )
 
     if (overBudget) {
@@ -453,6 +470,14 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
                 largest.map(([f, b]) => `   ${formatMiB(b).padStart(10)}  ${f}`).join('\n') +
                 `\nMake the offending import lazy (React.lazy / dynamic import()), or raise the budget in ` +
                 `frontend/bin/check-eager-graph.mjs as a conscious decision in this PR.`
+        )
+    }
+
+    if (overFileBudget) {
+        fail(
+            `Eager graph for '${root}' ships ${eagerBytesByFile.size} files, over the ${budgetFiles} file budget.\n` +
+                `A new static import put more modules on the eager path. Make it lazy (React.lazy / dynamic import()), ` +
+                `or raise budgetFiles in frontend/bin/check-eager-graph.mjs as a conscious decision in this PR.`
         )
     }
 
@@ -470,6 +495,8 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
         files: eagerBytesByFile.size,
         budgetBytes,
         overBudget,
+        budgetFiles,
+        overFileBudget,
         forbidden: forbidden.map(forbiddenPattern),
         forbiddenHits,
         largest: largest.map(([f, b]) => ({ file: f, bytes: b })),

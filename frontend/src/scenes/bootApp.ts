@@ -1,4 +1,5 @@
 import { registerToastGetHelp } from 'lib/components/Support/registerToastGetHelp'
+import { markBootMilestone } from 'lib/utils/bootMarks'
 import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
 
 import { initKea } from '../initKea'
@@ -33,6 +34,7 @@ export function bootApp(): void {
     // Same seam for the error toast's "Get help" button: the app opens support in place, the
     // toolbar and exporter keep linking out to the support options docs
     registerToastGetHelp()
+    markBootMilestone('app-booted')
 
     const idle =
         typeof window.requestIdleCallback === 'function'

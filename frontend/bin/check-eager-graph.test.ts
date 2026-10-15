@@ -12,6 +12,7 @@ interface EagerGraphReport {
         forbiddenHits: { chain: string[]; module: string }[]
         largest: { bytes: number; file: string }[]
         overBudget: boolean
+        overFileBudget?: boolean
         root: string
     }[]
     warnings: string[]
@@ -34,14 +35,22 @@ function runChecker(report: EagerGraphReport): number | null {
 
 describe('check-eager-graph.mjs', () => {
     it.each([
-        ['a forbidden eager import', [{ module: 'node_modules/monaco-editor/', chain: ['src/index.tsx'] }], [], false, 1],
-        ['an analysis error', [], ['No output chunk found for src/index.tsx'], false, 1],
-        ['a budget warning', [], [], true, 0],
-    ])('fails only for %s', (_, forbiddenHits, errors, overBudget, expectedStatus) => {
+        [
+            'a forbidden eager import',
+            [{ module: 'node_modules/monaco-editor/', chain: ['src/index.tsx'] }],
+            [],
+            false,
+            false,
+            1,
+        ],
+        ['an analysis error', [], ['No output chunk found for src/index.tsx'], false, false, 1],
+        ['a budget warning', [], [], true, false, 0],
+        ['a file budget warning', [], [], false, true, 0],
+    ])('fails only for %s', (_, forbiddenHits, errors, overBudget, overFileBudget, expectedStatus) => {
         expect(
             runChecker({
                 errors,
-                roots: [{ root: 'src/index.tsx', forbiddenHits, largest: [], overBudget }],
+                roots: [{ root: 'src/index.tsx', forbiddenHits, largest: [], overBudget, overFileBudget }],
                 warnings: [],
             })
         ).toBe(expectedStatus)

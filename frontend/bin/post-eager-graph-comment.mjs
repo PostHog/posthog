@@ -18,7 +18,7 @@ function budgetBar(bytes, budgetBytes) {
 }
 
 const errorCount = report.errors?.length ?? 0
-const overBudgetRoots = report.roots.filter((r) => r.overBudget).length
+const overBudgetRoots = report.roots.filter((r) => r.overBudget || r.overFileBudget).length
 const forbiddenCount = report.roots.reduce((n, r) => n + r.forbiddenHits.length, 0)
 const anyFailure = Boolean(errorCount || overBudgetRoots || forbiddenCount)
 
@@ -35,9 +35,10 @@ const lines = [
     '| --- | --- | --- | --- |',
 ]
 for (const r of report.roots) {
-    const status = r.overBudget ? '🟡 ' : ''
+    const status = r.overBudget || r.overFileBudget ? '🟡 ' : ''
+    const fileBudget = r.budgetFiles === undefined ? '' : ` of ${r.budgetFiles.toLocaleString()}`
     lines.push(
-        `| ${status}**${r.label}**<br/>\`${r.root}\` | ${formatBytes(r.bytes)} · ${r.files.toLocaleString()} files | ${formatDelta(r.bytes, baseBytes[r.root], { noBaseline: '_(no base measurement)_' })} | ${budgetBar(r.bytes, r.budgetBytes)} |`
+        `| ${status}**${r.label}**<br/>\`${r.root}\` | ${formatBytes(r.bytes)} · ${r.files.toLocaleString()}${fileBudget} files | ${formatDelta(r.bytes, baseBytes[r.root], { noBaseline: '_(no base measurement)_' })} | ${budgetBar(r.bytes, r.budgetBytes)} |`
     )
 }
 lines.push('')

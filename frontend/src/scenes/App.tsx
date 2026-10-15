@@ -25,6 +25,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { AuthenticatedShellFallback } from './AuthenticatedShellFallback'
+import { BootTimingReporter } from './BootTimingReporter'
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 import { mountSupportRouter } from './mountSupportRouter'
 
@@ -178,7 +179,12 @@ function AppScene(): JSX.Element | null {
             sceneNode
         )
 
-        sceneElement = <SceneAnimationRoot key={`scene-${activeSceneId}`}>{resolvedNode}</SceneAnimationRoot>
+        sceneElement = (
+            <SceneAnimationRoot key={`scene-${activeSceneId}`}>
+                {resolvedNode}
+                <BootTimingReporter sceneId={activeSceneId} loggedIn={!!user} />
+            </SceneAnimationRoot>
+        )
     } else {
         sceneElement = <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
     }
