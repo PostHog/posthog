@@ -48,6 +48,11 @@ impl CaptureMode {
     pub fn requires_historical_migration(&self) -> bool {
         matches!(self, CaptureMode::Import)
     }
+
+    /// Import has no AI overflow lane: imports must never overflow.
+    pub fn has_ai_overflow_lane(&self) -> bool {
+        !matches!(self, CaptureMode::Import)
+    }
 }
 
 impl std::str::FromStr for CaptureMode {
@@ -259,6 +264,11 @@ pub struct Config {
 
     #[envconfig(default = "false")]
     pub overflow_enabled: bool,
+
+    /// Builds the AI lane's overflow limiter, as `overflow_enabled` does for
+    /// analytics. Restriction overflow does not need it.
+    #[envconfig(default = "false")]
+    pub ai_events_overflow_enabled: bool,
 
     #[envconfig(default = "false")]
     pub overflow_preserve_partition_locality: bool,
@@ -575,12 +585,11 @@ pub struct OutputsConfig {
     pub ai_main_topic: String,
     #[envconfig(from = "CAPTURE_OUTPUT_AI_MAIN_PRODUCER", default = "INGESTION")]
     pub ai_main_producer: ProducerName,
-    /// Unset means AI events never overflow. When set, the AI lane uses the
-    /// analytics main lane's overflow limiter and restriction-driven
-    /// force_overflow, and reroutes here. Import mode refuses it at boot
-    /// because imports must never overflow.
-    #[envconfig(from = "CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC")]
-    pub ai_overflow_topic: Option<String>,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC",
+        default = "events_plugin_ingestion_ai_overflow"
+    )]
+    pub ai_overflow_topic: String,
     #[envconfig(from = "CAPTURE_OUTPUT_AI_OVERFLOW_PRODUCER", default = "INGESTION")]
     pub ai_overflow_producer: ProducerName,
     /// Carries event-restriction redirects to an admin-supplied topic.
@@ -672,7 +681,11 @@ mod tests {
         let config: Config =
             envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
         assert_eq!(config.outputs.ai_main_topic, "events_plugin_ingestion_ai");
-        assert_eq!(config.outputs.ai_overflow_topic, None);
+        assert_eq!(
+            config.outputs.ai_overflow_topic,
+            "events_plugin_ingestion_ai_overflow"
+        );
+        assert!(!config.ai_events_overflow_enabled);
         assert_eq!(
             config.outputs.session_replay_main_topic,
             "session_recording_snapshot_item_events"
@@ -694,7 +707,7 @@ mod tests {
     #[case("CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC", |c: &Config| c.outputs.error_tracking_topic.clone())]
     #[case("CAPTURE_OUTPUT_DLQ_TOPIC", |c: &Config| c.outputs.dlq_topic.clone())]
     #[case("CAPTURE_OUTPUT_AI_MAIN_TOPIC", |c: &Config| c.outputs.ai_main_topic.clone())]
-    #[case("CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC", |c: &Config| c.outputs.ai_overflow_topic.clone().unwrap_or_default())]
+    #[case("CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC", |c: &Config| c.outputs.ai_overflow_topic.clone())]
     fn topic_env_var_binds_to_its_field(
         #[case] env_var: &str,
         #[case] field: fn(&Config) -> String,
@@ -732,7 +745,7 @@ mod tests {
             outputs.error_tracking_topic.as_str(),
             outputs.dlq_topic.as_str(),
             outputs.ai_main_topic.as_str(),
-            outputs.ai_overflow_topic.as_deref().unwrap_or_default(),
+            outputs.ai_overflow_topic.as_str(),
         ];
         assert!(!topics.contains(&"legacy_topic"), "{env_var} is still read");
     }

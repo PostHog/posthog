@@ -94,7 +94,7 @@ pub struct State {
     /// separate governor instance, so per-key budgets are isolated: analytics
     /// volume never pushes a key's AI events into AI overflow and AI volume
     /// never burns the analytics budget. Only built when both
-    /// `OVERFLOW_ENABLED` and the AI overflow valve are set; `None` leaves
+    /// `OVERFLOW_ENABLED` and `AI_EVENTS_OVERFLOW_ENABLED` are set; `None` leaves
     /// the AI lane subject to restriction-driven `force_overflow` only.
     pub ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     /// AI-lane per-token byte budget; `None` when disabled. A second instance
@@ -108,10 +108,6 @@ pub struct State {
     /// the kafka sink can route to the replay overflow topic. Same rationale
     /// as `overflow_limiter` above.
     pub replay_overflow_limiter: Option<Arc<RedisLimiter>>,
-    /// Whether the AI overflow valve is armed (`CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC` is
-    /// set). Gates overflow stamping for the AI lane in both pipelines: when
-    /// false, AI events never overflow (pre-overflow behavior).
-    pub ai_events_overflow_enabled: bool,
     pub capture_v1_scatter_gather_min_batch: usize,
     pub ai_gateway_signing_secret: Option<String>,
     /// Best-effort v2 ingestion warnings emitter (fire-and-forget Kafka
@@ -193,7 +189,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
-    ai_events_overflow_enabled: bool,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
     let state = State {
@@ -223,7 +218,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         replay_overflow_limiter,
         capture_v1_scatter_gather_min_batch,
         ai_gateway_signing_secret,
-        ai_events_overflow_enabled,
         ingestion_warning_emitter,
         capture_mode,
     };

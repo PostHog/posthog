@@ -145,7 +145,7 @@ async fn run_pipeline(
             service,
             &context.api_token,
             context.server_received_at.timestamp(),
-            state.ai_events_overflow_enabled,
+            state.capture_mode.has_ai_overflow_lane(),
             &mut events,
         )
         .await;
@@ -763,10 +763,7 @@ fn apply_overflow_stamping(
         // Each overflowing lane keeps its own overflow destination AND its
         // own limiter instance, so an overflowing AI event lands on AI
         // overflow (never analytics overflow) and the per-key budgets are
-        // isolated between the lanes. The AI lane only participates when its
-        // limiter exists — setup builds it exactly when the AI overflow valve
-        // (CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC) is armed, so limiter
-        // presence encodes the valve here.
+        // isolated between the lanes.
         let (overflow_destination, lane_limiter) = match event.destination {
             Destination::AnalyticsMain => (Destination::AnalyticsOverflow, analytics_limiter),
             Destination::AiMain => (Destination::AiOverflow, ai_limiter),
@@ -815,7 +812,7 @@ async fn apply_restrictions(
     service: &EventRestrictionService,
     token: &str,
     now_ts: i64,
-    ai_events_overflow_enabled: bool,
+    has_ai_overflow_lane: bool,
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
@@ -853,7 +850,7 @@ async fn apply_restrictions(
         // Priority: overflow < custom topic < DLQ (DLQ wins, applied last)
         let force_overflow_destination = match event.destination {
             Destination::AnalyticsMain => Some(Destination::AnalyticsOverflow),
-            Destination::AiMain if ai_events_overflow_enabled => Some(Destination::AiOverflow),
+            Destination::AiMain if has_ai_overflow_lane => Some(Destination::AiOverflow),
             _ => None,
         };
         if applied.force_overflow() {
@@ -2113,16 +2110,16 @@ mod tests {
 
     /// A diverted AI event consults ai-scoped restrictions: an ai-scoped
     /// ForceOverflow reroutes it to the AI overflow destination when the
-    /// valve is armed and leaves it untouched when not, while an
-    /// analytics-scoped ForceOverflow never crosses into the AI lane.
+    /// deployment has an AI overflow lane and leaves it untouched when not,
+    /// while an analytics-scoped ForceOverflow never crosses into the AI lane.
     #[rstest::rstest]
-    #[case::armed(Pipeline::Ai, true, Destination::AiOverflow)]
-    #[case::unarmed(Pipeline::Ai, false, Destination::AiMain)]
+    #[case::with_lane(Pipeline::Ai, true, Destination::AiOverflow)]
+    #[case::without_lane(Pipeline::Ai, false, Destination::AiMain)]
     #[case::analytics_scoped_does_not_cross(Pipeline::Analytics, true, Destination::AiMain)]
     #[tokio::test]
-    async fn restrictions_force_overflow_ai_events_gated_on_valve(
+    async fn restrictions_force_overflow_ai_events_need_an_overflow_lane(
         #[case] restriction_pipeline: Pipeline,
-        #[case] ai_events_overflow_enabled: bool,
+        #[case] has_ai_overflow_lane: bool,
         #[case] expected_destination: Destination,
     ) {
         let service = restriction_service_for_pipeline(
@@ -2144,7 +2141,7 @@ mod tests {
             &service,
             "phc_token",
             now_ts,
-            ai_events_overflow_enabled,
+            has_ai_overflow_lane,
             &mut events,
         )
         .await;
@@ -3471,9 +3468,8 @@ mod tests {
     }
 
     /// The AI lane converts to its own overflow destination under the same
-    /// conditions as AnalyticsMain, but only when its limiter is present
-    /// (setup builds it exactly when the AI overflow valve is armed); absent
-    /// it is never touched.
+    /// conditions as AnalyticsMain, but only when its limiter is present;
+    /// absent it is never touched.
     #[rstest::rstest]
     #[case::limiter_present(true, Destination::AiOverflow, true)]
     #[case::limiter_absent(false, Destination::AiMain, false)]
@@ -4269,10 +4265,6 @@ mod tests {
             .with_overflow_limiter(1, 1)
             .with_restriction_service(restrictions)
             .build();
-        assert!(
-            !ts.state.ai_events_overflow_enabled,
-            "capture-import leaves the AI valve unarmed"
-        );
         let mut ctx = test_utils::test_analytics_context();
         let batch = historical_batch(vec![
             Event {
@@ -4306,12 +4298,7 @@ mod tests {
 
     #[tokio::test]
     async fn import_mode_routes_ai_events_to_ai_lane() {
-        // A historical batch's AI event diverts to the AI lane, winning
-        // over historical: only the AI lane has AI processing (cost
-        // enrichment, the ai_events double-write), so leaving it on the
-        // historical lane would import it incorrectly. Import's no-overflow
-        // guarantee holds by config: capture-import leaves the AI overflow
-        // valve unset, and an unarmed valve never stamps overflow.
+        // AI wins over historical: only the AI lane has AI processing.
         let ts = TestStateBuilder::new()
             .with_capture_mode(crate::config::CaptureMode::Import)
             .build();
