@@ -142,14 +142,6 @@ class OrganizationProjection:
                     self.add(
                         f"{self.key('organization_member', str(creator_membership.id))}#user", "creator", object_key
                     )
-                if dashboard.restricted:
-                    self.add("user:*", "restricted", object_key)
-                for user_id in dashboard.collaborator_user_ids:
-                    collaborator = membership_by_user.get(user_id)
-                    if collaborator is not None:
-                        self.add(
-                            f"{self.key('organization_member', str(collaborator.id))}#user", "collaborator", object_key
-                        )
 
             insights = authorization_insights(team.id)
             insight_ids = {str(insight.id) for insight in insights}
@@ -167,10 +159,6 @@ class OrganizationProjection:
                     self.add(
                         f"{self.key('organization_member', str(creator_membership.id))}#user", "creator", object_key
                     )
-                for dashboard_id in insight.dashboard_ids:
-                    self.add(self.key("dashboard", f"{team.id}/{dashboard_id}"), "dashboard", object_key)
-                if insight.dashboard_ids:
-                    self.add("user:*", "has_dashboard", object_key)
 
             for rule in authorization_rules(team.id, self.organization_id):
                 if rule.resource == "project":

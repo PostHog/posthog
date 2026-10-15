@@ -39,15 +39,15 @@ class TestModelRules(SimpleTestCase):
             ),
             (
                 "define_reuses_an_inherited_name",
-                {DASHBOARD: ("    override can_edit:", "    define can_edit:")},
+                {DASHBOARD: (None, WHY + "    define can_edit: editor\n")},
                 "already defines it",
             ),
             (
                 "override_a_level",
                 {
                     DASHBOARD: (
-                        "    override can_edit: editor and legacy_editor",
-                        "    override viewer: member from project",
+                        None,
+                        WHY + "    override viewer: member from project\n",
                     )
                 },
                 "only permissions",
@@ -58,11 +58,11 @@ class TestModelRules(SimpleTestCase):
                 "statement_without_why",
                 {
                     DASHBOARD: (
-                        "    # Members with a legacy collaborator privilege can edit a restricted dashboard.\n",
-                        "",
+                        None,
+                        "    define reviewer: [organization_member#user]\n",
                     )
                 },
-                "add a comment above collaborator",
+                "add a comment above reviewer",
             ),
             (
                 "extends_an_object_type",
@@ -109,6 +109,11 @@ class TestModelRules(SimpleTestCase):
                     )
                 },
                 "notebook.reviewer: no permission",
+            ),
+            (
+                "standalone_override_without_base",
+                {"resources/notebook.fga": (None, "type notebook\n  relations\n    override can_view: viewer\n")},
+                "nothing to override",
             ),
             ("hand_edited_model", {}, "does not match its sources"),
         ]

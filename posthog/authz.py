@@ -4,7 +4,6 @@ from django.contrib.auth.models import AnonymousUser
 from django.db.models import Model, Q, QuerySet
 
 from posthog.models import Team, User
-from posthog.models.access_filter import filter_q
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
@@ -116,7 +115,11 @@ def filter_resource_queryset(
             creator_exempt=True,
         )
         if result.complete:
-            allowed |= Q(team_id=team_id) & filter_q(result, id_field="pk", subject_user_id=user.pk)
+            ids = Q(pk__in=result.ids)
+            constraint = ~ids if result.excluded else ids
+            if result.creator_exempt and subject.user_id is not None:
+                constraint |= Q(created_by_id=subject.user_id)
+            allowed |= Q(team_id=team_id) & constraint
     return queryset.filter(allowed)
 
 

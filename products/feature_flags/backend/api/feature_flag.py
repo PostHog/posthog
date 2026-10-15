@@ -40,7 +40,6 @@ from posthog.schema import ProductKey
 
 from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
 
-from posthog.api.authz import AuthzViewSetMixin
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -72,7 +71,6 @@ from posthog.exceptions import Conflict, first_error_message
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team
-from posthog.models.access_filter import apply_filter
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
@@ -101,7 +99,6 @@ from products.approvals.backend.decorators import approval_gate
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.approvals.backend.models import ApprovalPolicy
 from products.approvals.backend.policies import lock_approval_policies
-from products.authz.backend.facade.enums import Action
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
@@ -3909,7 +3906,6 @@ class FlagRolloutWriteRequest(FlagLifecycleWriteRequest):
 @extend_schema(extensions={"x-product": ProductKey.FEATURE_FLAGS})
 class FeatureFlagViewSet(
     ApprovalHandlingMixin,
-    AuthzViewSetMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
@@ -4832,7 +4828,7 @@ class FeatureFlagViewSet(
         # since team_id == project_id, asymmetric only under the deprecated multi-team-per-project ("environments")
         # path being removed. Mirrors the list endpoint's ACL filtering.
         queryset = FeatureFlag.objects.filter(id__in=flag_ids, team__project_id=self.project_id)
-        queryset = apply_filter(queryset, self.authz_ids(Action.LIST), subject_user_id=request.user.pk)
+        queryset = self.user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
         flags = queryset.values_list("id", "key")
 
         # Create mapping of ID to key

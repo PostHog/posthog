@@ -93,8 +93,7 @@ def filter_to_expr(
 ) -> Optional[ast.Expr]:
     """Translate an authz result into the WHERE guard for one table, or None when nothing is restricted.
 
-    Pure: it knows the column names and the AST, and nothing about the rules. Mirrors
-    `posthog.models.access_filter.apply_filter`, the QuerySet adapter.
+    The adapter knows the column names and AST. The SDK resolves the authorization rules.
     """
     if not result.complete:
         return ast.Constant(value=False)

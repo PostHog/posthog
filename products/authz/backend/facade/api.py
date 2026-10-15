@@ -100,8 +100,8 @@ def list_resources(
     """Return the `resource.type` resources in its project that the subject may take the action on.
 
     The result names the few resources that differ from the rest: the allowed ones, or with `excluded`
-    the denied ones. Apply it next to your own query: `apply_filter` for a QuerySet, `filter_to_expr`
-    for HogQL, `result.allows(id)` for one object. Set `creator_exempt` when the rows have a creator
+    the denied ones. Translate it into the caller's query language, or use `result.allows(id)`
+    for one object. Set `creator_exempt` when the rows have a creator
     column and the subject keeps its own rows. When `complete` is False the list was capped, so fail
     closed and return nothing.
 
