@@ -49,7 +49,11 @@ import { HogFlowManagerService } from './services/hogflows/hogflow-manager.servi
 import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
-import { TransactionalEmailRequestSchema } from './services/hogflows/transactional-email'
+import {
+    TransactionalEmailOutcome,
+    TransactionalEmailRequestSchema,
+    transactionalEmailRequestsTotal,
+} from './services/hogflows/transactional-email'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
@@ -1093,35 +1097,40 @@ export class CdpApi {
     // Auth: a per-call JWT minted by Django on its own audience and key, pinned to the team and the workflow,
     // never the fleet-wide internal secret.
     private postTransactionalEmail = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        const reply = (outcome: TransactionalEmailOutcome, status: number, body: Record<string, unknown>) => {
+            transactionalEmailRequestsTotal.inc({ outcome })
+            return res.status(status).json(body)
+        }
         try {
             if (!this.transactionalEmailJwt.enabled) {
-                return res.status(503).json({
+                return reply('not_configured', 503, {
                     error: 'Transactional email auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
                 })
             }
             if (!this.verifyScopedWorkflowJwt(this.transactionalEmailJwt, req, res, 'transactional email')) {
+                transactionalEmailRequestsTotal.inc({ outcome: 'unauthorized' })
                 return
             }
             const parsed = TransactionalEmailRequestSchema.safeParse(req.body)
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.message })
+                return reply('invalid_request', 400, { error: parsed.error.message })
             }
             const { to, distinct_id: distinctId, variables } = parsed.data
 
             const team = await this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
             if (!team) {
-                return res.status(404).json({ error: 'Team not found' })
+                return reply('not_found', 404, { error: 'Team not found' })
             }
             const hogFlow = await this.hogFlowManager.getHogFlow(req.params.id)
             if (!hogFlow || hogFlow.team_id !== team.id) {
-                return res.status(404).json({ error: 'Workflow not found' })
+                return reply('not_found', 404, { error: 'Workflow not found' })
             }
             if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active') {
-                return res.status(400).json({ error: 'Workflow is not an active transactional email' })
+                return reply('not_sendable', 400, { error: 'Workflow is not an active transactional email' })
             }
             const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)
             if (isLimited) {
-                return res.status(429).json({ error: 'quota_limited' })
+                return reply('quota_limited', 429, { error: 'quota_limited' })
             }
 
             const event: HogFunctionInvocationGlobals['event'] = {
@@ -1173,12 +1182,12 @@ export class CdpApi {
             )
             await this.hogFunctionMonitoringService.flush()
 
-            return res.status(202).json({ status: 'queued', invocation_id: invocation.id })
+            return reply('queued', 202, { status: 'queued', invocation_id: invocation.id })
         } catch (e) {
             logger.error('Error queueing transactional email', {
                 error: e instanceof Error ? e.message : String(e),
             })
-            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+            return reply('error', 500, { error: e instanceof Error ? e.message : String(e) })
         }
     }
 
