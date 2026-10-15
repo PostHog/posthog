@@ -1,5 +1,5 @@
 import { InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, FilterLogicalOperator } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterLogicalOperator } from '~/types'
 
 import { ResultSeries, ResultSeriesRow, getResultSeries } from './resultSeries'
 
@@ -17,6 +17,16 @@ describe('getResultSeries()', () => {
             },
             row: { order: 1, action: null },
             expected: { order: 1, node: null, math: null },
+        },
+        {
+            case: 'a calendar heatmap row to series 0, although the query keeps its formulas',
+            query: {
+                kind: NodeKind.TrendsQuery,
+                series: [pageviews, signups],
+                trendsFilter: { display: ChartDisplayType.CalendarHeatmap, formulaNodes: [{ formula: 'A+B' }] },
+            },
+            row: { action: { order: 0, name: '$pageview' } },
+            expected: { order: 0, node: pageviews, math: {} },
         },
         {
             case: 'a stickiness row by the order it carries only on action',
