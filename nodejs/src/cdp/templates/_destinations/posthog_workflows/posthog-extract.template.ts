@@ -33,7 +33,7 @@ return response.body.values
             type: 'json',
             label: 'Text to read',
             required: true,
-            default: { message: '{variables.task.output.final_message}' },
+            default: { message: '{variables.task.final_message}' },
             description:
                 'The output the model reads, such as an AI task message or a webhook response. Use variables from earlier steps.',
         },

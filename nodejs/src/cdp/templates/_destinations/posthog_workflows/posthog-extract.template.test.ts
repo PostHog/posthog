@@ -1,3 +1,4 @@
+import { parseJSON } from '~/common/utils/json-parse'
 import * as requestModule from '~/common/utils/request'
 
 import { TemplateTester } from '../../test/test-helpers'
@@ -35,6 +36,15 @@ describe('posthog extract template', () => {
 
         expect(response.error).toBeUndefined()
         expect(response.execResult).toEqual({ pr_url: 'https://github.com/example/repo/pull/7' })
+    })
+
+    it('reads the final message of the default AI task step by default', async () => {
+        fetchSpy.mockResolvedValue(internalResponse(200, { values: { pr_url: null, summary: null } }))
+        const completedTask = { run_id: 'run-1', output: {}, final_message: 'Opened a pull request' }
+
+        await tester.invoke({}, { variables: { task: completedTask } }, workflowOptions)
+
+        expect(parseJSON(fetchSpy.mock.calls[0][1].body).context).toEqual({ message: 'Opened a pull request' })
     })
 
     it('fails the step with the reason when the model gives an unusable answer', async () => {
