@@ -114,7 +114,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        # The person scene routes by UUID; a numeric-id link renders "we couldn't load this person".
         enrich_url: '{uuid}'
         title: Get person
         description: |
