@@ -6510,6 +6510,26 @@ snapshots:
         hash: v1.k794b7964.a40d931748bcafd0f7c04fc6c49b822be8354406f51a94a8dacf611bac3d2427.HPAk17TcKxsIPc0G2y4gKdrKfvDF-ZxS4UWiWi_RLSY
     products-alerts-alerts-scene--log-alerts--light:
         hash: v1.k794b7964.202760c4cc733d6ef4fee0ad7bee733d15f170e87ef01e64d481a954dcf5a0d3.8Wx10_cUTwP4fwGP183w2k8FTU7NsmgyvkPL_6_Eotg
+    products-alerts-insight-alerts-modal--empty--dark:
+        hash: v1.k794b7964.0f0c0778c21da73508d841a2f4e09f01422b1d94982a4a60ae102d302f96ac97.D1q5bt4FrGqQE6OUfMO5F4nNaDiG_Vxu_oEjvhzzb14
+    products-alerts-insight-alerts-modal--empty--light:
+        hash: v1.k794b7964.3722b2b509c00ee3f96f6a35aa9ad15e20ec42c3be80ee8410f2e2fd3650129b.IFh208FrgVDwBKT0EBP-3B_KzMg-8Q1SHm6VNCTXuQI
+    products-alerts-insight-alerts-modal--empty-control--dark:
+        hash: v1.k794b7964.fff1d6db3e25a8b6fa89c4f396b0dca40579b6eba1085c9d5924297586b64320.EVf_rkUtlNNsV7fYNxCoK1s1zGELwzjyYzSdzvjDwrM
+    products-alerts-insight-alerts-modal--empty-control--light:
+        hash: v1.k794b7964.c4d18625f5c5e2f797870c5cbb50e65da88a3e6e8075bef8aaa4649fc78fb1e3._n8dnxCdDvBtrUwN6-2EJvV_IOjV2AOHcLmdLUQ9wic
+    products-alerts-insight-alerts-modal--empty-flag-off--dark:
+        hash: v1.k794b7964.fff1d6db3e25a8b6fa89c4f396b0dca40579b6eba1085c9d5924297586b64320.Tpt9-L2R2_Y5cl-iVxsOES-Df8JLEVN4OtgyOaB8H8U
+    products-alerts-insight-alerts-modal--empty-flag-off--light:
+        hash: v1.k794b7964.c4d18625f5c5e2f797870c5cbb50e65da88a3e6e8075bef8aaa4649fc78fb1e3.yYFLbZw1G0MeoAaXhYSSXj6-JcBDpzpL6M5u_Sqo2P8
+    products-alerts-insight-alerts-modal--empty-narrow--dark:
+        hash: v1.k794b7964.efce5ffbb6f7f80fea4dc6e3a4d512eba095344f1318b56accdb819f6b6ed8c6.jSjUnUvdZtbepmI32kI7L53FA3DQXTucHsvd7y_ZMME
+    products-alerts-insight-alerts-modal--empty-narrow--light:
+        hash: v1.k794b7964.e56a1bc4d682f0b4e3f84b7e9504353499a4ea429645e007f2525fe914ba5d10.7cfQoYu9-ro1Mf-N9fA-_f8x-jskMQWSRAq6E1eNfDk
+    products-alerts-insight-alerts-modal--empty-unsupported--dark:
+        hash: v1.k794b7964.1814935f8e4879f6056f7d19c4754e6d79a99325639c7eec9c059ec91c6a08ba.Es8a_KuDgrfZdaL9k_xw7W56iHVCrSPc6uyU5Fbq-58
+    products-alerts-insight-alerts-modal--empty-unsupported--light:
+        hash: v1.k794b7964.97364191b9e9d18e7a7352b01d42f11e49c94aa921dfc4286284a684990ebbbb.kdwi90l7mCL-a_e_Mgmh2LTLN_CnyOdN-6N4Bkc2Msk
     products-alerts-insight-alerts-modal--with-alerts--dark:
         hash: v1.k794b7964.58e1c24a162fa9e4fa4c8040adc4a298d0d4275a27aa96f7e4a9e84a2cd5e6b8.9JDfMApDsxe7KaTt42TDrSuqjvHOURRf64Bp3lWHCNc
     products-alerts-insight-alerts-modal--with-alerts--light:
