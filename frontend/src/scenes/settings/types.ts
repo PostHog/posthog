@@ -23,6 +23,13 @@ export type SettingsLogicProps = {
 export const SettingLevelIds = ['environment', 'project', 'organization', 'user'] as const
 export type SettingLevelId = (typeof SettingLevelIds)[number]
 
+export const SettingLevelNames: Record<SettingLevelId, string> = {
+    environment: 'Environment',
+    project: 'Project',
+    organization: 'Organization',
+    user: 'Account',
+} as const
+
 export type SettingSectionId =
     // Environment
     | 'environment-details'
@@ -317,6 +324,7 @@ export type SettingId =
     | 'web-analytics-pre-aggregated-tables'
     | 'web-revenue-events'
     | 'web-vitals-autocapture'
+    | 'workflows-frequency-cap'
     | 'workflows-ai-task-limits'
     | 'workflows-email-tracking-consent'
     | 'workflows-engagement-events'

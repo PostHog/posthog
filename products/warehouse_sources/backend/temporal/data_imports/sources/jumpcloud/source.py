@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,8 +34,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
+def _schema_description(endpoint: str) -> str | None:
+    if endpoint == "events":
+        return (
+            "Directory Insights activity events (console, SSO, RADIUS, LDAP, systems, and directory changes). "
+            "Only syncs the last 90 days on initial sync, bounded by your Directory Insights retention"
+        )
+    if endpoint.startswith("system_insights_"):
+        return "Device data reported by System Insights, one row per item per device. Requires System Insights to be enabled"
+    return None
+
+
 @SourceRegistry.register
 class JumpcloudSource(ResumableSource[JumpcloudSourceConfig, JumpcloudResumeConfig]):
+    codebase_detection = detect(env=("^JUMPCLOUD_",), go=("github.com/TheJumpCloud/jcapi-go",), rubygems=("jumpcloud",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -132,12 +146,7 @@ The `events` table requires a Directory Insights subscription. If you're an MSP/
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 detected_primary_keys=JUMPCLOUD_ENDPOINTS[endpoint].primary_keys,
-                description=(
-                    "Directory Insights activity events (console, SSO, RADIUS, LDAP, systems, and directory changes). "
-                    "Only syncs the last 90 days on initial sync, bounded by your Directory Insights retention"
-                    if endpoint == "events"
-                    else None
-                ),
+                description=_schema_description(endpoint),
             )
             for endpoint in ENDPOINTS
         ]

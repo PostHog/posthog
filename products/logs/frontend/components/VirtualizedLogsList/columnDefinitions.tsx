@@ -17,6 +17,7 @@ import {
     LogsColumnConfig,
     LogsColumnType,
     columnLabel,
+    customColumnFilterType,
 } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'
@@ -402,6 +403,12 @@ export function createConfiguredColumn(params: {
                     <AttributeCell
                         attributeKey={semanticKey}
                         value={getBuiltInValue ? getBuiltInValue(log) : customColumnValue(log, alias)}
+                        // Raw map: the stringified copy drops a `__proto__` key that the server still reads
+                        filterType={
+                            config.type === 'custom'
+                                ? customColumnFilterType(config, log.originalLog.attributes, log.resource_attributes)
+                                : undefined
+                        }
                         width={totalWidth}
                         timestamp={log.timestamp}
                     />

@@ -522,7 +522,7 @@ async fn v3_carries_every_typed_corpus_value_through_the_request_path() -> Resul
 
 /// Each identifier gets its own server, because the corpus picks identifiers per outcome.
 #[tokio::test]
-async fn experiment_rules_without_an_experiment_carry_no_experiment_identity_on_the_wire(
+async fn experiment_rules_carry_the_assigned_variant_and_no_experiment_identity_on_the_wire(
 ) -> Result<()> {
     let cases: Vec<_> = corpus::experiment_cases()
         .into_iter()
@@ -576,8 +576,18 @@ async fn experiment_rules_without_an_experiment_carry_no_experiment_identity_on_
                 expected["rule"].get("rule_type"),
                 "{key}"
             );
+            assert_eq!(
+                record["metadata"].get("rule_id"),
+                expected["rule"].get("id"),
+                "{key}"
+            );
+            assert_eq!(
+                record["metadata"].get("variant_key"),
+                expected.get("variant"),
+                "{key}"
+            );
             assert_eq!(record["metadata"]["has_experiment"], false, "{key}");
-            for field in ["experiment_id", "variant_key", "holdout_id"] {
+            for field in ["experiment_id", "holdout_id"] {
                 assert_eq!(record["metadata"].get(field), None, "{key}");
             }
             let v2_record = &v2["flags"][key];

@@ -159,6 +159,8 @@ export type SupportEditorProps = {
     minRows?: number
     className?: string
     autoFocus?: boolean
+    /** Rendered inside the editor's frame, above the text */
+    header?: React.ReactNode
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -479,6 +481,7 @@ export function SupportEditor({
     minRows,
     className,
     autoFocus = false,
+    header,
 }: SupportEditorProps): JSX.Element {
     const [isDragging, setIsDragging] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -501,11 +504,18 @@ export function SupportEditor({
         linkShortcutCallbackRef.current()
     }, [])
 
+    // Extension options are fixed when the editor is created, so the shortcut reads the latest callback from a ref
+    const cmdEnterCallbackRef = useRef(onPressCmdEnter)
+    cmdEnterCallbackRef.current = onPressCmdEnter
+    const handlePressCmdEnter = useCallback(() => {
+        cmdEnterCallbackRef.current?.()
+    }, [])
+
     const editor = useRichContentEditor({
         extensions: [
             ...SUPPORT_EXTENSIONS,
             Placeholder.configure({ placeholder }),
-            CommandEnterExtension.configure({ onPressCmdEnter }),
+            CommandEnterExtension.configure({ onPressCmdEnter: handlePressCmdEnter }),
             LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),
         ],
         disabled,
@@ -615,6 +625,7 @@ export function SupportEditor({
             onDragOver={handleDragOver}
             onDrop={handleDrop}
         >
+            {header}
             <EditorContent
                 editor={editor}
                 className="SupportEditor__content p-2"

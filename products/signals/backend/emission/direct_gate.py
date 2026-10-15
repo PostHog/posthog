@@ -97,7 +97,7 @@ async def steering_filters_signal(
             "signals-actionability-direct",
             DIRECT_SOURCE_ACTIONABILITY_PROMPT,
             ACTIONABILITY_SYSTEM_ONE_QUESTION,
-            0.85,
+            0.5,
         )
     )
 

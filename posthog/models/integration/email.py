@@ -77,6 +77,7 @@ class EmailIntegration:
                     "email": email_address,
                     "domain": domain,
                     "mail_from_subdomain": mail_from_subdomain,
+                    "reply_to": config.get("reply_to", ""),
                     "name": name,
                     "provider": provider,
                     "verified": True if provider == "maildev" else False,
@@ -94,7 +95,7 @@ class EmailIntegration:
     def update_native_integration(self, config: dict, team_id: int) -> model.Integration:
         provider = self.integration.config.get("provider")
         domain = self.integration.config.get("domain")
-        # Only name and mail_from_subdomain can be updated
+        # Only name, mail_from_subdomain and reply_to can be updated
         name: str = config.get("name", self.integration.config.get("name"))
         mail_from_subdomain: str = config.get(
             "mail_from_subdomain", self.integration.config.get("mail_from_subdomain", "feedback")
@@ -116,9 +117,11 @@ class EmailIntegration:
             {
                 "name": name,
                 "mail_from_subdomain": mail_from_subdomain,
+                "reply_to": config.get("reply_to", self.integration.config.get("reply_to", "")),
             }
         )
         self.integration.save()
+        reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         return self.integration
 
@@ -165,7 +168,25 @@ class EmailIntegration:
                 self.integration.team_id, [integration.id for integration in all_integrations_for_domain]
             )
 
+            from products.workflows.backend.facade.api import (
+                set_default_email_sender_if_unset,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+            )
+
+            set_default_email_sender_if_unset(self.integration.team_id, self.integration.id)
+
         return verification_result
+
+
+@receiver(models.signals.post_delete, sender=model.Integration)
+def clear_default_email_sender_on_integration_delete(sender: Any, instance: model.Integration, **kwargs: Any) -> None:
+    if instance.kind != "email":
+        return
+
+    from products.workflows.backend.facade.api import (
+        clear_default_email_sender,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+    )
+
+    clear_default_email_sender(instance.team_id, instance.id)
 
 
 @receiver(models.signals.post_delete, sender=model.Integration)

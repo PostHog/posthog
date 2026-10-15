@@ -62,7 +62,6 @@ pub const EXPERIMENT_FIELDS: &[&str] = &[
     "targeting",
     "description",
     "metadata",
-    "experiment_id",
     "paused",
     "rollout_percentage",
     "on_rollout_miss",
@@ -73,7 +72,7 @@ pub const EXPERIMENT_FIELDS: &[&str] = &[
     "holdout",
 ];
 pub const VARIANT_FIELDS: &[&str] = &["key", "weight", "value"];
-pub const HOLDOUT_FIELDS: &[&str] = &["id", "seed", "exclusion_percentage"];
+pub const HOLDOUT_FIELDS: &[&str] = &["seed", "exclusion_percentage"];
 pub const MIN_VARIANTS: usize = 2;
 pub const MAX_VARIANTS: usize = 20;
 pub const TARGETING_FIELDS: &[&str] = &["properties"];
@@ -149,8 +148,7 @@ pub enum Outcome {
         on_rollout_miss: RolloutMiss,
         seed: String,
     },
-    /// An experiment rule without an experiment: a weighted variant split. A rule linked to an
-    /// Experiment row is unsupported.
+    /// A weighted variant split. An Experiment points at its rule; the rule never names it.
     Experiment {
         paused: bool,
         rollout_percentage: f64,
@@ -168,7 +166,7 @@ pub struct Variant {
     pub value: Value,
 }
 
-/// A rule-local holdout; its seed lives on the rule rather than on a shared holdout row.
+/// A holdout that belongs to its rule and has no identity of its own.
 #[derive(Clone)]
 pub struct Holdout {
     pub seed: String,
@@ -219,7 +217,10 @@ impl Config {
             _ => return Err(ParseError::Malformed("return_type")),
         };
         if let Some(group) = document.get("aggregation_group_type_index") {
-            if !is_integer(group) {
+            if !group
+                .as_f64()
+                .is_some_and(|n| n.is_finite() && n.fract() == 0.0)
+            {
                 return Err(ParseError::Malformed("aggregation_group_type_index"));
             }
             return Err(ParseError::Unsupported("aggregation_group_type_index"));
@@ -274,10 +275,6 @@ impl Rule {
         let fields: &[&str] = match rule_type {
             "targeted_release" => TARGETED_RELEASE_FIELDS,
             "percentage_rollout" => PERCENTAGE_ROLLOUT_FIELDS,
-            // A linked experiment needs its Experiment row, which this reader does not load.
-            "experiment" if rule.get("experiment_id").is_some_and(is_integer) => {
-                return Err(ParseError::Unsupported("experiment_id"))
-            }
             "experiment" => EXPERIMENT_FIELDS,
             _ => return Err(ParseError::Malformed("rule_type")),
         };
@@ -309,9 +306,6 @@ impl Rule {
                 }
             }
             _ => {
-                if !required(rule, "experiment_id")?.is_null() {
-                    return Err(ParseError::Malformed("experiment_id"));
-                }
                 let paused = required(rule, "paused")?
                     .as_bool()
                     .ok_or(ParseError::Malformed("paused"))?;
@@ -442,20 +436,10 @@ fn variants(value: &Value, return_type: ReturnType) -> Result<Vec<Variant>, Pars
 fn holdout(value: &Value) -> Result<Holdout, ParseError> {
     let holdout = object(value, "holdout")?;
     closed(holdout, HOLDOUT_FIELDS, "holdout")?;
-    // A rule without an experiment carries only a rule-local holdout; a shared row is a linked experiment's.
-    if !required(holdout, "id")?.is_null() {
-        return Err(ParseError::Malformed("holdout.id"));
-    }
     Ok(Holdout {
         seed: seed(holdout)?,
         exclusion_percentage: percentage(holdout, "exclusion_percentage")?,
     })
-}
-
-fn is_integer(value: &Value) -> bool {
-    value
-        .as_f64()
-        .is_some_and(|n| n.is_finite() && n.fract() == 0.0)
 }
 
 #[derive(Clone, Copy)]

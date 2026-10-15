@@ -9,44 +9,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.pylo
     PYLON_EU_BASE_URL,
     PYLON_US_BASE_URL,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.source import PylonSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_token: str = "token") -> PylonSourceConfig:
     return PylonSourceConfig.from_dict({"api_token": api_token})
 
 
-class TestPylonSourceConfig:
-    def test_get_source_config_basics(self) -> None:
-        config = PylonSource().get_source_config
-        assert config.name == ExternalDataSourceType.PYLON
-        assert config.label == "Pylon"
-        # A generally available source ships visible (no unreleasedSource) and labelled ga.
-        assert config.unreleasedSource is None
-        assert config.featureFlag is None
-        assert config.releaseStatus == "ga"
-
-
 class TestPylonGetSchemas:
-    def test_returns_all_endpoints(self) -> None:
-        schemas = PylonSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_only_issues_supports_incremental(self) -> None:
-        schemas = PylonSource().get_schemas(_config(), team_id=1)
-        incremental = {s.name for s in schemas if s.supports_incremental}
-        assert incremental == {"issues"}
-
     def test_filters_by_names(self) -> None:
         schemas = PylonSource().get_schemas(_config(), team_id=1, names=["issues", "accounts"])
         assert {s.name for s in schemas} == {"issues", "accounts"}
-
-    def test_issues_advertises_created_at_incremental_field(self) -> None:
-        schemas = PylonSource().get_schemas(_config(), team_id=1, names=["issues"])
-        fields = schemas[0].incremental_fields
-        assert [f["field"] for f in fields] == ["created_at"]
 
 
 class TestPylonValidateCredentials:

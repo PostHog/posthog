@@ -24,7 +24,7 @@ pool as the default user, which is what has always served these frames. ClickHou
 `priority` is deliberately not set: every other query runs at priority 0 (unprioritized),
 so a nonzero value here would participate in a scheduling class of one.
 
-That same flag also hands the object write to ClickHouse (phase 2 of the design doc): it
+That same flag also hands the object write to ClickHouse: it
 issues `INSERT INTO FUNCTION s3(...)` through the pooled native clients (sync_execute), so
 zero result bytes transit the worker, errors arrive in-band and typed, and the streaming
 path's EOS-marker check and query_log recovery are unnecessary. One flag carries both
@@ -612,7 +612,7 @@ def _frame_s3_url(key: str) -> str:
 
 
 def _insert_into_s3_sql(printed_sql: str, key: str) -> tuple[str, dict[str, object]]:
-    """Wrap the printed SELECT in the CH-side object write (design doc phase 2).
+    """Wrap the printed SELECT in the CH-side object write.
 
     The s3() endpoint/bucket/key and any credentials are bound as query parameters, not
     spliced as literals: sync_execute runs one `%`-substitution pass over the whole
@@ -657,7 +657,7 @@ def _bounded_offline_client(team_id: int) -> AbstractContextManager:
     """
     kwargs = get_kwargs_for_client(workload=Workload.OFFLINE, team_id=team_id, ch_user=ClickHouseUser.NOTEBOOKS)
     creds = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
-    if is_file_backed_user(creds, Workload.OFFLINE, kwargs.get("user")):
+    if is_file_backed_user(creds, kwargs.get("user")):
         kwargs.pop("password", None)
         pool = make_ch_pool(
             send_receive_timeout=_INSERT_SEND_RECEIVE_TIMEOUT_SECONDS,

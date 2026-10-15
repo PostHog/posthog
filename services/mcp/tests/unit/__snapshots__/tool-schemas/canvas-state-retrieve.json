@@ -1,6 +1,12 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "cursor": {
+            "description": "Cursor from next_cursor. Resumes after the last entry of the previous page, so an entry that exists for the whole read comes back exactly once. A key written between pages can be missing. Keep filters unchanged between pages. Takes precedence over offset.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+        },
         "id": {
             "description": "A UUID string identifying this canvas.",
             "type": "string"
@@ -28,7 +34,7 @@
         },
         "offset": {
             "default": 0,
-            "description": "Entry offset from next_offset. Keep filters unchanged between pages.",
+            "description": "Entry offset from next_offset. Keep filters unchanged between pages. Prefer cursor: an offset can skip or repeat entries when state changes between pages.",
             "minimum": 0,
             "type": "number"
         },

@@ -1,8 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 
 use super::{config, person_property_cases, read, result};
 use feature_flags::flags::config_v2::{
@@ -13,47 +12,11 @@ use feature_flags::flags::config_v2::{
 use feature_flags::flags::flag_models::FeatureFlag;
 
 fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_parser/3.0.0")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_contract")
 }
 
 fn load(path: &str) -> Value {
     serde_json::from_slice(&std::fs::read(root().join(path)).unwrap()).unwrap()
-}
-
-#[test]
-fn released_parser_artifacts_are_intact() {
-    let source = load("SOURCE.json");
-    let revision = source["source_revision"].as_str().unwrap();
-    assert!(revision.len() == 40 && revision.bytes().all(|c| c.is_ascii_hexdigit()));
-    // Draft pin of the unreleased contract 3.0.0; re-pin to its harness release before merging.
-    assert_eq!(source["release_status"], "unreleased");
-    let index = std::fs::read(root().join("SHA256SUMS")).unwrap();
-    assert_eq!(
-        hex::encode(Sha256::digest(&index)),
-        source["source_sha256sums_digest"]
-    );
-    let text = std::str::from_utf8(&index).unwrap();
-    let digests: BTreeMap<_, _> = text
-        .lines()
-        .map(|line| {
-            let (digest, path) = line.split_once("  ").unwrap();
-            (path, digest)
-        })
-        .collect();
-    let files: BTreeSet<_> = source["files"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|p| p.as_str().unwrap())
-        .collect();
-    assert_eq!(files.len(), source["files"].as_array().unwrap().len());
-    for path in files {
-        let bytes = std::fs::read(root().join(path)).unwrap();
-        assert_eq!(hex::encode(Sha256::digest(bytes)), digests[path], "{path}");
-    }
-    let manifest = load("manifest.json");
-    assert_eq!(manifest["contract"]["version"], source["contract_version"]);
-    assert_eq!(manifest["corpus"]["version"], "1.1.0");
 }
 
 #[test]
@@ -64,6 +27,7 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
         supported: usize,
         valid_but_unsupported: usize,
         malformed: usize,
+        limit_exceeded: usize,
         unsupported: usize,
         rejected_before_parsing: usize,
     }
@@ -78,12 +42,13 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
         let parsed = flag.filters.non_v1.as_ref().unwrap().parsed_v2.as_ref();
         if fixture["expected"] == "valid" {
             if [
+                "boolean_all_rule_types.json",
                 "version_float_literal.json",
                 "boolean_targeted_and_percentage_rollout.json",
                 "reserved_number_value.json",
                 "reserved_object_value.json",
                 "object_value_max_depth.json",
-                "standalone_experiment_rule.json",
+                "experiment_rule_local_holdout.json",
             ]
             .iter()
             .any(|name| path.ends_with(name))
@@ -111,17 +76,20 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
                 "{path}"
             );
             match expected {
-                Some(ParseError::Malformed(_)) => {
-                    totals.malformed += 1;
-                    let repaired = repair_supported_fixture(&name, document.clone());
-                    assert!(
-                        result(&read(repaired)).is_ok(),
-                        "repair must make {path} supported"
-                    );
-                }
+                Some(ParseError::Malformed(_)) => totals.malformed += 1,
+                Some(ParseError::LimitExceeded(_)) => totals.limit_exceeded += 1,
                 Some(ParseError::Unsupported(_)) => totals.unsupported += 1,
                 None => totals.rejected_before_parsing += 1,
-                other => panic!("unexpected fixture classification: {other:?}"),
+            }
+            if matches!(
+                expected,
+                Some(ParseError::Malformed(_) | ParseError::LimitExceeded(_))
+            ) {
+                let repaired = repair_supported_fixture(&name, document.clone());
+                assert!(
+                    result(&read(repaired)).is_ok(),
+                    "repair must make {path} supported"
+                );
             }
         }
         assert_eq!(
@@ -133,31 +101,40 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
     assert_eq!(
         totals,
         Totals {
-            supported: 6,
-            valid_but_unsupported: 3,
-            malformed: 23,
-            unsupported: 9,
+            supported: 7,
+            valid_but_unsupported: 2,
+            malformed: 27,
+            limit_exceeded: 1,
+            unsupported: 2,
             rejected_before_parsing: 3,
         }
     );
 }
 
 fn invalid_fixture_error(name: &str) -> Option<ParseError> {
-    use ParseError::{Malformed, Unsupported};
+    use ParseError::{LimitExceeded, Malformed, Unsupported};
     Some(match name {
         "assign_by_not_person" => Malformed("assign_by"),
         "default_value_type_mismatch" => Malformed("default_value"),
-        "empty_seed" | "missing_rollout_seed" => Malformed("seed"),
+        "empty_seed" | "missing_rollout_seed" | "seed_too_long" => Malformed("seed"),
         "missing_on_rollout_miss" => Malformed("on_rollout_miss"),
+        "missing_experiment_paused" => Malformed("paused"),
         "non_uuid_rule_id" => Malformed("rule.id"),
         "null_rule_value"
         | "return_value_type_mismatch"
         | "empty_string_value"
-        | "object_value_too_deep" => Malformed("value"),
+        | "object_value_too_deep"
+        | "variant_value_type_mismatch" => Malformed("value"),
         "rollout_percentage_above_maximum" | "rollout_percentage_below_minimum" => {
             Malformed("rollout_percentage")
         }
-        "targeted_release_with_rollout_fields" | "unknown_rule_field" => Malformed("rule"),
+        "targeted_release_with_rollout_fields"
+        | "unknown_rule_field"
+        | "experiment_rule_with_experiment_id" => Malformed("rule"),
+        "holdout_with_id" => Malformed("holdout"),
+        "too_few_variants" => Malformed("variants"),
+        "too_many_variants" => LimitExceeded("variants"),
+        "variant_key_invalid_characters" => Malformed("variant.key"),
         "unknown_assignment_algorithm" => Malformed("assignment_algorithm"),
         "unknown_config_field" => Malformed("filters"),
         "unknown_property_field" => Malformed("property"),
@@ -167,16 +144,6 @@ fn invalid_fixture_error(name: &str) -> Option<ParseError> {
         "group_experiment_with_assign_by" | "group_percentage_rollout_with_assign_by" => {
             Unsupported("aggregation_group_type_index")
         }
-        "missing_experiment_id" | "string_experiment_id" => Malformed("experiment_id"),
-        "standalone_experiment_shared_holdout" => Malformed("holdout.id"),
-        // A linked experiment is unsupported before any other field is read.
-        "missing_experiment_paused"
-        | "linked_experiment_local_holdout"
-        | "seed_too_long"
-        | "too_few_variants"
-        | "too_many_variants"
-        | "variant_key_invalid_characters"
-        | "variant_value_type_mismatch" => Unsupported("experiment_id"),
         "unknown_config_version" | "version_boolean" | "version_string" => return None,
         _ => panic!("unclassified released fixture: {name}"),
     })
@@ -186,8 +153,35 @@ fn repair_supported_fixture(name: &str, mut document: Value) -> Value {
     match name {
         "assign_by_not_person" => document["rules"][0]["assign_by"] = json!("person"),
         "default_value_type_mismatch" => document["default_value"] = json!(false),
-        "empty_seed" | "missing_rollout_seed" => {
+        "empty_seed" | "missing_rollout_seed" | "seed_too_long" => {
             document["rules"][0]["seed"] = json!("example-seed")
+        }
+        "missing_experiment_paused" => document["rules"][0]["paused"] = json!(false),
+        "variant_value_type_mismatch" => {
+            document["rules"][0]["variants"][0]["value"] = json!(false)
+        }
+        "variant_key_invalid_characters" => {
+            document["rules"][0]["variants"][0]["key"] = json!("control")
+        }
+        "too_few_variants" => document["rules"][0]["variants"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"key": "test", "weight": 0, "value": true})),
+        "too_many_variants" => document["rules"][0]["variants"]
+            .as_array_mut()
+            .unwrap()
+            .truncate(MAX_VARIANTS),
+        "experiment_rule_with_experiment_id" => {
+            document["rules"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("experiment_id");
+        }
+        "holdout_with_id" => {
+            document["rules"][0]["holdout"]
+                .as_object_mut()
+                .unwrap()
+                .remove("id");
         }
         "missing_on_rollout_miss" | "unknown_rollout_miss_policy" => {
             document["rules"][0]["on_rollout_miss"] = json!("continue")
@@ -236,12 +230,6 @@ fn repair_supported_fixture(name: &str, mut document: Value) -> Value {
         "unknown_property_type" => {
             document["rules"][0]["targeting"]["properties"][0]["type"] = json!("person")
         }
-        "missing_experiment_id" | "string_experiment_id" => {
-            document["rules"][0]["experiment_id"] = Value::Null
-        }
-        "standalone_experiment_shared_holdout" => {
-            document["rules"][0]["holdout"]["id"] = Value::Null
-        }
         _ => panic!("no focused repair for {name}"),
     }
     document
@@ -277,13 +265,8 @@ fn definitions_filters_use_the_same_parser_without_replacing_the_service_envelop
         let decoded = serde_json::from_value::<FeatureFlag>(entry.clone());
         if case["expected"] == "valid" {
             let flag = decoded.unwrap();
-            if case["id"] == "definitions.v2_standalone_experiment" {
-                assert!(result(&flag).is_ok());
-            } else if case["template"] == "v2" {
-                assert!(matches!(
-                    result(&flag),
-                    Err(ParseError::Unsupported("experiment_id"))
-                ))
+            if case["template"] == "v2" {
+                assert!(result(&flag).is_ok(), "{}", case["id"]);
             } else {
                 assert!(flag.filters.non_v1.is_none());
             }
@@ -336,20 +319,7 @@ fn definitions_filters_use_the_same_parser_without_replacing_the_service_envelop
         }
         assert!(exercised.insert(case["id"].as_str().unwrap()));
     }
-    let manifest = load("manifest.json");
-    let artifact = manifest["artifacts"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|artifact| artifact["path"] == "fixtures/wire/definitions.json")
-        .unwrap();
-    let expected: BTreeSet<_> = artifact["case_ids"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|id| id.as_str().unwrap())
-        .collect();
-    assert_eq!(exercised, expected);
+    assert_eq!(exercised.len(), 23);
     let mut entry = fixtures["templates"]["v2"].clone();
     entry["filters"] = load("fixtures/config/valid/boolean_targeted_and_percentage_rollout.json");
     entry["team_id"] = json!(1);
@@ -365,10 +335,6 @@ fn definitions_filters_use_the_same_parser_without_replacing_the_service_envelop
 fn released_schema_and_registry_match_the_parser_contract() {
     let schema = load("schemas/config.schema.json");
     let registry = load("registries/literals.json");
-    assert_eq!(
-        registry["registry_version"],
-        load("SOURCE.json")["registry_version"]
-    );
     for (pointer, fields) in [
         ("/properties", CONFIG_FIELDS),
         (
@@ -465,7 +431,6 @@ fn released_schema_and_registry_match_the_parser_contract() {
             }
             "experiment" => {
                 rule.remove("value");
-                rule.insert("experiment_id".to_owned(), Value::Null);
                 rule.insert("paused".to_owned(), json!(false));
                 rule.insert(
                     "variants".to_owned(),

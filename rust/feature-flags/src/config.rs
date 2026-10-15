@@ -435,12 +435,12 @@ pub struct Config {
     #[envconfig(from = "REALTIME_COHORT_LOOKUP_TIMEOUT_MS", default = "1000")]
     pub realtime_cohort_lookup_timeout_ms: u64,
 
-    // Deadline shared by all persons DB calls in one /flags evaluation: the hash key override
+    // Deadline shared by all persons DB calls in one flag evaluation: the hash key override
     // check, write, and read, the group type mapping lookup, and the properties fetch.
     // statement_timeout cannot cancel a query on a database that has stopped answering.
-    // Only this timer bounds the request then. On expiry, the flags that need persons data
+    // Only this timer bounds those calls then. On expiry, the flags that need persons data
     // return an error and the other flags evaluate normally. The default leaves 2s of the
-    // 4.5s REQUEST_TIMEOUT_MS for the rest of the request. 0 disables the deadline.
+    // 4.5s REQUEST_TIMEOUT_MS for the rest of a /flags request. 0 disables the deadline.
     #[envconfig(from = "PERSONS_DB_DEADLINE_MS", default = "2500")]
     pub persons_db_deadline_ms: u64,
 
@@ -675,7 +675,7 @@ pub struct Config {
     #[envconfig(from = "GROUP_TYPE_CACHE_MAX_ENTRIES", default = "50000")]
     pub group_type_cache_max_entries: u64,
 
-    // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
+    // cookieless, should match the values in nodejs/src/ingestion/config.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
 
@@ -951,6 +951,23 @@ pub struct Config {
     // Gated for safe rollout.
     #[envconfig(from = "SKIP_PG_TEAM_FALLBACK", default = "false")]
     pub skip_pg_team_fallback: FlexBool,
+
+    // Kill switch for legacy Team.secret_api_token auth (PostHog/posthog#66179).
+    // When false, phs_ bearer lookups skip posthog_team and validate against
+    // ProjectSecretAPIKey only; migrated legacy tokens then match their backfilled
+    // mirror rows. Cached legacy entries survive until AUTH_TOKEN_CACHE_TTL_SECONDS,
+    // so a flip (either direction) settles within that window.
+    #[envconfig(from = "ACCEPT_TEAM_SECRET_TOKENS", default = "true")]
+    pub accept_team_secret_tokens: FlexBool,
+
+    // Transitional (#66179): after a successful legacy-token auth, verify in the
+    // background that the PSAK mirror row resolves the same token to the same team.
+    // Emits flags_legacy_token_mirror_shadow_total; a sustained zero rate of missing
+    // and team_mismatch results is the evidence gate for flipping
+    // ACCEPT_TEAM_SECRET_TOKENS off. Only runs while legacy auth is on, and only on
+    // auth-cache misses.
+    #[envconfig(from = "LEGACY_TOKEN_MIRROR_SHADOW", default = "true")]
+    pub legacy_token_mirror_shadow: FlexBool,
 
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
@@ -1241,6 +1258,8 @@ impl Config {
             team_negative_cache_ttl_seconds: 30,
             hypercache_read_repair_ttl_seconds: 600,
             skip_pg_team_fallback: FlexBool(false),
+            accept_team_secret_tokens: FlexBool(true),
+            legacy_token_mirror_shadow: FlexBool(true),
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
             internal_request_token: None,
@@ -1414,6 +1433,10 @@ mod tests {
         // posture so a future env-var rename / refactor can't silently
         // flip it back to Enforced.
         assert_eq!(config.bot_filter_mode, BotFilterMode::LogOnly);
+        // Legacy tokens must stay accepted by default: a default of false would 401
+        // every legacy token without a mirror row while CI stays green, because the
+        // integration tests build their config from default_test_config() instead.
+        assert_eq!(config.accept_team_secret_tokens, FlexBool(true));
     }
 
     #[test]

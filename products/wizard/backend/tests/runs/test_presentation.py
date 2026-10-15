@@ -13,6 +13,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -331,6 +332,35 @@ class TestWizardRunViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Connect GitHub with access to this repository, then try again.")
+
+    @parameterized.expand([("allowed", False, status.HTTP_201_CREATED), ("refused", True, status.HTTP_403_FORBIDDEN)])
+    @patch(
+        "products.wizard.backend.logic.runs.repository_access.repo_selection.repository_accessible_via_integration",
+        return_value=True,
+    )
+    @patch(
+        "products.wizard.backend.logic.runs.repository_access.repo_selection.resolve_team_github_integration_id",
+        return_value=123,
+    )
+    def test_cloud_run_asks_the_access_rules_with_the_caller_ip(
+        self, _name: str, refused: bool, expected_status: int, _resolve_integration, _repository_accessible
+    ) -> None:
+        # The run mints its gateway token later with no request, so an IP rule only matches here.
+        with patch(
+            "products.wizard.backend.presentation.runs.views.security_access_refused", return_value=refused
+        ) as check:
+            response = self.client.post(
+                self._url(), self._cloud_payload(idempotency_key=f"rules-{_name}"), format="json"
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        subject, surface = check.call_args.args
+        self.assertEqual(surface.value, "ai_gateway")
+        self.assertEqual(check.call_args.kwargs, {"call_site": "wizard_run"})
+        self.assertIsNotNone(subject.ip)
+        self.assertEqual(subject.organization_ids, (str(self.team.organization_id),))
+        if refused:
+            self.assertEqual(response.json()["detail"], WIZARD_BLOCKED_DETAIL)
 
     @patch(
         "products.wizard.backend.logic.runs.repository_access.repo_selection.repository_accessible_via_integration",

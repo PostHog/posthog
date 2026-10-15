@@ -585,15 +585,19 @@ def test_resolve_context_uses_pre_sync_watermark_from_snapshot(team, _no_close_o
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "rows_synced,expect_steps",
+    "rows_synced,table_size_written,expect_steps",
     [
-        pytest.param(5, True, id="rows_written"),
-        pytest.param(0, False, id="zero_rows"),
-        pytest.param(None, True, id="row_count_unknown"),
+        pytest.param(5, False, True, id="rows_written"),
+        pytest.param(0, False, False, id="zero_rows"),
+        pytest.param(None, False, True, id="row_count_unknown"),
+        # The load consumer recorded the size from the Delta log, so the activity that opens the
+        # table again must not run.
+        pytest.param(5, True, False, id="size_written_by_the_loader"),
+        pytest.param(None, True, False, id="size_written_by_the_loader_row_count_unknown"),
     ],
 )
-def test_table_size_tracks_rows_written_while_ducklake_copy_always_runs(
-    team, rows_synced, expect_steps, _no_close_old_connections
+def test_table_size_runs_only_as_the_fallback_while_ducklake_copy_always_runs(
+    team, rows_synced, table_size_written, expect_steps, _no_close_old_connections
 ):
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
@@ -613,7 +617,11 @@ def test_table_size_tracks_rows_written_while_ducklake_copy_always_runs(
 
     ctx = resolve_post_import_context_activity(
         PostImportWorkflowInputs(
-            team_id=team.pk, job_id=str(job.id), schema_id=str(schema.id), source_id=str(source.id)
+            team_id=team.pk,
+            job_id=str(job.id),
+            schema_id=str(schema.id),
+            source_id=str(source.id),
+            table_size_written=table_size_written,
         )
     )
 

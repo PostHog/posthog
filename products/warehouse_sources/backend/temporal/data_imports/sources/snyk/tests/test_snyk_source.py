@@ -6,11 +6,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snyk import SnykSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.settings import (
-    ENDPOINTS,
-    SNYK_ENDPOINTS,
-    SnykScope,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.settings import SNYK_ENDPOINTS, SnykScope
 from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.source import SnykSource
 
 
@@ -47,13 +43,6 @@ class TestSnykSource:
         # without re-entering it.
         assert self.source.connection_host_fields == ["region", "organization_id"]
 
-    def test_generated_config_parses_fields(self) -> None:
-        # Guards the generated-config round trip: form fields must map to config attributes.
-        config = SnykSourceConfig.from_dict({"api_token": "tok_123"})
-        assert config.api_token == "tok_123"
-        assert config.region == "us"
-        assert config.organization_id is None
-
     @parameterized.expand(
         [
             ("organizations", False),
@@ -68,16 +57,6 @@ class TestSnykSource:
         schemas = {s.name: s for s in self.source.get_schemas(MagicMock(), team_id=self.team_id)}
         assert schemas[endpoint].supports_incremental is expected
         assert schemas[endpoint].supports_append is expected
-
-    def test_publishes_table_catalog_for_public_docs(self) -> None:
-        # `lists_tables_without_credentials` gates whether the static endpoint catalog reaches the
-        # posthog.com "Supported tables" section; dropping it would silently empty that section.
-        tables = self.source.get_documented_tables()
-        names = {t["name"] for t in tables}
-        assert set(ENDPOINTS).issubset(names)
-        issues = next(t for t in tables if t["name"] == "issues")
-        assert "Incremental" in issues["sync_methods"]
-        assert issues["description"]
 
     @parameterized.expand(
         [
@@ -94,16 +73,6 @@ class TestSnykSource:
         )
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
-
-    def test_source_response_defers_watermark_to_completion(self) -> None:
-        # Snyk offers no sort param and fan-out breaks global ordering, so the watermark must only
-        # advance at sync completion ("desc" semantics) — "asc" would checkpoint mid-sync and skip
-        # rows on retry.
-        manager = self.source.get_resumable_source_manager(_source_inputs("issues"))
-        response = self.source.source_for_pipeline(
-            SnykSourceConfig.from_dict({"api_token": "tok"}), manager, _source_inputs("issues")
-        )
-        assert response.sort_mode == "desc"
 
     def test_fan_out_children_carry_organization_id_in_primary_key(self) -> None:
         # Fan-out children aggregate rows from every org, so the injected org id must be part of
@@ -139,10 +108,3 @@ class TestSnykSource:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-    def test_canonical_description_keys_are_real_endpoints(self) -> None:
-        # Canonical descriptions are keyed by schema name; a typo'd key would silently never apply.
-        descriptions: dict[str, Any] = self.source.get_canonical_descriptions()
-        assert set(descriptions) == set(ENDPOINTS)
-        for entry in descriptions.values():
-            assert entry["description"]

@@ -54,12 +54,14 @@ pub struct MatchedRule {
 /// is a null default.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Evaluation<'a> {
-    /// `variant` is the key an experiment rule without an experiment assigned. It stays internal:
-    /// with no experiment the response carries no variant or experiment identity.
     TargetingMatch {
         value: &'a Value,
         rule: MatchedRule,
-        variant: Option<&'a str>,
+    },
+    ExperimentSplit {
+        value: &'a Value,
+        rule: MatchedRule,
+        variant: &'a str,
     },
     RolloutMiss {
         value: Option<&'a Value>,
@@ -92,6 +94,7 @@ impl<'a> Evaluation<'a> {
     pub const fn code(self) -> &'static str {
         match self {
             Self::TargetingMatch { .. } => "targeting_match",
+            Self::ExperimentSplit { .. } => "experiment_split",
             Self::RolloutMiss { .. } => "rollout_miss",
             Self::ExperimentPaused { .. } => "experiment_paused",
             Self::Holdout { .. } => "holdout",
@@ -101,7 +104,7 @@ impl<'a> Evaluation<'a> {
 
     pub fn value(self) -> Option<&'a Value> {
         match self {
-            Self::TargetingMatch { value, .. } => Some(value),
+            Self::TargetingMatch { value, .. } | Self::ExperimentSplit { value, .. } => Some(value),
             Self::RolloutMiss { value, .. }
             | Self::ExperimentPaused { value, .. }
             | Self::Holdout { value, .. }
@@ -112,6 +115,7 @@ impl<'a> Evaluation<'a> {
     pub fn rule(self) -> Option<MatchedRule> {
         match self {
             Self::TargetingMatch { rule, .. }
+            | Self::ExperimentSplit { rule, .. }
             | Self::RolloutMiss { rule, .. }
             | Self::ExperimentPaused { rule, .. }
             | Self::Holdout { rule, .. } => Some(rule),
@@ -121,7 +125,7 @@ impl<'a> Evaluation<'a> {
 
     pub fn variant(self) -> Option<&'a str> {
         match self {
-            Self::TargetingMatch { variant, .. } => variant,
+            Self::ExperimentSplit { variant, .. } => Some(variant),
             _ => None,
         }
     }
@@ -129,6 +133,9 @@ impl<'a> Evaluation<'a> {
     pub fn description(self) -> String {
         match self {
             Self::TargetingMatch { rule, .. } => format!("Matched rule {}", rule.index + 1),
+            Self::ExperimentSplit { rule, .. } => {
+                format!("Rule {} experiment split", rule.index + 1)
+            }
             Self::RolloutMiss { rule, .. } => format!("Rule {} rollout miss", rule.index + 1),
             Self::ExperimentPaused { rule, .. } => format!("Rule {} is paused", rule.index + 1),
             Self::Holdout { rule, .. } => format!("Rule {} holdout", rule.index + 1),
@@ -144,6 +151,7 @@ pub struct EvaluationDetail {
     /// `Value::Null` is a null default.
     pub value: Value,
     pub rule: Option<MatchedRule>,
+    pub variant: Option<String>,
     pub description: String,
 }
 
@@ -153,6 +161,7 @@ impl From<Evaluation<'_>> for EvaluationDetail {
             code: evaluation.code(),
             value: evaluation.value().cloned().unwrap_or(Value::Null),
             rule: evaluation.rule(),
+            variant: evaluation.variant().map(str::to_owned),
             description: evaluation.description(),
         }
     }
@@ -257,7 +266,6 @@ impl<'a> Evaluator<'a> {
                     return Ok(Evaluation::TargetingMatch {
                         value,
                         rule: matched_rule(RuleKind::TargetedRelease),
-                        variant: None,
                     })
                 }
                 Outcome::PercentageRollout {
@@ -268,11 +276,7 @@ impl<'a> Evaluator<'a> {
                 } => {
                     let rule = matched_rule(RuleKind::PercentageRollout);
                     if draws.includes(HashUse::Rollout, seed, *rollout_percentage)? {
-                        return Ok(Evaluation::TargetingMatch {
-                            value,
-                            rule,
-                            variant: None,
-                        });
+                        return Ok(Evaluation::TargetingMatch { value, rule });
                     }
                     (rule, on_rollout_miss)
                 }
@@ -305,10 +309,10 @@ impl<'a> Evaluator<'a> {
                     }
                     if draws.includes(HashUse::Rollout, seed, *rollout_percentage)? {
                         let variant = select_variant(draws.draw(HashUse::Variant, seed)?, variants);
-                        return Ok(Evaluation::TargetingMatch {
+                        return Ok(Evaluation::ExperimentSplit {
                             value: &variant.value,
                             rule,
-                            variant: Some(&variant.key),
+                            variant: &variant.key,
                         });
                     }
                     (rule, on_rollout_miss)

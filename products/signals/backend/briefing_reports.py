@@ -29,6 +29,8 @@ from products.signals.backend.implementation_pr import (
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignment
 from products.signals.backend.report_charts import ReportChartSnapshot, saved_charts
 from products.signals.backend.report_claims import reports_with_active_claim
+from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metrics import ReportMetricSnapshot, saved_metric_snapshots
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
@@ -106,22 +108,24 @@ class BriefingReportDetails:
     charts: list[ReportChartSnapshot]
 
 
-def _latest_artefacts(report_ids: Sequence[str], artefact_type: str) -> dict[str, str]:
+def _latest_artefacts(team_id: int, report_ids: Sequence[str], artefact_type: str) -> dict[str, str]:
     """The newest artefact content of one type per report, by report id."""
-    rows = (
-        SignalReportArtefact.objects.filter(report_id__in=report_ids, type=artefact_type)
+    # Pick the newest id per report first, so Postgres reads `content` once per report, not once per row.
+    latest_ids = (
+        SignalReportArtefact.objects.filter(team_id=team_id, report_id__in=report_ids, type=artefact_type)
         .order_by("report_id", "-created_at")
         .distinct("report_id")
-        .values_list("report_id", "content")
+        .values("id")
     )
+    rows = SignalReportArtefact.objects.filter(team_id=team_id, id__in=latest_ids).values_list("report_id", "content")
     return {str(report_id): content for report_id, content in rows}
 
 
-def _priorities(report_ids: Sequence[str]) -> dict[str, str]:
+def _priorities(team_id: int, report_ids: Sequence[str]) -> dict[str, str]:
     """Latest priority judgment per report, read the same way the inbox serializer reads it."""
     latest: dict[str, str] = {}
     for report_id, content in _latest_artefacts(
-        report_ids, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+        team_id, report_ids, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
     ).items():
         priority = priority_from_judgment(content)
         if priority is not None:
@@ -268,6 +272,25 @@ def _names_person(team_id: int, user: User) -> Q:
             logins_match_unidentified_only=False,
         )
     )
+
+
+def report_ids_naming_user(*, team_id: int, user: User, report_ids: Sequence[str]) -> set[str]:
+    """Which of these reports still name the person as a suggested reviewer.
+
+    A briefing is a saved list, so an item it picked because the report named the person can outlive
+    that fact. Reading membership live is what lets a reader tell a report they stepped off from one
+    that is still theirs.
+    """
+    if not report_ids:
+        return set()
+    github_login = user.get_github_login()
+    naming = report_ids_naming_reviewers(
+        team_id=team_id,
+        user_uuids=[str(user.uuid)],
+        github_logins=[github_login.lower()] if github_login else [],
+        logins_match_unidentified_only=False,
+    ).filter(report_id__in=list(report_ids))
+    return {str(row["report_id"]) for row in naming}
 
 
 def _source_products(team_id: int, report_ids: Sequence[str]) -> dict[str, list[str]]:
@@ -433,7 +456,7 @@ def reports_for_briefing(
             relation=candidate.relation,
             title=_trimmed(report.title, 200) or "Untitled report",
             summary=_trimmed(report.summary, _SUMMARY_LIMIT),
-            status=report.status,
+            status=report.effective_status,
             priority=candidate.priority,
             has_implementation_pr=report.has_implementation_pr,
             source_products=source_products.get(candidate.report_id, []),
@@ -518,12 +541,17 @@ def report_details(
         return []
     reports = list(
         SignalReport.objects.filter(team_id=team_id, id__in=list(report_ids)).only(
-            "id", "status", "summary", "metrics", "charts", "signal_count", "updated_at"
+            "id", "team_id", "status", "summary", "metrics", "charts", "signal_count", "updated_at"
         )
     )
     found_ids = [str(report.id) for report in reports]
-    priorities = _priorities(found_ids)
+    priorities = _priorities(team_id, found_ids)
     pull_requests = fetch_implementation_pr_state_for_reports(found_ids, team_id=team_id)
+    monitoring_enabled = (
+        team_report_monitoring_enabled(team_id)
+        if any(report.status == SignalReport.Status.MONITORING for report in reports)
+        else None
+    )
     details = []
     for report in reports:
         report_id = str(report.id)
@@ -531,7 +559,7 @@ def report_details(
         details.append(
             BriefingReportDetails(
                 report_id=report_id,
-                status=report.status,
+                status=effective_report_status(report.status, team_id=team_id, monitoring_enabled=monitoring_enabled),
                 priority=priorities.get(report_id),
                 summary=summary_lead(report.summary, SUMMARY_LEAD_LIMIT),
                 pull_request_state=_pull_request_state(pull_request.state, pull_request.merged)

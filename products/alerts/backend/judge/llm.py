@@ -49,9 +49,9 @@ def prompt_window(config: dict[str, Any]) -> int:
 
 MIN_POINTS_TO_JUDGE = LLM_DETECTOR_MIN_POINTS
 
-# One constant, matching the anomaly investigation agent. Not exposed per alert: a
-# per-alert model field is a cost lever we don't want in the alert editor yet.
-LLM_DETECTOR_MODEL = "claude-sonnet-5"
+# One constant. Not exposed per alert: a per-alert model field is a cost lever we
+# don't want in the alert editor yet.
+LLM_DETECTOR_MODEL = "claude-haiku-5-5"
 
 # Own product key in LLM analytics, so this judge's spend is separable from the
 # investigation agent's.
@@ -212,7 +212,8 @@ class LLMSeriesJudge:
         from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
 
         instructions_present = bool(series.instructions)
-        # No temperature: Sonnet 5 rejects non-default sampling params with a 400.
+        # No temperature: Haiku 5.5 rejects non-default sampling params with a 400. Disabled
+        # thinking is accepted only at effort "high" or below, so do not raise the effort past it.
         model = MaxChatAnthropic(
             model=LLM_DETECTOR_MODEL,
             team=attribution.team,

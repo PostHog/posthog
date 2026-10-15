@@ -134,7 +134,7 @@ hogli devbox:secret:set NAME --file PATH           # set secret value from file
 hogli devbox:secret:rm NAME                        # delete a secret
 ```
 
-Common secrets include `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, and `OP_SERVICE_ACCOUNT_TOKEN`.
+Common secrets include `CLAUDE_CODE_OAUTH_TOKEN` and `GH_TOKEN`.
 
 ## Auth model
 

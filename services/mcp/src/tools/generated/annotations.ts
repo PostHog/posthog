@@ -172,10 +172,34 @@ const annotationsPartialUpdate = (): ToolBase<
     },
 })
 
+const ChangeFeedListSchema = () => {
+    const ChangeFeedListQueryParams = orvalSchemas.ChangeFeedListQueryParams()
+    return ChangeFeedListQueryParams
+}
+
+const changeFeedList = (): ToolBase<ReturnType<typeof ChangeFeedListSchema>, Schemas.ChangeFeed> => ({
+    name: 'change-feed-list',
+    schema: ChangeFeedListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ChangeFeedListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ChangeFeed>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/change_feed/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'annotation-create': annotationCreate,
     'annotation-delete': annotationDelete,
     'annotation-retrieve': annotationRetrieve,
     'annotations-list': annotationsList,
     'annotations-partial-update': annotationsPartialUpdate,
+    'change-feed-list': changeFeedList,
 }

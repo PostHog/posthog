@@ -17,6 +17,7 @@ import logging
 from dataclasses import field as dataclass_field
 from typing import Literal
 
+from django.conf import settings
 from django.db.models import F, Q
 
 from prometheus_client import Counter
@@ -131,6 +132,10 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
             SIGNING_SECRET_STALE_COUNTER.inc()
             logger.warning("Conversations signing secret is stale, skipping it", extra={"team_id": team.id})
 
+    # Kill switch (#66179): legacy tokens stop being verification candidates, but the
+    # staleness guard above already ran, so a row holding a retired key stays excluded.
+    if not settings.ACCEPT_TEAM_SECRET_TOKENS:
+        return secrets
     return secrets + legacy_secrets
 
 

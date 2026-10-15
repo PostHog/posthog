@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.confluence
 # the host ourselves from a validated subdomain (rather than accepting an
 # arbitrary host) keeps the API token from being sent anywhere off-Atlassian.
 _SUBDOMAIN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}$")
+_ATLASSIAN_HOST_SUFFIX = ".atlassian.net"
 
 
 @dataclasses.dataclass
@@ -35,6 +36,17 @@ def _site_origin(subdomain: str) -> str:
 
 def _base_url(subdomain: str) -> str:
     return f"{_site_origin(subdomain)}/wiki/api/v2"
+
+
+def normalize_subdomain(subdomain: str) -> str:
+    """Reduce a pasted host or URL ("https://acme.atlassian.net/wiki/home") to the bare site name."""
+    subdomain = subdomain.strip()
+    if "://" in subdomain:
+        subdomain = subdomain.split("://", 1)[1]
+    subdomain = re.split(r"[/?#]", subdomain, maxsplit=1)[0]
+    if subdomain.lower().endswith(_ATLASSIAN_HOST_SUFFIX):
+        subdomain = subdomain[: -len(_ATLASSIAN_HOST_SUFFIX)]
+    return subdomain
 
 
 def is_valid_subdomain(subdomain: str) -> bool:
@@ -75,6 +87,7 @@ def confluence_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = CONFLUENCE_ENDPOINTS[endpoint]
+    subdomain = normalize_subdomain(subdomain)
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -141,6 +154,7 @@ def validate_credentials(
     be valid but lack access to the probed resource. Once a specific schema is
     being validated we surface the 403.
     """
+    subdomain = normalize_subdomain(subdomain)
     if not is_valid_subdomain(subdomain):
         return (
             False,

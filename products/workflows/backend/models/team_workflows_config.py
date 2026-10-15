@@ -50,9 +50,18 @@ class TeamWorkflowsConfig(models.Model):
     # can be held at a tier that its sending history would not give it.
     email_sending_tier_pinned = models.BooleanField(default=False, db_default=False)
 
+    # The email sender new broadcasts and workflow email steps start with. A plain id rather than a
+    # foreign key: the editors ignore an id that no longer points at a verified sender, and the
+    # integration delete signal clears it.
+    default_email_integration_id = models.BigIntegerField(null=True, blank=True)
+
     # Overrides for AI tasks created by workflows. Null keeps the product defaults;
     # zero pauses new task creation at that scope.
     workflow_task_rate_limit_per_day = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0)])
     workflow_task_team_rate_limit_per_day = models.IntegerField(
         null=True, blank=True, validators=[MinValueValidator(0)]
     )
+
+    # Max marketing messages per person per rolling window across all workflows; null on either means no cap.
+    marketing_frequency_cap_max_messages = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
+    marketing_frequency_cap_window_days = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
