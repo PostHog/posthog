@@ -413,20 +413,28 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
 
 
 def _is_customer_email_verified(ticket: Ticket, customer_email: str) -> bool:
-    # A server check attests the distinct_id of a verified ticket: the signed widget identity, or the
-    # sender address on email, Slack and Teams tickets. The widget form can supply any email, so the
-    # email counts as verified only when it is that attested identity.
+    # A server check attests one identity on a verified ticket: the signed widget distinct_id, the
+    # authenticated sender in email_from, or the platform user's email in distinct_id on Slack and
+    # Teams. An outbound email ticket keeps the recipient's analytics ID in distinct_id, so email
+    # tickets use email_from. The widget form can supply any email, so the email counts as verified
+    # only when it is that attested identity.
+    if ticket.channel_source == Channel.EMAIL:
+        attested_identity = ticket.email_from or ticket.distinct_id
+    else:
+        attested_identity = ticket.distinct_id
     return (
         ticket.identity_verified is True
         and bool(customer_email)
-        and customer_email.lower() == (ticket.distinct_id or "").lower()
+        and customer_email.lower() == (attested_identity or "").lower()
     )
 
 
 def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = False) -> dict:
     """Customer identity on the ticket, for workflow filters and analytics."""
     traits = ticket.anonymous_traits or {}
-    customer_email = traits.get("email") or ticket.email_from or ""
+    # The ticket update API stores traits as any JSON value, so the email trait can be a non-string.
+    trait_email = traits.get("email")
+    customer_email = (trait_email if isinstance(trait_email, str) else "") or ticket.email_from or ""
     properties = {
         "customer_name": traits.get("name", ""),
         "customer_email": customer_email,

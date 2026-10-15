@@ -242,20 +242,23 @@ class TestConversationEvents(BaseTest):
 
     @parameterized.expand(
         [
-            ("authenticated_email", "email", True, "customer@example.com", True),
-            ("widget_form_email", "widget", True, "customer-123", False),
-            ("unauthenticated_email", "email", False, "customer@example.com", False),
+            ("authenticated_email", "email", True, "customer@example.com", "customer@example.com", True),
+            ("outbound_email_verified_by_reply", "email", True, "recipient-analytics-id", "customer@example.com", True),
+            ("non_string_trait_email", "email", True, "customer@example.com", 42, True),
+            ("widget_form_email", "widget", True, "customer-123", "customer@example.com", False),
+            ("unauthenticated_email", "email", False, "customer@example.com", "customer@example.com", False),
         ]
     )
     def test_customer_email_verified_requires_attested_email(
-        self, _name, channel_source, identity_verified, distinct_id, expected
+        self, _name, channel_source, identity_verified, distinct_id, trait_email, expected
     ):
         ticket = Ticket(
             team=self.team,
             channel_source=channel_source,
             identity_verified=identity_verified,
             distinct_id=distinct_id,
-            anonymous_traits={"email": "customer@example.com"},
+            anonymous_traits={"email": trait_email},
+            email_from="customer@example.com",
         )
 
         assert _get_customer_properties(ticket)["customer_email_verified"] is expected
