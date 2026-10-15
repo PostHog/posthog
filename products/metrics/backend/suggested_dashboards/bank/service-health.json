@@ -404,7 +404,7 @@
         {
             "key": "process_share_of_host_memory",
             "title": "Process share of host memory",
-            "description": "Resident memory of each service as a share of the host total.",
+            "description": "Resident memory of each service across all its processes, as a share of the host total.",
             "query": {
                 "kind": "MetricsQuery",
                 "clauses": [
@@ -416,7 +416,7 @@
                             }
                         ],
                         "metricName": "process.memory.utilization",
-                        "aggregation": "max"
+                        "aggregation": "sum"
                     }
                 ],
                 "display": {
@@ -475,7 +475,7 @@
         {
             "key": "process_cpu_share_of_host_by_service",
             "title": "Process CPU share of host by service",
-            "description": "CPU each service uses as a share of all the host CPUs, split into user and system time. 100% means every core is busy.",
+            "description": "CPU each service uses across all its processes, as a share of all the host CPUs, split into user and system time. 100% means every core is busy.",
             "query": {
                 "kind": "MetricsQuery",
                 "clauses": [
@@ -490,7 +490,7 @@
                             }
                         ],
                         "metricName": "process.cpu.utilization",
-                        "aggregation": "avg"
+                        "aggregation": "sum"
                     }
                 ],
                 "display": {
@@ -653,6 +653,41 @@
             },
             "layout": {
                 "x": 0,
+                "y": 31,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "gc_duration_p95_by_generation",
+            "title": "GC duration p95 by generation",
+            "description": "How long Python garbage collections take, at the 95th percentile. This measures collection time, not exact application pauses.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "app.cpython.gc.duration",
+                        "aggregation": "histogram_quantile",
+                        "quantile": 0.95,
+                        "groupBy": [
+                            {
+                                "key": "cpython.gc.generation"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "ms",
+                    "legendCalcs": ["mean", "max"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 6,
                 "y": 31,
                 "w": 6,
                 "h": 4
