@@ -62,7 +62,7 @@ describe('useOpenTraceDialog', () => {
 
         expect(traceDialogLogic.values.isOpen).toBe(expectDialog)
         if (expectDialog) {
-            expect(traceDialogLogic.values.trace).toMatchObject({ traceId: 'abc123', spanId: 'def456' })
+            expect(traceDialogLogic.values.trace).toMatchObject({ traceId: 'abc123', spanId: 'DEF456' })
             // A dialog click must not also follow the link.
             expect(router.values.location.pathname).toBe(pathnameBeforeClick)
         }
