@@ -409,8 +409,6 @@ def test_labeled_rereview_cooldown_skips_rapid_retrigger(team, repo_config):
         assert ReviewRun.objects.count() == 1
     mock_execute.assert_not_called()
     first.github.remove_pr_label.assert_not_called()
-    # A rejected relabel must not leave the label sitting there as if a review had been requested,
-    # and must tell the author when a relabel will work again.
     mock_execute.github.remove_pr_label.assert_called_once_with(REPO, 42, "stamphog")
     _, _, body = mock_execute.github.upsert_sticky_comment.call_args.args
     assert "14:10 UTC (in about 7 minutes)" in body
