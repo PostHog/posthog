@@ -54,14 +54,24 @@ describe('RealtimeCohortAudienceService', () => {
         expect(collected).toEqual([...members].sort())
     })
 
-    it('rejects a read that stalls before its statement timeout can apply', async () => {
+    it.each([
+        ['the connection checkout', () => new Promise(() => {}), undefined],
+        ['a query', undefined, () => new Promise(() => {})],
+    ])('rejects at the deadline and ends the connection when %s stalls', async (_stage, connect, query) => {
         jest.useFakeTimers()
         try {
-            const stalledRouter = { transaction: () => new Promise(() => {}) } as unknown as PostgresRouter
+            const client = { on: jest.fn(), removeListener: jest.fn(), release: jest.fn(), query }
+            const stalledRouter = {
+                connect: connect ?? (() => Promise.resolve(client)),
+            } as unknown as PostgresRouter
             const page = new RealtimeCohortAudienceService(stalledRouter).getMemberPage(TEAM_ID, COHORT_ID, null)
             const outcome = expect(page).rejects.toThrow('took longer than')
             await jest.advanceTimersByTimeAsync(MEMBER_PAGE_DEADLINE_MS)
             await outcome
+            if (query) {
+                // Releasing with an error makes the pool end the connection instead of reusing it.
+                expect(client.release).toHaveBeenCalledWith(expect.any(Error))
+            }
         } finally {
             jest.useRealTimers()
         }
