@@ -231,6 +231,8 @@ class TestScheduledRecalculationLogic(BaseTest):
             ),
             # The rule reads v1 keys only, so another format is left to the exposure gate.
             ("config_v2", {"version": 2, "rules": []}, None),
+            # A malformed value fails open, so one flag cannot stop discovery for the whole hour.
+            ("string_rollout", {"groups": [{"properties": [], "rollout_percentage": "50"}]}, None),
         ]
     )
     def test_discovery_skips_a_flag_that_serves_nobody(

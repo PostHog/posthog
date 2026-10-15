@@ -166,7 +166,13 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationSelection
     candidates: list[ScheduledRecalculationCandidate] = []
     skips: list[DiscoverySkip] = []
     for experiment in experiments:
-        decision = _discovery_skip(experiment, active_runs=active_runs, recent_runs=recent_runs)
+        try:
+            decision = _discovery_skip(experiment, active_runs=active_runs, recent_runs=recent_runs)
+        except Exception:
+            # One malformed flag or metric must not stop discovery for every team in this hour. The
+            # experiment stays a candidate, and the exposure gate decides.
+            logger.warning("scheduled_recalculation_skip_check_failed", experiment_id=experiment.id, exc_info=True)
+            decision = None
         if decision is not None:
             skips.append(DiscoverySkip(experiment=experiment, decision=decision))
             continue
