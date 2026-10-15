@@ -1019,7 +1019,7 @@ export interface ElementType {
     nth_child?: number
     nth_of_type?: number
     order?: number
-    tag_name: string
+    tag_name?: string | null
     text?: string
 }
 
