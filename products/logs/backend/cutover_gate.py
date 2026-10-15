@@ -1,13 +1,7 @@
-"""Which of a team's logs alert destinations native delivery cannot take over yet.
-
-The cutover hands a whole team over or none of it. A team moves only when native delivery sends
-every one of its destinations as the team receives it today. A refusal names each destination
-that stops the team, so the operator knows what has to change first.
-"""
+"""Which of a team's logs alert destinations native delivery cannot take over yet. A team moves whole or not at all."""
 
 from __future__ import annotations
 
-from collections.abc import Collection
 from enum import StrEnum
 from uuid import UUID
 
@@ -26,28 +20,18 @@ from products.alerts_platform.backend.facade.delivery import keeps_legacy_webhoo
 from products.logs.backend.alert_destinations import LOGS_ALERT_EVENT_IDS
 from products.logs.backend.models import LogsAlertConfiguration
 
-# Native delivery sends these as the team configured them. Added headers that native webhooks send
-# already classify as stock, so STATIC_HEADERS holds only headers native delivery drops.
-# Do not add PORTABLE without a check for edited code: a destination re-saved before revisions were
-# recorded buckets as PORTABLE through `untracked_edit`, and its code may be edited.
+# PORTABLE can hide edited code through `untracked_edit`, so it needs a code check before it joins.
 _READY_BUCKETS = frozenset({DestinationBucket.STOCK})
 
 
 class GateRefusal(StrEnum):
     """Why one destination stops its team from moving."""
 
-    # Native delivery would send this destination without the team's change. Each bucket waits on
-    # its own work: a Workflows flow, a product decision, or a fix by the customer.
     NOT_READY = "not_ready"
-    # Edited code, whose family flow the operator has not listed as built.
-    CODE_NOT_READY = "code_not_ready"
-    # Native delivery reads destinations per alert, so a function bound to no single alert stops
-    # receiving events.
+    # Native delivery reads destinations per alert, so this function would receive nothing.
     UNBOUND = "unbound"
-    # The team's receivers parse the body the logs stack sent, and native delivery would send the
-    # platform body instead.
+    # The team's receivers parse the logs stack's body, and native delivery would send the platform body.
     NEW_WEBHOOK_BODY = "new_webhook_body"
-    # The flag that says which body the team receives could not be read.
     WEBHOOK_BODY_UNKNOWN = "webhook_body_unknown"
 
 
@@ -69,12 +53,8 @@ class CutoverRefused(Exception):
         self.refusals = refusals
 
 
-def destination_refusals(team_id: int, *, code_ready: Collection[str]) -> tuple[DestinationRefusal, ...]:
-    """Every destination that stops this team moving, or nothing when all of them can move.
-
-    `code_ready` holds the code hashes whose Workflows flows are built. It comes from the operator
-    at run time, so the list of code families never ships in the repository.
-    """
+def destination_refusals(team_id: int) -> tuple[DestinationRefusal, ...]:
+    """Every destination that stops this team moving, or nothing when all of them can move."""
     refusals: list[DestinationRefusal] = []
     webhook_template_id = destination_template_id(DestinationType.WEBHOOK)
     ready_webhooks: list[tuple[DestinationEligibility, UUID]] = []
@@ -88,7 +68,7 @@ def destination_refusals(team_id: int, *, code_ready: Collection[str]) -> tuple[
             # A function that excludes one alert id also matches that alert here. It is refused once, as unbound.
             if destination.hog_function_id in unbound:
                 continue
-            refusal = _bucket_refusal(destination, alert_id, code_ready)
+            refusal = _bucket_refusal(destination, alert_id)
             if refusal is not None:
                 refusals.append(refusal)
             elif destination.template_id == webhook_template_id:
@@ -112,20 +92,12 @@ def destination_refusals(team_id: int, *, code_ready: Collection[str]) -> tuple[
     return tuple(refusals)
 
 
-def _bucket_refusal(
-    destination: DestinationEligibility, alert_id: UUID, code_ready: Collection[str]
-) -> DestinationRefusal | None:
+def _bucket_refusal(destination: DestinationEligibility, alert_id: UUID) -> DestinationRefusal | None:
     bucket = bucket_for(destination)
     if bucket in _READY_BUCKETS:
         return None
-    if bucket == DestinationBucket.CODE:
-        if destination.code_hash in code_ready:
-            return None
-        reason = GateRefusal.CODE_NOT_READY
-    else:
-        reason = GateRefusal.NOT_READY
     return DestinationRefusal(
-        hog_function_id=destination.hog_function_id, alert_id=alert_id, bucket=bucket, reason=reason
+        hog_function_id=destination.hog_function_id, alert_id=alert_id, bucket=bucket, reason=GateRefusal.NOT_READY
     )
 
 

@@ -1,4 +1,3 @@
-import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -185,12 +184,12 @@ class TestPlatformCutover(APIBaseTest):
                 (DestinationBucket.PORTABLE, GateRefusal.NOT_READY),
             ),
             (
-                "edited_code_not_listed",
+                "edited_code",
                 "template-webhook",
                 WEBHOOK_INPUTS,
                 {"hog": "fetch('https://relay.example.com')"},
                 True,
-                (DestinationBucket.CODE, GateRefusal.CODE_NOT_READY),
+                (DestinationBucket.CODE, GateRefusal.NOT_READY),
             ),
             (
                 "stock_webhook_without_legacy_body",
@@ -265,28 +264,17 @@ class TestPlatformCutover(APIBaseTest):
         [
             ("stock_slack", "template-slack", SLACK_INPUTS, {}),
             ("stock_webhook_with_legacy_body", "template-webhook", WEBHOOK_INPUTS, {}),
-            (
-                "edited_code_with_a_built_flow",
-                "template-webhook",
-                WEBHOOK_INPUTS,
-                {"hog": "fetch('https://relay.example.com')"},
-            ),
         ]
     )
     def test_a_team_moves_when_every_destination_is_ready(
         self, _name: str, template_id: str, inputs: dict[str, Any], edit: dict[str, Any]
     ) -> None:
         alert = self._alert()
-        function = self._destination(alert.id, template_id, inputs, edit)
-        function.refresh_from_db()
+        self._destination(alert.id, template_id, inputs, edit)
 
         with patch(LEGACY_BODY_FLAG, return_value=True):
-            (result,) = cut_over_team(self.team.id, code_ready={_md5(function.hog)}, now=NOW)
+            (result,) = cut_over_team(self.team.id, now=NOW)
 
         assert result.skipped is None
         alert.refresh_from_db()
         assert alert.owner == "platform"
-
-
-def _md5(hog: str) -> str:
-    return hashlib.md5(hog.encode()).hexdigest()

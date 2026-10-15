@@ -12,18 +12,11 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--team-id", type=int, required=True, help="The team to move.")
-        parser.add_argument(
-            "--code-ready",
-            nargs="+",
-            default=[],
-            metavar="HASH",
-            help="Code hashes whose Workflows flows are built. A destination with other edited code stops the team.",
-        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         team_id = options["team_id"]
         try:
-            results = cut_over_team(team_id, code_ready=frozenset(options["code_ready"]))
+            results = cut_over_team(team_id)
         except CutoverRefused as refused:
             for refusal in refused.refusals:
                 self.stdout.write(

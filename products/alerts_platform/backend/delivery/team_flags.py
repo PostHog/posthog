@@ -1,8 +1,4 @@
-"""Per-team flags that decide how native delivery sends.
-
-Kept apart from evaluation, because a source reads them while Django starts and evaluation
-loads the delivery runtime.
-"""
+"""Per-team delivery flags, kept out of `evaluation` so readers at Django startup skip the delivery runtime."""
 
 from __future__ import annotations
 

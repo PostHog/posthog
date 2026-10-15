@@ -6,7 +6,6 @@ skipped with a reason, and a later run picks it up. The command is safe to run a
 
 from __future__ import annotations
 
-from collections.abc import Collection
 from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
@@ -47,15 +46,13 @@ class AlertCutover:
     skipped: CutoverSkip | None
 
 
-def cut_over_team(
-    team_id: int, *, code_ready: Collection[str] = (), now: datetime | None = None
-) -> tuple[AlertCutover, ...]:
+def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCutover, ...]:
     """Hands every logs alert of one team to the platform, or says why one stays.
 
     Raises `CutoverRefused`, moving nothing, when native delivery cannot yet send one of the team's
     destinations the way the team receives it today.
     """
-    refusals = destination_refusals(team_id, code_ready=code_ready)
+    refusals = destination_refusals(team_id)
     if refusals:
         raise CutoverRefused(team_id, refusals)
     alert_ids = list(
