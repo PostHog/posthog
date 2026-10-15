@@ -11,7 +11,7 @@ import {
 } from '@posthog/icons'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
-import type { BriefingItemApi, HighlightItemApi } from 'products/today/frontend/generated/api.schemas'
+import type { HighlightItemApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayIcon } from './TodayIcon'
 import { sourceStyle } from './todaySignalReports'
@@ -45,10 +45,6 @@ function sourceIcon(source: string | null | undefined): TodayRowIcon {
 
 export function reportIcon(report: Pick<SignalReport, 'source_products'>): TodayRowIcon {
     return sourceIcon(report.source_products?.[0])
-}
-
-export function briefingItemIcon(item: Pick<BriefingItemApi, 'source' | 'source_product'>): TodayRowIcon {
-    return sourceIcon(item.source_product ?? item.source)
 }
 
 export function highlightIcon(item: Pick<HighlightItemApi, 'source'>): TodayRowIcon {

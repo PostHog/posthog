@@ -9,8 +9,8 @@ import {
     captureMessageAudienceClicked,
     cohortAudienceProperties,
     messageAudienceAccessDisabledReason,
-    messageAudienceUrl,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { openMessageAudience } from 'products/workflows/frontend/MessageAudience/messageAudienceWarnings'
 
 /** Confirms a static cohort saved from a list of people, with links to the cohort and to a broadcast for it. */
 export function cohortSavedToast(cohort: Pick<CohortType, 'id' | 'name'>, source: string, toastId?: string): void {
@@ -28,15 +28,13 @@ export function cohortSavedToast(cohort: Pick<CohortType, 'id' | 'name'>, source
                   dataAttr: `message-audience-${source}-broadcast`,
                   action: () => {
                       captureMessageAudienceClicked(source, 'broadcast')
-                      router.actions.push(
-                          messageAudienceUrl(
-                              {
-                                  properties: cohortAudienceProperties(savedCohort),
-                                  source,
-                                  draftSource: { source: 'cohort', source_id: String(savedCohort.id) },
-                              },
-                              'broadcast'
-                          )
+                      void openMessageAudience(
+                          {
+                              properties: cohortAudienceProperties(savedCohort),
+                              source,
+                              draftSource: { source: 'cohort', source_id: String(savedCohort.id) },
+                          },
+                          'broadcast'
                       )
                   },
               },
