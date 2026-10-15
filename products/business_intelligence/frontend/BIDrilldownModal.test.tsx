@@ -41,14 +41,14 @@ it('disables hierarchy navigation while edits are pending without opening a new 
             navigationDisabledReason="Run the worksheet before drilling into edited fields"
         />
     )
-    const drill = screen.getByRole('button', { name: 'Geography: filters this worksheet to the selection' })
+    const drill = screen.getByText('Drill to city').closest('button')!
     expect(drill).toHaveAttribute('aria-disabled', 'true')
-    expect(screen.queryByRole('link', { name: /Drill to/ })).not.toBeInTheDocument()
+    expect(screen.getByText('Drill to city').closest('a')).toBeNull()
     fireEvent.click(drill)
     expect(navigate).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     rerender(<BIDrilldownModal logicProps={props} onNavigate={navigate} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Geography: filters this worksheet to the selection' }))
+    fireEvent.click(screen.getByText('Drill to city'))
     expect(navigate).toHaveBeenCalledTimes(1)
     expect(navigate.mock.calls[0][0].config.rows[0].name).toBe('city')
     unmount()
