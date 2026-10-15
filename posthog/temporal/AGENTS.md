@@ -29,6 +29,7 @@ The semgrep rule `temporal-logger-no-keyword-fields` blocks this at review time.
 
 - [`data_imports/`](../../products/warehouse_sources/backend/temporal/data_imports/README.md) — data warehouse import pipelines (moved to the warehouse_sources product).
 - [`data_modeling/`](./data_modeling/AGENTS.md) — v1 frozen / v2 active split.
+- [`slack_app`](../../products/slack_app/backend/temporal/README.md) — Slack app workflows, the repo-selection eval script, and post-deploy checks for the repo discovery agent (moved to the slack_app product).
 - [`signals emission`](../../products/signals/backend/emission/AGENTS.md) — signal emission for data-imports events (moved to the signals product).
 - [`experiments/`](./experiments/README.md), [`weekly_digest/`](./weekly_digest/README.md), [`ingestion_acceptance_test/`](./ingestion_acceptance_test/README.md), [`health_checks/`](./health_checks/README.md), [`ai_observability/trace_summarization/`](./ai_observability/trace_summarization/README.md) — each has its own README for context.
 
