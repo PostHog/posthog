@@ -88,7 +88,8 @@ Remove the temporary label trigger after validating the pilot.
 Once the workflow is on `master`, open **Actions → Radu evals test → Run workflow**, choose a branch, and optionally supply a SQL case name substring and the number of trials per case.
 An empty case filter runs all SQL cases; the default trial count is one.
 
-The workflow requires `POSTHOG_OFFLINE_EVAL_API_KEY`, `ANTHROPIC_OFFLINE_EVALS_API_KEY`, `BRAINTRUST_API_KEY`, and `OPENAI_API_KEY` Actions secrets.
+The workflow requires `POSTHOG_OFFLINE_EVAL_API_KEY`, `ANTHROPIC_OFFLINE_EVALS_API_KEY`, `BRAINTRUST_API_KEY`, and `OPENAI_OFFLINE_EVALS_API_KEY` Actions secrets.
+Both this workflow and Replay Vision Evals map the dedicated provider secrets to `LLM_GATEWAY_ANTHROPIC_API_KEY` and `OPENAI_API_KEY` for the harness and judges.
 It fails before setup if a required secret is unavailable.
 It restores the pre-migrated database artifact from backend CI, applies pending migrations, and seeds the project needed by agent skill templates before the harness starts.
 It runs one Docker sandbox at a time, enables detailed console logs for setup diagnostics, and puts the final harness summary, including the PostHog link or upload status, in the Actions run summary.
