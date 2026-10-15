@@ -63110,6 +63110,8 @@ export namespace Schemas {
 
     export type LogsAlertStateChangeSignalExtraFilters = { [key: string]: unknown };
 
+    export type LogsAlertStateChangeSignalExtraGroupLabels = {[key: string]: string} | null;
+
     export type LogsAlertStateChangeSignalExtraActionEnum = typeof LogsAlertStateChangeSignalExtraActionEnum[keyof typeof LogsAlertStateChangeSignalExtraActionEnum];
 
 
@@ -63137,6 +63139,7 @@ export namespace Schemas {
       consecutive_failures: number;
       filters: LogsAlertStateChangeSignalExtraFilters;
       url: string;
+      group_labels?: LogsAlertStateChangeSignalExtraGroupLabels;
     }
 
     /**
