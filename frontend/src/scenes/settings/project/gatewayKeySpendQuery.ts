@@ -11,8 +11,7 @@ export interface GatewayCredentialSpend {
     costUsd: number
 }
 
-// Gateway generations are $ai_generation events stamped with $ai_gateway = true. The events table is
-// team-scoped, so the query only ever sees the current project's keys.
+// The events table is team-scoped, so the query needs no project filter.
 export async function fetchGatewaySpendByCredential(): Promise<GatewayCredentialSpend[]> {
     const response = await api.queryHogQL(
         hogql`

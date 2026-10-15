@@ -66,8 +66,7 @@ def test_mask_key_value():
 
 
 def test_ai_credential_value_matches_gateway_vector():
-    # Twin of TestCredentialNodeParityVector in PostHog/ai-gateway: the gateway stamps this value as
-    # $ai_credential, so the two derivations must agree byte for byte.
+    # Twin of TestCredentialNodeParityVector in PostHog/ai-gateway; both derivations must agree byte for byte.
     assert ai_credential_value(hash_key_value("phs_parity_vector")) == "1cf0cfd88962385d39a50f24133fd919"
 
 

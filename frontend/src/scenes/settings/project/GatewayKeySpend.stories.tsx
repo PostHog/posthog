@@ -14,8 +14,7 @@ type Story = StoryObj<{}>
 
 const createdBy = { id: 1, uuid: 'test-user', first_name: 'Test', email: 'test@example.com', hedgehog_config: null }
 
-// One key with spend, one idle gateway key, one key without the gateway scope, plus spend from a
-// rolled key and from generations made before keys were attributed, so every row shape renders.
+// Every row shape: a key with spend, an idle key, an unscoped key, rolled-key spend, pre-attribution spend.
 export const WithSpend: Story = {
     render: () => {
         useStorybookMocks({

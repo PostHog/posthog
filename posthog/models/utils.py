@@ -226,8 +226,7 @@ def hash_key_value(
     return f"sha256${value}"  # Following format from Django's PBKDF2PasswordHasher
 
 
-# Mirrors CredentialNodeValue in PostHog/ai-gateway (internal/auth). Both repos pin the same test
-# vector, so a change here that lands without its twin breaks the join silently.
+# Mirrors CredentialNodeValue in PostHog/ai-gateway; a change here without its twin breaks the join silently.
 AI_CREDENTIAL_HEX_LENGTH = 32
 
 
