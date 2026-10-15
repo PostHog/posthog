@@ -98,15 +98,20 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT="$pythonLocation" uv sync --frozen --dev
 
-            - name: Restore pre-migrated test database
+            - name: Prepare eval database from cached schema
               env:
                   GH_TOKEN: ${{ github.token }}
                   TARGET_DB: test_posthog_ai_eval
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog_ai_eval
                   TEST: '1'
+                  DEBUG: '1'
                   SELF_CAPTURE: '0'
               run: |
                   bin/hogli db:download-schema
                   bin/hogli db:restore-test-db
+                  python manage.py migrate --noinput
+                  # Skill templates render HogQL examples using an existing team.
+                  python manage.py setup_dev --no-data
 
             - name: Install the local LLM gateway
               working-directory: services/llm-gateway

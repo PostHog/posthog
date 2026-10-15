@@ -90,7 +90,7 @@ An empty case filter runs all SQL cases; the default trial count is one.
 
 The workflow requires `POSTHOG_OFFLINE_EVAL_API_KEY` plus the existing `BRAINTRUST_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` Actions secrets.
 It fails before setup if a required secret is unavailable.
-It restores the pre-migrated database artifact from backend CI before the harness starts, avoiding a full database rebuild on each run.
+It restores the pre-migrated database artifact from backend CI, applies pending migrations, and seeds the project needed by agent skill templates before the harness starts.
 It runs one Docker sandbox at a time, enables detailed console logs for setup diagnostics, and puts the final harness summary, including the PostHog link or upload status, in the Actions run summary.
 Publishing failures remain warnings, so check the upload status even when the workflow is green.
 The harness sets the SDK's `run_source` to `ci` when `CI` is set, including manual Actions runs, and to `local` otherwise.
