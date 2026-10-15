@@ -604,6 +604,13 @@ export interface autoresearchPipelineLogicActions {
         trainingRuns: AutoresearchTrainingRunApi[]
         payload?: any
     }
+    openExperiment: (
+        point: SearchPoint,
+        source: ExperimentOpenSource
+    ) => {
+        point: SearchPoint
+        source: ExperimentOpenSource
+    }
     pausePipeline: () => any
     pausePipelineFailure: (
         error: string,
@@ -667,13 +674,6 @@ export interface autoresearchPipelineLogicActions {
         scoreResult: AutoresearchRunApi | null
         payload?: any
     }
-    openExperiment: (
-        point: SearchPoint,
-        source: ExperimentOpenSource
-    ) => {
-        point: SearchPoint
-        source: ExperimentOpenSource
-    }
     scoreRunFinished: (run: AutoresearchRunApi) => {
         run: AutoresearchRunApi
     }
@@ -724,9 +724,6 @@ export interface autoresearchPipelineLogicActions {
         value: true
     }
     startTraining: () => any
-    steerOpened: () => {
-        value: true
-    }
     startTrainingFailure: (
         error: string,
         errorObject?: any
@@ -743,6 +740,9 @@ export interface autoresearchPipelineLogicActions {
     ) => {
         startTrainingResult: AutoresearchTrainingRunApi | null
         payload?: any
+    }
+    steerOpened: () => {
+        value: true
     }
     submitSuggestion: () => any
     submitSuggestionFailure: (
