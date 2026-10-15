@@ -59,6 +59,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     sideIcon?: React.ReactElement | null
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     suggestedFiltersLabel?: string
+    rememberCategoryKey?: string
     enableKeywordShortcuts?: boolean
     promoteSelectedItemToFirstPosition?: boolean
     selectingKeyOnly?: boolean
@@ -105,6 +106,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         allowNonCapturedEvents,
         definitionPopoverRenderer,
         suggestedFiltersLabel,
+        rememberCategoryKey,
         enableKeywordShortcuts,
         promoteSelectedItemToFirstPosition,
         selectingKeyOnly,
@@ -179,6 +181,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     allowNonCapturedEvents={allowNonCapturedEvents}
                     definitionPopoverRenderer={definitionPopoverRenderer}
                     suggestedFiltersLabel={suggestedFiltersLabel}
+                    rememberCategoryKey={rememberCategoryKey}
                     enableKeywordShortcuts={enableKeywordShortcuts}
                     promoteSelectedItemToFirstPosition={promoteSelectedItemToFirstPosition}
                     selectingKeyOnly={selectingKeyOnly}

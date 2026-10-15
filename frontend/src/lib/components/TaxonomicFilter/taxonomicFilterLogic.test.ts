@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { getContext } from 'kea'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -17,6 +18,7 @@ import {
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { getMCPPropertyFilterOptions } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -1095,6 +1097,118 @@ describe('taxonomicFilterLogic', () => {
             }
 
             testLogic.unmount()
+        })
+    })
+
+    describe('last chosen category', () => {
+        it.each([
+            {
+                description: 'reopens on the category chosen in a picker with the same key',
+                flagEnabled: true,
+                nextKey: 'series',
+                nextUrl: null,
+                expectedTab: TaxonomicFilterGroupType.Events,
+            },
+            {
+                description: 'keeps the category when only the URL hash changes',
+                flagEnabled: true,
+                nextKey: 'series',
+                nextUrl: '/#q=edited',
+                expectedTab: TaxonomicFilterGroupType.Events,
+            },
+            {
+                description: 'forgets the category after navigating to another page',
+                flagEnabled: true,
+                nextKey: 'series',
+                nextUrl: '/another-page',
+                expectedTab: TaxonomicFilterGroupType.SuggestedFilters,
+            },
+            {
+                description: 'keeps the default category in a picker without the key',
+                flagEnabled: true,
+                nextKey: undefined,
+                nextUrl: null,
+                expectedTab: TaxonomicFilterGroupType.SuggestedFilters,
+            },
+            {
+                description: 'keeps the default category while the feature flag is off',
+                flagEnabled: false,
+                nextKey: 'series',
+                nextUrl: null,
+                expectedTab: TaxonomicFilterGroupType.SuggestedFilters,
+            },
+        ])('$description', ({ flagEnabled, nextKey, nextUrl, expectedTab }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_REMEMBER_CATEGORY]: flagEnabled,
+            })
+            const firstLogic = taxonomicFilterLogic({
+                ...logic.props,
+                taxonomicFilterLogicKey: 'firstSeries',
+                rememberCategoryKey: 'series',
+            })
+            firstLogic.mount()
+            expect(firstLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+            firstLogic.actions.setActiveTab(TaxonomicFilterGroupType.Events)
+            firstLogic.unmount()
+
+            if (nextUrl) {
+                router.actions.push(nextUrl)
+            }
+            const nextLogic = taxonomicFilterLogic({
+                ...logic.props,
+                taxonomicFilterLogicKey: 'nextSeries',
+                rememberCategoryKey: nextKey,
+            })
+            nextLogic.mount()
+
+            expect(nextLogic.values.activeTab).toBe(expectedTab)
+            nextLogic.unmount()
+        })
+
+        it.each([
+            {
+                description: 'reports a selection on the tab the memory restored',
+                reopenGroupType: undefined,
+                expectedWasOnLastCategory: true,
+            },
+            {
+                description: 'does not credit the memory when an edit flow reopens on its own tab',
+                reopenGroupType: TaxonomicFilterGroupType.HogQLExpression,
+                expectedWasOnLastCategory: false,
+            },
+        ])('$description', ({ reopenGroupType, expectedWasOnLastCategory }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_REMEMBER_CATEGORY]: true,
+            })
+            const props: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'firstSeries',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.HogQLExpression],
+                rememberCategoryKey: 'series',
+            }
+            const firstLogic = taxonomicFilterLogic(props)
+            firstLogic.mount()
+            firstLogic.actions.setActiveTab(TaxonomicFilterGroupType.HogQLExpression)
+            firstLogic.unmount()
+
+            const nextLogic = taxonomicFilterLogic({
+                ...props,
+                taxonomicFilterLogicKey: 'nextSeries',
+                groupType: reopenGroupType,
+            })
+            nextLogic.mount()
+            expect(nextLogic.values.activeTab).toBe(TaxonomicFilterGroupType.HogQLExpression)
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const hogQLGroup = nextLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.HogQLExpression
+            )!
+            nextLogic.actions.selectItem(hogQLGroup, 'count()', { name: 'count()' })
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'taxonomic filter item selected',
+                expect.objectContaining({ wasOnLastCategory: expectedWasOnLastCategory })
+            )
+            captureSpy.mockRestore()
+            nextLogic.unmount()
         })
     })
 

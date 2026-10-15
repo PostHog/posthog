@@ -32,6 +32,10 @@ import {
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterCategoryLayoutLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterCategoryLayoutLogic'
+import {
+    LastCategoryState,
+    taxonomicFilterLastCategoryLogic,
+} from 'lib/components/TaxonomicFilter/taxonomicFilterLastCategoryLogic'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomicFilterSurface'
 import {
@@ -175,6 +179,11 @@ const PROMOTED_SHORTCUT_GROUP_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.Screens,
     TaxonomicFilterGroupType.EmailAddresses,
 ]
+
+export interface ActiveTabResolution {
+    tab: TaxonomicFilterGroupType
+    source: 'explicit' | 'open-as-self' | 'last-category' | 'default'
+}
 
 function requestsGroup(props: TaxonomicFilterLogicProps, groupType: TaxonomicFilterGroupType): boolean {
     return !props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(groupType)
@@ -515,9 +524,11 @@ export interface taxonomicFilterLogicValues {
     eventMetadataPropertyDefinitions: PropertyDefinition[] // propertyDefinitionsModel
     personMetadataPropertyDefinitions: PropertyDefinition[] // propertyDefinitionsModel
     categoryRailPinned: boolean // taxonomicFilterCategoryLayoutLogic
+    lastCategories: LastCategoryState // taxonomicFilterLastCategoryLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
     activeTab: TaxonomicFilterGroupType
+    activeTabResolution: ActiveTabResolution
     activeTaxonomicGroup: TaxonomicFilterGroup | undefined
     allowNonCapturedEvents: boolean
     anyGroupLoading: boolean
@@ -555,6 +566,7 @@ export interface taxonomicFilterLogicValues {
         [k: string]: number
     }
     intentPromotedGroupType: TaxonomicFilterGroupType | null
+    lastCategory: TaxonomicFilterGroupType | null
     loadingGroupTypes: TaxonomicFilterGroupType[]
     maxContextOptions: any
     metaGroupTypes: Set<string>
@@ -793,12 +805,19 @@ export interface taxonomicFilterLogicMeta {
         }
         value: (arg: any) => any
         groupType: (arg: any) => any
-        activeTab: (
+        lastCategory: (
+            lastCategories: LastCategoryState,
+            arg: any,
+            featureFlags: FeatureFlagsSet
+        ) => TaxonomicFilterGroupType | null
+        activeTabResolution: (
             explicitActiveTab: TaxonomicFilterGroupType | null,
             groupType: any,
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            metaGroupTypes: Set<string>
-        ) => TaxonomicFilterGroupType
+            metaGroupTypes: Set<string>,
+            lastCategory: TaxonomicFilterGroupType | null
+        ) => ActiveTabResolution
+        activeTab: (activeTabResolution: ActiveTabResolution) => TaxonomicFilterGroupType
         currentTabIndex: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             activeTab: TaxonomicFilterGroupType
@@ -858,6 +877,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['featureFlags'],
             taxonomicFilterCategoryLayoutLogic,
             ['categoryRailPinned'],
+            taxonomicFilterLastCategoryLogic,
+            ['lastCategories'],
             primaryEventPropertiesModel,
             ['primaryProperties'],
         ],
@@ -2420,16 +2441,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
-        activeTab: [
-            (s) => [s.explicitActiveTab, s.groupType, s.taxonomicGroupTypes, s.metaGroupTypes],
+        lastCategory: [
+            (s) => [s.lastCategories, (_, props) => props.rememberCategoryKey, s.featureFlags],
+            (
+                lastCategories: LastCategoryState,
+                rememberCategoryKey: string | undefined,
+                featureFlags: FeatureFlagsSet
+            ): TaxonomicFilterGroupType | null =>
+                rememberCategoryKey && featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_REMEMBER_CATEGORY]
+                    ? (lastCategories.categoryByKey[rememberCategoryKey] ?? null)
+                    : null,
+        ],
+        activeTabResolution: [
+            (s) => [s.explicitActiveTab, s.groupType, s.taxonomicGroupTypes, s.metaGroupTypes, s.lastCategory],
             (
                 explicitActiveTab: TaxonomicFilterGroupType | null,
                 propsGroupType,
                 groupTypes: TaxonomicFilterGroupType[],
-                metaGroupTypes: Set<string>
-            ): TaxonomicFilterGroupType => {
+                metaGroupTypes: Set<string>,
+                lastCategory: TaxonomicFilterGroupType | null
+            ): ActiveTabResolution => {
                 if (explicitActiveTab && groupTypes.includes(explicitActiveTab)) {
-                    return explicitActiveTab
+                    return { tab: explicitActiveTab, source: 'explicit' }
                 }
                 // Config/edit flows have no simple category "value" to verify on the All
                 // surface — reopen them on their own tab: a SQL/HogQL expression lands in its
@@ -2439,19 +2472,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     OPEN_AS_SELF_ON_REOPEN.has(propsGroupType) &&
                     groupTypes.includes(propsGroupType)
                 ) {
-                    return propsGroupType
+                    return { tab: propsGroupType, source: 'open-as-self' }
+                }
+                // Reopen on the category last chosen on this page, so building several series
+                // from one category does not mean picking that category each time.
+                if (lastCategory && groupTypes.includes(lastCategory)) {
+                    return { tab: lastCategory, source: 'last-category' }
                 }
                 // Otherwise lead with the All (Suggested filters) surface so reopening on an
                 // existing selection still shows recents/pinned + a cross-category search,
                 // rather than jumping to the selected item's category.
                 if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
-                    return TaxonomicFilterGroupType.SuggestedFilters
+                    return { tab: TaxonomicFilterGroupType.SuggestedFilters, source: 'default' }
                 }
                 if (propsGroupType && groupTypes.includes(propsGroupType)) {
-                    return propsGroupType
+                    return { tab: propsGroupType, source: 'default' }
                 }
-                return groupTypes.find((t) => !metaGroupTypes.has(t)) ?? groupTypes[0]
+                return { tab: groupTypes.find((t) => !metaGroupTypes.has(t)) ?? groupTypes[0], source: 'default' }
             },
+        ],
+        activeTab: [
+            (s) => [s.activeTabResolution],
+            (activeTabResolution: ActiveTabResolution): TaxonomicFilterGroupType => activeTabResolution.tab,
         ],
         currentTabIndex: [
             (s) => [s.taxonomicGroupTypes, s.activeTab],
@@ -2607,6 +2649,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         }
     }),
     listeners(({ actions, values, props, cache }) => ({
+        setActiveTab: ({ activeTab }) => {
+            if (props.rememberCategoryKey && values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_REMEMBER_CATEGORY]) {
+                taxonomicFilterLastCategoryLogic.actions.rememberCategory(props.rememberCategoryKey, activeTab)
+            }
+        },
         selectItem: ({ group, value, item, meta }) => {
             if (item) {
                 const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
@@ -2634,6 +2681,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     position: meta?.position,
                     query: values.searchQuery || undefined,
                     wasStale,
+                    ...(props.rememberCategoryKey && {
+                        wasOnLastCategory: values.activeTabResolution.source === 'last-category',
+                    }),
                     ...(wasQuickFilter && {
                         filterName: item.name,
                         propertyKey: item.propertyKey,
