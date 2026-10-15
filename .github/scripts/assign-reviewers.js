@@ -2,6 +2,7 @@
 
 const { spawnSync } = require('child_process')
 const { pathMatchesPattern } = require('./codeowners')
+const { loadRules, parseScopes } = require('./label-pr-from-title')
 
 // Tunable knobs for how aggressively we trim the reviewer list. Kept in one
 // place so adjusting noise levels doesn't require re-reading the logic. All
@@ -330,6 +331,32 @@ function computeSensitiveOwners(resolutionByPath, changedFiles, config = CONFIG)
     return Array.from(owners.values())
 }
 
+function matchTeamRules(rules, title, footprints) {
+    const scopes = new Set(parseScopes(title))
+    const owningTeams = new Set(footprints.filter((f) => f.type === 'team').map((f) => f.name))
+    const labels = new Set()
+    const teams = new Map()
+
+    for (const rule of rules) {
+        const ruleTeams = rule.teams || []
+        const matches =
+            (rule.scopes || []).some((scope) => scopes.has(String(scope).toLowerCase())) ||
+            ruleTeams.some((team) => owningTeams.has(team))
+        if (ruleTeams.length === 0 || !matches) {
+            continue
+        }
+        for (const label of rule.labels || []) {
+            labels.add(label)
+        }
+        for (const team of ruleTeams) {
+            const resolved = classifyOwner(`@PostHog/${team}`)
+            teams.set(resolved.owner, resolved)
+        }
+    }
+
+    return { labels: Array.from(labels), teams: Array.from(teams.values()) }
+}
+
 function isSubstantive(footprint, config = CONFIG) {
     return footprint.lines >= config.substantiveLines || footprint.fileCount >= config.substantiveFiles
 }
@@ -580,15 +607,15 @@ async function assignReviewers(teams, users) {
 }
 
 // Best-effort: a label failure must never fail the job.
-async function applyTeamLabels(labels) {
+async function applyLabels(labels) {
     const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
 
     if (labels.length === 0) {
-        console.info('ℹ️  No team labels to apply')
+        console.info('ℹ️  No labels to apply')
         return
     }
 
-    console.info(`Applying team labels: ${labels.join(', ')}`)
+    console.info(`Applying labels: ${labels.join(', ')}`)
 
     try {
         const response = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels`, {
@@ -602,13 +629,13 @@ async function applyTeamLabels(labels) {
         })
 
         if (!response.ok) {
-            console.warn(`⚠️  Could not apply team labels: ${response.status} ${response.statusText}`)
+            console.warn(`⚠️  Could not apply labels: ${response.status} ${response.statusText}`)
             return
         }
 
-        console.info('✅ Team labels applied')
+        console.info('✅ Labels applied')
     } catch (error) {
-        console.warn(`⚠️  Skipping team labels: ${error.message}`)
+        console.warn(`⚠️  Skipping labels: ${error.message}`)
     }
 }
 
@@ -714,7 +741,12 @@ async function main() {
         const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
         const additionOwners = computeAdditionOwners(resolutionByPath, changedFiles)
         const sensitiveOwners = computeSensitiveOwners(resolutionByPath, changedFiles)
-        const { requested, demoted } = classifyOwnersWithPinned(footprints, [...additionOwners, ...sensitiveOwners])
+        const ruleMatch = matchTeamRules(loadRules(), process.env.PR_TITLE, footprints)
+        const { requested, demoted } = classifyOwnersWithPinned(footprints, [
+            ...additionOwners,
+            ...sensitiveOwners,
+            ...ruleMatch.teams,
+        ])
 
         const teams = requested.filter((f) => f.type === 'team').map((f) => f.name)
         const users = requested.filter((f) => f.type === 'user').map((f) => f.name)
@@ -728,21 +760,18 @@ async function main() {
         console.info(`Demoted to comment: ${demoted.map((f) => f.owner).join(', ') || 'none'}`)
         console.info(`Owners of additions: ${additionOwners.map((entry) => entry.owner).join(', ') || 'none'}`)
         console.info(`Owners of sensitive paths: ${sensitiveOwners.map((entry) => entry.owner).join(', ') || 'none'}`)
+        console.info(`Teams from label rules: ${ruleMatch.teams.map((entry) => entry.owner).join(', ') || 'none'}`)
         console.info()
 
-        if (!isExternal) {
-            await assignReviewers(teams, users)
-        } else {
-            const { toLabel, toRequest } = partitionExternalTeams(teams)
-            await applyTeamLabels(toLabel.map(teamSlugToLabel).filter(Boolean))
-            await assignReviewers(toRequest, users)
-        }
+        const { toLabel, toRequest } = isExternal ? partitionExternalTeams(teams) : { toLabel: [], toRequest: teams }
+        await applyLabels([...ruleMatch.labels, ...toLabel.map(teamSlugToLabel).filter(Boolean)])
+        await assignReviewers(toRequest, users)
 
         const commentBody = buildReviewerComment(
             requested,
             demoted,
             additionOwners,
-            sensitiveOwnersToExplain(sensitiveOwners, footprints, additionOwners)
+            sensitiveOwnersToExplain(sensitiveOwners, footprints, [...additionOwners, ...ruleMatch.teams])
         )
         if (commentBody) {
             await upsertReviewerComment(commentBody)
@@ -767,6 +796,7 @@ module.exports = {
     computeAdditionOwners,
     computeSensitiveOwners,
     sensitiveOwnersToExplain,
+    matchTeamRules,
     isSubstantive,
     classifyOwners,
     classifyOwnersWithPinned,

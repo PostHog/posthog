@@ -13,12 +13,14 @@ const {
     computeAdditionOwners,
     computeSensitiveOwners,
     sensitiveOwnersToExplain,
+    matchTeamRules,
     isSubstantive,
     classifyOwners,
     classifyOwnersWithPinned,
     buildReviewerComment,
     fileMatchesPattern,
 } = require('./assign-reviewers')
+const { loadRules } = require('./label-pr-from-title')
 
 const file = (filename, additions = 0, deletions = 0) => ({
     filename,
@@ -431,6 +433,41 @@ test('classifyOwnersWithPinned: requests owners of additions and of sensitive pa
         ['@PostHog/team-small']
     )
 })
+
+const AGENT_INFRA_MATCH = { labels: ['feature/agent-infra'], teams: ['@PostHog/team-agent-infrastructure'] }
+const NO_MATCH = { labels: [], teams: [] }
+
+for (const { description, title, footprints, expected } of [
+    {
+        description: 'an agent infra scope requests the team without its code',
+        title: 'feat(agent-proxy): x',
+        footprints: [fp('@PostHog/team-devex', 50)],
+        expected: AGENT_INFRA_MATCH,
+    },
+    {
+        description: 'a minor change to agent infra code requests the team without its scope',
+        title: 'chore: x',
+        footprints: [fp('@PostHog/team-surveys', 200), fp('@PostHog/team-agent-infrastructure', 1)],
+        expected: AGENT_INFRA_MATCH,
+    },
+    {
+        description: 'a scope rule without teams requests nobody',
+        title: 'feat(flags): x',
+        footprints: [fp('@PostHog/team-feature-flags', 50)],
+        expected: NO_MATCH,
+    },
+    {
+        description: 'an unrelated PR requests nobody',
+        title: 'feat(surveys): x',
+        footprints: [fp('@PostHog/team-surveys', 50)],
+        expected: NO_MATCH,
+    },
+]) {
+    test(`matchTeamRules with the shipped config: ${description}`, () => {
+        const { labels, teams } = matchTeamRules(loadRules(), title, footprints)
+        assert.deepEqual({ labels, teams: teams.map((entry) => entry.owner) }, expected)
+    })
+}
 
 const requested = [
     {
