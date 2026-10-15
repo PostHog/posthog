@@ -3,7 +3,7 @@ import json
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
-from django.test import Client
+from django.test import Client, override_settings
 from django.urls import reverse
 
 from parameterized import parameterized
@@ -22,7 +22,7 @@ from products.messaging.backend.models.message_preferences import (
     PreferenceStatus,
 )
 
-STYLESHEET_LINK = '<link rel="stylesheet" href="/static/message-preferences.css?v='
+STYLESHEET_LINK = '<link rel="stylesheet" href="/static/message-preferences.css" />'
 
 
 def mock_response(status_code: int, response_json: dict):
@@ -32,6 +32,13 @@ def mock_response(status_code: int, response_json: dict):
     return response
 
 
+# Production storage, so a `{% static %}` link to the stylesheet fails to render here as it 404s there.
+@override_settings(
+    STORAGES={
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"},
+    }
+)
 class TestMessagePreferencesViews(BaseTest):
     def setUp(self):
         super().setUp()
