@@ -375,10 +375,9 @@ def _read_checked_days(
     hides_properties: bool,
     filters_traffic_type: bool,
 ) -> CheckedEvents:
-    where = events.where
-    if not window.checks_whole_range:
-        first, last = window.days_to_check[0], window.days_to_check[-1]
-        where = ast.And(exprs=[events.where, _between_days(events, first, last, timezone)])
+    # The bounds apply to a whole range too, because a lifecycle chart also reads the interval before its range.
+    first, last = window.days_to_check[0], window.days_to_check[-1]
+    where = ast.And(exprs=[events.where, _between_days(events, first, last, timezone)])
 
     local: LocalEvents | Skipped = Skipped(reason=InsightDataCheckSkipReason.TOO_MANY_EVENTS)
     if window.events_on_days_to_check <= MAX_COUNTED_EVENTS:

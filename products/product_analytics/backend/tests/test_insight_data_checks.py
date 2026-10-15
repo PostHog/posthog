@@ -482,6 +482,13 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         assert self._coverage(result).events_checked == events_checked
         assert (bots.events, bots.skip_reason) == (bot_events, bot_skip_reason)
 
+    def test_ignores_the_interval_a_lifecycle_chart_reads_before_its_range(self) -> None:
+        self._events(10, event=WIDELY_SENT_EVENT, days_ago=8, properties={"$host": LOCAL_HOST})
+        flush_persons_and_events()
+        query = self._query([{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}], dateRange={"date_from": "-7d"})
+
+        assert self._check(query).status == "no_events"
+
     def test_counts_an_event_as_sent_twice_only_when_an_identical_one_came_under_100_ms_before(self) -> None:
         sent_twice_by_the_app = (timedelta(0), timedelta(milliseconds=20))
         clicked_twice_by_a_person = (timedelta(seconds=30), timedelta(seconds=30.3))
