@@ -750,6 +750,7 @@ def _validate_regex(value: ValueT) -> None:
         raise QueryError(f"Invalid regular expression: '{value}'") from err
 
 
+# EXACT and IS_NOT stay out because their _expr_to_compare_op arms compare against one scalar.
 _WHOLE_LIST_OPERATORS = frozenset(
     {
         PropertyOperator.IN_,
