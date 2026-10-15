@@ -1506,16 +1506,37 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
 
-        // upload_every_n = 1, so the tick uploads.
-        let sweeper = CheckpointSweeper::new(
-            store.clone(),
-            dispatcher,
-            groups.clone(),
-            lineage,
-            config.durability_config(),
-            1,
+        // upload_every_n = 1, so every tick uploads.
+        let sweeper = |dispatcher| {
+            CheckpointSweeper::new(
+                store.clone(),
+                dispatcher,
+                groups.clone(),
+                lineage,
+                config.durability_config(),
+                1,
+                tokio_util::sync::CancellationToken::new(),
+            )
+        };
+        let uploaded = lineage
+            .local_dir(std::path::Path::new(&config.checkpoint_local_dir))
+            .join("uploaded.json");
+        let baseline = || -> serde_json::Value {
+            serde_json::from_slice(
+                &std::fs::read(&uploaded).expect("an upload records its baseline"),
+            )
+            .unwrap()
+        };
+        sweeper(dispatcher.clone()).run_once().await;
+        let first = baseline();
+        // A second sweeper over the same store stands in for a restarted process.
+        sweeper(dispatcher).run_once().await;
+        let second = baseline();
+        assert_ne!(second["metadata"]["id"], first["metadata"]["id"]);
+        assert_eq!(
+            second["metadata"]["full_upload_at"], first["metadata"]["full_upload_at"],
+            "a restarted process continues the upload chain of its store",
         );
-        sweeper.run_once().await;
 
         let total = before_checkpoint + produce_new_persons(&topic, NEW_PERSONS).await;
         let start = Instant::now();

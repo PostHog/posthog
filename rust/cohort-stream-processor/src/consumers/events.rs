@@ -97,6 +97,11 @@ impl DrainedOwnership {
     pub(crate) fn partitions(&self) -> &HashSet<i32> {
         &self.0
     }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(partitions: impl IntoIterator<Item = i32>) -> Self {
+        Self(partitions.into_iter().collect())
+    }
 }
 
 pub(crate) enum DrainWait {
@@ -2973,6 +2978,13 @@ mod tests {
             panic!("the drain finished once the blocked produce was released");
         };
         assert_eq!(drained.partitions(), &HashSet::from([0, 1]));
+        assert!(
+            matches!(
+                dispatcher.wait_for_worker_drain(Duration::ZERO).await,
+                DrainWait::Drained(_)
+            ),
+            "the final checkpoint waits with no budget, so a finished drain must answer at once",
+        );
 
         let follower_tracker = OffsetTracker::new();
         for partition in [0, 1, 2] {
