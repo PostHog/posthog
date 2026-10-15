@@ -103,7 +103,7 @@ export function TraceDialog(): JSX.Element | null {
                         </div>
                     ) : (
                         <div className="@container/trace-dialog flex flex-1 min-h-0">
-                            <div className="flex flex-1 min-h-0 flex-col @min-[56rem]/trace-dialog:flex-row">
+                            <div className="flex flex-1 min-w-0 min-h-0 flex-col @min-[56rem]/trace-dialog:flex-row">
                                 <div className="flex-1 min-w-0 min-h-0">
                                     <TraceDialogSpanTree />
                                 </div>
