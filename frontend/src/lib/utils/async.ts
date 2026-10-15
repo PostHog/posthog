@@ -214,7 +214,11 @@ export function yieldToMain(): Promise<void> {
 
 const IDLE_FALLBACK_DELAY_MS = 1000
 
-/** Runs `callback` once the browser is idle, or after `timeoutMs` at the latest. Returns a cancel function. */
+/**
+ * Runs `callback` once the browser is idle, or after `timeoutMs` at the latest.
+ * Where `requestIdleCallback` is missing, `timeoutMs` is ignored and `callback` runs after a short fixed delay.
+ * Returns a cancel function.
+ */
 export function runWhenIdle(callback: () => void, timeoutMs: number = 5000): () => void {
     if (typeof window.requestIdleCallback === 'function') {
         const id = window.requestIdleCallback(callback, { timeout: timeoutMs })
