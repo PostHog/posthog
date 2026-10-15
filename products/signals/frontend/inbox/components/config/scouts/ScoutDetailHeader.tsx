@@ -159,6 +159,7 @@ export function ScoutDetailHeader({
                 <ScoutExemptionBadge config={config} group="watching" />
                 <ScoutOwners config={config} />
                 <span className="flex-1" />
+                <LeaveScoutNoteButton skillName={config.skill_name} />
                 <Tooltip title="Dispatch a run now, outside the schedule. Counts against the project's daily run budget.">
                     <LemonButton
                         type="secondary"
