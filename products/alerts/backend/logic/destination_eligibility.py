@@ -9,19 +9,26 @@ so comparing with what the code builds today would read an old, unedited functio
 
 The first snapshot is the stock content only when the function was created with stock inputs. The
 logs alert API creates every logs destination that way. The HogFunction editor that insight alerts
-use lets a person change the message before the first save, so for insight a function without a
-later edit can still be customized.
+use lets a person change the message before the first save. So for insight the first inputs are also
+compared with every default an insight alert path has shipped.
 """
 
 from __future__ import annotations
 
+import json
 import hashlib
 from collections.abc import Collection, Sequence
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Final
 from uuid import UUID
 
-from products.alerts.backend.facade.contracts import DestinationBucket, DestinationEligibility, DestinationHoldBack
+from products.alerts.backend.facade.contracts import (
+    INSIGHT_ALERT_EVENT_IDS,
+    DestinationBucket,
+    DestinationEligibility,
+    DestinationHoldBack,
+)
 from products.alerts.backend.logic.destination_configs import (
     SPEC_BY_TEMPLATE_ID,
     WEBHOOK_HEADERS,
@@ -52,6 +59,14 @@ _INPUT_HOLD_BACKS: Final[dict[str, dict[str, DestinationHoldBack]]] = {
         "username": DestinationHoldBack.MESSAGE_COSMETIC,
     },
 }
+
+# Every value an insight alert path has shipped as a default, by template and input key. Built from
+# git history: the insight alert sub-template, the template defaults, the alert wizard, the backend
+# Slack blocks, the agent recipes and the chart-block backfill. Add the default of any new path here.
+STOCK_INPUT_VALUES: Final[dict[str, dict[str, list[Any]]]] = json.loads(
+    (Path(__file__).parent / "destination_stock_inputs.json").read_text()
+)
+_NOT_SENT_INPUTS: Final = frozenset({"debug"})
 
 _DERIVED_FILTER_KEYS: Final = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
 
@@ -85,7 +100,7 @@ def classify_alert_destinations(
         .filter(**_RECEIVES_ALERT_EVENTS)
         .order_by("created_at", "id")
     )
-    return _classify(team_id, functions)
+    return _classify(team_id, functions, allowed_event_ids)
 
 
 def classify_destinations_by_alert(
@@ -102,7 +117,7 @@ def classify_destinations_by_alert(
             .filter(**_RECEIVES_ALERT_EVENTS)
             .order_by("created_at", "id")
         )
-        for function, eligibility in zip(functions, _classify(team_id, functions)):
+        for function, eligibility in zip(functions, _classify(team_id, functions, allowed_event_ids)):
             for alert_id in _named_alert_ids(function.filters) & batch:
                 by_alert[alert_id].append(eligibility)
     return {alert_id: tuple(eligibilities) for alert_id, eligibilities in by_alert.items()}
@@ -116,13 +131,19 @@ def classify_unbound_alert_destinations(
     if not unbound_ids:
         return ()
     return _classify(
-        team_id, list(HogFunction.objects.filter(team_id=team_id, id__in=unbound_ids).order_by("created_at", "id"))
+        team_id,
+        list(HogFunction.objects.filter(team_id=team_id, id__in=unbound_ids).order_by("created_at", "id")),
+        allowed_event_ids,
     )
 
 
-def _classify(team_id: int, functions: list[HogFunction]) -> tuple[DestinationEligibility, ...]:
+def _classify(
+    team_id: int, functions: list[HogFunction], allowed_event_ids: Collection[str]
+) -> tuple[DestinationEligibility, ...]:
     if not functions:
         return ()
+    # Insight destinations are built in an editor, so the first revision can already hold an edit.
+    stock = STOCK_INPUT_VALUES if not set(allowed_event_ids).isdisjoint(INSIGHT_ALERT_EVENT_IDS) else {}
     first_revisions: dict[UUID, HogFunctionRevision] = {
         revision.hog_function_id: revision
         for revision in HogFunctionRevision.objects.for_team(team_id)
@@ -135,7 +156,7 @@ def _classify(team_id: int, functions: list[HogFunction]) -> tuple[DestinationEl
         DestinationEligibility(
             hog_function_id=function.id,
             template_id=function.template_id,
-            hold_backs=_hold_backs(function, first_revisions.get(function.id)),
+            hold_backs=_hold_backs(function, first_revisions.get(function.id), stock.get(function.template_id or "")),
             code_hash=hashlib.md5((function.hog or "").encode(), usedforsecurity=False).hexdigest(),
         )
         for function in functions
@@ -192,7 +213,9 @@ def _bound_to_one_alert(filters: Any) -> bool:
     )
 
 
-def _hold_backs(function: HogFunction, first_revision: HogFunctionRevision | None) -> tuple[DestinationHoldBack, ...]:
+def _hold_backs(
+    function: HogFunction, first_revision: HogFunctionRevision | None, stock: dict[str, list[Any]] | None
+) -> tuple[DestinationHoldBack, ...]:
     template_id = function.template_id
     if not template_id:
         return (DestinationHoldBack.NO_TEMPLATE,)
@@ -221,18 +244,18 @@ def _hold_backs(function: HogFunction, first_revision: HogFunctionRevision | Non
     last_untracked_save = function.updated_at if first_revision is None else first_revision.created_at
     if function.created_at < EDIT_TRACKING_STARTED and last_untracked_save - function.created_at > RESAVED_AFTER:
         found.append(DestinationHoldBack.UNTRACKED_EDIT)
-    if first_revision is None:
-        return tuple(found)
-
-    first_snapshot = first_revision.content
-
-    if code_edited:
-        found.append(DestinationHoldBack.CODE)
-    if function.inputs_schema != first_snapshot.get("inputs_schema"):
-        found.append(DestinationHoldBack.CUSTOM_INPUTS)
-    if _without_derived(function.filters) != _without_derived(first_snapshot.get("filters")):
-        found.append(DestinationHoldBack.FILTERS)
-    found.extend(_input_hold_backs(template_id, function.inputs or {}, first_snapshot.get("inputs") or {}))
+    if stock is not None:
+        first_inputs = function.inputs if first_revision is None else first_revision.content.get("inputs")
+        found.extend(_stock_hold_backs(template_id, first_inputs or {}, stock))
+    if first_revision is not None:
+        first_snapshot = first_revision.content
+        if code_edited:
+            found.append(DestinationHoldBack.CODE)
+        if function.inputs_schema != first_snapshot.get("inputs_schema"):
+            found.append(DestinationHoldBack.CUSTOM_INPUTS)
+        if _without_derived(function.filters) != _without_derived(first_snapshot.get("filters")):
+            found.append(DestinationHoldBack.FILTERS)
+        found.extend(_input_hold_backs(template_id, function.inputs or {}, first_snapshot.get("inputs") or {}))
     # Ordered and unique, so a report reads the same for the same function.
     return tuple(dict.fromkeys(found))
 
@@ -241,25 +264,50 @@ def _input_hold_backs(
     template_id: str, inputs: dict[str, Any], first_inputs: dict[str, Any]
 ) -> list[DestinationHoldBack]:
     found: list[DestinationHoldBack] = []
-    is_webhook = template_id == WebhookDestination.template_id
-    for key in sorted(set(inputs) | set(first_inputs)):
-        if key in SPEC_BY_TEMPLATE_ID[template_id].address_input_keys:
-            continue
+    for key in _compared_keys(template_id, set(inputs) | set(first_inputs)):
         value, first_value = input_value(inputs, key), input_value(first_inputs, key)
-        if is_webhook and key == "headers":
-            # Native delivery sends the added headers that `added_webhook_headers` keeps, so only one
-            # it drops changes what reaches the receiver.
-            if value != first_value:
-                dropped = _dropped_headers(value)
-                if any(_has_template(header_value) for header_value in dropped.values()):
-                    found.append(DestinationHoldBack.WEBHOOK_TEMPLATED_HEADER)
-                elif dropped:
-                    found.append(DestinationHoldBack.WEBHOOK_HEADERS)
+        same_mode = _is_webhook_headers(template_id, key) or _templating(inputs, key) == _templating(first_inputs, key)
+        if value == first_value and same_mode:
             continue
-        if value == first_value and _templating(inputs, key) == _templating(first_inputs, key):
-            continue
-        found.append(_INPUT_HOLD_BACKS.get(template_id, {}).get(key, DestinationHoldBack.MESSAGE))
+        found.extend(_key_hold_backs(template_id, key, value))
     return found
+
+
+def _stock_hold_backs(
+    template_id: str, inputs: dict[str, Any], stock: dict[str, list[Any]]
+) -> list[DestinationHoldBack]:
+    found: list[DestinationHoldBack] = []
+    for key in _compared_keys(template_id, set(inputs)):
+        value = input_value(inputs, key)
+        # The templates skip an empty input, so it sends what a missing one sends.
+        if value in (None, "") or (value in stock.get(key, ()) and _templating(inputs, key) == "hog"):
+            continue
+        found.extend(_key_hold_backs(template_id, key, value))
+    return found
+
+
+def _compared_keys(template_id: str, keys: set[str]) -> list[str]:
+    skipped = SPEC_BY_TEMPLATE_ID[template_id].address_input_keys | _NOT_SENT_INPUTS
+    return sorted(keys - skipped)
+
+
+def _is_webhook_headers(template_id: str, key: str) -> bool:
+    return template_id == WebhookDestination.template_id and key == "headers"
+
+
+def _key_hold_backs(template_id: str, key: str, value: Any) -> list[DestinationHoldBack]:
+    if _is_webhook_headers(template_id, key):
+        return _header_hold_backs(value)
+    return [_INPUT_HOLD_BACKS.get(template_id, {}).get(key, DestinationHoldBack.MESSAGE)]
+
+
+def _header_hold_backs(headers: Any) -> list[DestinationHoldBack]:
+    # Native delivery sends the added headers that `added_webhook_headers` keeps, so only one it
+    # drops changes what reaches the receiver.
+    dropped = _dropped_headers(headers)
+    if any(_has_template(header_value) for header_value in dropped.values()):
+        return [DestinationHoldBack.WEBHOOK_TEMPLATED_HEADER]
+    return [DestinationHoldBack.WEBHOOK_HEADERS] if dropped else []
 
 
 def _templating(inputs: dict[str, Any], key: str) -> Any:
