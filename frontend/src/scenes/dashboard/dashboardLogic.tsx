@@ -171,13 +171,18 @@ import {
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
 
+function dashboardSettingsMatch(first: DashboardSettings, second: DashboardSettings): boolean {
+    return dashboardFiltersEqual(first.filters, second.filters) && equal(first.variables, second.variables)
+}
+
 function reportDashboardTileRefreshed(
     dashboardId: number,
     tile: DashboardTile,
     filters: Record<string, any>,
     variables: Record<string, any>,
     refreshDurationMs: number,
-    individualRefresh: boolean
+    individualRefresh: boolean,
+    filterChange?: PendingFilterChange
 ): void {
     const insight = tile.insight
     const sanitizedQuery = insight?.query ? sanitizeQuery(insight.query) : {}
@@ -194,6 +199,13 @@ function reportDashboardTileRefreshed(
         refresh_duration_ms: refreshDurationMs,
         individual_refresh: individualRefresh,
         ...sanitizedQuery,
+        ...(filterChange
+            ? {
+                  filter_change_id: filterChange.id,
+                  filter_change_duration_ms: Math.floor(performance.now() - filterChange.startTime),
+                  all_insights_succeeded: filterChange.remainingInsightIds.size === 0,
+              }
+            : {}),
     })
 }
 
@@ -207,6 +219,7 @@ interface PendingFilterChange {
     id: string
     startTime: number
     settings: DashboardSettings
+    remainingInsightIds: Set<InsightShortId>
 }
 
 export interface RefreshStatus {
@@ -4417,6 +4430,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // Cache values before the long-running await — the logic may unmount
             const { currentTeamId, effectiveRefreshFilters, settingsForRefresh, urlFilters } = values
             const urlVariables = settingsForRefresh.variables
+            const pendingFilterChange: PendingFilterChange | undefined = cache.pendingFilterChange
+            const filterChange =
+                pendingFilterChange && dashboardSettingsMatch(pendingFilterChange.settings, settingsForRefresh)
+                    ? pendingFilterChange
+                    : undefined
+            filterChange?.remainingInsightIds.add(insight.short_id)
 
             actions.setRefreshStatus(insight.short_id, true, true)
 
@@ -4439,21 +4458,38 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tile.filters_overrides
                 )
 
+                const queryError = refreshedInsight ? getInsightQueryError(refreshedInsight) : null
+                const succeeded = !!refreshedInsight && !isRefreshRejectionStub(refreshedInsight) && !queryError
+                if (succeeded) {
+                    dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
+                    actions.setRefreshStatus(insight.short_id)
+                } else {
+                    actions.setRefreshError(insight.short_id, queryError?.code ? queryError : undefined)
+                }
+                const currentFilterChange =
+                    filterChange &&
+                    cache.pendingFilterChange?.id === filterChange.id &&
+                    dashboardSettingsMatch(settingsForRefresh, values.currentDashboardSettings)
+                        ? filterChange
+                        : undefined
+                if (currentFilterChange) {
+                    if (succeeded) {
+                        currentFilterChange.remainingInsightIds.delete(insight.short_id)
+                    } else {
+                        currentFilterChange.remainingInsightIds.add(insight.short_id)
+                    }
+                }
                 reportDashboardTileRefreshed(
                     dashboardId,
                     tile,
                     urlFilters,
                     urlVariables,
                     Math.floor(performance.now() - refreshStartTime),
-                    true
+                    true,
+                    currentFilterChange
                 )
-
-                const queryError = refreshedInsight ? getInsightQueryError(refreshedInsight) : null
-                if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight) && !queryError) {
-                    dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
-                    actions.setRefreshStatus(insight.short_id)
-                } else {
-                    actions.setRefreshError(insight.short_id, queryError?.code ? queryError : undefined)
+                if (currentFilterChange?.remainingInsightIds.size === 0) {
+                    cache.pendingFilterChange = undefined
                 }
             } catch (e: any) {
                 actions.setRefreshError(insight.short_id, e)
@@ -4466,9 +4502,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 : values.settingsForRefresh
             const pendingFilterChange: PendingFilterChange | undefined = cache.pendingFilterChange
             const filterChange =
-                pendingFilterChange &&
-                dashboardFiltersEqual(pendingFilterChange.settings.filters, settingsToRefresh.filters) &&
-                equal(pendingFilterChange.settings.variables, settingsToRefresh.variables)
+                pendingFilterChange && dashboardSettingsMatch(pendingFilterChange.settings, settingsToRefresh)
                     ? pendingFilterChange
                     : undefined
             const isInitialLoad =
@@ -4480,6 +4514,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const dashboardId: number = props.id
             const allInsightTiles = values.insightTiles || []
             const totalTileCount = allInsightTiles.length
+            if (filterChange) {
+                filterChange.remainingInsightIds = new Set(allInsightTiles.map((tile) => tile.insight!.short_id))
+            }
 
             const sortedTilesToRefresh = allInsightTiles
                 // sort tiles so we poll them in the exact order they are computed on the backend
@@ -4553,6 +4590,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                             actions.setRefreshStatus(insight.short_id)
                             tilesRefreshedCount++
+                            filterChange?.remainingInsightIds.delete(insight.short_id)
                             if (refreshedInsight.is_cached) {
                                 tilesRefreshedCachedCount++
                             }
@@ -4566,9 +4604,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             )
                         } else {
                             actions.setRefreshError(insight.short_id, queryError?.code ? queryError : undefined)
+                            filterChange?.remainingInsightIds.add(insight.short_id)
                             tilesErroredCount++
                         }
                     } catch (e: any) {
+                        filterChange?.remainingInsightIds.add(insight.short_id)
                         if (shouldCancelQuery(e)) {
                             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
                             actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
@@ -4614,10 +4654,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const filterChangeIsCurrent =
                     filterChange &&
                     cache.pendingFilterChange?.id === filterChange.id &&
-                    dashboardFiltersEqual(settingsToRefresh.filters, values.currentDashboardSettings.filters) &&
-                    equal(settingsToRefresh.variables, values.currentDashboardSettings.variables)
-                const allInsightsSucceeded =
-                    tilesRefreshedCount === totalTileCount && tilesErroredCount === 0 && tilesAbortedCount === 0
+                    dashboardSettingsMatch(settingsToRefresh, values.currentDashboardSettings)
+                const allInsightsSucceeded = filterChangeIsCurrent
+                    ? filterChange.remainingInsightIds.size === 0
+                    : tilesRefreshedCount === totalTileCount && tilesErroredCount === 0 && tilesAbortedCount === 0
                 posthog.capture(`dashboard refreshed`, {
                     dashboard_id: dashboardId,
                     filters: urlFilters,
@@ -4801,12 +4841,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         discardDashboardChanges: () => {
-            const filterChange: PendingFilterChange | undefined = cache.pendingFilterChange
-            posthog.capture('dashboard filters discarded', {
-                dashboard_id: props.id,
-                filter_change_id: filterChange?.id,
-                total_tile_count: values.insightTiles.length,
-            })
             cache.pendingFilterChange = undefined
             actions.clearDashboardSettingsUrlOverrides()
             actions.clearInitialDashboardSettingsOverride()
@@ -5132,6 +5166,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 id: uuid(),
                 startTime: performance.now(),
                 settings: values.currentDashboardSettings,
+                remainingInsightIds: new Set(values.insightTiles.map((tile) => tile.insight!.short_id)),
             }
             cache.pendingFilterChange = filterChange
             eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, changeType, {
@@ -5140,7 +5175,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 supersedes_filter_change_id: previousChange?.id,
                 total_tile_count: values.insightTiles.length,
                 can_auto_preview: values.canAutoPreview,
-                auto_preview_tile_limit: AUTO_PREVIEW_TILE_LIMIT,
             })
         },
         setProperties: ({ properties }) => {

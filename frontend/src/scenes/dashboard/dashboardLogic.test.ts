@@ -3648,10 +3648,12 @@ describe('dashboardLogic', () => {
             urlValue,
             dashboardOverride,
             insightOverride,
+            insightCount = 1,
         }: {
             urlValue?: string | null
             dashboardOverride?: Partial<HogQLVariable>
             insightOverride?: Partial<HogQLVariable>
+            insightCount?: number
         }): Promise<void> => {
             router.actions.push(
                 '/',
@@ -3684,7 +3686,16 @@ describe('dashboardLogic', () => {
             }
 
             const dashboardWithVariableOverride = {
-                ...dashboardResult(12, [tileFromInsight(insightWithVariable)]),
+                ...dashboardResult(12, [
+                    tileFromInsight(insightWithVariable),
+                    ...Array.from({ length: insightCount - 1 }, (_, index) =>
+                        tileFromInsight({
+                            ...insightWithVariable,
+                            id: 176 + index,
+                            short_id: `retry-${index}` as InsightShortId,
+                        })
+                    ),
+                ]),
                 persisted_variables: dashboardOverride
                     ? {
                           [variableId]: {
@@ -3949,56 +3960,92 @@ describe('dashboardLogic', () => {
             )
         })
 
-        it('waits for Preview and keeps the variable change ID and total wait through a failed refresh and retry', async () => {
-            const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
-            await mountDashboardWithVariable({})
-            const capture = jest.spyOn(posthog, 'capture').mockClear()
-            const clock = jest.spyOn(performance, 'now').mockReturnValue(1000)
-            const refresh = jest
-                .spyOn(dashboardUtils, 'getInsightWithRetry')
-                .mockImplementation(async (_teamId, insight) => insight)
-                .mockRejectedValueOnce(new Error('Failed'))
+        it.each(['dashboard', 'individual tile'] as const)(
+            'keeps the variable change ID and total wait through a failed refresh and %s retry',
+            async (retry) => {
+                const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
+                await mountDashboardWithVariable({ insightCount: 3 })
+                const capture = jest.spyOn(posthog, 'capture').mockClear()
+                const clock = jest.spyOn(performance, 'now').mockReturnValue(1000)
+                const refresh = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_teamId, insight) => insight)
+                    .mockRejectedValueOnce(new Error('First tile failed'))
+                    .mockRejectedValueOnce(new Error('Second tile failed'))
 
-            try {
-                await expectLogic(logic, () => {
-                    logic.actions.overrideVariableValue(variableId, 'edited', false)
-                }).toFinishAllListeners()
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.overrideVariableValue(variableId, 'edited', false)
+                    }).toFinishAllListeners()
 
-                expect(logic.values.canAutoPreview).toBe(false)
-                expect(refresh).not.toHaveBeenCalled()
-                expect(dashboardUtils.parseURLVariables(router.values.searchParams)).toEqual({ organization: 'edited' })
-                const change = capture.mock.calls.find(([event]) => event === 'dashboard filters changed')![1]!
-                expect(capture.mock.calls.some(([event]) => event === 'dashboard refreshed')).toBe(false)
-
-                clock.mockReturnValue(6000)
-                await expectLogic(logic, () => logic.actions.previewDashboardChanges()).toFinishAllListeners()
-                expect(refresh).toHaveBeenCalledTimes(1)
-                expect(capture).toHaveBeenCalledWith(
-                    'dashboard refreshed',
-                    expect.objectContaining({
-                        filter_change_id: change.filter_change_id,
-                        filter_change_duration_ms: 5000,
-                        all_insights_succeeded: false,
-                        tiles_errored_count: 1,
+                    expect(logic.values.canAutoPreview).toBe(false)
+                    expect(refresh).not.toHaveBeenCalled()
+                    expect(dashboardUtils.parseURLVariables(router.values.searchParams)).toEqual({
+                        organization: 'edited',
                     })
-                )
+                    const change = capture.mock.calls.find(([event]) => event === 'dashboard filters changed')![1]!
+                    expect(capture.mock.calls.some(([event]) => event === 'dashboard refreshed')).toBe(false)
 
-                clock.mockReturnValue(9000)
-                await expectLogic(logic, () => logic.actions.previewDashboardChanges()).toFinishAllListeners()
-                expect(capture).toHaveBeenCalledWith(
-                    'dashboard refreshed',
-                    expect.objectContaining({
-                        filter_change_id: change.filter_change_id,
-                        filter_change_duration_ms: 8000,
-                        all_insights_succeeded: true,
-                    })
-                )
-            } finally {
-                refresh.mockRestore()
-                clock.mockRestore()
-                autoPreviewLimit.restore()
+                    clock.mockReturnValue(6000)
+                    await expectLogic(logic, () => {
+                        if (retry === 'individual tile') {
+                            jest.spyOn(api, 'update').mockResolvedValueOnce({
+                                ...logic.values.dashboard!,
+                                persisted_variables: logic.values.currentDashboardSettings.variables,
+                            })
+                            logic.actions.saveDashboardChanges()
+                        } else {
+                            logic.actions.previewDashboardChanges()
+                        }
+                    }).toFinishAllListeners()
+                    expect(capture).toHaveBeenCalledWith(
+                        'dashboard refreshed',
+                        expect.objectContaining({
+                            filter_change_id: change.filter_change_id,
+                            filter_change_duration_ms: 5000,
+                            all_insights_succeeded: false,
+                            tiles_errored_count: 2,
+                        })
+                    )
+
+                    clock.mockReturnValue(9000)
+                    if (retry === 'individual tile') {
+                        await expectLogic(logic, () => {
+                            logic.actions.refreshDashboardItem({ tile: logic.values.insightTiles[0] })
+                        }).toFinishAllListeners()
+                        expect(capture).toHaveBeenCalledWith(
+                            'dashboard insight refreshed',
+                            expect.objectContaining({
+                                filter_change_id: change.filter_change_id,
+                                filter_change_duration_ms: 8000,
+                                all_insights_succeeded: false,
+                            })
+                        )
+                        clock.mockReturnValue(10000)
+                        await expectLogic(logic, () => {
+                            logic.actions.refreshDashboardItem({ tile: logic.values.insightTiles[1] })
+                        }).toFinishAllListeners()
+                    } else {
+                        await expectLogic(logic, () => logic.actions.previewDashboardChanges()).toFinishAllListeners()
+                    }
+                    const resultEvent =
+                        retry === 'individual tile' ? 'dashboard insight refreshed' : 'dashboard refreshed'
+                    const elapsed = retry === 'individual tile' ? 9000 : 8000
+                    expect(capture).toHaveBeenCalledWith(
+                        resultEvent,
+                        expect.objectContaining({
+                            filter_change_id: change.filter_change_id,
+                            filter_change_duration_ms: elapsed,
+                            all_insights_succeeded: true,
+                        })
+                    )
+                } finally {
+                    refresh.mockRestore()
+                    clock.mockRestore()
+                    autoPreviewLimit.restore()
+                }
             }
-        })
+        )
 
         it.each(['manual', 'saved insight'])(
             'uses dashboard context for a %s tile refresh before Preview',
@@ -4067,10 +4114,6 @@ describe('dashboardLogic', () => {
                         )
                     } else if (transition === 'discard') {
                         logic.actions.discardDashboardChanges()
-                        expect(capture).toHaveBeenCalledWith(
-                            'dashboard filters discarded',
-                            expect.objectContaining({ filter_change_id: change.filter_change_id })
-                        )
                     } else {
                         logic.unmount()
                     }
