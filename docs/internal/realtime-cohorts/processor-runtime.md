@@ -210,6 +210,7 @@ With durable restore enabled, a restart reopens the same local store instead, an
    After a checkpoint restore, it then commits those positions and deletes the restore marker.
    A failed seek, commit or delete is retried on the next poll, and nothing is dispatched until all of them succeed.
    The consumer reports no liveness while one of them fails, so a failure that persists restarts the process.
+   A restored position the broker expired since the restore checked it stops the process instead, so the next boot resets that slice.
 5. It spawns a worker for every owned partition.
    Each worker rebuilds its in-memory eviction queue by scanning its slice of behavioral state, so a dormant member on a partition with no traffic still leaves on time.
 

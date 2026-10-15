@@ -73,37 +73,61 @@ impl ResumeOffset {
     }
 }
 
-/// The low watermarks of `partitions` on `topic`. Asks each partition leader once, where
-/// `Consumer::fetch_watermarks` asks twice per partition.
-fn low_watermarks<C, X>(
+/// The `[low, high]` watermarks of `partitions` on `topic`. Asks each partition leader once per
+/// bound, where `Consumer::fetch_watermarks` asks twice per partition: a restore checks every
+/// partition of every input, and the boot waits on it.
+fn read_watermarks<C, X>(
     client: &C,
-    topic: &str,
+    topic: &InputTopic,
     partitions: impl IntoIterator<Item = u16>,
-) -> KafkaResult<BTreeMap<u16, i64>>
+) -> KafkaResult<BTreeMap<u16, (i64, i64)>>
 where
     C: Consumer<X>,
     X: ConsumerContext,
 {
-    let partitions: Vec<u16> = partitions.into_iter().collect();
+    let partitions: Vec<(&InputTopic, u16)> = partitions
+        .into_iter()
+        .map(|partition| (topic, partition))
+        .collect();
+    let low = list_offsets(client, &partitions, Offset::Beginning)?;
+    let high = list_offsets(client, &partitions, Offset::End)?;
+    Ok(partitions
+        .into_iter()
+        .map(|(_, partition)| partition)
+        .zip(low.into_iter().zip(high))
+        .collect())
+}
+
+/// Where `at` falls on each of `partitions`, in their order, from one `ListOffsets` request per
+/// partition leader, all within one timeout. `ListOffsets` reads the special timestamps `Beginning`
+/// and `End` as the low and high watermarks, exactly as `fetch_watermarks` asks for them.
+pub fn list_offsets<C, X>(
+    client: &C,
+    partitions: &[(&InputTopic, u16)],
+    at: Offset,
+) -> KafkaResult<Vec<i64>>
+where
+    C: Consumer<X>,
+    X: ConsumerContext,
+{
+    // librdkafka fails `offsets_for_times` on an empty list with `InvalidArg`.
     if partitions.is_empty() {
-        return Ok(BTreeMap::new());
+        return Ok(Vec::new());
     }
-    // `ListOffsets` reads the special timestamp `Beginning` as the low watermark, exactly as
-    // `fetch_watermarks` asks for it.
     let mut request = TopicPartitionList::new();
-    for &partition in &partitions {
-        request.add_partition_offset(topic, i32::from(partition), Offset::Beginning)?;
+    for &(topic, partition) in partitions {
+        request.add_partition_offset(topic.as_str(), i32::from(partition), at)?;
     }
     let answered = client.offsets_for_times(request, FETCH_TIMEOUT)?;
     partitions
-        .into_iter()
-        .map(|partition| {
+        .iter()
+        .map(|&(topic, partition)| {
             let elem = answered
-                .find_partition(topic, i32::from(partition))
+                .find_partition(topic.as_str(), i32::from(partition))
                 .ok_or(KafkaError::OffsetFetch(RDKafkaErrorCode::UnknownPartition))?;
             elem.error()?;
             match elem.offset() {
-                Offset::Offset(offset) => Ok((partition, offset)),
+                Offset::Offset(offset) => Ok(offset),
                 _ => Err(KafkaError::OffsetFetch(RDKafkaErrorCode::InvalidArgument)),
             }
         })
@@ -190,13 +214,21 @@ impl GroupReader {
                 Some((Ok(()), Offset::Offset(next))) => {
                     offsets.insert(partition, ResumeOffset::try_from(next)?);
                 }
-                _ => uncommitted.push(partition),
+                _ => uncommitted.push((&self.topic, partition)),
             }
         }
-        for (partition, low) in low_watermarks(&client, topic, uncommitted)? {
+        let lows = list_offsets(&client, &uncommitted, Offset::Beginning)?;
+        for (&(_, partition), low) in uncommitted.iter().zip(lows) {
             offsets.insert(partition, ResumeOffset::try_from(low)?);
         }
         Ok(InputPositions::new(self.topic.clone(), offsets))
+    }
+
+    fn watermarks(
+        &self,
+        partitions: impl IntoIterator<Item = u16>,
+    ) -> KafkaResult<BTreeMap<u16, (i64, i64)>> {
+        read_watermarks(&self.client()?, &self.topic, partitions)
     }
 }
 
@@ -229,6 +261,7 @@ impl FollowerGroup {
 pub struct InputGroups {
     events: GroupReader,
     followers: Vec<FollowerGroup>,
+    inputs: BTreeSet<InputTopic>,
 }
 
 impl InputGroups {
@@ -263,8 +296,20 @@ impl InputGroups {
         let followers = follower_inputs
             .into_iter()
             .map(|(topic, group)| FollowerGroup(GroupReader::new(config, topic, group)))
+            .collect::<Vec<_>>();
+
+        let inputs = std::iter::once(events.topic().clone())
+            .chain(followers.iter().map(|follower| follower.topic().clone()))
             .collect();
-        Self { events, followers }
+        Self {
+            events,
+            followers,
+            inputs,
+        }
+    }
+
+    pub fn inputs(&self) -> &BTreeSet<InputTopic> {
+        &self.inputs
     }
 
     pub fn followers(&self) -> &[FollowerGroup] {
@@ -281,7 +326,39 @@ impl InputGroups {
             .collect()
     }
 
+    /// `topic`'s watermarks on partitions `0..partition_count`.
+    pub fn watermarks(
+        &self,
+        topic: &InputTopic,
+        partition_count: u16,
+    ) -> KafkaResult<BTreeMap<u16, (i64, i64)>> {
+        self.readers()
+            .find(|reader| reader.topic() == topic)
+            .ok_or(KafkaError::MetadataFetch(
+                RDKafkaErrorCode::UnknownTopicOrPartition,
+            ))?
+            .watermarks(0..partition_count)
+    }
+
     fn readers(&self) -> impl Iterator<Item = &GroupReader> {
         std::iter::once(&self.events).chain(self.followers.iter().map(|follower| &follower.0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rdkafka::ClientConfig;
+
+    #[test]
+    fn an_empty_request_reads_nothing_from_the_broker() {
+        let unreachable: BaseConsumer = ClientConfig::new()
+            .set("bootstrap.servers", "127.0.0.1:1")
+            .create()
+            .unwrap();
+        assert_eq!(
+            list_offsets(&unreachable, &[], Offset::Beginning).unwrap(),
+            Vec::<i64>::new()
+        );
     }
 }

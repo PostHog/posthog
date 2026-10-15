@@ -30,7 +30,7 @@ use super::import::{CheckpointImporter, ImportError};
 use super::lineage::CheckpointLineage;
 use super::manifest::{ManifestError, OffsetManifest};
 use super::metadata::{CheckpointMetadata, MetadataError, METADATA_FILENAME};
-use super::restore_plan::RestorePlan;
+use super::restore_plan::{ReplayWindow, RestorePlan};
 use super::stage::{
     link_checkpoint, staging_path, PendingRestore, RestoredFrom, ResumeError, ValidatedStage,
 };
@@ -106,6 +106,8 @@ enum Unusable {
     MetadataFormat { found: u32 },
     #[error("manifest format {found}")]
     ManifestFormat { found: u32 },
+    #[error("the broker no longer holds what it lacks on any partition")]
+    NothingToReplay,
 }
 
 /// A candidate whose stage failed validation, so later rounds fail it without downloading it
@@ -244,7 +246,14 @@ async fn restore_until_ready(
             let mut backoff = RETRY_START;
             loop {
                 let started = Instant::now();
-                let attempt = match prepare_store(&config, lineage, searched_at, &mut rejected).await
+                let attempt = match prepare_store(
+                    &config,
+                    lineage,
+                    groups.as_ref(),
+                    searched_at,
+                    &mut rejected,
+                )
+                .await
                 {
                     Ok((BootStore::Restored(pending), source)) => pending
                         .position_followers(&groups)
@@ -287,6 +296,7 @@ async fn restore_until_ready(
 async fn prepare_store(
     config: &Config,
     lineage: Option<CheckpointLineage>,
+    window: &impl ReplayWindow,
     searched_at: DateTime<Utc>,
     rejected: &mut HashSet<Rejected>,
 ) -> Result<(BootStore, &'static str), RestoreBlocked> {
@@ -295,7 +305,7 @@ async fn prepare_store(
     remove_dir_if_present(&stage).map_err(RestoreBlocked::Local)?;
 
     if !config.effective_wipe_on_start() && live_store_is_intact(&live) {
-        match PendingRestore::resume(&live, config.partition_count()) {
+        match PendingRestore::resume(&live, window, config.partition_count()) {
             Ok(Some(pending)) => return Ok((BootStore::Restored(Box::new(pending)), "pending")),
             Ok(None) => return Ok((BootStore::Reopened, "reopen_live")),
             Err(ResumeError::Undecodable(err)) => {
@@ -311,6 +321,7 @@ async fn prepare_store(
                 std::fs::rename(&live, &stage).map_err(RestoreBlocked::Local)?;
                 remove_dir_if_present(&stage).map_err(RestoreBlocked::Local)?;
             }
+            Err(ResumeError::Window(err)) => return Err(RestoreBlocked::Positions(err)),
             Err(ResumeError::Io(err)) => return Err(RestoreBlocked::Local(err)),
         }
     }
@@ -329,6 +340,7 @@ async fn prepare_store(
         stage,
         lineage,
         events_topic: InputTopic::new(&config.cohort_stream_events_topic),
+        window,
         partition_count: config.partition_count(),
         wipe_on_schema_mismatch: config.cohort_wipe_on_schema_mismatch,
         rejected,
@@ -380,6 +392,12 @@ fn prepared(store: BootStore, source: &'static str, started: Instant) -> BootSto
     store
 }
 
+/// What the window check says about a candidate.
+enum Admission {
+    Replays(RestorePlan),
+    Rejected(Unusable),
+}
+
 /// A complete local checkpoint attempt: both its manifest and its `metadata.json`, which the
 /// sweeper writes last, decode.
 struct LocalAttempt {
@@ -389,17 +407,18 @@ struct LocalAttempt {
 }
 
 /// One round's restore of candidates into the staging directory.
-struct Restore<'a> {
+struct Restore<'a, W> {
     live: &'a Path,
     stage: PathBuf,
     lineage: CheckpointLineage,
     events_topic: InputTopic,
+    window: &'a W,
     partition_count: u16,
     wipe_on_schema_mismatch: bool,
     rejected: &'a mut HashSet<Rejected>,
 }
 
-impl Restore<'_> {
+impl<W: ReplayWindow> Restore<'_, W> {
     fn local(&mut self, attempt: LocalAttempt) -> Result<Verdict, RestoreBlocked> {
         let LocalAttempt {
             dir,
@@ -415,7 +434,7 @@ impl Restore<'_> {
                 "failed validation earlier in this process",
             ));
         }
-        if let Some(verdict) = self.admit(&metadata.id, metadata.store_schema, &manifest) {
+        if let Some(verdict) = self.admit(&metadata.id, metadata.store_schema, &manifest)? {
             return Ok(verdict);
         }
 
@@ -492,7 +511,7 @@ impl Restore<'_> {
             }
             Err(err) => return Ok(failed(checkpoint_id, err)),
         };
-        if let Some(verdict) = self.admit(checkpoint_id, metadata.store_schema, &manifest) {
+        if let Some(verdict) = self.admit(checkpoint_id, metadata.store_schema, &manifest)? {
             return Ok(verdict);
         }
 
@@ -520,33 +539,50 @@ impl Restore<'_> {
         checkpoint_id: &str,
         store_schema: u32,
         manifest: &OffsetManifest,
-    ) -> Option<Verdict> {
+    ) -> Result<Option<Verdict>, RestoreBlocked> {
         if store_schema != STORE_SCHEMA_VERSION {
-            return Some(schema_mismatch(
+            return Ok(Some(schema_mismatch(
                 checkpoint_id,
                 store_schema,
                 self.wipe_on_schema_mismatch,
-            ));
+            )));
         }
         if manifest.ordinal() != self.lineage.ordinal() {
-            return Some(failed(
+            return Ok(Some(failed(
                 checkpoint_id,
                 format_args!(
                     "its manifest belongs to ordinal {}, not {}",
                     manifest.ordinal(),
                     self.lineage.ordinal()
                 ),
-            ));
+            )));
         }
         // An input the manifest lacks resumes from its group's commit. For the events group that
         // commit lies past the checkpoint, so the restore would skip the events between.
         if !manifest.inputs().contains(&self.events_topic) {
-            return Some(failed(
+            return Ok(Some(failed(
                 checkpoint_id,
                 format_args!("its manifest records no position on {}", self.events_topic),
-            ));
+            )));
         }
-        None
+        // The plan this check builds is dropped: the one that publishes is checked after the
+        // download.
+        match self.replay_plan(manifest)? {
+            Admission::Replays(_) => Ok(None),
+            Admission::Rejected(reason) => Ok(Some(Verdict::Unusable(reason))),
+        }
+    }
+
+    /// The window check.
+    fn replay_plan(&self, manifest: &OffsetManifest) -> Result<Admission, RestoreBlocked> {
+        let plan = RestorePlan::check(manifest, self.window, self.partition_count)
+            .map_err(RestoreBlocked::Positions)?;
+        if !plan.resumes_any() {
+            // Older candidates hold older positions, which the broker deletes first, so retrying
+            // cannot help.
+            return Ok(Admission::Rejected(Unusable::NothingToReplay));
+        }
+        Ok(Admission::Replays(plan))
     }
 
     fn publish(
@@ -564,7 +600,11 @@ impl Restore<'_> {
                 return Ok(failed(&checkpoint_id, err));
             }
         };
-        let plan = RestorePlan::check(&manifest, self.partition_count);
+        // Checked again because the broker can delete positions while the candidate downloads.
+        let plan = match self.replay_plan(&manifest)? {
+            Admission::Replays(plan) => plan,
+            Admission::Rejected(reason) => return Ok(Verdict::Unusable(reason)),
+        };
         let pending = staged
             .publish(manifest, plan, self.live)
             .map_err(RestoreBlocked::Local)?;
@@ -663,10 +703,13 @@ fn newest_fresh_local_checkpoint(
 #[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::collections::{BTreeMap, BTreeSet, HashMap};
 
     use async_trait::async_trait;
     use envconfig::Envconfig;
+    use rdkafka::error::KafkaResult;
+    use rdkafka::types::RDKafkaErrorCode;
     use tempfile::TempDir;
     use tokio_util::sync::CancellationToken;
 
@@ -677,6 +720,40 @@ mod tests {
     use crate::store::StoreConfig;
 
     const EVENTS: &str = "cohort_stream_events";
+
+    /// Every partition holds `[low, i64::MAX]`, and a `None` low fails the read.
+    struct FixedWindow {
+        inputs: BTreeSet<InputTopic>,
+        low: Option<i64>,
+    }
+
+    impl ReplayWindow for FixedWindow {
+        fn inputs(&self) -> &BTreeSet<InputTopic> {
+            &self.inputs
+        }
+
+        fn watermarks(
+            &self,
+            _topic: &InputTopic,
+            partition_count: u16,
+        ) -> KafkaResult<BTreeMap<u16, (i64, i64)>> {
+            let low = self
+                .low
+                .ok_or(KafkaError::OffsetFetch(RDKafkaErrorCode::RequestTimedOut))?;
+            Ok((0..partition_count).map(|p| (p, (low, i64::MAX))).collect())
+        }
+    }
+
+    fn window_at(low: Option<i64>) -> FixedWindow {
+        FixedWindow {
+            inputs: BTreeSet::from([InputTopic::new(EVENTS)]),
+            low,
+        }
+    }
+
+    fn window() -> FixedWindow {
+        window_at(Some(0))
+    }
 
     fn failure() -> Verdict {
         failed("2026-10-09T16-00-00-000Z", "download failed")
@@ -689,7 +766,7 @@ mod tests {
             (
                 "only unusable",
                 vec![
-                    Verdict::Unusable(Unusable::Unfinished),
+                    Verdict::Unusable(Unusable::NothingToReplay),
                     Verdict::Unusable(Unusable::ManifestFormat { found: 1 }),
                 ],
                 true,
@@ -697,7 +774,7 @@ mod tests {
             (
                 "a failure among unusable ones",
                 vec![
-                    Verdict::Unusable(Unusable::Unfinished),
+                    Verdict::Unusable(Unusable::NothingToReplay),
                     failure(),
                     Verdict::Unusable(Unusable::MetadataFormat { found: 0 }),
                 ],
@@ -826,22 +903,28 @@ mod tests {
             (s3, metadata.id)
         }
 
-        fn restore<'a>(&'a self, rejected: &'a mut HashSet<Rejected>) -> Restore<'a> {
+        fn restore<'a, W: ReplayWindow>(
+            &'a self,
+            window: &'a W,
+            rejected: &'a mut HashSet<Rejected>,
+        ) -> Restore<'a, W> {
             Restore {
                 live: Path::new(&self.config.store_path),
                 stage: staging_path(Path::new(&self.config.store_path)),
                 lineage: CheckpointLineage::new(PodOrdinal::STANDALONE),
                 events_topic: InputTopic::new(EVENTS),
+                window,
                 partition_count: 1,
                 wipe_on_schema_mismatch: false,
                 rejected,
             }
         }
 
-        async fn prepare(&self) -> Result<BootStore, RestoreBlocked> {
+        async fn prepare(&self, window: &impl ReplayWindow) -> Result<BootStore, RestoreBlocked> {
             prepare_store(
                 &self.config,
                 Some(CheckpointLineage::new(PodOrdinal::STANDALONE)),
+                window,
                 Utc::now(),
                 &mut HashSet::new(),
             )
@@ -914,11 +997,12 @@ mod tests {
         let boot = Boot::new();
         let (s3, checkpoint_id) = boot.uploaded_checkpoint();
         let importer = CheckpointImporter::new(Box::new(s3), Duration::from_secs(60));
+        let window = window();
         let mut rejected = HashSet::from([Rejected::Local(checkpoint_id.clone())]);
         let mut search = Search::default();
 
         let outcome = boot
-            .restore(&mut rejected)
+            .restore(&window, &mut rejected)
             .search_s3(&importer, 1, Utc::now(), &mut search)
             .await
             .unwrap();
@@ -942,7 +1026,7 @@ mod tests {
         let mut search = Search::default();
 
         let outcome = boot
-            .restore(&mut HashSet::new())
+            .restore(&window(), &mut HashSet::new())
             .search_s3(&importer, 10, Utc::now(), &mut search)
             .await
             .unwrap();
@@ -962,25 +1046,42 @@ mod tests {
         std::fs::create_dir(&stage).unwrap();
         std::fs::write(stage.join("000001.sst"), b"torn").unwrap();
 
-        assert!(matches!(boot.prepare().await, Ok(BootStore::Reopened)));
+        assert!(matches!(
+            boot.prepare(&window()).await,
+            Ok(BootStore::Reopened)
+        ));
         assert!(!stage.exists());
     }
 
     #[tokio::test]
-    async fn a_local_checkpoint_publishes_and_stays_pending_on_the_next_boot() {
+    async fn a_local_checkpoint_stays_pending_and_each_boot_checks_its_window_again() {
         let boot = Boot::new();
         boot.local_checkpoint();
 
-        let Ok(BootStore::Restored(published)) = boot.prepare().await else {
+        let Ok(BootStore::Restored(published)) = boot.prepare(&window()).await else {
             panic!("a fresh local checkpoint restores");
         };
         assert_eq!(published.source().label(), "local");
         assert!(boot.live().join(MARKER_FILENAME).is_file());
 
-        let Ok(BootStore::Restored(resumed)) = boot.prepare().await else {
+        let Ok(BootStore::Restored(resumed)) = boot.prepare(&window()).await else {
             panic!("a store with a marker resumes its restore instead of reopening");
         };
         assert_eq!(resumed.plan(), published.plan());
+
+        // The checkpoint resumes the events at 42.
+        let Ok(BootStore::Restored(expired)) = boot.prepare(&window_at(Some(43))).await else {
+            panic!("a pending restore resumes whatever the window holds");
+        };
+        assert_eq!(expired.plan().resets().count(), 1);
+        assert!(matches!(
+            boot.prepare(&window_at(None)).await,
+            Err(RestoreBlocked::Positions(_))
+        ));
+        assert!(
+            boot.live().join(MARKER_FILENAME).is_file(),
+            "a window that cannot be read keeps the published store for the next round",
+        );
     }
 
     #[tokio::test]
@@ -993,11 +1094,11 @@ mod tests {
         }));
         std::fs::write(boot.live().join(MARKER_FILENAME), b"{\"version\": 1").unwrap();
 
-        let Ok(BootStore::Restored(pending)) = boot.prepare().await else {
+        let Ok(BootStore::Restored(pending)) = boot.prepare(&window()).await else {
             panic!("the store with an unreadable marker is replaced by a restore");
         };
         assert_eq!(pending.source().label(), "local");
-        PendingRestore::resume(&boot.live(), 1)
+        PendingRestore::resume(&boot.live(), &window(), 1)
             .unwrap()
             .expect("the new restore carries a readable marker");
     }
@@ -1010,7 +1111,7 @@ mod tests {
         let torn = boot.local_checkpoint();
         std::fs::remove_file(boot.lineage_dir().join(&torn.id).join(METADATA_FILENAME)).unwrap();
 
-        let Ok(BootStore::Restored(pending)) = boot.prepare().await else {
+        let Ok(BootStore::Restored(pending)) = boot.prepare(&window()).await else {
             panic!("the newest complete attempt restores");
         };
         assert_eq!(pending.source().checkpoint_id(), newest.id);
@@ -1084,12 +1185,65 @@ mod tests {
             };
             break_attempt(&mut attempt);
 
-            let verdict = boot.restore(&mut HashSet::new()).local(attempt);
+            let verdict = boot.restore(&window(), &mut HashSet::new()).local(attempt);
 
             assert!(
                 matches!(verdict, Ok(Verdict::Failed(_))),
                 "{name}: {verdict:?}"
             );
         }
+    }
+
+    /// Holds every position on its first read, as the check before a download sees it, and none
+    /// after.
+    struct ExpiringWindow {
+        inputs: BTreeSet<InputTopic>,
+        reads: Cell<u32>,
+    }
+
+    impl ReplayWindow for ExpiringWindow {
+        fn inputs(&self) -> &BTreeSet<InputTopic> {
+            &self.inputs
+        }
+
+        fn watermarks(
+            &self,
+            _topic: &InputTopic,
+            partition_count: u16,
+        ) -> KafkaResult<BTreeMap<u16, (i64, i64)>> {
+            let reads = self.reads.get();
+            self.reads.set(reads + 1);
+            let low = if reads == 0 { 0 } else { i64::MAX };
+            Ok((0..partition_count).map(|p| (p, (low, i64::MAX))).collect())
+        }
+    }
+
+    #[tokio::test]
+    async fn a_window_that_expires_while_the_candidate_stages_publishes_nothing() {
+        let boot = Boot::new();
+        boot.local_checkpoint();
+        let window = ExpiringWindow {
+            inputs: BTreeSet::from([InputTopic::new(EVENTS)]),
+            reads: Cell::new(0),
+        };
+        let attempt = newest_fresh_local_checkpoint(
+            &boot.lineage_dir(),
+            Duration::from_secs(3600),
+            Utc::now(),
+        )
+        .unwrap()
+        .unwrap();
+
+        let verdict = boot
+            .restore(&window, &mut HashSet::new())
+            .local(attempt)
+            .unwrap();
+
+        assert!(
+            matches!(verdict, Verdict::Unusable(Unusable::NothingToReplay)),
+            "{verdict:?}"
+        );
+        assert!(!boot.live().exists());
+        assert!(!staging_path(&boot.live()).exists());
     }
 }

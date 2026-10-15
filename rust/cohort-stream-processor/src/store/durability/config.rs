@@ -87,7 +87,7 @@ impl Default for DurabilityConfig {
             s3_access_key_id: None,
             s3_secret_access_key: None,
             s3_force_path_style: false,
-            checkpoint_import_window_hours: 24,
+            checkpoint_import_window_hours: 20,
             s3_operation_timeout: Duration::from_secs(120),
             s3_attempt_timeout: Duration::from_secs(20),
             s3_max_retries: 3,
