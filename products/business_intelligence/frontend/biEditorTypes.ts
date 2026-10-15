@@ -952,7 +952,7 @@ function aggregationExpression(value: BIValue): string | null {
 export function getBIFilterValidationError(filter: BIFilter): string | null {
     if (
         filter.enabled === false ||
-        !isNumericBIField(filter.field) ||
+        !isNumericBIResultField(filter.field) ||
         ['custom', 'contains', 'is_set', 'is_not_set', 'last_7_days'].includes(filter.operator)
     ) {
         return null
@@ -1043,7 +1043,7 @@ function filterExpression(filter: BIFilter): string | null {
     }
     // Strip leading zeroes so decimal input cannot become an octal HogQL literal.
     const literal = (value: string): string =>
-        isNumericBIField(filter.field) ? value.trim().replace(/^([+-]?)0+(?=\d)/, '$1') : escapeHogQLString(value)
+        isNumericBIResultField(filter.field) ? value.trim().replace(/^([+-]?)0+(?=\d)/, '$1') : escapeHogQLString(value)
     if (filter.operator === 'in' || filter.operator === 'not_in') {
         const values = filter.values ?? []
         return values.length
