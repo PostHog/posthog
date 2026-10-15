@@ -11425,56 +11425,6 @@ class MemberAliase(BaseModel):
     field: BIField
 
 
-class BIConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    chartType: ChartDisplayType
-    colorBy: str | None = None
-    columns: list[BIField]
-    compareFilter: CompareFilter | None = None
-    comparisonPeriod: ComparisonPeriod | None = Field(
-        default=None,
-        description=("Explore only the comparison window, using dateRange as its reference window."),
-    )
-    dateField: BIField | None = Field(
-        default=None,
-        description="Column that receives the worksheet and dashboard date range.",
-    )
-    dateRange: DateRange | None = None
-    filters: list[BIFilter]
-    hierarchies: list[BIHierarchy] | None = Field(
-        default=None,
-        description=("Named dimension sequences saved with the worksheet; imports are independent copies."),
-    )
-    hierarchyDrillPath: list[HierarchyDrillPathItem] | None = None
-    limit: BIQueryLimit
-    localFields: list[BIField] | None = Field(
-        default=None, description="Reusable expressions owned by this worksheet only."
-    )
-    memberAliases: list[MemberAliase] | None = None
-    missingDates: MissingDates | None = Field(
-        default=None,
-        description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
-    )
-    panes: BIPaneSettings | None = Field(
-        default=None,
-        description=("Split the returned groups into charts using these ordered dimension IDs."),
-    )
-    resultFilterGroup: BIConditionGroup | None = None
-    resultFilters: list[BIResultFilter] | None = None
-    rowFilterGroup: BIConditionGroup | None = None
-    rows: list[BIField]
-    sort: BISort | None = Field(
-        default=None,
-        description=("null sorts automatically: newest date or highest value first, so top rows survive the LIMIT."),
-    )
-    source: BIDataSource | None = None
-    topN: BITopN | None = None
-    totals: BITotals | None = None
-    values: list[BIValue]
-
-
 class BehavioralPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -31031,6 +30981,66 @@ class TraceSpansTreeQuery(BaseModel):
     )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class BIConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    catalogMetric: str | None = Field(
+        default=None,
+        description=("Catalog provenance only: the snapshot does not track subsequent definition edits."),
+    )
+    chartType: ChartDisplayType
+    colorBy: str | None = None
+    columns: list[BIField]
+    compareFilter: CompareFilter | None = None
+    comparisonPeriod: ComparisonPeriod | None = Field(
+        default=None,
+        description=("Explore only the comparison window, using dateRange as its reference window."),
+    )
+    dateField: BIField | None = Field(
+        default=None,
+        description="Column that receives the worksheet and dashboard date range.",
+    )
+    dateRange: DateRange | None = None
+    filters: list[BIFilter]
+    hierarchies: list[BIHierarchy] | None = Field(
+        default=None,
+        description=("Named dimension sequences saved with the worksheet; imports are independent copies."),
+    )
+    hierarchyDrillPath: list[HierarchyDrillPathItem] | None = None
+    limit: BIQueryLimit
+    localFields: list[BIField] | None = Field(
+        default=None, description="Reusable expressions owned by this worksheet only."
+    )
+    memberAliases: list[MemberAliase] | None = None
+    missingDates: MissingDates | None = Field(
+        default=None,
+        description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
+    )
+    panes: BIPaneSettings | None = Field(
+        default=None,
+        description=("Split the returned groups into charts using these ordered dimension IDs."),
+    )
+    querySnapshot: HogQLQuery | None = Field(
+        default=None,
+        description=(
+            "Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves."
+        ),
+    )
+    resultFilterGroup: BIConditionGroup | None = None
+    resultFilters: list[BIResultFilter] | None = None
+    rowFilterGroup: BIConditionGroup | None = None
+    rows: list[BIField]
+    sort: BISort | None = Field(
+        default=None,
+        description=("null sorts automatically: newest date or highest value first, so top rows survive the LIMIT."),
+    )
+    source: BIDataSource | None = None
+    topN: BITopN | None = None
+    totals: BITotals | None = None
+    values: list[BIValue]
 
 
 class BIVisualizationNode(BaseModel):
