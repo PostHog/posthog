@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { fileSystemTypes, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { type InsightShortId, SavedInsightsTabs, type UserBasicType } from '~/types'
+import type { InsightShortId, UserBasicType } from '~/types'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 import type { DashboardBasicApi } from 'products/dashboards/frontend/generated/api.schemas'
@@ -287,18 +287,18 @@ export function isFromPostHogItem(item: Pick<FileSystemImport, 'iconType'>): boo
 
 export function fromPostHogProducts(): FromPostHogItem[] {
     const products = getTreeItemsProducts()
-    // Product analytics has no page of its own in the manifest; its ready-made analysis is the Insights home tab.
+    // Product analytics has no page of its own in the manifest; its ready-made analysis is the home dashboard.
     const productAnalytics = products.find((product) => product.type === 'insight' && product.href === urls.insights())
     const home: FromPostHogItem[] = productAnalytics
         ? [
               {
                   key: 'product_analytics',
                   label: 'Product analytics',
-                  href: urls.savedInsights(SavedInsightsTabs.Home),
+                  href: urls.analyticsProductHome(),
                   item: {
                       ...productAnalytics,
                       iconType: 'product_analytics',
-                      href: urls.savedInsights(SavedInsightsTabs.Home),
+                      href: urls.analyticsProductHome(),
                       flag: FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB,
                   },
               },
