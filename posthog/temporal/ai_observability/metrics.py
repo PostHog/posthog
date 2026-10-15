@@ -142,20 +142,19 @@ def increment_tokens(token_type: str, count: int) -> None:
 
 
 def increment_emit_event_outcome(outcome: str) -> None:
-    """Track $ai_evaluation event emission outcomes (success/failed/dropped_billing_limited/dropped_by_capture).
+    """Track $ai_evaluation event emission outcomes (success/failed/dropped_billing_limited).
 
     Distinguishes emit failures from other workflow failures so we can measure dropped
     eval events specifically, and the LLMAEvalsHighErrorRate alert divides llma_eval_errors
     by this counter's total. `dropped_billing_limited` is an expected billing condition,
-    not a system failure, so it's kept out of the `failed` bucket. `dropped_by_capture` is
-    capture-ai rejecting the event itself, which a retry can't change.
+    not a system failure, so it's kept out of the `failed` bucket.
     """
     if not activity.in_activity() and not workflow.in_workflow():
         return
     meter = get_metric_meter({"outcome": outcome})
     counter = meter.create_counter(
         "llma_eval_emit_event_outcome",
-        "Outcome of $ai_evaluation event emission (success/failed/dropped_billing_limited/dropped_by_capture)",
+        "Outcome of $ai_evaluation event emission (success/failed/dropped_billing_limited)",
     )
     counter.add(1)
 

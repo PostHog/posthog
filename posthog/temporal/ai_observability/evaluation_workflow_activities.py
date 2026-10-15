@@ -1,5 +1,6 @@
 import os
 import json
+import uuid
 import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -26,12 +27,7 @@ from posthog.temporal.ai_observability.evaluation_sentiment import run_sentiment
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
 from posthog.temporal.ai_observability.retries import is_last_attempt
-from posthog.temporal.ai_observability.team_capture import (
-    CaptureEventDropped,
-    capture_ai_internal_for_team,
-    raise_emit_failure,
-    workflow_event_uuid,
-)
+from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team, raise_emit_failure
 from posthog.temporal.common.errors import NonReportableApplicationError
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -351,6 +347,16 @@ def build_evaluation_event_properties(
     return properties
 
 
+def _evaluation_event_uuid() -> str | None:
+    """One workflow emits one $ai_evaluation, so its uuid derives from the workflow id, which
+    survives activity retries and workflow-level retries alike. A manual re-run mints a new
+    workflow id (it embeds a ms timestamp), so re-runs still get distinct events."""
+    if not temporalio.activity.in_activity():
+        return None
+    workflow_id = temporalio.activity.info().workflow_id
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://ai-evaluation/{workflow_id}"))
+
+
 def capture_evaluation_run_usage(
     evaluation: Mapping[str, object],
     result: EvaluationActivityResult,
@@ -441,7 +447,7 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
                 else start_time
             ),
             properties=properties,
-            event_uuid=workflow_event_uuid("ai-evaluation"),
+            event_uuid=_evaluation_event_uuid(),
         )
         # Completed LLM judge runs emit telemetry in the workflow's separate activity.
         if evaluation.get("evaluation_type", "llm_judge") != "llm_judge" or result.get("skipped"):
@@ -454,8 +460,6 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
         increment_emit_event_outcome("success")
-    except CaptureEventDropped:
-        increment_emit_event_outcome("dropped_by_capture")
     except CaptureInternalError as e:
         if e.is_billing_limit_exceeded:
             increment_emit_event_outcome("dropped_billing_limited")

@@ -74,10 +74,8 @@ from posthog.temporal.ai_observability.team_capture import (
     EMIT_EVENT_RETRY_POLICY,
     EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
     EMIT_EVENT_START_TO_CLOSE_TIMEOUT,
-    CaptureEventDropped,
     capture_ai_internal_for_team,
     raise_emit_failure,
-    workflow_event_uuid,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
@@ -820,9 +818,7 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
                 str(properties["$ai_target_id"]),
             )
         else:
-            # Not emit time: ingestion dedup keys on (timestamp, event, distinct_id, token), so only a
-            # stable timestamp lets a retried emit collapse into the original.
-            timestamp = inputs.start_time
+            timestamp = datetime.now(UTC)
 
         capture_ai_internal_for_team(
             team_id=inputs.team_id,
@@ -831,7 +827,6 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
             distinct_id=inputs.distinct_id,
             timestamp=timestamp,
             properties=properties,
-            event_uuid=workflow_event_uuid("ai-evaluation"),
         )
         # Completed runs emit telemetry in the workflow's separate activity.
         if inputs.result.get("skipped"):
@@ -844,8 +839,6 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
         increment_emit_event_outcome("success")
-    except CaptureEventDropped:
-        increment_emit_event_outcome("dropped_by_capture")
     except CaptureInternalError as e:
         if e.is_billing_limit_exceeded:
             increment_emit_event_outcome("dropped_billing_limited")

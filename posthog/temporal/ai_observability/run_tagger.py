@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -25,10 +25,8 @@ from posthog.temporal.ai_observability.team_capture import (
     EMIT_EVENT_RETRY_POLICY,
     HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
     HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
-    CaptureEventDropped,
     capture_ai_internal_for_team,
     raise_emit_failure,
-    workflow_event_uuid,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
@@ -588,17 +586,12 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
             event_name="$ai_tag",
             event_source="llm_analytics_tagger",
             distinct_id=event_data["distinct_id"],
-            # Not emit time: ingestion dedup keys on (timestamp, event, distinct_id, token), so only a
-            # stable timestamp lets a retried emit collapse into the original.
-            timestamp=start_time,
+            timestamp=datetime.now(UTC),
             properties=properties,
-            event_uuid=workflow_event_uuid("ai-tag"),
         )
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
-    except CaptureEventDropped:
-        return
     except CaptureInternalError as e:
         if e.is_billing_limit_exceeded:
             logger.info("Skipping tag event emission; team over billing quota", team_id=event_data["team_id"])

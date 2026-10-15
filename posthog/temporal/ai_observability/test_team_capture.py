@@ -11,13 +11,12 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
-from posthog.api.capture import CaptureInternalError, CaptureInternalResult
+from posthog.api.capture import CaptureInternalError
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.team_capture import (
     EMIT_EVENT_RETRY_POLICY,
     EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
     TOKEN_CACHE_TTL_SECONDS,
-    CaptureEventDropped,
     TeamNotFound,
     capture_ai_internal_for_team,
     get_team_api_token,
@@ -99,18 +98,6 @@ class TestTeamCapture(BaseTest):
         ):
             with self.assertNumQueries(0):
                 _emit(self.team.id)
-
-    @parameterized.expand(
-        [
-            ("dropped", CaptureInternalResult(status_code=200, dropped=["u1"]), CaptureEventDropped),
-            ("retried", CaptureInternalResult(status_code=200, retried=["u1"]), CaptureInternalError),
-        ]
-    )
-    def test_only_a_drop_raises_capture_event_dropped(self, _name, result, expected_error):
-        with patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal", return_value=result):
-            with self.assertRaises(CaptureInternalError) as ctx:
-                _emit(self.team.id)
-        assert type(ctx.exception) is expected_error
 
 
 class TestRaiseEmitFailure(SimpleTestCase):
