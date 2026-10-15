@@ -253,6 +253,19 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_partial_matches_a_message_the_request_carries_twice_by_occurrence() {
+        let mut requests = InFlightRequests::new();
+        let id = requests.register(WorkerId::from("w"), FRESH, &[run("a", &[1, 2, 1])]);
+        let request = requests.take(id).expect("registered");
+        let partial_runs = request
+            .partially_accepted(2, vec![message("a", 0, 1)])
+            .expect("matches the request");
+        let run = &partial_runs[0];
+        let accepted: Vec<i64> = run.accepted.iter().map(|sent| sent.offset).collect();
+        assert_eq!((accepted, offsets(&run.unfinished)), (vec![2, 1], vec![1]));
+    }
+
     #[rstest]
     #[case::empty(4, vec![])]
     #[case::not_in_the_request(3, vec![message("a", 0, 7)])]

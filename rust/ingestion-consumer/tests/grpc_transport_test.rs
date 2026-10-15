@@ -430,6 +430,53 @@ async fn a_partial_ack_resolves_the_send_without_fencing_the_stream() {
 }
 
 #[rstest]
+#[case::both_copies_unfinished(partial_ack(1, 0, &[1, 1]), vec![1, 1])]
+#[case::one_copy_unfinished(partial_ack(1, 1, &[1]), vec![1])]
+#[tokio::test]
+async fn a_partial_ack_counts_a_message_the_sub_batch_carries_twice(
+    #[case] ack: SubBatchAck,
+    #[case] expected_unfinished: Vec<i64>,
+) {
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    let url = worker_url(mock.addr);
+    let budgeted = SendOptions {
+        replay: false,
+        soft_budget: Some(BUDGET),
+    };
+
+    let pending =
+        transport.begin_send_with(&url, "batch-1", vec![msg("d1", 1), msg("d1", 1)], budgeted);
+    wait_for_received(&mock, 1).await;
+    ack_tx.send(ManualAck::Ack(ack)).unwrap();
+
+    match pending
+        .wait()
+        .await
+        .expect("a partial ack is not a failure")
+    {
+        SendOutcome::Partial {
+            accepted,
+            unfinished,
+        } => {
+            let offsets: Vec<i64> = unfinished.iter().map(|message| message.offset).collect();
+            assert_eq!(offsets, expected_unfinished);
+            assert_eq!(
+                accepted as usize + offsets.len(),
+                2,
+                "each copy is either accepted or unfinished"
+            );
+        }
+        other => panic!("expected a partial outcome, got {other:?}"),
+    }
+}
+
+#[rstest]
 #[case::partial_without_a_budget(None, partial_ack(1, 1, &[1]))]
 #[case::partial_with_no_unfinished_messages(Some(BUDGET), partial_ack(1, 2, &[]))]
 #[case::partial_listing_a_message_not_sent(Some(BUDGET), partial_ack(1, 1, &[9]))]
@@ -437,7 +484,7 @@ async fn a_partial_ack_resolves_the_send_without_fencing_the_stream() {
     Some(BUDGET),
     SubBatchAck { unfinished: vec![MessageRef { partition: 1, offset: 1 }], ..partial_ack(1, 1, &[]) }
 )]
-#[case::partial_listing_a_message_twice(Some(BUDGET), partial_ack(1, 0, &[1, 1]))]
+#[case::partial_listing_a_message_more_often_than_carried(Some(BUDGET), partial_ack(1, 0, &[1, 1]))]
 #[case::partial_missing_a_message(Some(BUDGET), partial_ack(1, 0, &[1]))]
 #[case::unfinished_messages_on_an_ok_ack(
     Some(BUDGET),

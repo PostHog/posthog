@@ -38,7 +38,7 @@
 //! `max_in_flight_batches`, whose batches cannot complete until their sends
 //! resolve.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -87,7 +87,9 @@ impl PendingWorkerStreamSend {
     pub async fn wait(self) -> Result<SendOutcome, SendError> {
         let mut accepted_total = 0u32;
         let mut messages: Vec<SerializedKafkaMessage> = Vec::new();
-        let mut unfinished: HashSet<(i32, i64)> = HashSet::new();
+        // A partition revoked and regained inside one poll delivers an offset
+        // twice, so unfinished references are counted, not deduplicated.
+        let mut unfinished: HashMap<(i32, i64), usize> = HashMap::new();
         let mut failure: Option<SendError> = None;
         for rx in self.chunks {
             let reply = match rx.await {
@@ -105,12 +107,11 @@ impl PendingWorkerStreamSend {
             match reply {
                 Ok(accepted) => {
                     accepted_total += accepted.accepted;
-                    unfinished.extend(
-                        accepted
-                            .unfinished
-                            .iter()
-                            .map(|message| (message.partition, message.offset)),
-                    );
+                    for message in &accepted.unfinished {
+                        *unfinished
+                            .entry((message.partition, message.offset))
+                            .or_default() += 1;
+                    }
                     messages.extend(accepted.messages);
                 }
                 Err(mut err) => {
@@ -136,7 +137,15 @@ impl PendingWorkerStreamSend {
                 accepted: accepted_total,
                 unfinished: messages
                     .into_iter()
-                    .filter(|message| unfinished.contains(&(message.partition, message.offset)))
+                    .filter(|message| {
+                        match unfinished.get_mut(&(message.partition, message.offset)) {
+                            Some(left) if *left > 0 => {
+                                *left -= 1;
+                                true
+                            }
+                            _ => false,
+                        }
+                    })
                     .collect(),
             }),
             Some(mut err) => {
@@ -952,19 +961,21 @@ fn ack_shape_error(item: &WorkerStreamItem, ack: &SubBatchAck) -> Option<&'stati
     if ack.accepted as usize + ack.unfinished.len() != item.messages.len() {
         return Some("partial ack does not account for every message");
     }
-    let sent: HashSet<(i32, i64)> = item
-        .messages
-        .iter()
-        .map(|message| (message.partition, message.offset))
-        .collect();
-    let mut listed = HashSet::with_capacity(ack.unfinished.len());
+    // A partition revoked and regained inside one poll delivers an offset
+    // twice, so a sub-batch may carry one coordinate more than once.
+    let mut carried: HashMap<(i32, i64), usize> = HashMap::with_capacity(item.messages.len());
+    for message in &item.messages {
+        *carried
+            .entry((message.partition, message.offset))
+            .or_default() += 1;
+    }
     for message in &ack.unfinished {
-        let id = (message.partition, message.offset);
-        if !sent.contains(&id) {
-            return Some("partial ack lists a message the sub-batch did not carry");
-        }
-        if !listed.insert(id) {
-            return Some("partial ack lists a message twice");
+        match carried.get_mut(&(message.partition, message.offset)) {
+            Some(left) if *left > 0 => *left -= 1,
+            Some(_) => {
+                return Some("partial ack lists a message more often than the sub-batch carried it")
+            }
+            None => return Some("partial ack lists a message the sub-batch did not carry"),
         }
     }
     None
