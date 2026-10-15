@@ -168,6 +168,7 @@ class VercelResourceViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, vi
         "destroy": ["user", "system"],
         "retrieve": ["system"],
         "rotate_secrets": ["system"],
+        "resource_plans": ["system"],
     }
 
     def _validate_resource_access(self, resource_id: str, installation_id: str) -> None:
@@ -229,6 +230,22 @@ class VercelResourceViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, vi
 
         VercelIntegration.delete_resource(resource_id)
         return Response(status=204)
+
+    @action(detail=True, methods=["GET"], url_path="plans")
+    def resource_plans(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        https://vercel.com/docs/integrations/create-integration/marketplace-api/reference/partner/list-billing-plans-for-resource
+
+        Vercel lists this endpoint as optional, for plan changes. A whole-installation transfer
+        also calls it, and the transfer never completes when it answers 404.
+        The action is not named `plans`, because `VercelPermission` exempts actions with that
+        name from binding the token to the installation in the URL.
+        """
+        resource_id = validate_resource_id(self.kwargs.get("resource_id"))
+        installation_id = validate_installation_id(self.kwargs.get("parent_lookup_installation_id"))
+        self._validate_resource_access(resource_id, installation_id)
+
+        return Response({"plans": VercelIntegration.get_vercel_plans()})
 
     @action(detail=True, methods=["POST"], url_path="secrets/rotate")
     def rotate_secrets(self, request: Request, *args: Any, **kwargs: Any) -> Response:

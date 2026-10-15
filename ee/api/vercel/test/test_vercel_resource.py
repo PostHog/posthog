@@ -318,3 +318,12 @@ class TestVercelResourceAPI(VercelTestBase):
 
         response = self.client.post(url, **headers)
         self.assert_not_found(response)
+
+    def test_resource_plans_list_the_billing_plans(self):
+        url = f"{self.primary_resource['resource_url']}plans/"
+        headers = self.auth_headers(self.installation_id, "system")
+
+        response = self.client.get(url, **headers)
+
+        self.assert_success(response)
+        self.assertEqual([plan["id"] for plan in response.json()["plans"]], ["posthog-usage-based"])

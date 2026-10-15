@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.db import OperationalError
 from django.test import override_settings
 
+from parameterized import parameterized
 from requests import RequestException
 
 from posthog.ingress.dispatch.loading import reset_consumer_registry
@@ -125,6 +126,59 @@ class TestVercelWebhooks(VercelTestBase):
 
         self.assertEqual(response.status_code, 202)
         self.assertFalse(OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists())
+
+    @parameterized.expand(
+        [
+            (
+                "vercel_returns_a_contact",
+                {"email": "new-owner@example.com", "name": "New owner"},
+                {"email": "new-owner@example.com", "name": "New owner"},
+            ),
+            ("vercel_returns_no_contact", None, {"email": "old-owner@example.com", "name": "Old owner"}),
+        ]
+    )
+    @patch("ee.vercel.client.requests.Session.request")
+    def test_a_transfer_stores_the_new_team_from_vercel(self, _name, live_contact, stored_contact, vercel_request):
+        self.installation.config["account"] = {
+            "url": "https://vercel.com/old-team/~/integrations/posthog/icfg_old",
+            "name": "Old team",
+            "contact": {"email": "old-owner@example.com", "name": "Old owner"},
+        }
+        self.installation.save()
+        vercel_response = MagicMock(status_code=200)
+        vercel_response.json.return_value = {
+            "url": "https://vercel.com/new-team/~/integrations/posthog/icfg_old",
+            "name": "New team",
+            "contact": live_contact,
+        }
+        vercel_request.return_value = vercel_response
+
+        response = self._post(
+            {
+                "type": "integration-configuration.transferred",
+                "payload": {
+                    "installationId": self.installation_id,
+                    "configuration": {"id": self.installation_id},
+                    "previousTeamId": "team_old",
+                    "newTeamId": "team_new",
+                },
+            }
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(
+            vercel_request.call_args.args[:2],
+            ("GET", f"https://api.vercel.com/v1/installations/{self.installation_id}/account"),
+        )
+        self.installation.refresh_from_db()
+        self.assertEqual(
+            self.installation.config["account"],
+            {
+                "url": "https://vercel.com/new-team/~/integrations/posthog/icfg_old",
+                "name": "New team",
+                "contact": stored_contact,
+            },
+        )
 
     @patch("ee.api.vercel.webhook_events.BillingManager")
     def test_an_event_type_this_integration_does_not_act_on_runs_nothing(self, billing_manager):

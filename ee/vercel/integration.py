@@ -481,6 +481,22 @@ class VercelIntegration:
         return {"finalized": True}
 
     @staticmethod
+    def refresh_installation_account(installation_id: str) -> None:
+        installation = VercelIntegration._get_installation(installation_id)
+        access_token = VercelIntegration._get_access_token(installation)
+        if not access_token:
+            raise RuntimeError(f"No access token for Vercel installation {installation_id}")
+
+        account = VercelAPIClient(bearer_token=access_token).get_installation_account(installation_id)
+
+        # Re-read after the network call, so that a user mapping saved meanwhile is not overwritten.
+        installation.refresh_from_db(fields=["config"])
+        contact = account.get("contact") or installation.config.get("account", {}).get("contact")
+        installation.config["account"] = {"url": account["url"], "name": account.get("name"), "contact": contact}
+        installation.save(update_fields=["config"])
+        logger.info("Refreshed Vercel installation account", installation_id=installation_id, integration="vercel")
+
+    @staticmethod
     def get_product_plans(product_slug: str) -> dict[str, Any]:
         if product_slug != "posthog":
             raise exceptions.NotFound("Product not found")

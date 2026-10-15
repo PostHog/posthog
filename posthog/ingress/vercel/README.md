@@ -26,7 +26,7 @@ The consumer carries its own idempotency in the meantime, as it did before.
 The event type is the body's `type`.
 Vercel names every invoice event `marketplace.invoice.<something>` and adds to the family over time, while the registry matches an exact event type.
 So the family is registered under the prefix `marketplace.invoice`, the whole envelope travels as the delivery payload, and the consumer reads the exact name off `type`.
-`integration-configuration.removed` is passed through unchanged.
+`integration-configuration.removed` and `integration-configuration.transferred` are passed through unchanged.
 
 ## Apps and secrets
 
@@ -38,7 +38,7 @@ The secret is the Django setting `VERCEL_CLIENT_INTEGRATION_SECRET`.
 The marketplace App holds one webhook URL, registered against the secondary region (US), so `receiving_region_domain()` is overridden and the forward runs to the primary region (EU).
 Vercel is the only provider here that does that.
 
-Both event families declare ownership, because both are processed by the region that holds the installation: only there does the billing manager find the `Organization` a billing call needs, and only there is there an installation to delete.
+Every event type declares ownership, because each is processed by the region that holds the installation: only there does the billing manager find the `Organization` a billing call needs, only there is there an installation to delete, and only there is the access token a transfer refresh calls Vercel with.
 The ownership lookup reads `OrganizationIntegration` by kind and integration id, which is a scan of a small table rather than an indexed point lookup, so it runs under `bounded_statement_timeout`.
 
 A bad signature answers 401, and so does a missing secret.
@@ -60,4 +60,5 @@ One consumer, `vercel_marketplace`, declared in `ee/api/vercel/webhook_consumers
 A build without an `ee/` tree skips it and has no Vercel endpoint either.
 
 The handler runs inside the request. It hands a billing event to the billing service, which waits up to 30 seconds, and a deauthorization to `VercelIntegration.delete_installation`.
+A transfer goes to `VercelIntegration.refresh_installation_account`, which reads the installation's new team from Vercel's account endpoint and stores it, because Vercel does not call the installation endpoint during a transfer.
 That 30 seconds is why `forward_timeout_seconds` is 35: a shorter deadline would make the receiving region give up on an invoice the other region is still processing.
