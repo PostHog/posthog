@@ -561,8 +561,16 @@ class ReportsClient:
             raise ValueError(f"Amazon report document URL points outside Amazon: host={host}")
         # The presigned URL carries its own signature, so the download sends no LWA token.
         download = make_tracked_session(redact_values=presigned_secret_values(url), capture=False)
-        content_response = download.get(url, timeout=REPORT_DOWNLOAD_TIMEOUT)
-        content_response.raise_for_status()
+        # The stock error messages quote the whole URL, signature included, into the job's error and logs.
+        try:
+            content_response = download.get(url, timeout=REPORT_DOWNLOAD_TIMEOUT)
+        except requests.RequestException as e:
+            raise requests.ConnectionError(f"Amazon report document download failed: {type(e).__name__}") from None
+        if not content_response.ok:
+            raise requests.HTTPError(
+                f"Amazon report document download returned status={content_response.status_code}",
+                response=content_response,
+            )
         content = content_response.content
         if document.get("compressionAlgorithm") == "GZIP":
             content = gzip.decompress(content)
@@ -646,16 +654,16 @@ def _vendor_report_rows(
                     body["dataStartTime"] = window.data_start_time
                     body["dataEndTime"] = window.data_end_time
                 report_id = client.create_report(body, manager.safe_point)
-                # Staged before polling, so an attempt that resumes polls this report instead of creating another.
-                with manager.committing():
-                    manager.save_state(
-                        AmazonSellingPartnerResumeConfig(
-                            completed_marketplaces=completed,
-                            marketplace_id=marketplace_id,
-                            window_start=window_start,
-                            report_id=report_id,
-                        )
+                # Staged, not committed: the pipeline commits it at a safe point once earlier rows are
+                # written, so an attempt that resumes polls this report instead of creating another.
+                manager.save_state(
+                    AmazonSellingPartnerResumeConfig(
+                        completed_marketplaces=completed,
+                        marketplace_id=marketplace_id,
+                        window_start=window_start,
+                        report_id=report_id,
                     )
+                )
 
             following = windows[index + 1] if index + 1 < len(windows) else None
             next_state = (
@@ -667,12 +675,22 @@ def _vendor_report_rows(
                 if following is not None
                 else AmazonSellingPartnerResumeConfig(completed_marketplaces=[*completed, marketplace_id])
             )
-            document = await_report_document(client, report, report_id, manager.safe_point)
+            try:
+                document = await_report_document(client, report, report_id, manager.safe_point)
+            except VendorReportError:
+                # A failed report stays failed. The retry asks for a new one for the same window.
+                manager.save_state(
+                    AmazonSellingPartnerResumeConfig(
+                        completed_marketplaces=completed, marketplace_id=marketplace_id, window_start=window_start
+                    )
+                )
+                manager.safe_point()
+                raise
             rows = (document or {}).get(report.rows_key) or []
             batches = list(batched(rows, REPORT_ROWS_PER_BATCH, strict=False))
             if not batches:
-                with manager.committing():
-                    manager.save_state(next_state)
+                manager.save_state(next_state)
+                manager.safe_point()
                 continue
             for batch_index, batch in enumerate(batches):
                 if batch_index == len(batches) - 1:
@@ -795,17 +813,34 @@ def probe_endpoint_permissions(
     session = make_tracked_session(redact_values=auth.secret_values(), capture=False)
     base_url = _base_url(region)
     recent = to_iso8601(datetime.now(UTC) - timedelta(days=1))
-    probes: dict[str, tuple[str, dict[str, Any], str]] = {
+
+    def inventory_params() -> dict[str, Any] | None:
+        marketplace_id = marketplace_ids[0] if marketplace_ids else None
+        if marketplace_id is None:
+            try:
+                discovered = list_marketplace_ids(region, auth)
+            except (OAuth2AuthRequestError, requests.RequestException):
+                return None
+            marketplace_id = discovered[0] if discovered else None
+        if marketplace_id is None:
+            return None
+        return {"granularityType": "Marketplace", "granularityId": marketplace_id, "marketplaceIds": marketplace_id}
+
+    probes: dict[str, tuple[str, Callable[[], dict[str, Any] | None], str]] = {
         ORDERS: (
             ORDERS_PATH,
-            {"maxResultsPerPage": 1, "lastUpdatedAfter": recent, "marketplaceIds": ",".join(marketplace_ids) or None},
+            lambda: {
+                "maxResultsPerPage": 1,
+                "lastUpdatedAfter": recent,
+                "marketplaceIds": ",".join(marketplace_ids) or None,
+            },
             SELLER_ONLY_MESSAGE,
         ),
-        TRANSACTIONS: (TRANSACTIONS_PATH, {"postedAfter": recent}, SELLER_ONLY_MESSAGE),
-        INVENTORY_SUMMARIES: (MARKETPLACE_PARTICIPATIONS_PATH, {}, SELLER_ONLY_MESSAGE),
+        TRANSACTIONS: (TRANSACTIONS_PATH, lambda: {"postedAfter": recent}, SELLER_ONLY_MESSAGE),
+        INVENTORY_SUMMARIES: (INVENTORY_SUMMARIES_PATH, inventory_params, SELLER_ONLY_MESSAGE),
         VENDOR_SALES: (
             REPORTS_PATH,
-            {"reportTypes": VENDOR_REPORTS[VENDOR_SALES].report_type, "pageSize": 1},
+            lambda: {"reportTypes": VENDOR_REPORTS[VENDOR_SALES].report_type, "pageSize": 1},
             VENDOR_ONLY_MESSAGE,
         ),
     }
@@ -818,11 +853,13 @@ def probe_endpoint_permissions(
         if probe_name not in probes:
             permissions[endpoint] = None
             continue
+        path, params_for, message = probes[probe_name]
         if probe_name not in answers:
-            path, params, _ = probes[probe_name]
-            answers[probe_name] = _probe(session, auth, f"{base_url}{path}", params)
+            params = params_for()
+            # No marketplace to ask about means the Sellers API refused the account, so it is not a seller.
+            answers[probe_name] = _probe(session, auth, f"{base_url}{path}", params) if params is not None else False
         if answers[probe_name] is False:
-            permissions[endpoint] = probes[probe_name][2]
+            permissions[endpoint] = message
         elif endpoint in VENDOR_REPORTS and not marketplace_ids:
             permissions[endpoint] = MISSING_MARKETPLACES_MESSAGE
         else:

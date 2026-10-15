@@ -667,6 +667,21 @@ class TestVendorReports:
         assert str(result.raised) == (
             "Amazon could not generate the GET_VENDOR_FORECASTING_REPORT report: Report date range is not available yet."
         )
+        # The failed report is dropped, so the retry creates a new one instead of polling it again.
+        assert result.final_state == AmazonSellingPartnerResumeConfig(marketplace_id="ATVPDKIKX0DER")
+
+    def test_a_failed_download_keeps_the_presigned_url_out_of_the_error(self) -> None:
+        vendor = _ReportsVendor(["DONE"], [])
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/doc.json":
+                return ScriptedResponse(status=403, body=b"<Error><Code>AccessDenied</Code></Error>")
+            return vendor(request)
+
+        result = _driver("ATVPDKIKX0DER").run("vendor_forecasts", respond)
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert str(result.raised) == "Amazon report document download returned status=403"
 
     def test_create_report_waits_out_a_rate_limit(self) -> None:
         vendor = _ReportsVendor(["CANCELLED"], [])
@@ -711,38 +726,49 @@ def test_report_windows(endpoint: str, start: datetime | None, expected: tuple[s
     assert windows[-1].data_end_time in ("2026-10-11T23:59:59Z", "2026-10-15T11:00:00Z")
 
 
+PARTICIPATING_IN_A = ScriptedResponse(
+    json={"payload": [{"marketplace": {"id": "A"}, "participation": {"isParticipating": True}}]}
+)
+
+
 @pytest.mark.parametrize(
-    ("forbidden_paths", "marketplace_ids", "expected"),
+    ("forbidden_paths", "marketplace_ids", "expected", "probed_paths"),
     [
         (
             {REPORTS_PATH},
-            "ATVPDKIKX0DER",
-            {"orders": None, "order_items": None, "transactions": None, "vendor_sales": VENDOR_ONLY_MESSAGE},
+            "A",
+            {"orders": None, "inventory_summaries": None, "vendor_sales": VENDOR_ONLY_MESSAGE},
+            [ORDERS_PATH, SUMMARIES_PATH, REPORTS_PATH],
         ),
         (
-            {ORDERS_PATH, TRANSACTIONS_PATH},
-            "ATVPDKIKX0DER",
-            {
-                "orders": SELLER_ONLY_MESSAGE,
-                "order_items": SELLER_ONLY_MESSAGE,
-                "transactions": SELLER_ONLY_MESSAGE,
-                "vendor_sales": None,
-            },
+            {ORDERS_PATH, SUMMARIES_PATH},
+            "A",
+            {"orders": SELLER_ONLY_MESSAGE, "inventory_summaries": SELLER_ONLY_MESSAGE, "vendor_sales": None},
+            [ORDERS_PATH, SUMMARIES_PATH, REPORTS_PATH],
         ),
         (
             set(),
             None,
-            {"orders": None, "order_items": None, "transactions": None, "vendor_sales": MISSING_MARKETPLACES_MESSAGE},
+            {"orders": None, "inventory_summaries": None, "vendor_sales": MISSING_MARKETPLACES_MESSAGE},
+            [ORDERS_PATH, PARTICIPATIONS_PATH, SUMMARIES_PATH, REPORTS_PATH],
+        ),
+        (
+            {PARTICIPATIONS_PATH},
+            None,
+            {"orders": None, "inventory_summaries": SELLER_ONLY_MESSAGE, "vendor_sales": MISSING_MARKETPLACES_MESSAGE},
+            [ORDERS_PATH, PARTICIPATIONS_PATH, REPORTS_PATH],
         ),
     ],
 )
 def test_probe_endpoint_permissions(
-    forbidden_paths: set[str], marketplace_ids: str | None, expected: dict[str, str | None]
+    forbidden_paths: set[str], marketplace_ids: str | None, expected: dict[str, str | None], probed_paths: list[str]
 ) -> None:
     def respond(request: RecordedRequest) -> ScriptedResponse:
         if request.path == TOKEN_PATH:
             return TOKEN
-        return SP_API_FORBIDDEN if request.path in forbidden_paths else ScriptedResponse(json={})
+        if request.path in forbidden_paths:
+            return SP_API_FORBIDDEN
+        return PARTICIPATING_IN_A if request.path == PARTICIPATIONS_PATH else ScriptedResponse(json={})
 
     with scripted_network(respond) as network:
         permissions = probe_endpoint_permissions(
@@ -750,8 +776,4 @@ def test_probe_endpoint_permissions(
         )
 
     assert permissions == expected
-    assert [request.path for request in network.requests_log if request.path != TOKEN_PATH] == [
-        ORDERS_PATH,
-        TRANSACTIONS_PATH,
-        REPORTS_PATH,
-    ]
+    assert [request.path for request in network.requests_log if request.path != TOKEN_PATH] == probed_paths
