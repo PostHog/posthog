@@ -618,6 +618,14 @@ def await_report_document(
         waited += REPORT_POLL_INTERVAL_SECONDS
 
 
+def _after(report: VendorReport, data_end_time: str) -> datetime | None:
+    """Where the window after one ending at `data_end_time` starts."""
+    end = parse_datetime_value(data_end_time)
+    if end is None or report.hourly:
+        return end
+    return datetime.combine(end.date() + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
+
+
 def _report_options(report: VendorReport, marketplace_id: str) -> dict[str, str]:
     if not report.needs_currency:
         return dict(report.options)
@@ -651,16 +659,26 @@ def _vendor_report_rows(
         if marketplace_id in completed:
             continue
         pending = resume if resume is not None and resume.marketplace_id == marketplace_id else None
-        resumed = pending is not None and pending.window_start is not None
-        start = (
-            parse_datetime_value(pending.window_start) if pending is not None and pending.window_start else watermark
-        )
-        windows: list[ReportWindow | None] = (
-            list(report_windows(report, start, now, resumed=resumed)) if report.window else [None]
-        )
+        windows: list[ReportWindow | None]
+        if not report.window:
+            windows = [None]
+        elif pending is not None and pending.report_id and pending.window_start and pending.window_end:
+            # The saved report covers the range it was created with. The next window starts right
+            # after it, even when a partial window would come out longer today.
+            saved = ReportWindow(data_start_time=pending.window_start, data_end_time=pending.window_end)
+            windows = [saved, *report_windows(report, _after(report, pending.window_end), now, resumed=True)]
+        else:
+            resumed = pending is not None and pending.window_start is not None
+            start = (
+                parse_datetime_value(pending.window_start)
+                if pending is not None and pending.window_start
+                else watermark
+            )
+            windows = list(report_windows(report, start, now, resumed=resumed))
 
         for index, window in enumerate(windows):
             window_start = window.data_start_time if window is not None else None
+            window_end = window.data_end_time if window is not None else None
             resuming = pending is not None and pending.window_start == window_start
             report_id = pending.report_id if pending is not None and resuming else None
             rows_done = pending.rows_done if pending is not None and resuming and report_id else 0
@@ -681,6 +699,7 @@ def _vendor_report_rows(
                         completed_marketplaces=completed,
                         marketplace_id=marketplace_id,
                         window_start=window_start,
+                        window_end=window_end,
                         report_id=report_id,
                     )
                 )
@@ -721,6 +740,7 @@ def _vendor_report_rows(
                         completed_marketplaces=completed,
                         marketplace_id=marketplace_id,
                         window_start=window_start,
+                        window_end=window_end,
                         report_id=report_id,
                         rows_done=rows_done,
                     )

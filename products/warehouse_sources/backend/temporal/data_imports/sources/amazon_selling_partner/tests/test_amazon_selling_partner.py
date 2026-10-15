@@ -591,7 +591,10 @@ class TestVendorReports:
         assert "x-amz-access-token" not in download.headers
         assert result.committed_states[:2] == [
             AmazonSellingPartnerResumeConfig(
-                marketplace_id="ATVPDKIKX0DER", window_start="2026-09-20T00:00:00Z", report_id="r1"
+                marketplace_id="ATVPDKIKX0DER",
+                window_start="2026-09-20T00:00:00Z",
+                window_end="2026-10-04T23:59:59Z",
+                report_id="r1",
             ),
             AmazonSellingPartnerResumeConfig(marketplace_id="ATVPDKIKX0DER", window_start="2026-10-05T00:00:00Z"),
         ]
@@ -646,6 +649,26 @@ class TestVendorReports:
         assert result.raised is None
         assert "r5" in vendor.polls
         assert vendor.created[0]["dataStartTime"] == "2026-09-17T11:00:00Z"
+
+    def test_resume_starts_the_next_window_where_the_saved_report_ended(self) -> None:
+        vendor = _ReportsVendor(["CANCELLED"], [])
+
+        result = _driver("ATVPDKIKX0DER").run(
+            "vendor_real_time_sales",
+            vendor,
+            resume_state=AmazonSellingPartnerResumeConfig(
+                marketplace_id="ATVPDKIKX0DER",
+                window_start="2026-10-15T08:00:00Z",
+                window_end="2026-10-15T09:00:00Z",
+                report_id="r6",
+            ),
+        )
+
+        assert result.raised is None
+        assert "r6" in vendor.polls
+        assert [(body["dataStartTime"], body["dataEndTime"]) for body in vendor.created] == [
+            ("2026-10-15T09:00:00Z", "2026-10-15T11:00:00Z")
+        ]
 
     def test_forecasts_request_one_report_per_marketplace_without_a_date_range(self) -> None:
         vendor = _ReportsVendor(["CANCELLED"], [])
