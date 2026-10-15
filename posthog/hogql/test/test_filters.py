@@ -884,8 +884,7 @@ class TestFilters(BaseTest):
             (
                 "multi_value_not_icontains_multi",
                 EventPropertyFilter(key="plan", operator="not_icontains_multi", value=["hobby", "scale"], type="event"),
-                "and(not(greater(multiSearchAnyCaseInsensitive(toString(properties.plan), ['hobby']), 0)), "
-                "not(greater(multiSearchAnyCaseInsensitive(toString(properties.plan), ['scale']), 0)))",
+                "not(greater(multiSearchAnyCaseInsensitive(toString(properties.plan), ['hobby', 'scale']), 0))",
             ),
             (
                 "person_property_binds_by_key",

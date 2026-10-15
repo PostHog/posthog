@@ -1523,8 +1523,8 @@ def property_to_expr(
             )
 
         # _expr_to_compare_op combines every value of these into one multiSearchAnyCaseInsensitive
-        # call, so they must reach it with the list intact. Expanding them per value would OR
-        # separate negations together and keep a row that matches only one needle.
+        # call per 255 needles, so they must reach it with the list intact. Expanding them per
+        # value would build one call per needle.
         combines_values_itself = operator in (
             PropertyOperator.ICONTAINS_MULTI,
             PropertyOperator.NOT_ICONTAINS_MULTI,
@@ -1767,7 +1767,7 @@ def bound_property_to_expr(property: Property, expr: ast.Expr, team: Team) -> as
                 left=clone_expr(expr),
                 right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
             )
-        else:
+        elif operator not in (PropertyOperator.ICONTAINS_MULTI, PropertyOperator.NOT_ICONTAINS_MULTI):
             exprs = [
                 bound_property_to_expr(
                     Property(
