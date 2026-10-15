@@ -373,7 +373,6 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/build-hogql-parser.yml', PYTHON],
     ['.github/workflows/build-hogql-parser-npm.yml', FULLSTACK],
     ['.github/workflows/build-hogql-parser-rs.yml', RUST],
-    ['.github/workflows/rust-smoke-test-build.yml', RUST],
     ['.github/workflows/publish-replay-anonymizer-crate.yml', RUST],
     ['.github/workflows/build-deltalite.yml', [RUST, PYTHON]],
     ['.github/workflows/ci-deltalite-python.yml', [RUST, PYTHON]],
