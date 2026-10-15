@@ -6414,6 +6414,10 @@ snapshots:
         hash: v1.k794b7964.ad71858e2dc5a45e3d81bb38d46ad3bbe2dea9c152b625fbbf93117a27e624ca.Z4AVu3aic8bdKuv98SD1V1ZqQXsxPwGX2mZl3cL31bs
     mcp-apps-workflows--archived--light:
         hash: v1.k794b7964.ef7053f4c964693d5c5e5fdfbd58ff59028e629f0709a08a8e671aec82b5250e.sqIaakT_XJ9sVFNc4OkpgL2trDWUj4L2H_rFZT9c5Gw
+    mcp-apps-workflows--data-suggestions--light:
+        hash: v1.k794b7964.b2ceec3c890e9f432bf8a548bea888ee5ecb4fb943a00e914f265b6e1dde37e4.ITfYs9uRttzjpHJkLrKYopYinde_S2_TnmmxWTWfQ3o
+    mcp-apps-workflows--data-suggestions-built--light:
+        hash: v1.k794b7964.a6a2d5322df9e01bbc25c27899200c465263863b539a328312d45b4c700f3df2.D7UIfg7JMHFk-mo0_Xg3i5H_FtpA_dKVrnUuA0iD-mM
     mcp-apps-workflows--draft-state--light:
         hash: v1.k794b7964.4cbfe20c626f0f7912dbd47b41a152c9c30f92d12a3f599476fb10043d7f7e70.9NI9FaMch59lt8xO3Xhp9ruHKLyDcvupNp20dZrR8_Y
     mcp-apps-workflows--list--light:
