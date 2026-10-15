@@ -12,6 +12,8 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { usersPartialUpdate } from '~/generated/core/api'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { BillingProductV2Type, BillingType, OrganizationType } from '~/types'
 
 import {
@@ -417,11 +419,21 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                     }
                 )
             },
-            viewCompletedPaymentOrganization: () => {
+            viewCompletedPaymentOrganization: async () => {
                 const organization = values.completedPaymentOrganization
-                if (organization) {
-                    userLogic.actions.updateCurrentOrganization(organization.id, urls.organizationBilling())
+                if (!organization) {
+                    return
                 }
+                // Not userLogic.updateCurrentOrganization: it skips the switch while the cached user names this
+                // organization, and that cache can lag a switch made in another tab.
+                try {
+                    await usersPartialUpdate('@me', { set_current_organization: organization.id })
+                } catch {
+                    lemonToast.error('Could not switch organization. Try again.')
+                    return
+                }
+                sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
+                window.location.href = urls.organizationBilling()
             },
             startPaymentEntryFlow: async ({ product, redirectPath }) => {
                 const { billing, billingManagedByPartnerNotice } = billingLogic.values

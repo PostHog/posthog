@@ -27,6 +27,12 @@ const seedBilling = async (billing: Partial<BillingType> | null): Promise<void> 
     await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
 }
 
+const stubLocation = (): { href: string } => {
+    const location = { ...window.location, href: window.location.href }
+    jest.spyOn(window, 'location', 'get').mockReturnValue(location)
+    return location
+}
+
 const deferred = <T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void } => {
     let resolve!: (value: T) => void
     let reject!: (error: unknown) => void
@@ -270,11 +276,33 @@ describe('paymentEntryLogic', () => {
             expect(push).not.toHaveBeenCalled()
             expect(logic.values.completedPaymentOrganization).toEqual({ id: original.id, name: original.name })
             expect(logic.values.paymentEntryModalOpen).toBe(true)
-            const switchOrganization = jest
-                .spyOn(userLogic.actions, 'updateCurrentOrganization')
-                .mockImplementation(() => undefined)
-            logic.actions.viewCompletedPaymentOrganization()
-            expect(switchOrganization).toHaveBeenCalledWith(original.id, '/organization/billing')
+            // The cached user still names A, so userLogic.updateCurrentOrganization would skip the switch.
+            expect(userLogic.values.user?.organization?.id).toBe(original.id)
+            const switches: unknown[] = []
+            useMocks({
+                patch: {
+                    '/api/users/@me': async ({ request }) => {
+                        switches.push(await request.json())
+                        return [200, userLogic.values.user]
+                    },
+                },
+            })
+            const location = stubLocation()
+            await expectLogic(logic, () => logic.actions.viewCompletedPaymentOrganization()).toFinishAllListeners()
+            expect(switches).toEqual([{ set_current_organization: original.id }])
+            expect(location.href).toBe('/organization/billing')
+        })
+
+        it('stays on the page when switching to the paid organization fails', async () => {
+            useMocks({ patch: { '/api/users/@me': () => [500, { detail: 'A server error occurred.' }] } })
+            logic = paymentEntryLogic()
+            logic.mount()
+            logic.actions.setCompletedPaymentOrganization({ id: OTHER_ORGANIZATION_ID, name: 'Original organization' })
+            const location = stubLocation()
+            const href = location.href
+            await expectLogic(logic, () => logic.actions.viewCompletedPaymentOrganization()).toFinishAllListeners()
+            expect(toastErrorSpy).toHaveBeenCalledWith('Could not switch organization. Try again.')
+            expect(location.href).toBe(href)
         })
     })
 
