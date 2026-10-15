@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
@@ -62,10 +62,26 @@ class TestRoleSlaBreaches(BaseTest):
         assert result[0].soonest_due_at == soon.sla_due_at
 
     def test_a_ticket_the_viewer_cannot_open_is_left_out(self) -> None:
-        ticket = self._ticket(sla_due_at=NOW + timedelta(hours=1))
-        TicketAssignment.objects.create(ticket=ticket, role=self.role)
-        AccessControl.objects.create(resource="ticket", team=self.team, access_level="none")
+        # Org admins bypass access control, and the rules apply only when the feature is on.
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "password")
+        RoleMembership.objects.create(
+            user=member, role=self.role, organization_member=member.organization_memberships.get()
+        )
+        hidden = self._ticket(sla_due_at=NOW + timedelta(hours=1))
+        visible = self._ticket(sla_due_at=NOW + timedelta(hours=2))
+        TicketAssignment.objects.create(ticket=hidden, role=self.role)
+        TicketAssignment.objects.create(ticket=visible, role=self.role)
+        AccessControl.objects.create(resource="ticket", team=self.team, access_level="viewer")
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(hidden.id),
+            organization_member=member.organization_memberships.get(),
+            team=self.team,
+            access_level="none",
+        )
 
-        result = list_role_sla_breaches(self.team.id, self.user.id, due_after=NOW, due_before=DUE_BEFORE)
+        result = list_role_sla_breaches(self.team.id, member.id, due_after=NOW, due_before=DUE_BEFORE)
 
-        assert result == []
+        assert [(row.ticket_count, row.soonest_ticket_number) for row in result] == [(1, visible.ticket_number)]

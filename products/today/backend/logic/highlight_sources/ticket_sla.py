@@ -17,6 +17,7 @@ ONE_TITLE = "Ticket #{number} assigned to {role} breaches its SLA within 24 hour
 MANY_TITLE = "{count} tickets assigned to {role} breach their SLA within 24 hours"
 ONE_DETAIL = "Open it and reply before the deadline."
 MANY_DETAIL = "Ticket #{number} is the soonest."
+OPEN_STATUSES = ("new", "open", "pending", "on_hold")
 
 
 def find(context: Context) -> Found:
@@ -29,6 +30,7 @@ def _candidate(breach: RoleSlaBreach) -> Candidate:
     number = breach.soonest_ticket_number
     role = breach.role_name
     one = breach.ticket_count == 1
+    statuses = "&".join(f"status={status}" for status in OPEN_STATUSES)
     return Candidate(
         key=f"ticket_sla:{breach.role_id}",
         label=HighlightLabel.RISK,
@@ -37,7 +39,11 @@ def _candidate(breach: RoleSlaBreach) -> Candidate:
         relevance=1.0,
         title=(ONE_TITLE if one else MANY_TITLE).format(number=number, role=role, count=breach.ticket_count),
         detail=ONE_DETAIL if one else MANY_DETAIL.format(number=number),
-        url=f"/support/tickets?assignee=role:{breach.role_id}&order_by=sla_due_at",
+        url=(
+            f"/support/tickets/{number}"
+            if one
+            else f"/support/tickets?assignee=role:{breach.role_id}&{statuses}&order_by=sla_due_at"
+        ),
         ref=f"role:{breach.role_id}",
     )
 

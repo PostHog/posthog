@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import Count, Min, OuterRef, QuerySet, Subquery
+from django.db.models import Count, Min, Q, QuerySet
 
 from posthog.models import Team, User
 
@@ -30,30 +30,31 @@ def list_role_sla_breaches(
         return []
 
     visible = _visible_tickets(team, user, role_ids, due_after, due_before)
-    soonest_number = Subquery(
-        _visible_tickets(team, user, role_ids, due_after, due_before)
-        .filter(assignment__role_id=OuterRef("assignment__role_id"))
-        .order_by("sla_due_at", "ticket_number")
-        .values("ticket_number")[:1]
-    )
-    rows = (
+    groups = list(
         visible.values("assignment__role_id", "assignment__role__name")
-        .annotate(
-            ticket_count=Count("id"),
-            soonest_due_at=Min("sla_due_at"),
-            soonest_ticket_number=soonest_number,
-        )
+        .annotate(ticket_count=Count("id"), soonest_due_at=Min("sla_due_at"))
         .order_by("soonest_due_at", "assignment__role__name")
     )
+    if not groups:
+        return []
+
+    soonest_due = Q()
+    for group in groups:
+        soonest_due |= Q(assignment__role_id=group["assignment__role_id"], sla_due_at=group["soonest_due_at"])
+    soonest_numbers: dict[UUID, int] = {}
+    for row in visible.filter(soonest_due).order_by("ticket_number").values("assignment__role_id", "ticket_number"):
+        soonest_numbers.setdefault(row["assignment__role_id"], row["ticket_number"])
+
     return [
         RoleSlaBreach(
-            role_id=row["assignment__role_id"],
-            role_name=row["assignment__role__name"],
-            ticket_count=row["ticket_count"],
-            soonest_ticket_number=row["soonest_ticket_number"],
-            soonest_due_at=row["soonest_due_at"],
+            role_id=group["assignment__role_id"],
+            role_name=group["assignment__role__name"],
+            ticket_count=group["ticket_count"],
+            soonest_ticket_number=soonest_numbers[group["assignment__role_id"]],
+            soonest_due_at=group["soonest_due_at"],
         )
-        for row in rows
+        for group in groups
+        if group["assignment__role_id"] in soonest_numbers
     ]
 
 
