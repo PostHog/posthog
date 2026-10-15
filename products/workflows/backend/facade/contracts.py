@@ -492,6 +492,10 @@ class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
 
 
+class TransactionalEmailContentInvalid(Exception):
+    """The content has no subject or no body, so the workflow could not send it."""
+
+
 class WorkflowNotFound(Exception):
     pass
 

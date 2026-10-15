@@ -5,11 +5,14 @@ of the workflow through the same write path as the workflows UI, with its revisi
 from typing import Optional
 from uuid import UUID
 
+from django.db import transaction
+
 from posthog.models.integration import Integration
 from posthog.models.scoping import with_team_scope
 
 from products.workflows.backend.facade.contracts import (
     TransactionalEmailContent,
+    TransactionalEmailContentInvalid,
     TransactionalEmailSenderUnavailable,
     WorkflowNotFound,
 )
@@ -23,8 +26,9 @@ EMAIL_ACTION_ID = "transactional_email"
 EXIT_ACTION_ID = "exit_node"
 
 # The send endpoint passes the recipient as an event property. Liquid output is never parsed again, so an
-# address that contains Liquid markup is sent as typed.
-RECIPIENT_EXPRESSION = "{{ event.properties.to }}"
+# address that contains Liquid markup is sent as typed. `raw` skips the HTML escaping that would turn a
+# valid address like o'brien@example.com into a different one.
+RECIPIENT_EXPRESSION = "{{ event.properties.to | raw }}"
 
 
 def transactional_email_actions(content: TransactionalEmailContent, from_integration_id: int) -> list[dict]:
@@ -79,6 +83,8 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
 
 
 def _content_fields(content: TransactionalEmailContent, from_integration_id: int) -> dict:
+    if not content.subject or not (content.html or content.text):
+        raise TransactionalEmailContentInvalid()
     actions = transactional_email_actions(content, from_integration_id)
     return {
         "name": content.name,
@@ -106,9 +112,12 @@ def _verified_sender(team_id: int, requested_id: int | None) -> int:
     return sender.id
 
 
-def _current_sender(flow: HogFlow) -> int:
-    email = next(action for action in flow.actions if action.get("id") == EMAIL_ACTION_ID)
-    return email["config"]["inputs"]["email"]["value"]["from"]["integrationId"]
+def _current_sender(flow: HogFlow) -> int | None:
+    # The email step is missing when someone edited the workflow directly. The update writes it back.
+    email = next((action for action in flow.actions if action.get("id") == EMAIL_ACTION_ID), None)
+    if email is None:
+        return None
+    return email["config"]["inputs"]["email"]["value"]["from"].get("integrationId")
 
 
 # Callers run outside a workflows request, so the revision writes need the team scope set here.
@@ -134,18 +143,28 @@ def create_transactional_email_workflow(
 def update_transactional_email_workflow(
     *, team_id: int, user_id: Optional[int], hog_flow_id: UUID, content: TransactionalEmailContent
 ) -> None:
-    flow = HogFlow.objects.only("status", "actions").filter(team_id=team_id, pk=hog_flow_id).first()
-    if flow is None:
-        raise WorkflowNotFound()
-    from_integration_id = content.from_integration_id or _current_sender(flow)
-    update_workflow(
-        team_id=team_id,
-        user_id=user_id,
-        hog_flow_id=hog_flow_id,
-        validated_data=_content_fields(content, from_integration_id),
-        route_to_draft=False,
-        base_updated_at=None,
-        base_live_updated_at=None,
-        includes_staged_draft=False,
-        validated_status=flow.status,
-    )
+    with transaction.atomic():
+        # The lock keeps the status read here current, so update_workflow can't find it changed.
+        flow = (
+            HogFlow.objects.select_for_update()
+            .only("status", "actions")
+            .filter(team_id=team_id, pk=hog_flow_id)
+            .first()
+        )
+        if flow is None:
+            raise WorkflowNotFound()
+        if content.from_integration_id:
+            from_integration_id = _verified_sender(team_id, content.from_integration_id)
+        else:
+            from_integration_id = _current_sender(flow) or _verified_sender(team_id, None)
+        update_workflow(
+            team_id=team_id,
+            user_id=user_id,
+            hog_flow_id=hog_flow_id,
+            validated_data=_content_fields(content, from_integration_id),
+            route_to_draft=False,
+            base_updated_at=None,
+            base_live_updated_at=None,
+            includes_staged_draft=False,
+            validated_status=flow.status,
+        )

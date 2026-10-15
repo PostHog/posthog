@@ -13,6 +13,7 @@ from products.cdp.backend.templates.hog_function_template import sync_template_t
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.contracts import (
     TransactionalEmailContent,
+    TransactionalEmailContentInvalid,
     TransactionalEmailSenderUnavailable,
     WorkflowNotFound,
 )
@@ -25,14 +26,19 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
 
 
-def _content(subject: str = "Reset your password", from_integration_id: int | None = None) -> TransactionalEmailContent:
+def _content(
+    subject: str = "Reset your password",
+    from_integration_id: int | None = None,
+    html: str = "<a href='{{ variables.link }}'>Reset</a>",
+    text: str = "Reset: {{ variables.link }}",
+) -> TransactionalEmailContent:
     return TransactionalEmailContent(
         message_template_id=uuid4(),
         name="Password reset",
         subject=subject,
         preheader="",
-        html="<a href='{{ variables.link }}'>Reset</a>",
-        text="Reset: {{ variables.link }}",
+        html=html,
+        text=text,
         from_integration_id=from_integration_id,
         message_category_id=None,
     )
@@ -97,10 +103,7 @@ class TestTransactionalEmailWorkflows(BaseTest):
         self.sender.save()
         requested_id = None
         if requested == "other":
-            other_team = Team.objects.create(organization=self.organization, name="Other")
-            requested_id = Integration.objects.create(
-                team=other_team, kind="email", integration_id="x@example.com", config={"verified": True}
-            ).id
+            requested_id = self._other_teams_sender()
 
         with self.assertRaises(TransactionalEmailSenderUnavailable):
             create_transactional_email_workflow(
@@ -108,6 +111,48 @@ class TestTransactionalEmailWorkflows(BaseTest):
             )
 
         assert not HogFlow.objects.filter(team_id=self.team.id).exists()
+
+    def test_an_update_cannot_switch_to_another_teams_sender(self):
+        flow_id = create_transactional_email_workflow(team_id=self.team.id, user_id=self.user.id, content=_content())
+
+        with self.assertRaises(TransactionalEmailSenderUnavailable):
+            update_transactional_email_workflow(
+                team_id=self.team.id,
+                user_id=self.user.id,
+                hog_flow_id=flow_id,
+                content=_content(from_integration_id=self._other_teams_sender()),
+            )
+
+        assert HogFlow.objects.get(id=flow_id).version == 1
+
+    @parameterized.expand([("no_subject", {"subject": ""}), ("no_body", {"html": "", "text": ""})])
+    def test_content_that_cannot_send_is_refused(self, _name, overrides):
+        with self.assertRaises(TransactionalEmailContentInvalid):
+            create_transactional_email_workflow(
+                team_id=self.team.id, user_id=self.user.id, content=_content(**overrides)
+            )
+
+        assert not HogFlow.objects.filter(team_id=self.team.id).exists()
+
+    def test_an_update_restores_an_email_step_removed_from_the_workflow(self):
+        flow_id = create_transactional_email_workflow(team_id=self.team.id, user_id=self.user.id, content=_content())
+        flow = HogFlow.objects.get(id=flow_id)
+        flow.actions = [action for action in flow.actions if action["type"] != "function_email"]
+        flow.save()
+
+        update_transactional_email_workflow(
+            team_id=self.team.id, user_id=self.user.id, hog_flow_id=flow_id, content=_content(subject="New subject")
+        )
+
+        email = HogFlow.objects.get(id=flow_id).actions[1]["config"]["inputs"]["email"]["value"]
+        assert email["subject"] == "New subject"
+        assert email["from"] == {"integrationId": self.sender.id}
+
+    def _other_teams_sender(self) -> int:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        return Integration.objects.create(
+            team=other_team, kind="email", integration_id="x@example.com", config={"verified": True}
+        ).id
 
     def test_updating_a_deleted_transactional_email_says_it_is_gone(self):
         flow_id = create_transactional_email_workflow(team_id=self.team.id, user_id=self.user.id, content=_content())
