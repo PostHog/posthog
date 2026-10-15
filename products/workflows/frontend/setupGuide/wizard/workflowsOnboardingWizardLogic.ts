@@ -98,6 +98,9 @@ export interface workflowsOnboardingWizardLogicActions {
     finish: () => {
         value: true
     }
+    finishWithSuggestion: () => {
+        value: true
+    }
     initWizard: (
         path: WorkflowsOnboardingPath,
         step: WizardStepKey | null,
@@ -121,9 +124,6 @@ export interface workflowsOnboardingWizardLogicActions {
     selectTemplate: (templateId: string) => {
         templateId: string
     }
-    finishWithSuggestion: () => {
-        value: true
-    }
     setStepIndex: (index: number) => {
         index: number
     }
@@ -141,6 +141,8 @@ export interface workflowsOnboardingWizardLogicMeta {
         pushEnabled: (featureFlags: FeatureFlagsSet) => boolean
         stepKeys: (wizardPath: WorkflowsOnboardingPath, pushEnabled: boolean) => readonly WizardStepKey[]
         currentStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => WizardStepKey
+        offersSuggestions: (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet) => boolean
+        suggestionsFirst: (offersSuggestions: boolean, currentStep: WizardStepKey, templatesShown: boolean) => boolean
         isLastStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => boolean
         templates: (workflowTemplates: HogFlowTemplate[], wizardPath: WorkflowsOnboardingPath) => HogFlowTemplate[]
         selectedTemplate: (
@@ -165,8 +167,6 @@ export interface workflowsOnboardingWizardLogicMeta {
             selectedTemplate: HogFlowTemplate | null,
             startsBlank: boolean
         ) => string | null
-        offersSuggestions: (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet) => boolean
-        suggestionsFirst: (offersSuggestions: boolean, currentStep: WizardStepKey, templatesShown: boolean) => boolean
     }
 }
 
