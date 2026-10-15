@@ -47,14 +47,21 @@ async function imageSourceMetricValue(source: string, property: string, kind: st
 // classification (dlq vs drop), the timestamp window, header/body agreement, and the ParsedMessageData
 // assembly — not the scrub itself (that's covered by the Rust suite + shared fixtures).
 const mockAnonymizeKafkaPayload = jest.fn()
+const mockMaxImageBytes = jest.fn()
 jest.mock('@posthog/replay-anonymizer', () => ({
     anonymizeKafkaPayload: (
         payload: Buffer,
         contentEncoding?: string | null,
         teamId?: string | null,
         contentKey?: string | null,
-        urlKey?: string | null
-    ) => mockAnonymizeKafkaPayload(payload, contentEncoding, teamId, contentKey, urlKey),
+        urlKey?: string | null,
+        _referenceNamespace?: string | null,
+        _producedRefDedup?: unknown,
+        maxImageBytes?: number | null
+    ) => {
+        mockMaxImageBytes(maxImageBytes)
+        return mockAnonymizeKafkaPayload(payload, contentEncoding, teamId, contentKey, urlKey)
+    },
 }))
 
 describe('createParseAndAnonymizeMessageStep', () => {
@@ -217,6 +224,7 @@ describe('createParseAndAnonymizeMessageStep with image collection', () => {
     const step = createParseAndAnonymizeMessageStep({
         pseudonymSecret: secret,
         collectImages: true,
+        maxImageBytes: 1234,
         collectUrls: false,
     })
     const teamId = pseudonymize(secret, PSEUDONYM_TEAM, '1')
@@ -296,11 +304,23 @@ describe('createParseAndAnonymizeMessageStep with image collection', () => {
                 contentKey,
                 undefined
             )
+            expect(mockMaxImageBytes).toHaveBeenLastCalledWith(1234)
             expect(result).toMatchObject({
                 type: PipelineResultType.OK,
                 value: { collectedImages: [{ ref: imageRef(expectedTeamId, 'hashA'), bytes: Buffer.from('a') }] },
             })
         }
+    })
+
+    it.each([0, -1, 1.5, NaN])('refuses to build with maxImageBytes %p', (maxImageBytes) => {
+        expect(() =>
+            createParseAndAnonymizeMessageStep({
+                pseudonymSecret: secret,
+                collectImages: true,
+                maxImageBytes,
+                collectUrls: false,
+            })
+        ).toThrow('maxImageBytes')
     })
 
     it('unpacks the packed image buffer into per-image produce records', async () => {
@@ -404,6 +424,7 @@ describe('createParseAndAnonymizeMessageStep with url collection', () => {
         const step = createParseAndAnonymizeMessageStep({
             pseudonymSecret: secret,
             collectImages: false,
+            maxImageBytes: 1234,
             collectUrls: true,
         })
 
@@ -441,6 +462,7 @@ describe('createParseAndAnonymizeMessageStep with url collection', () => {
         const step = createParseAndAnonymizeMessageStep({
             pseudonymSecret: secret,
             collectImages: false,
+            maxImageBytes: 1234,
             collectUrls: false,
         })
 

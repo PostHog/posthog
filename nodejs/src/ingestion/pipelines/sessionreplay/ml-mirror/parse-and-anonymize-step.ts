@@ -83,6 +83,7 @@ export interface ImageCollectionConfig {
     pseudonymSecret: string | Buffer
     /** Replace inlined images with refs and return their bytes for the scrub topic. */
     collectImages: boolean
+    maxImageBytes: number
     /**
      * Keep a remote image's placeholder, stash its ref, and return its URL for the fetch lane.
      *
@@ -108,6 +109,13 @@ export function createParseAndAnonymizeMessageStep<
     imageCollection?: ImageCollectionConfig,
     producedRefs?: ProducedRefs
 ): ProcessingStep<T, T & ParseAndAnonymizeStepOutput> {
+    // The addon rejects a bad cap on every call, which would drop every message while the consumer looks healthy.
+    if (
+        imageCollection &&
+        !(Number.isSafeInteger(imageCollection.maxImageBytes) && imageCollection.maxImageBytes > 0)
+    ) {
+        throw new Error(`maxImageBytes must be a positive integer, got ${imageCollection.maxImageBytes}`)
+    }
     const globalUrlKey =
         imageCollection?.collectUrls === true
             ? pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_IMAGE_URL_KEY, PSEUDONYM_IMAGE_URL_GLOBAL_VALUE)
@@ -185,7 +193,8 @@ export function createParseAndAnonymizeMessageStep<
                 teamKeys?.contentKey,
                 globalUrlKey,
                 referenceNamespace,
-                producedRefDedup(producedRefs, Date.now())
+                producedRefDedup(producedRefs, Date.now()),
+                imageCollection?.maxImageBytes
             )
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.

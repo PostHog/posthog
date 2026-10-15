@@ -118,8 +118,7 @@ fn is_ref_hash(hash: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-/// Per-image cap: a collected image must fit in one Kafka message on the scrub topic with headroom
-/// under the broker's 1 MB default. Bigger images stay on the inline blur path.
+/// Default per-image cap. Bigger images stay on the inline blur path.
 pub const MAX_IMAGE_BYTES: usize = 900 * 1024;
 /// Per-message caps bound what one payload can pin in memory and fan out onto the scrub topic;
 /// images past them stay on the inline blur path. The count cap is sized so the byte cap is the
@@ -142,6 +141,17 @@ pub struct ImageCollection {
     /// Per-team key for the content HMAC, derived by the caller. Its ASCII
     /// bytes key [`hash_image_bytes`].
     pub content_key: String,
+    pub max_image_bytes: usize,
+}
+
+impl ImageCollection {
+    pub fn new(team_id: String, content_key: String) -> Self {
+        Self {
+            team_id,
+            content_key,
+            max_image_bytes: MAX_IMAGE_BYTES,
+        }
+    }
 }
 
 pub struct CollectedImage {
@@ -154,6 +164,7 @@ pub struct CollectedImage {
 pub struct ImageCollector {
     team_id: String,
     content_key: String,
+    max_image_bytes: usize,
     images: Vec<CollectedImage>,
     seen: HashSet<String>,
     total_bytes: usize,
@@ -164,16 +175,21 @@ impl ImageCollector {
         Self {
             team_id: collection.team_id,
             content_key: collection.content_key,
+            max_image_bytes: collection.max_image_bytes,
             images: Vec::new(),
             seen: HashSet::new(),
             total_bytes: 0,
         }
     }
 
+    pub fn max_image_bytes(&self) -> usize {
+        self.max_image_bytes
+    }
+
     /// Collect decoded image bytes and return their ref, or `None` when a cap says this image must
     /// stay on the inline blur path.
     pub fn collect(&mut self, bytes: Vec<u8>) -> Option<String> {
-        if bytes.len() > MAX_IMAGE_BYTES {
+        if bytes.len() > self.max_image_bytes {
             return None;
         }
         let hash = hash_image_bytes(self.content_key.as_bytes(), &bytes);
@@ -228,7 +244,7 @@ pub fn normalize_collected_mime(mime: &str) -> &'static str {
 /// a base64 raster image: SVG is a text format whose PII must stay on the inline scrub path, and
 /// non-base64 payloads mirror `blur_image_data_uri`'s refusal. MIME types are case-insensitive,
 /// so the checks run on a lowercased meta — `image/SVG+xml` must not dodge the SVG exclusion.
-pub fn collectable_data_uri_bytes(uri: &str) -> Option<Vec<u8>> {
+pub fn collectable_data_uri_bytes(uri: &str, max_image_bytes: usize) -> Option<Vec<u8>> {
     let rest = uri.strip_prefix("data:")?;
     let (meta, payload) = rest.split_once(',')?;
     let meta = meta.to_ascii_lowercase();
@@ -244,7 +260,7 @@ pub fn collectable_data_uri_bytes(uri: &str) -> Option<Vec<u8>> {
     // An encoded payload that can't decode under the per-image cap would be decoded here only to
     // be rejected by `collect` (and then decoded again by the blur fallback) — bail on the
     // encoded length instead.
-    if payload.len() > MAX_IMAGE_BYTES.div_ceil(3) * 4 {
+    if payload.len() > max_image_bytes.div_ceil(3) * 4 {
         return None;
     }
     let bytes = base64::engine::general_purpose::STANDARD
@@ -260,13 +276,17 @@ pub fn collectable_data_uri_bytes(uri: &str) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
 
+    fn collectable(uri: &str) -> Option<Vec<u8>> {
+        collectable_data_uri_bytes(uri, MAX_IMAGE_BYTES)
+    }
+
     const TEST_KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
 
     fn collector() -> ImageCollector {
-        ImageCollector::new(ImageCollection {
-            team_id: "a".repeat(32),
-            content_key: String::from_utf8(TEST_KEY.to_vec()).unwrap(),
-        })
+        ImageCollector::new(ImageCollection::new(
+            "a".repeat(32),
+            String::from_utf8(TEST_KEY.to_vec()).unwrap(),
+        ))
     }
 
     #[test]
@@ -345,17 +365,17 @@ mod tests {
 
     #[test]
     fn collectable_rejects_svg_non_base64_and_non_image() {
-        assert!(collectable_data_uri_bytes("data:image/svg+xml;base64,PHN2Zz4=").is_none());
-        assert!(collectable_data_uri_bytes("data:image/bmp;base64,Qk0=").is_none());
-        assert!(collectable_data_uri_bytes("data:image/x-bmp;base64,Qk0=").is_none());
-        assert!(collectable_data_uri_bytes("data:image/x-ms-bmp;base64,Qk0=").is_none());
-        assert!(collectable_data_uri_bytes("data:image/png;base64,Qk0=").is_none());
-        assert!(collectable_data_uri_bytes("data:image/svg+xml;utf8,<svg/>").is_none());
-        assert!(collectable_data_uri_bytes("data:text/plain;base64,aGk=").is_none());
-        assert!(collectable_data_uri_bytes("data:image/png;utf8,notbase64").is_none());
-        assert!(collectable_data_uri_bytes("data:image/png;base64,%%%").is_none());
+        assert!(collectable("data:image/svg+xml;base64,PHN2Zz4=").is_none());
+        assert!(collectable("data:image/bmp;base64,Qk0=").is_none());
+        assert!(collectable("data:image/x-bmp;base64,Qk0=").is_none());
+        assert!(collectable("data:image/x-ms-bmp;base64,Qk0=").is_none());
+        assert!(collectable("data:image/png;base64,Qk0=").is_none());
+        assert!(collectable("data:image/svg+xml;utf8,<svg/>").is_none());
+        assert!(collectable("data:text/plain;base64,aGk=").is_none());
+        assert!(collectable("data:image/png;utf8,notbase64").is_none());
+        assert!(collectable("data:image/png;base64,%%%").is_none());
         assert_eq!(
-            collectable_data_uri_bytes("data:image/png;base64,aGVsbG8=").as_deref(),
+            collectable("data:image/png;base64,aGVsbG8=").as_deref(),
             Some(b"hello".as_slice())
         );
     }
@@ -365,7 +385,7 @@ mod tests {
         // 4/3 * MAX_IMAGE_BYTES encoded chars is the fit boundary; one full quartet past it means
         // the decoded bytes cannot fit, so it must bail before paying the decode.
         let over = "A".repeat(MAX_IMAGE_BYTES.div_ceil(3) * 4 + 4);
-        assert!(collectable_data_uri_bytes(&format!("data:image/png;base64,{over}")).is_none());
+        assert!(collectable(&format!("data:image/png;base64,{over}")).is_none());
     }
 
     #[test]
@@ -389,10 +409,10 @@ mod tests {
     fn collectable_mime_checks_are_case_insensitive() {
         // MIME types are case-insensitive; a mixed-case SVG must not dodge the text-format
         // exclusion, and a mixed-case raster/base64 marker must still collect.
-        assert!(collectable_data_uri_bytes("data:image/SVG+xml;base64,PHN2Zz4=").is_none());
-        assert!(collectable_data_uri_bytes("data:image/Svg+Xml;base64,PHN2Zz4=").is_none());
+        assert!(collectable("data:image/SVG+xml;base64,PHN2Zz4=").is_none());
+        assert!(collectable("data:image/Svg+Xml;base64,PHN2Zz4=").is_none());
         assert_eq!(
-            collectable_data_uri_bytes("data:image/PNG;BASE64,aGVsbG8=").as_deref(),
+            collectable("data:image/PNG;BASE64,aGVsbG8=").as_deref(),
             Some(b"hello".as_slice())
         );
     }

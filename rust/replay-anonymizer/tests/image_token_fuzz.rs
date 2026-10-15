@@ -77,11 +77,14 @@ fn leaked_tokens(lines: &[u8]) -> Vec<String> {
     found
 }
 
+// The production cap is too large to cross cheaply 240 times, so the fuzz lowers it.
+const FUZZ_MAX_IMAGE_BYTES: usize = 64 * 1024;
+
 fn png_of(width: u32, height: u32, seed: u8) -> String {
     let mut img = image::RgbaImage::new(width, height);
     for (x, y, px) in img.enumerate_pixels_mut() {
         // Noise, so the encoder cannot collapse it — a large image has to stay large enough to
-        // exceed the collection lane's per-image cap.
+        // exceed `FUZZ_MAX_IMAGE_BYTES`.
         let v = ((x * 7 + y * 13) as u8).wrapping_mul(seed | 1);
         *px = image::Rgba([v, v.wrapping_add(seed), v ^ seed, 255]);
     }
@@ -108,7 +111,7 @@ fn image_uri(rng: &mut Rng, small: &[String], large: &[String]) -> String {
     match rng.below(5) {
         // Collectable when collection is on; deferred token otherwise.
         0 | 1 => small[rng.below(small.len() as u64) as usize].clone(),
-        // Over the collection lane's per-image cap, so deferred even with collection on.
+        // Over `FUZZ_MAX_IMAGE_BYTES`, so deferred even with collection on.
         2 => large[rng.below(large.len() as u64) as usize].clone(),
         // A text format: never collectable, and unblurrable, so it exercises the fallback.
         3 => svg_uri(rng.below(4) as u8),
@@ -177,8 +180,17 @@ fn make_event(rng: &mut Rng, small: &[String], large: &[String], ts: f64) -> Val
 fn fuzz_no_deferred_image_token_reaches_output() {
     let allow = AllowLists::default();
     let small: Vec<String> = (0..4).map(|i| png_of(8, 8, i as u8 + 1)).collect();
-    // Comfortably over the collection lane's 900 KB per-image cap.
     let large: Vec<String> = (0..2).map(|i| png_of(900, 900, i as u8 + 7)).collect();
+    for (name, images, over) in [("small", &small, false), ("large", &large, true)] {
+        for uri in images {
+            let decoded = uri.split_once(',').map_or(0, |(_, b64)| b64.len() / 4 * 3);
+            assert_eq!(
+                decoded > FUZZ_MAX_IMAGE_BYTES,
+                over,
+                "{name} image vs the fuzz cap"
+            );
+        }
+    }
 
     let mut rng = Rng(0xDEAD_BEEF_1234_5678);
     let mut failures: Vec<String> = Vec::new();
@@ -209,8 +221,11 @@ fn fuzz_no_deferred_image_token_reaches_output() {
                 image_policy: ImagePolicy::Parallel,
             },
             collect.then(|| ImageCollection {
-                team_id: "a".repeat(32),
-                content_key: "0123456789abcdef0123456789abcdef".to_string(),
+                max_image_bytes: FUZZ_MAX_IMAGE_BYTES,
+                ..ImageCollection::new(
+                    "a".repeat(32),
+                    "0123456789abcdef0123456789abcdef".to_string(),
+                )
             }),
         );
         messages += 1;

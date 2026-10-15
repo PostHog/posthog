@@ -666,10 +666,10 @@ fn monthly_refs_survive_compressed_snapshot_fields() {
                 image_policy: ImagePolicy::Inline,
             },
             None,
-            Some(ImageCollection {
-                team_id: namespace.to_string(),
-                content_key: URL_KEY.to_string(),
-            }),
+            Some(ImageCollection::new(
+                namespace.to_string(),
+                URL_KEY.to_string(),
+            )),
             Some(UrlCollection {
                 url_key: URL_KEY.to_string(),
                 reference_namespace: Some(namespace.to_string()),

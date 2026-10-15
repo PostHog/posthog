@@ -162,6 +162,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
                     // lane follows its producer flag. The URL lane collects on its own flag,
                     // because collecting alone measures without sending anything anywhere.
                     collectImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED,
+                    maxImageBytes: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGE_BYTES,
                     collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
                 },
                 // Producing needs collection: without it the anonymizer returns no URLs, and

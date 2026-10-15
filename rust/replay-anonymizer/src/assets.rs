@@ -140,10 +140,11 @@ pub fn has_media_src_attr(attrs: &Object<'_>) -> bool {
     MEDIA_SRC_ATTRS.iter().any(|name| attrs.contains_key(*name))
 }
 
-pub(crate) fn has_usable_srcset(value: &str, keep_image_refs: bool) -> bool {
-    (keep_image_refs && is_image_ref_strict(value))
+pub(crate) fn has_usable_srcset(value: &str, ctx: &Ctx<'_>) -> bool {
+    (ctx.keeps_image_refs() && is_image_ref_strict(value))
         || candidate_for_scrubbing(value).is_some_and(|url| {
-            collectable_data_uri_bytes(url).is_some() || canonicalize(url).is_some()
+            collectable_data_uri_bytes(url, ctx.max_collected_image_bytes()).is_some()
+                || canonicalize(url).is_some()
         })
 }
 
@@ -180,7 +181,7 @@ pub fn apply_blur(
         && attrs
             .get("srcset")
             .and_then(as_str)
-            .is_some_and(|value| has_usable_srcset(value, ctx.keeps_image_refs()));
+            .is_some_and(|value| has_usable_srcset(value, ctx));
     // Computed only when a remote image is about to be collected, because the inline style is
     // parsed for it and most elements never reach that branch.
     let mut hidden_pixel: Option<bool> = None;

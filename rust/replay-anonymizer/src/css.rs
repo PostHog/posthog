@@ -731,10 +731,10 @@ mod tests {
         let allow = AllowLists::default();
         let ctx = Ctx::with_image_collection(
             &allow,
-            Some(ImageCollection {
-                team_id: "0123456789abcdef0123456789abcdef".to_string(),
-                content_key: "fedcba9876543210fedcba9876543210".to_string(),
-            }),
+            Some(ImageCollection::new(
+                "0123456789abcdef0123456789abcdef".to_string(),
+                "fedcba9876543210fedcba9876543210".to_string(),
+            )),
         );
         let original = png_data_uri(8, 8, [10, 20, 30, 255]);
         let css = format!("background-image:url('{original}')");
@@ -758,10 +758,10 @@ mod tests {
         let allow = AllowLists::default();
         let ctx = Ctx::with_image_collection(
             &allow,
-            Some(ImageCollection {
-                team_id: "0123456789abcdef0123456789abcdef".to_string(),
-                content_key: "fedcba9876543210fedcba9876543210".to_string(),
-            }),
+            Some(ImageCollection::new(
+                "0123456789abcdef0123456789abcdef".to_string(),
+                "fedcba9876543210fedcba9876543210".to_string(),
+            )),
         )
         .collecting_urls(Some(UrlCollection {
             reference_namespace: None,
@@ -815,10 +815,10 @@ mod tests {
         let allow = AllowLists::default();
         let ctx = Ctx::with_image_collection(
             &allow,
-            Some(ImageCollection {
-                team_id: "0123456789abcdef0123456789abcdef".to_string(),
-                content_key: "fedcba9876543210fedcba9876543210".to_string(),
-            }),
+            Some(ImageCollection::new(
+                "0123456789abcdef0123456789abcdef".to_string(),
+                "fedcba9876543210fedcba9876543210".to_string(),
+            )),
         );
         let original = "data:image/svg+xml;base64,PHN2Zz48dGV4dD5qb2huLmZha2VuYW1lQGV4YW1wbGUuY29tPC90ZXh0Pjwvc3ZnPg==";
         let css = format!("background-image:url('{original}')");
