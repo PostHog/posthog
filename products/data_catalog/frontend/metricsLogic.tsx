@@ -133,7 +133,11 @@ export interface metricsLogicActions {
     closeNewMetricModal: () => {
         value: true
     }
-    createMetric: (overwrite?: boolean) => {
+    createMetric: (
+        overwrite?: boolean,
+        form?: NewMetricForm
+    ) => {
+        form: NewMetricForm | undefined
         overwrite: boolean
     }
     createMetricFromInsight: (
@@ -249,7 +253,8 @@ export const metricsLogic = kea<metricsLogicType>([
         setNewMetricForm: (form: Partial<NewMetricForm>) => ({ form }),
         setInsightSearch: (search: string) => ({ search }),
         loadSavedInsights: true,
-        createMetric: (overwrite: boolean = false) => ({ overwrite }),
+        // `form` is the submitted snapshot on an overwrite retry, so an edit made while the first request ran is not saved.
+        createMetric: (overwrite: boolean = false, form?: NewMetricForm) => ({ overwrite, form }),
         setCreatingMetric: (creating: boolean) => ({ creating }),
         approveMetric: (name: string) => ({ name }),
         refreshMetricFromInsight: (name: string) => ({ name }),
@@ -400,11 +405,11 @@ export const metricsLogic = kea<metricsLogicType>([
                 urls.sqlEditor({ source: 'metric', metricPrefill: { name, display_name, description, unit } })
             )
         },
-        createMetric: async ({ overwrite }) => {
+        createMetric: async ({ overwrite, form: submittedForm }) => {
             if (values.isCreatingMetric) {
                 return
             }
-            const form = values.newMetricForm
+            const form = submittedForm ?? values.newMetricForm
             if (form.definitionType === 'sql') {
                 lemonToast.error('Create SQL metrics from the SQL editor.')
                 return
@@ -412,7 +417,8 @@ export const metricsLogic = kea<metricsLogicType>([
             actions.setCreatingMetric(true)
             try {
                 // A markdown metric is created as a stub; its definition is authored on the
-                // metric page, where the editor has room.
+                // metric page, where the editor has room. The null definition makes an overwrite
+                // drop the existing query, which the markdown editor cannot open.
                 const created = await dataCatalogMetricsCreate(projectId(), {
                     name: form.name,
                     display_name: form.display_name || undefined,
@@ -420,7 +426,7 @@ export const metricsLogic = kea<metricsLogicType>([
                     unit: form.unit || undefined,
                     ...(form.definitionType === 'insight'
                         ? { source_insight_short_id: form.sourceInsightShortId }
-                        : {}),
+                        : { definition: null }),
                     created_source: 'user',
                     overwrite,
                 })
@@ -433,7 +439,7 @@ export const metricsLogic = kea<metricsLogicType>([
             } catch (error) {
                 const existing = existingMetricFromNameConflict(error)
                 if (existing) {
-                    openOverwriteMetricDialog({ existing, onOverwrite: () => actions.createMetric(true) })
+                    openOverwriteMetricDialog({ existing, onOverwrite: () => actions.createMetric(true, form) })
                 } else {
                     lemonToast.error(
                         apiErrorDetail(error) || 'Could not create the metric. Check the fields and try again.'
