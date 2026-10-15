@@ -13,15 +13,16 @@
 //! table) rather than deep copies of limiter state.
 use crate::api::CaptureError;
 use crate::config::EnvelopeCompression;
+use crate::kind::Route;
 use crate::ordering::OrderingGuarantee;
 use crate::outputs::{PreparedEvent, PublishEvents, PublishPrepared};
-use crate::pipeline::{self, Address};
+use crate::pipeline::Address;
 use crate::producers::ProducerHandle;
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::registry::{Destination, OutputTable};
 use crate::sinks::sink::{fold_results, Outcome, PreparedPayload, PublishPayloads, SinkResult};
-use crate::v0_request::{DataType, ProcessedEvent};
+use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
 use bytes::Bytes;
 use common_types::CapturedEventHeaders;
@@ -247,18 +248,21 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Not `async`: there are no await points, and keeping it
     /// synchronous lets `prepare_batch`'s serial fast path call it inline
     /// without any runtime indirection.
-    fn prepare_record(&self, event: ProcessedEvent) -> Result<PreparedPayload, CaptureError> {
+    fn prepare_record<K: Route>(
+        &self,
+        event: ProcessedEvent<K>,
+    ) -> Result<PreparedPayload, CaptureError> {
         let (event, metadata) = (event.event, event.metadata);
         let uuid = event.uuid;
 
-        // Encoding is resolved by data_type, not by the routed destination:
+        // Encoding is resolved by kind, not by the routed destination:
         // session replay gets the lz4 envelope when configured, everything
         // else the plain JSON contract — so a replay event redirected to the
         // DLQ or a custom topic keeps the envelope, with its content-encoding
         // header travelling along. See `crate::serialization` for the formats,
         // the envelope byte layout, and the coexistence story.
-        let serializer = match (metadata.data_type, self.replay_envelope_compression) {
-            (DataType::SnapshotMain, EnvelopeCompression::Lz4) => Serializer::JSON_LZ4,
+        let serializer = match self.replay_envelope_compression {
+            EnvelopeCompression::Lz4 if metadata.kind.is_session_replay() => Serializer::JSON_LZ4,
             _ => Serializer::JSON,
         };
         let payload = serializer.serialize(&event).map_err(|e| {
@@ -289,7 +293,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         // effects live in the same match that maps it to an output, so a new
         // address cannot skip them: dlq sets the dlq headers, and both admin
         // redirects count their reroutes.
-        let decision = pipeline::resolve(&metadata, self.outputs.has_ai_overflow_lane())?;
+        let decision = K::resolve(&metadata, self.outputs.has_ai_overflow_lane())?;
         let target = match decision.address {
             Address::Dlq => {
                 dlq_reroute_effects(&mut headers, "event_restriction");
@@ -377,7 +381,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// exits as well, so a publish of one event stays in the same population
     /// as a publish of many. Without this, the cheapest publishes leave the
     /// distribution and the in-process quantiles step up on their own.
-    fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
+    fn kafka_send<K: Route>(&self, event: ProcessedEvent<K>) -> Result<P::AckFuture, CaptureError> {
         let prep_start = Instant::now();
         let payload = self.prepare_record(event);
         histogram!("capture_kafka_batch_prep_duration_seconds")
@@ -406,9 +410,9 @@ impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
     /// error so no partially-prepped batch reaches the producer. Inherent
     /// rather than on the `PublishPayloads` trait: payload assembly is not
     /// backend mechanism.
-    pub(crate) async fn prepare_batch(
+    pub(crate) async fn prepare_batch<K: Route>(
         &self,
-        events: Vec<ProcessedEvent>,
+        events: Vec<ProcessedEvent<K>>,
     ) -> Result<Vec<PreparedPayload>, CaptureError> {
         let batch_size = events.len();
 
@@ -552,9 +556,9 @@ impl<P: KafkaProducer + 'static> PublishPayloads for KafkaSinkBase<P> {
 }
 
 #[async_trait]
-impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
+impl<P: KafkaProducer + 'static, K: Route> PublishEvents<K> for KafkaSinkBase<P> {
     #[instrument(skip_all)]
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn publish_events(&self, events: Vec<ProcessedEvent<K>>) -> Result<(), CaptureError> {
         // Skip `prepare_batch`, a `JoinSet` of one, and a fold over one
         // result on the endpoints that publish a single event per request.
         if events.len() == 1 {
@@ -658,11 +662,12 @@ pub(crate) use crate::sinks::registry::test_outputs;
 mod tests {
     use crate::api::CaptureError;
     use crate::config::EnvelopeCompression;
+    use crate::kind::{AnalyticsKind, MainOrHistorical};
     use crate::outputs::PublishEvents;
     use crate::producers::{self, ProducerName, ProducerRegistry};
     use crate::sinks::kafka::{test_outputs, KafkaSink};
     use crate::utils::uuid_v7_from_datetime;
-    use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
+    use crate::v0_request::{OverflowReason, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
@@ -735,7 +740,7 @@ mod tests {
         };
 
         let metadata = ProcessedEventMetadata {
-            data_type: DataType::AnalyticsMain,
+            kind: AnalyticsKind::Analytics(MainOrHistorical::Main),
             session_id: None,
             computed_timestamp: None,
             event_name: "test_event".to_string(),
@@ -1001,6 +1006,7 @@ mod tests {
     #[cfg(test)]
     mod topic_routing {
         use super::*;
+        use crate::kind::SnapshotKind;
         use crate::sinks::kafka::{test_outputs, KafkaSinkBase, SCATTER_GATHER_MIN_BATCH};
         use crate::sinks::producer::MockKafkaProducer;
         use crate::sinks::sink::{Outcome, PublishPayloads};
@@ -1027,8 +1033,35 @@ mod tests {
             CustomTopic,
         }
 
+        #[derive(Clone, Copy, Debug, PartialEq)]
+        enum Kind {
+            AnalyticsMain,
+            AnalyticsHistorical,
+            HeatmapMain,
+            ExceptionErrorTracking,
+            ClientIngestionWarning,
+            AiEvents,
+            SnapshotMain,
+        }
+
+        impl Kind {
+            fn analytics(self) -> AnalyticsKind<MainOrHistorical> {
+                match self {
+                    Kind::AnalyticsMain => AnalyticsKind::Analytics(MainOrHistorical::Main),
+                    Kind::AnalyticsHistorical => {
+                        AnalyticsKind::Analytics(MainOrHistorical::Historical)
+                    }
+                    Kind::HeatmapMain => AnalyticsKind::Heatmap,
+                    Kind::ExceptionErrorTracking => AnalyticsKind::Exception,
+                    Kind::ClientIngestionWarning => AnalyticsKind::ClientWarning,
+                    Kind::AiEvents => AnalyticsKind::Ai,
+                    Kind::SnapshotMain => panic!("a snapshot is not an analytics event"),
+                }
+            }
+        }
+
         struct EventInput {
-            data_type: DataType,
+            kind: Kind,
             force_overflow: bool,
             skip_person_processing: bool,
             skip_heatmap_processing: bool,
@@ -1041,7 +1074,7 @@ mod tests {
         impl Default for EventInput {
             fn default() -> Self {
                 Self {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: false,
                     skip_person_processing: false,
                     skip_heatmap_processing: false,
@@ -1053,7 +1086,18 @@ mod tests {
             }
         }
 
-        fn create_test_event(input: &EventInput) -> ProcessedEvent {
+        fn create_test_event(
+            input: &EventInput,
+        ) -> ProcessedEvent<AnalyticsKind<MainOrHistorical>> {
+            create_event(input, input.kind.analytics())
+        }
+
+        fn create_replay_event(input: &EventInput) -> ProcessedEvent<SnapshotKind> {
+            assert_eq!(input.kind, Kind::SnapshotMain);
+            create_event(input, SnapshotKind)
+        }
+
+        fn create_event<K>(input: &EventInput, kind: K) -> ProcessedEvent<K> {
             let timestamp = chrono::Utc::now();
             let event = CapturedEvent {
                 uuid: uuid_v7_from_datetime(timestamp),
@@ -1071,7 +1115,7 @@ mod tests {
             };
 
             let metadata = ProcessedEventMetadata {
-                data_type: input.data_type,
+                kind,
                 session_id: Some("session123".to_string()),
                 computed_timestamp: None,
                 event_name: "test_event".to_string(),
@@ -1133,8 +1177,16 @@ mod tests {
                 input.compression,
             );
 
-            let event = create_test_event(&input);
-            sink.publish_events(vec![event]).await.unwrap();
+            match input.kind {
+                Kind::SnapshotMain => sink
+                    .publish_events(vec![create_replay_event(&input)])
+                    .await
+                    .unwrap(),
+                _ => sink
+                    .publish_events(vec![create_test_event(&input)])
+                    .await
+                    .unwrap(),
+            }
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "Expected exactly one record");
@@ -1143,7 +1195,7 @@ mod tests {
 
             let ctx = format!(
                 "{:?} (force_overflow={}, skip_person={}, skip_heatmap={}, dlq={}, redirect_to_topic={:?}, overflow_reason={:?})",
-                input.data_type,
+                input.kind,
                 input.force_overflow,
                 input.skip_person_processing,
                 input.skip_heatmap_processing,
@@ -1276,7 +1328,7 @@ mod tests {
         async fn analytics_main_normal() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -1298,7 +1350,7 @@ mod tests {
         async fn analytics_main_force_overflow() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -1321,7 +1373,7 @@ mod tests {
             // Key should be dropped when both force_overflow and skip_person_processing are set
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
@@ -1344,7 +1396,7 @@ mod tests {
             // Key should be dropped when skip_person_processing is set, even without overflow
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
@@ -1366,7 +1418,7 @@ mod tests {
         async fn analytics_main_redirect_to_dlq() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
@@ -1391,7 +1443,7 @@ mod tests {
             // DLQ takes priority over force_overflow
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
@@ -1415,7 +1467,7 @@ mod tests {
         async fn analytics_main_dlq_with_skip_person() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: true,
@@ -1440,7 +1492,7 @@ mod tests {
             // DLQ takes priority, skip_person still sets header
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: true,
@@ -1467,7 +1519,7 @@ mod tests {
         async fn analytics_historical_normal() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsHistorical,
+                    kind: Kind::AnalyticsHistorical,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -1490,7 +1542,7 @@ mod tests {
             // Historical events should ignore force_overflow
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsHistorical,
+                    kind: Kind::AnalyticsHistorical,
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -1512,7 +1564,7 @@ mod tests {
         async fn analytics_historical_skip_person() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsHistorical,
+                    kind: Kind::AnalyticsHistorical,
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
@@ -1534,7 +1586,7 @@ mod tests {
         async fn analytics_historical_redirect_to_dlq() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsHistorical,
+                    kind: Kind::AnalyticsHistorical,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
@@ -1559,7 +1611,7 @@ mod tests {
             // DLQ takes priority, historical ignores overflow, skip_person sets header
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsHistorical,
+                    kind: Kind::AnalyticsHistorical,
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: true,
@@ -1585,7 +1637,7 @@ mod tests {
         async fn snapshot_normal() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::SnapshotMain,
+                    kind: Kind::SnapshotMain,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -1607,7 +1659,7 @@ mod tests {
         async fn snapshot_force_overflow() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::SnapshotMain,
+                    kind: Kind::SnapshotMain,
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -1630,7 +1682,7 @@ mod tests {
             // Unlike AnalyticsMain, SnapshotMain does NOT drop key with skip_person_processing
             assert_routing(
                 EventInput {
-                    data_type: DataType::SnapshotMain,
+                    kind: Kind::SnapshotMain,
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
@@ -1652,7 +1704,7 @@ mod tests {
         async fn snapshot_skip_person_only() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::SnapshotMain,
+                    kind: Kind::SnapshotMain,
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
@@ -1674,7 +1726,7 @@ mod tests {
         async fn snapshot_redirect_to_dlq() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::SnapshotMain,
+                    kind: Kind::SnapshotMain,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
@@ -1698,7 +1750,7 @@ mod tests {
         async fn snapshot_dlq_priority_over_overflow() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::SnapshotMain,
+                    kind: Kind::SnapshotMain,
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
@@ -1726,7 +1778,7 @@ mod tests {
             // payload goldens below; here the oracle pins just the header.
             assert_routing(
                 EventInput {
-                    data_type: DataType::SnapshotMain,
+                    kind: Kind::SnapshotMain,
                     compression: EnvelopeCompression::Lz4,
                     ..Default::default()
                 },
@@ -1745,7 +1797,7 @@ mod tests {
             // event under the same sink config carries no content-encoding.
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     compression: EnvelopeCompression::Lz4,
                     ..Default::default()
                 },
@@ -1764,7 +1816,7 @@ mod tests {
         async fn heatmap_normal() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::HeatmapMain,
+                    kind: Kind::HeatmapMain,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -1786,7 +1838,7 @@ mod tests {
         async fn heatmap_ignores_force_overflow() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::HeatmapMain,
+                    kind: Kind::HeatmapMain,
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -1808,7 +1860,7 @@ mod tests {
         async fn heatmap_skip_person() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::HeatmapMain,
+                    kind: Kind::HeatmapMain,
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
@@ -1830,7 +1882,7 @@ mod tests {
         async fn heatmap_redirect_to_dlq() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::HeatmapMain,
+                    kind: Kind::HeatmapMain,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
@@ -1856,7 +1908,7 @@ mod tests {
             // independent of the routing topic and the person-processing flag.
             assert_routing(
                 EventInput {
-                    data_type: DataType::HeatmapMain,
+                    kind: Kind::HeatmapMain,
                     skip_heatmap_processing: true,
                     ..Default::default()
                 },
@@ -1875,7 +1927,7 @@ mod tests {
             // for AnalyticsMain too, orthogonally to skip_person_processing.
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     skip_heatmap_processing: true,
                     skip_person_processing: true,
                     ..Default::default()
@@ -1898,7 +1950,7 @@ mod tests {
         async fn exception_normal() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::ExceptionErrorTracking,
+                    kind: Kind::ExceptionErrorTracking,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -1920,7 +1972,7 @@ mod tests {
         async fn exception_ignores_force_overflow() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::ExceptionErrorTracking,
+                    kind: Kind::ExceptionErrorTracking,
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -1942,7 +1994,7 @@ mod tests {
         async fn exception_skip_person() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::ExceptionErrorTracking,
+                    kind: Kind::ExceptionErrorTracking,
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
@@ -1964,7 +2016,7 @@ mod tests {
         async fn exception_redirect_to_dlq() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::ExceptionErrorTracking,
+                    kind: Kind::ExceptionErrorTracking,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
@@ -1991,7 +2043,7 @@ mod tests {
         async fn client_ingestion_warning_normal() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::ClientIngestionWarning,
+                    kind: Kind::ClientIngestionWarning,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -2013,7 +2065,7 @@ mod tests {
         async fn client_ingestion_warning_ignores_force_overflow() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::ClientIngestionWarning,
+                    kind: Kind::ClientIngestionWarning,
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -2035,7 +2087,7 @@ mod tests {
         async fn client_ingestion_warning_skip_person() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::ClientIngestionWarning,
+                    kind: Kind::ClientIngestionWarning,
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
@@ -2057,7 +2109,7 @@ mod tests {
         async fn client_ingestion_warning_redirect_to_dlq() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::ClientIngestionWarning,
+                    kind: Kind::ClientIngestionWarning,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
@@ -2087,7 +2139,7 @@ mod tests {
         async fn ai_events_normal() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AiEvents,
+                    kind: Kind::AiEvents,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -2111,7 +2163,7 @@ mod tests {
             // analytics main lane: rerouted, key kept.
             assert_routing(
                 EventInput {
-                    data_type: DataType::AiEvents,
+                    kind: Kind::AiEvents,
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -2134,7 +2186,7 @@ mod tests {
             // Mirrors analytics_main_force_overflow_with_skip_person.
             assert_routing(
                 EventInput {
-                    data_type: DataType::AiEvents,
+                    kind: Kind::AiEvents,
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
@@ -2182,7 +2234,7 @@ mod tests {
         ) {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AiEvents,
+                    kind: Kind::AiEvents,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -2209,7 +2261,7 @@ mod tests {
             let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
 
             let mut event = create_test_event(&EventInput {
-                data_type: DataType::AiEvents,
+                kind: Kind::AiEvents,
                 force_overflow: true,
                 skip_person_processing: false,
                 redirect_to_dlq: false,
@@ -2232,7 +2284,7 @@ mod tests {
             // key: the AI main lane keeps per-distinct-id ordering.
             assert_routing(
                 EventInput {
-                    data_type: DataType::AiEvents,
+                    kind: Kind::AiEvents,
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
@@ -2254,7 +2306,7 @@ mod tests {
         async fn ai_events_redirect_to_dlq() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AiEvents,
+                    kind: Kind::AiEvents,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
@@ -2280,7 +2332,7 @@ mod tests {
             // where Destination::Custom overwrites Destination::AiMain.
             assert_routing(
                 EventInput {
-                    data_type: DataType::AiEvents,
+                    kind: Kind::AiEvents,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -2309,9 +2361,9 @@ mod tests {
 
             let base = create_test_event(&EventInput::default());
             let mut ai_event = base.clone();
-            ai_event.metadata.data_type = DataType::AiEvents;
+            ai_event.metadata.kind = AnalyticsKind::Ai;
             let mut exception_event = base;
-            exception_event.metadata.data_type = DataType::ExceptionErrorTracking;
+            exception_event.metadata.kind = AnalyticsKind::Exception;
 
             sink.publish_events(vec![ai_event]).await.unwrap();
             sink.publish_events(vec![exception_event]).await.unwrap();
@@ -2336,7 +2388,7 @@ mod tests {
         async fn analytics_main_redirect_to_topic() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -2359,7 +2411,7 @@ mod tests {
         async fn analytics_main_dlq_priority_over_redirect_to_topic() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
@@ -2383,7 +2435,7 @@ mod tests {
         async fn analytics_main_redirect_to_topic_priority_over_overflow() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -2406,7 +2458,7 @@ mod tests {
         async fn analytics_main_redirect_to_topic_with_skip_person() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
@@ -2429,7 +2481,7 @@ mod tests {
         async fn snapshot_redirect_to_topic() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::SnapshotMain,
+                    kind: Kind::SnapshotMain,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
@@ -2469,7 +2521,7 @@ mod tests {
         ) {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     skip_person_processing,
                     overflow_reason: Some(OverflowReason::ForceLimited),
                     ..Default::default()
@@ -2497,7 +2549,7 @@ mod tests {
         ) {
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     overflow_reason: Some(OverflowReason::RateLimited { preserve_locality }),
                     ..Default::default()
                 },
@@ -2517,18 +2569,18 @@ mod tests {
         /// person-processing header and loses the partition key, on either
         /// locality setting.
         #[rstest]
-        #[case::analytics_preserving(DataType::AnalyticsMain, true, OVERFLOW_TOPIC)]
-        #[case::analytics_spreading(DataType::AnalyticsMain, false, OVERFLOW_TOPIC)]
-        #[case::ai_preserving(DataType::AiEvents, true, AI_EVENTS_OVERFLOW_TOPIC)]
+        #[case::analytics_preserving(Kind::AnalyticsMain, true, OVERFLOW_TOPIC)]
+        #[case::analytics_spreading(Kind::AnalyticsMain, false, OVERFLOW_TOPIC)]
+        #[case::ai_preserving(Kind::AiEvents, true, AI_EVENTS_OVERFLOW_TOPIC)]
         #[tokio::test]
         async fn overflow_reason_rate_limited_drops_key_when_person_off(
-            #[case] data_type: DataType,
+            #[case] kind: Kind,
             #[case] preserve_locality: bool,
             #[case] expected_topic: &str,
         ) {
             assert_routing(
                 EventInput {
-                    data_type,
+                    kind,
                     skip_person_processing: true,
                     overflow_reason: Some(OverflowReason::RateLimited { preserve_locality }),
                     ..Default::default()
@@ -2549,7 +2601,7 @@ mod tests {
             // upstream pipeline accidentally stamps one — be defensive.
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsHistorical,
+                    kind: Kind::AnalyticsHistorical,
                     overflow_reason: Some(OverflowReason::RateLimited {
                         preserve_locality: false,
                     }),
@@ -2569,7 +2621,7 @@ mod tests {
         async fn overflow_reason_replay_limited_routes_snapshot_to_replay_overflow() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::SnapshotMain,
+                    kind: Kind::SnapshotMain,
                     overflow_reason: Some(OverflowReason::ReplayLimited),
                     ..Default::default()
                 },
@@ -2589,7 +2641,7 @@ mod tests {
             // overflow_reason.
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: true,
                     overflow_reason: Some(OverflowReason::RateLimited {
                         preserve_locality: false,
@@ -2615,7 +2667,7 @@ mod tests {
             // (production stamps the flag alongside the reason anyway).
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     redirect_to_dlq: true,
                     overflow_reason: Some(OverflowReason::ForceLimited),
                     ..Default::default()
@@ -2639,7 +2691,7 @@ mod tests {
             // hard-coded topic override.
             assert_routing(
                 EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     redirect_to_topic: Some("custom_topic".to_string()),
                     overflow_reason: Some(OverflowReason::ForceLimited),
                     ..Default::default()
@@ -2671,10 +2723,10 @@ mod tests {
             // 20 events, all sharing the same distinct_id (so they hash to the
             // same partition via murmur2), each with a unique UUID so we can
             // track input->output order through the pipeline.
-            let events: Vec<ProcessedEvent> = (0..20)
+            let events: Vec<ProcessedEvent<AnalyticsKind<MainOrHistorical>>> = (0..20)
                 .map(|_| {
                     create_test_event(&EventInput {
-                        data_type: DataType::AnalyticsMain,
+                        kind: Kind::AnalyticsMain,
                         force_overflow: false,
                         skip_person_processing: false,
                         redirect_to_dlq: false,
@@ -2732,39 +2784,18 @@ mod tests {
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
-            // Build a batch where event #3 is a SnapshotMain with session_id=None,
-            // which causes prepare_record to return MissingSessionId. The other
-            // events are valid AnalyticsMain. Since phase 2 only runs after all
-            // prep tasks complete, a prep error must short-circuit before any
-            // producer.send() call — so the mock producer should see zero records.
-            let mut events: Vec<ProcessedEvent> = (0..5)
-                .map(|_| {
-                    create_test_event(&EventInput {
-                        data_type: DataType::AnalyticsMain,
-                        force_overflow: false,
-                        skip_person_processing: false,
-                        redirect_to_dlq: false,
-                        redirect_to_topic: None,
-                        overflow_reason: None,
-                        ..Default::default()
-                    })
-                })
-                .collect();
-
-            // Overwrite element [2] with a SnapshotMain event whose session_id
-            // metadata is None — prepare_record returns MissingSessionId at the
-            // session_id lookup in the SnapshotMain branch.
-            let mut bad = create_test_event(&EventInput {
-                data_type: DataType::SnapshotMain,
-                force_overflow: false,
-                skip_person_processing: false,
-                redirect_to_dlq: false,
-                redirect_to_topic: None,
-                overflow_reason: None,
+            // Event #3 is a snapshot with session_id=None, which causes
+            // prepare_record to return MissingSessionId. Since phase 2 only
+            // runs after all prep tasks complete, a prep error must
+            // short-circuit before any producer.send() call — so the mock
+            // producer should see zero records.
+            let snapshot = EventInput {
+                kind: Kind::SnapshotMain,
                 ..Default::default()
-            });
-            bad.metadata.session_id = None;
-            events[2] = bad;
+            };
+            let mut events: Vec<ProcessedEvent<SnapshotKind>> =
+                (0..5).map(|_| create_replay_event(&snapshot)).collect();
+            events[2].metadata.session_id = None;
 
             let res = sink.publish_events(events).await;
             match res {
@@ -2785,7 +2816,7 @@ mod tests {
 
         /// Builds N AnalyticsMain events with sequential distinct_ids so each
         /// record is individually identifiable in the mock producer's output.
-        fn build_batch(n: usize) -> Vec<ProcessedEvent> {
+        fn build_batch(n: usize) -> Vec<ProcessedEvent<AnalyticsKind<MainOrHistorical>>> {
             (0..n)
                 .map(|i| {
                     let mut e = create_test_event(&EventInput::default());
@@ -3084,25 +3115,25 @@ mod tests {
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
             // Core 5-event diverse batch.
-            let mut events: Vec<ProcessedEvent> = vec![
+            let mut events: Vec<ProcessedEvent<AnalyticsKind<MainOrHistorical>>> = vec![
                 create_test_event(&EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     ..EventInput::default()
                 }),
                 create_test_event(&EventInput {
-                    data_type: DataType::HeatmapMain,
+                    kind: Kind::HeatmapMain,
                     ..EventInput::default()
                 }),
                 create_test_event(&EventInput {
-                    data_type: DataType::ExceptionErrorTracking,
+                    kind: Kind::ExceptionErrorTracking,
                     ..EventInput::default()
                 }),
                 create_test_event(&EventInput {
-                    data_type: DataType::ClientIngestionWarning,
+                    kind: Kind::ClientIngestionWarning,
                     ..EventInput::default()
                 }),
                 create_test_event(&EventInput {
-                    data_type: DataType::AnalyticsMain,
+                    kind: Kind::AnalyticsMain,
                     force_overflow: true,
                     ..EventInput::default()
                 }),
@@ -3159,8 +3190,8 @@ mod tests {
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
-            let event = create_test_event(&EventInput {
-                data_type: DataType::SnapshotMain,
+            let event = create_replay_event(&EventInput {
+                kind: Kind::SnapshotMain,
                 ..Default::default()
             });
             sink.kafka_send(event).unwrap().await.unwrap();
@@ -3182,8 +3213,8 @@ mod tests {
                 EnvelopeCompression::Lz4,
             );
 
-            let event = create_test_event(&EventInput {
-                data_type: DataType::SnapshotMain,
+            let event = create_replay_event(&EventInput {
+                kind: Kind::SnapshotMain,
                 ..Default::default()
             });
             sink.kafka_send(event).unwrap().await.unwrap();
@@ -3216,7 +3247,7 @@ mod tests {
             );
 
             let event = create_test_event(&EventInput {
-                data_type: DataType::AnalyticsMain,
+                kind: Kind::AnalyticsMain,
                 ..Default::default()
             });
             sink.kafka_send(event).unwrap().await.unwrap();

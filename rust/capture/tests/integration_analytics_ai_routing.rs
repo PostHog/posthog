@@ -14,15 +14,19 @@ use axum::Router;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::kind::{AiKind, AnalyticsKind, EventKind, Historical, MainOrHistorical};
 use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
+use capture::router::Routes;
 use capture::sinks::sink::SinkResult;
 use capture::time::TimeSource;
-use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
+use capture::v0_request::{OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
-use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG, DEFAULT_TEST_TIME};
+use integration_utils::{
+    record, test_lifecycle_handlers, RecordKind, RecordedKind, DEFAULT_CONFIG, DEFAULT_TEST_TIME,
+};
 use limiters::overflow::OverflowLimiter;
 use limiters::token_dropper::TokenDropper;
 use rstest::rstest;
@@ -46,7 +50,7 @@ impl TimeSource for FixedTime {
 
 #[derive(Clone)]
 struct CapturingSink {
-    events: Arc<tokio::sync::Mutex<Vec<ProcessedEvent>>>,
+    events: Arc<tokio::sync::Mutex<Vec<ProcessedEvent<RecordedKind>>>>,
 }
 
 impl CapturingSink {
@@ -56,15 +60,18 @@ impl CapturingSink {
         }
     }
 
-    async fn get_events(&self) -> Vec<ProcessedEvent> {
+    async fn get_events(&self) -> Vec<ProcessedEvent<RecordedKind>> {
         self.events.lock().await.clone()
     }
 }
 
 #[async_trait]
-impl PublishEvents for CapturingSink {
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        self.events.lock().await.extend(events);
+impl<K: RecordKind> PublishEvents<K> for CapturingSink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent<K>>) -> Result<(), CaptureError> {
+        self.events
+            .lock()
+            .await
+            .extend(events.into_iter().map(record));
         Ok(())
     }
 }
@@ -92,6 +99,35 @@ fn setup_router_for_mode(
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
 ) -> (Router, CapturingSink) {
+    let limiters = (overflow_limiter, ai_events_overflow_limiter);
+    match capture_mode {
+        CaptureMode::Events => setup_router(
+            capture::router::analytics_routes::<AnalyticsKind<MainOrHistorical>>(),
+            capture_mode,
+            limiters,
+        ),
+        CaptureMode::Import => setup_router(
+            capture::router::analytics_routes::<AnalyticsKind<Historical>>(),
+            capture_mode,
+            limiters,
+        ),
+        CaptureMode::Ai => setup_router::<AiKind>(
+            capture::router::ai_routes(26_214_400),
+            capture_mode,
+            limiters,
+        ),
+        CaptureMode::Recordings => unreachable!("no analytics routing on a replay deployment"),
+    }
+}
+
+fn setup_router<K: RecordKind + EventKind>(
+    routes: Routes<K>,
+    capture_mode: CaptureMode,
+    (overflow_limiter, ai_events_overflow_limiter): (
+        Option<Arc<OverflowLimiter>>,
+        Option<Arc<OverflowLimiter>>,
+    ),
+) -> (Router, CapturingSink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = CapturingSink::new();
@@ -110,10 +146,11 @@ fn setup_router_for_mode(
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
     let router = router(
+        routes,
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputRegistry::single(sink)),
+        Arc::new(OutputRegistry::<K>::single(sink)),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
@@ -280,7 +317,7 @@ async fn mixed_batch_diverts_only_ai_events() {
         .iter()
         .find(|e| e.metadata.event_name == "$ai_generation")
         .expect("$ai_generation must reach the sink");
-    assert_eq!(ai_event.metadata.data_type, DataType::AiEvents);
+    assert_eq!(ai_event.metadata.kind, RecordedKind::AiEvents);
     assert_eq!(
         ai_event.metadata.overflow_reason, None,
         "no limiter is configured, so nothing may stamp overflow"
@@ -290,7 +327,7 @@ async fn mixed_batch_diverts_only_ai_events() {
         .iter()
         .find(|e| e.metadata.event_name == "$pageview")
         .expect("$pageview must reach the sink");
-    assert_eq!(pageview.metadata.data_type, DataType::AnalyticsMain);
+    assert_eq!(pageview.metadata.kind, RecordedKind::AnalyticsMain);
 }
 
 /// Capture mode does not change lane assignment: an Ai-mode deployment stamps
@@ -319,7 +356,7 @@ async fn ai_mode_diverts_ai_events_like_every_other_mode() {
     assert!(
         events
             .iter()
-            .all(|e| e.metadata.data_type == DataType::AiEvents),
+            .all(|e| e.metadata.kind == RecordedKind::AiEvents),
         "every AI event must land on the AI lane under Ai mode"
     );
 }
@@ -349,11 +386,11 @@ async fn any_ai_prefixed_name_diverts_to_the_ai_lane() {
             .find(|e| e.metadata.event_name == name)
             .unwrap_or_else(|| panic!("{name} must reach the sink"))
             .metadata
-            .data_type
+            .kind
     };
-    assert_eq!(lane_of("$ai_generation"), DataType::AiEvents);
-    assert_eq!(lane_of("$ai_custom_step"), DataType::AiEvents);
-    assert_eq!(lane_of("$pageview"), DataType::AnalyticsMain);
+    assert_eq!(lane_of("$ai_generation"), RecordedKind::AiEvents);
+    assert_eq!(lane_of("$ai_custom_step"), RecordedKind::AiEvents);
+    assert_eq!(lane_of("$pageview"), RecordedKind::AnalyticsMain);
 }
 
 /// The endpoint-level half of the AI-lane gate. The unit tests in
@@ -417,14 +454,14 @@ async fn ai_lane_limiter_overflow_follows_the_ai_limiter(
         .iter()
         .find(|e| e.metadata.event_name == "$ai_generation")
         .expect("$ai_generation must reach the sink");
-    assert_eq!(ai_event.metadata.data_type, DataType::AiEvents);
+    assert_eq!(ai_event.metadata.kind, RecordedKind::AiEvents);
     assert_eq!(ai_event.metadata.overflow_reason, expected_ai_reason);
 
     let pageview = events
         .iter()
         .find(|e| e.metadata.event_name == "$pageview")
         .expect("$pageview must reach the sink");
-    assert_eq!(pageview.metadata.data_type, DataType::AnalyticsMain);
+    assert_eq!(pageview.metadata.kind, RecordedKind::AnalyticsMain);
     assert_eq!(
         pageview.metadata.overflow_reason,
         Some(OverflowReason::ForceLimited),
@@ -458,7 +495,7 @@ async fn ai_lane_overflow_isolated_from_analytics_limiter() {
         .iter()
         .find(|e| e.metadata.event_name == "$ai_generation")
         .expect("$ai_generation must reach the sink");
-    assert_eq!(ai_event.metadata.data_type, DataType::AiEvents);
+    assert_eq!(ai_event.metadata.kind, RecordedKind::AiEvents);
     assert_eq!(
         ai_event.metadata.overflow_reason, None,
         "the analytics limiter's force-routed key must not stamp the AI lane"
@@ -497,12 +534,12 @@ async fn import_mode_historical_batch_never_overflows() {
 
     for event in &events {
         let expected = if event.metadata.event_name == "$ai_generation" {
-            DataType::AiEvents
+            RecordedKind::AiEvents
         } else {
-            DataType::AnalyticsHistorical
+            RecordedKind::AnalyticsHistorical
         };
         assert_eq!(
-            event.metadata.data_type, expected,
+            event.metadata.kind, expected,
             "unexpected lane for {}",
             event.metadata.event_name,
         );

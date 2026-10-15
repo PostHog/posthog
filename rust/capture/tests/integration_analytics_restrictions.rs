@@ -11,12 +11,13 @@ use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionManager, RestrictionScope,
     RestrictionType,
 };
+use capture::kind::{AnalyticsKind, MainOrHistorical};
 use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::sink::SinkResult;
 use capture::time::TimeSource;
-use capture::v0_request::{DataType, ProcessedEvent};
+use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
 use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG, DEFAULT_TEST_TIME};
@@ -37,7 +38,7 @@ impl TimeSource for FixedTime {
 
 #[derive(Clone)]
 struct CapturingSink {
-    events: Arc<tokio::sync::Mutex<Vec<ProcessedEvent>>>,
+    events: Arc<tokio::sync::Mutex<Vec<ProcessedEvent<AnalyticsKind<MainOrHistorical>>>>>,
 }
 
 impl CapturingSink {
@@ -47,14 +48,17 @@ impl CapturingSink {
         }
     }
 
-    async fn get_events(&self) -> Vec<ProcessedEvent> {
+    async fn get_events(&self) -> Vec<ProcessedEvent<AnalyticsKind<MainOrHistorical>>> {
         self.events.lock().await.clone()
     }
 }
 
 #[async_trait]
-impl PublishEvents for CapturingSink {
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents<AnalyticsKind<MainOrHistorical>> for CapturingSink {
+    async fn publish_events(
+        &self,
+        events: Vec<ProcessedEvent<AnalyticsKind<MainOrHistorical>>>,
+    ) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
     }
@@ -107,10 +111,13 @@ async fn setup_analytics_router_with_restriction(
     service.update(manager).await;
 
     let router = router(
+        capture::router::analytics_routes::<AnalyticsKind<MainOrHistorical>>(),
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputRegistry::single(sink)),
+        Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+            sink,
+        )),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
@@ -148,7 +155,7 @@ struct ExpectedEvent<'a> {
     distinct_id: &'a str,
     event_name: &'a str,
     // ProcessedEventMetadata fields
-    data_type: DataType,
+    kind: AnalyticsKind<MainOrHistorical>,
     force_overflow: bool,
     skip_person_processing: bool,
     redirect_to_dlq: bool,
@@ -157,7 +164,7 @@ struct ExpectedEvent<'a> {
     expected_properties: Option<Value>,
 }
 
-fn assert_event(event: &ProcessedEvent, expected: &ExpectedEvent) {
+fn assert_event(event: &ProcessedEvent<AnalyticsKind<MainOrHistorical>>, expected: &ExpectedEvent) {
     // Assert CapturedEvent fields
     assert_eq!(event.event.token, expected.token, "token mismatch");
     assert_eq!(
@@ -173,10 +180,7 @@ fn assert_event(event: &ProcessedEvent, expected: &ExpectedEvent) {
     assert!(!event.event.data.is_empty(), "data should not be empty");
 
     // Assert ProcessedEventMetadata fields
-    assert_eq!(
-        event.metadata.data_type, expected.data_type,
-        "data_type mismatch"
-    );
+    assert_eq!(event.metadata.kind, expected.kind, "data_type mismatch");
     assert_eq!(
         event.metadata.event_name, expected.event_name,
         "metadata.event_name mismatch"
@@ -282,7 +286,7 @@ async fn test_analytics_redirect_to_dlq_restriction() {
             token: restricted_token,
             distinct_id: "test_user",
             event_name: "$pageview",
-            data_type: DataType::AnalyticsMain,
+            kind: AnalyticsKind::Analytics(MainOrHistorical::Main),
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: true,
@@ -327,7 +331,7 @@ async fn test_analytics_force_overflow_restriction() {
             token: restricted_token,
             distinct_id: "test_user",
             event_name: "$pageview",
-            data_type: DataType::AnalyticsMain,
+            kind: AnalyticsKind::Analytics(MainOrHistorical::Main),
             force_overflow: true,
             skip_person_processing: false,
             redirect_to_dlq: false,
@@ -344,7 +348,7 @@ async fn test_analytics_force_overflow_restriction_applies_to_diverted_ai_event(
     // consult — so this test inserts its ForceOverflow under Pipeline::Ai.
     //
     // The restriction must follow the event onto the lane: the event keeps
-    // DataType::AiEvents and carries force_overflow (the sink maps that pair
+    // AnalyticsKind::Ai and carries force_overflow (the sink maps that pair
     // to the AI overflow topic, never the analytics one). Catches the
     // restriction pipeline or the router dropping restrictions for diverted
     // events, which the process-level tests can't see end-to-end.
@@ -381,7 +385,7 @@ async fn test_analytics_force_overflow_restriction_applies_to_diverted_ai_event(
             token: restricted_token,
             distinct_id: "test_user",
             event_name: "$ai_generation",
-            data_type: DataType::AiEvents,
+            kind: AnalyticsKind::Ai,
             force_overflow: true,
             skip_person_processing: false,
             redirect_to_dlq: false,
@@ -430,7 +434,7 @@ async fn test_analytics_skip_person_processing_restriction() {
             token: restricted_token,
             distinct_id: "test_user",
             event_name: "$pageview",
-            data_type: DataType::AnalyticsMain,
+            kind: AnalyticsKind::Analytics(MainOrHistorical::Main),
             force_overflow: false,
             skip_person_processing: true,
             redirect_to_dlq: false,
@@ -479,7 +483,7 @@ async fn test_analytics_restriction_does_not_apply_to_other_tokens() {
             token: "phc_not_restricted_token",
             distinct_id: "test_user",
             event_name: "$pageview",
-            data_type: DataType::AnalyticsMain,
+            kind: AnalyticsKind::Analytics(MainOrHistorical::Main),
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: false,
@@ -525,10 +529,13 @@ async fn setup_analytics_router_with_redirect_to_topic(
     service.update(manager).await;
 
     let router = router(
+        capture::router::analytics_routes::<AnalyticsKind<MainOrHistorical>>(),
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputRegistry::single(sink)),
+        Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+            sink,
+        )),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
@@ -592,7 +599,7 @@ async fn test_analytics_redirect_to_topic_restriction() {
             token: restricted_token,
             distinct_id: "test_user",
             event_name: "$pageview",
-            data_type: DataType::AnalyticsMain,
+            kind: AnalyticsKind::Analytics(MainOrHistorical::Main),
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: false,

@@ -18,14 +18,15 @@ use tracing::{info, warn};
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
+use crate::kind::{AiKind, AnalyticsKind, Historical, MainOrHistorical, Route, SnapshotKind};
 use crate::outputs::{Output, OutputRegistry};
 use crate::producers::{self, ProducerConfig, ProducerName, ProducerRegistry};
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
 };
-use crate::router;
 use crate::router::BATCH_BODY_SIZE;
+use crate::router::{self, Routes};
 use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
@@ -116,6 +117,39 @@ pub async fn build_components(
     config: Config,
     env: HashMap<String, String>,
     handles: LifecycleHandles,
+) -> CaptureComponents {
+    // Each deployment accepts its own kind of event and serves its own paths.
+    // Import is an analytics deployment restricted to backfills, so it serves
+    // the analytics paths. It must never serve the AI or OTEL paths: those
+    // handlers build their own ProcessingContext with
+    // `historical_migration: false`, so they would sidestep both Import gates
+    // (historical-only drop and GRL bypass) and return a false 200 for events
+    // this deployment silently discards.
+    match config.capture_mode {
+        CaptureMode::Events => {
+            let routes = router::analytics_routes::<AnalyticsKind<MainOrHistorical>>();
+            build_deployment(config, env, handles, routes).await
+        }
+        CaptureMode::Import => {
+            let routes = router::analytics_routes::<AnalyticsKind<Historical>>();
+            build_deployment(config, env, handles, routes).await
+        }
+        CaptureMode::Ai => {
+            let routes = router::ai_routes(config.ai_max_sum_of_parts_bytes);
+            build_deployment::<AiKind>(config, env, handles, routes).await
+        }
+        CaptureMode::Recordings => {
+            let routes = router::recordings_routes();
+            build_deployment::<SnapshotKind>(config, env, handles, routes).await
+        }
+    }
+}
+
+async fn build_deployment<K: Route>(
+    config: Config,
+    env: HashMap<String, String>,
+    handles: LifecycleHandles,
+    routes: Routes<K>,
 ) -> CaptureComponents {
     let LifecycleHandles {
         server,
@@ -348,6 +382,7 @@ pub async fn build_components(
         create_ingestion_warning_emitter(&config, ingestion_warnings_handle).await;
 
     let app = router::router(
+        routes,
         crate::time::SystemTime {},
         readiness,
         liveness,
@@ -460,23 +495,23 @@ fn warn_if_ai_byte_budget_below_max_event(config: &Config) {
     }
 }
 
-async fn create_output_registry(
+async fn create_output_registry<K: Route>(
     config: &Config,
     producer_configs: &HashMap<ProducerName, ProducerConfig>,
     sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
-) -> anyhow::Result<(OutputRegistry, Option<ProducerRegistry>)> {
+) -> anyhow::Result<(OutputRegistry<K>, Option<ProducerRegistry>)> {
     let (output, producers) =
         create_output(config, producer_configs, sink_handle, advisory_handle).await?;
     Ok((OutputRegistry::new(output), producers))
 }
 
-async fn create_output(
+async fn create_output<K: Route>(
     config: &Config,
     producer_configs: &HashMap<ProducerName, ProducerConfig>,
     sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
-) -> anyhow::Result<(Output, Option<ProducerRegistry>)> {
+) -> anyhow::Result<(Output<K>, Option<ProducerRegistry>)> {
     if config.print_sink {
         return Ok((Output::single(PrintSink {}), None));
     }
@@ -1151,7 +1186,13 @@ mod tests {
         config.outputs.dlq_topic = String::new();
         let default_producers = producers::load_all(&HashMap::new()).expect("default producers");
 
-        let err = create_output_registry(&config, &default_producers, None, None)
+        let err =
+            create_output_registry::<crate::kind::AnalyticsKind<crate::kind::MainOrHistorical>>(
+                &config,
+                &default_producers,
+                None,
+                None,
+            )
             .await
             .err()
             .expect("boot must be refused when an output topic is empty");
@@ -1164,9 +1205,14 @@ mod tests {
         // The default: with the check off, the same blank topic boots (and
         // would fail at first produce instead).
         config.outputs_completeness_check_enabled = false;
-        create_output_registry(&config, &default_producers, None, None)
-            .await
-            .expect("boot must proceed when the completeness check is disabled");
+        create_output_registry::<crate::kind::AnalyticsKind<crate::kind::MainOrHistorical>>(
+            &config,
+            &default_producers,
+            None,
+            None,
+        )
+        .await
+        .expect("boot must proceed when the completeness check is disabled");
     }
 
     /// The ceiling only guards anything while it sits under the producer's cap.

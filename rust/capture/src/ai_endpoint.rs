@@ -28,13 +28,15 @@ use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
 use crate::ingestion_warnings::ai::emit_ai_failure_warning;
 use crate::ingestion_warnings::{unknown_if_missing, within_bound};
+use crate::kind::AiKind;
 use crate::payload::decompression::decompress_gzip_to_bytes;
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
-use crate::router::State as AppState;
+
+type AppState = crate::router::State<AiKind>;
 use crate::timestamp;
 use crate::token::validate_token;
 use crate::v0_request::{
-    exceeds_max_ai_event_bytes, is_ai_event, DataType, ProcessedEvent, ProcessedEventMetadata,
+    exceeds_max_ai_event_bytes, is_ai_event, ProcessedEvent, ProcessedEventMetadata,
 };
 use crate::v1::gateway_provenance as gp;
 
@@ -520,7 +522,7 @@ fn build_kafka_event(
     client_ip: &str,
     state: &AppState,
     restrictions: &AppliedRestrictions,
-) -> Result<(Vec<PartInfo>, ProcessedEvent), CaptureError> {
+) -> Result<(Vec<PartInfo>, ProcessedEvent<AiKind>), CaptureError> {
     // Get current time
     let now = state.timesource.current_time();
 
@@ -588,7 +590,7 @@ fn build_kafka_event(
 
     // Create metadata
     let metadata = ProcessedEventMetadata {
-        data_type: DataType::AiEvents,
+        kind: AiKind,
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
         event_name: parsed.event_name,

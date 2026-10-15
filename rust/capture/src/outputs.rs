@@ -18,6 +18,7 @@ use tracing::log::error;
 use uuid::Uuid;
 
 use crate::api::CaptureError;
+use crate::kind::EventKind;
 use crate::ordering::OrderingGuarantee;
 use crate::pipeline::Address;
 use crate::sinks::sink::{Outcome, SinkResult};
@@ -31,10 +32,10 @@ use crate::v0_request::ProcessedEvent;
 /// `tests/` stand their own capturing sinks in as outputs; there is
 /// no other reason to implement it outside this crate.
 #[async_trait]
-pub trait PublishEvents: Send + Sync {
+pub trait PublishEvents<K: EventKind>: Send + Sync {
     /// One method for any batch size: a backend that serves a one-event
     /// batch more cheaply specializes inside its own impl.
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
+    async fn publish_events(&self, events: Vec<ProcessedEvent<K>>) -> Result<(), CaptureError>;
 }
 
 #[derive(Debug, Clone)]
@@ -54,21 +55,21 @@ pub trait PublishPrepared: Send + Sync {
     async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult>;
 }
 
-pub trait Sink: PublishEvents + PublishPrepared {}
+pub trait Sink<K: EventKind>: PublishEvents<K> + PublishPrepared {}
 
-impl<T: PublishEvents + PublishPrepared> Sink for T {}
+impl<K: EventKind, T: PublishEvents<K> + PublishPrepared> Sink<K> for T {}
 
-pub struct Output {
-    inner: Inner,
+pub struct Output<K: EventKind> {
+    inner: Inner<K>,
 }
 
-enum Inner {
-    Single(Box<dyn Sink>),
-    Failover(Failover),
+enum Inner<K: EventKind> {
+    Single(Box<dyn Sink<K>>),
+    Failover(Failover<K>),
 }
 
-impl Output {
-    pub fn single<S: Sink + 'static>(sink: S) -> Self {
+impl<K: EventKind> Output<K> {
+    pub fn single<S: Sink<K> + 'static>(sink: S) -> Self {
         Self {
             inner: Inner::Single(Box::new(sink)),
         }
@@ -82,8 +83,8 @@ impl Output {
     /// a non-retryable error is a property of the event, not the backend,
     /// so the fallback would reject it too.
     pub(crate) fn failover(
-        primary: Output,
-        fallback: Output,
+        primary: Output<K>,
+        fallback: Output<K>,
         advisory_handle: Option<lifecycle::Handle>,
     ) -> Self {
         if advisory_handle.is_some() {
@@ -103,8 +104,8 @@ impl Output {
 // recurse into its child outputs without building an infinitely-sized
 // future type.
 #[async_trait]
-impl PublishEvents for Output {
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl<K: EventKind> PublishEvents<K> for Output<K> {
+    async fn publish_events(&self, events: Vec<ProcessedEvent<K>>) -> Result<(), CaptureError> {
         match &self.inner {
             Inner::Single(sink) => sink.publish_events(events).await,
             Inner::Failover(failover) => failover.publish_events(events).await,
@@ -113,7 +114,7 @@ impl PublishEvents for Output {
 }
 
 #[async_trait]
-impl PublishPrepared for Output {
+impl<K: EventKind> PublishPrepared for Output<K> {
     async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
         match &self.inner {
             Inner::Single(sink) => sink.publish_prepared(events).await,
@@ -122,13 +123,13 @@ impl PublishPrepared for Output {
     }
 }
 
-struct Failover {
-    primary: Box<Output>,
-    fallback: Box<Output>,
+struct Failover<K: EventKind> {
+    primary: Box<Output<K>>,
+    fallback: Box<Output<K>>,
     advisory_handle: Option<lifecycle::Handle>,
 }
 
-impl Failover {
+impl<K: EventKind> Failover<K> {
     fn primary_is_healthy(&self) -> bool {
         self.advisory_handle
             .as_ref()
@@ -137,7 +138,7 @@ impl Failover {
     }
 
     #[instrument(skip_all)]
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn publish_events(&self, events: Vec<ProcessedEvent<K>>) -> Result<(), CaptureError> {
         let healthy = self.primary_is_healthy();
         gauge!("capture_primary_sink_health").set(if healthy { 1.0 } else { 0.0 });
 
@@ -202,16 +203,16 @@ impl Failover {
 /// resolves per-lane topics through its [`OutputTable`] at enqueue.
 ///
 /// [`OutputTable`]: crate::sinks::registry::OutputTable
-pub struct OutputRegistry {
-    output: Output,
+pub struct OutputRegistry<K: EventKind> {
+    output: Output<K>,
 }
 
-impl OutputRegistry {
-    pub fn new(output: Output) -> Self {
+impl<K: EventKind> OutputRegistry<K> {
+    pub fn new(output: Output<K>) -> Self {
         Self { output }
     }
 
-    pub fn single<S: Sink + 'static>(sink: S) -> Self {
+    pub fn single<S: Sink<K> + 'static>(sink: S) -> Self {
         Self::new(Output::single(sink))
     }
 
@@ -219,7 +220,7 @@ impl OutputRegistry {
     ///
     /// Callers record `capture_event_batch_size` themselves: batch size is a
     /// property of the request, not of the output it lands on.
-    pub async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    pub async fn publish(&self, events: Vec<ProcessedEvent<K>>) -> Result<(), CaptureError> {
         self.output.publish_events(events).await
     }
 
@@ -231,10 +232,11 @@ impl OutputRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kind::{AnalyticsKind, MainOrHistorical};
     use crate::pipeline::{AnalyticsLane, PipelineLane};
     use crate::sinks::test_sink::MockSink;
     use crate::utils::uuid_v7_from_datetime;
-    use crate::v0_request::{DataType, ProcessedEventMetadata};
+    use crate::v0_request::ProcessedEventMetadata;
     use common_types::CapturedEvent;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
@@ -243,8 +245,11 @@ mod tests {
     struct FailSink(CaptureError);
 
     #[async_trait]
-    impl PublishEvents for FailSink {
-        async fn publish_events(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    impl PublishEvents<AnalyticsKind<MainOrHistorical>> for FailSink {
+        async fn publish_events(
+            &self,
+            _events: Vec<ProcessedEvent<AnalyticsKind<MainOrHistorical>>>,
+        ) -> Result<(), CaptureError> {
             Err(self.0.clone())
         }
     }
@@ -279,8 +284,11 @@ mod tests {
     }
 
     #[async_trait]
-    impl PublishEvents for PreparedSink {
-        async fn publish_events(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    impl PublishEvents<AnalyticsKind<MainOrHistorical>> for PreparedSink {
+        async fn publish_events(
+            &self,
+            _events: Vec<ProcessedEvent<AnalyticsKind<MainOrHistorical>>>,
+        ) -> Result<(), CaptureError> {
             unreachable!("prepared-route tests publish prepared events")
         }
     }
@@ -328,7 +336,7 @@ mod tests {
         Some(format!("{err:?}"))
     }
 
-    fn test_event() -> ProcessedEvent {
+    fn test_event() -> ProcessedEvent<AnalyticsKind<MainOrHistorical>> {
         let timestamp = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
             .unwrap()
             .with_timezone(&chrono::Utc);
@@ -348,7 +356,7 @@ mod tests {
                 historical_migration: false,
             },
             metadata: ProcessedEventMetadata {
-                data_type: DataType::AnalyticsMain,
+                kind: AnalyticsKind::Analytics(MainOrHistorical::Main),
                 session_id: None,
                 computed_timestamp: None,
                 event_name: "test_event".to_string(),
@@ -366,7 +374,7 @@ mod tests {
     #[tokio::test]
     async fn failover_republishes_on_retriable_primary_failure() {
         let fallback = MockSink::new();
-        let output = Output::failover(
+        let output = Output::<AnalyticsKind<MainOrHistorical>>::failover(
             Output::single(FailSink(CaptureError::RetryableSinkError)),
             Output::single(fallback.clone()),
             None,
@@ -382,7 +390,7 @@ mod tests {
 
     #[tokio::test]
     async fn failover_reports_the_error_when_both_targets_fail() {
-        let output = Output::failover(
+        let output = Output::<AnalyticsKind<MainOrHistorical>>::failover(
             Output::single(FailSink(CaptureError::RetryableSinkError)),
             Output::single(FailSink(CaptureError::RetryableSinkError)),
             None,
@@ -399,7 +407,7 @@ mod tests {
     #[tokio::test]
     async fn fatal_primary_error_does_not_fail_over() {
         let fallback = MockSink::new();
-        let output = Output::failover(
+        let output = Output::<AnalyticsKind<MainOrHistorical>>::failover(
             Output::single(FailSink(CaptureError::NonRetryableSinkError)),
             Output::single(fallback.clone()),
             None,
@@ -439,7 +447,7 @@ mod tests {
 
         let primary = MockSink::new();
         let fallback = MockSink::new();
-        let output = Output::failover(
+        let output = Output::<AnalyticsKind<MainOrHistorical>>::failover(
             Output::single(primary.clone()),
             Output::single(fallback.clone()),
             Some(kafka_handle.clone()),
@@ -476,7 +484,7 @@ mod tests {
     #[tokio::test]
     async fn registry_publishes_to_its_output() {
         let sink = MockSink::new();
-        let registry = OutputRegistry::single(sink.clone());
+        let registry = OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(sink.clone());
 
         registry.publish(vec![test_event()]).await.unwrap();
         registry
@@ -492,7 +500,7 @@ mod tests {
         let events = vec![prepared_event(), prepared_event(), prepared_event()];
         let uuids: Vec<Uuid> = events.iter().map(|event| event.uuid).collect();
         let sink = PreparedSink::failing([(uuids[1], CaptureError::NonRetryableSinkError)]);
-        let registry = OutputRegistry::single(sink.clone());
+        let registry = OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(sink.clone());
 
         let results = outcomes(registry.publish_prepared(events).await);
 
@@ -516,7 +524,7 @@ mod tests {
             (uuids[2], CaptureError::NonRetryableSinkError),
         ]);
         let fallback = PreparedSink::default();
-        let output = Output::failover(
+        let output = Output::<AnalyticsKind<MainOrHistorical>>::failover(
             Output::single(primary.clone()),
             Output::single(fallback.clone()),
             None,
@@ -540,7 +548,7 @@ mod tests {
     #[tokio::test]
     async fn prepared_failover_leaves_the_fallback_idle_when_the_primary_succeeds() {
         let fallback = PreparedSink::default();
-        let output = Output::failover(
+        let output = Output::<AnalyticsKind<MainOrHistorical>>::failover(
             Output::single(PreparedSink::default()),
             Output::single(fallback.clone()),
             None,
@@ -558,7 +566,7 @@ mod tests {
 
     #[tokio::test]
     async fn prepared_failover_reports_the_fallback_failure() {
-        let output = Output::failover(
+        let output = Output::<AnalyticsKind<MainOrHistorical>>::failover(
             Output::single(FailSink(CaptureError::RetryableSinkError)),
             Output::single(FailSink(CaptureError::RetryableSinkError)),
             None,
@@ -586,7 +594,7 @@ mod tests {
 
         let primary = PreparedSink::default();
         let fallback = PreparedSink::default();
-        let output = Output::failover(
+        let output = Output::<AnalyticsKind<MainOrHistorical>>::failover(
             Output::single(primary.clone()),
             Output::single(fallback.clone()),
             Some(kafka_handle.clone()),

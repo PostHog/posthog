@@ -9,9 +9,10 @@ use crate::api::CaptureError;
 use crate::event_restrictions::{
     AppliedRestrictions, EventContext, EventRestrictionService, Pipeline,
 };
+use crate::kind::AiKind;
 use crate::prometheus::report_dropped_events;
 use crate::quota_limiters::CaptureQuotaLimiter;
-use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
+use crate::v0_request::{ProcessedEvent, ProcessedEventMetadata};
 
 use super::fan_out::SpanEvent;
 
@@ -97,7 +98,7 @@ pub fn build_events(
     client_ip: &str,
     received_at: DateTime<Utc>,
     restrictions: &AppliedRestrictions,
-) -> Result<Vec<ProcessedEvent>, CaptureError> {
+) -> Result<Vec<ProcessedEvent<AiKind>>, CaptureError> {
     let now_rfc3339 = received_at.to_rfc3339();
     let mut processed = Vec::with_capacity(span_events.len());
 
@@ -130,7 +131,7 @@ pub fn build_events(
         };
 
         let metadata = ProcessedEventMetadata {
-            data_type: DataType::AiEvents,
+            kind: AiKind,
             session_id: None,
             computed_timestamp: Some(timestamp),
             event_name: span_event.event_name,

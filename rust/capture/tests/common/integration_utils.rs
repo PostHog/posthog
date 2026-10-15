@@ -8,12 +8,13 @@ use std::time::Duration;
 use capture::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
+    kind::{AiKind, AnalyticsKind, EventKind, Historical, MainOrHistorical, Route, SnapshotKind},
     outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared},
     quota_limiters::CaptureQuotaLimiter,
-    router::router,
+    router::{self, router, Routes},
     sinks::sink::SinkResult,
     time::TimeSource,
-    v0_request::{DataType, ProcessedEvent},
+    v0_request::{ProcessedEvent, ProcessedEventMetadata},
 };
 use chrono::{DateTime, Utc};
 
@@ -335,7 +336,7 @@ pub async fn expect_response_fail(title: &str, res: TestResponse) {
 }
 
 // utility to validate tests/fixtures/single_event_payload.json
-pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent<RecordedKind>>) {
     let expected_event_count = 1;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
 
@@ -354,8 +355,8 @@ pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent
     // introspect on extracted event parsing metadata
     let meta = &got.metadata;
     assert_eq!(
-        DataType::AnalyticsMain,
-        meta.data_type,
+        RecordedKind::AnalyticsMain,
+        meta.kind,
         "mismatched Kafka topic assignment in case: {title}",
     );
     assert_eq!(None, meta.session_id, "wrong session_id in case: {title}",);
@@ -453,7 +454,10 @@ pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent
 }
 
 // utility to validate tests/fixtures/single_engage_event_payload.json
-pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+pub fn validate_single_engage_event_payload(
+    title: &str,
+    got_events: Vec<ProcessedEvent<RecordedKind>>,
+) {
     let expected_event_count = 1;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
 
@@ -470,8 +474,8 @@ pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<Process
     // introspect on extracted event parsing metadata
     let meta = &got.metadata;
     assert_eq!(
-        DataType::AnalyticsMain,
-        meta.data_type,
+        RecordedKind::AnalyticsMain,
+        meta.kind,
         "mismatched Kafka topic assignment in case: {title}",
     );
     assert_eq!(None, meta.session_id, "wrong session_id in case: {title}",);
@@ -557,7 +561,10 @@ pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<Process
 }
 
 // utility to validate tests/fixtures/single_replay_event_payload.json
-pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+pub fn validate_single_replay_event_payload(
+    title: &str,
+    got_events: Vec<ProcessedEvent<RecordedKind>>,
+) {
     let expected_event_count = 1;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
 
@@ -574,8 +581,8 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Process
     // introspect on extracted event parsing metadata
     let meta = &got.metadata;
     assert_eq!(
-        DataType::SnapshotMain,
-        meta.data_type,
+        RecordedKind::SnapshotMain,
+        meta.kind,
         "mismatched Kafka topic assignment in case: {title}",
     );
     assert_eq!(
@@ -684,7 +691,7 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Process
 }
 
 // utility to validate tests/fixtures/batch_events_payload.json
-pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent<RecordedKind>>) {
     let expected_event_count = 2;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
 
@@ -701,8 +708,8 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     // introspect on extracted event parsing metadata
     let meta = &pageview.metadata;
     assert_eq!(
-        DataType::AnalyticsMain,
-        meta.data_type,
+        RecordedKind::AnalyticsMain,
+        meta.kind,
         "mismatched Kafka topic assignment in case: {title}",
     );
     assert_eq!(None, meta.session_id, "wrong session_id in case: {title}",);
@@ -818,8 +825,8 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     // introspect on extracted event parsing metadata
     let meta = &pageleave.metadata;
     assert_eq!(
-        DataType::AnalyticsMain,
-        meta.data_type,
+        RecordedKind::AnalyticsMain,
+        meta.kind,
         "mismatched Kafka topic assignment in case: {title}",
     );
     assert_eq!(
@@ -927,7 +934,10 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
 // produce a third event — a `$$heatmap` redirect — alongside the original two.
 // The original $pageleave gets `skip_heatmap_processing: true` so the events
 // pipeline does not also extract heatmap data downstream.
-pub fn validate_batch_events_with_heatmap_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+pub fn validate_batch_events_with_heatmap_payload(
+    title: &str,
+    got_events: Vec<ProcessedEvent<RecordedKind>>,
+) {
     assert_eq!(
         3,
         got_events.len(),
@@ -970,8 +980,8 @@ pub fn validate_batch_events_with_heatmap_payload(title: &str, got_events: Vec<P
 
     let redirect = &got_events[2];
     assert_eq!(
-        redirect.metadata.data_type,
-        DataType::HeatmapMain,
+        redirect.metadata.kind,
+        RecordedKind::HeatmapMain,
         "redirect must be routed to the heatmaps topic in case: {title}",
     );
     assert_eq!(
@@ -1020,21 +1030,100 @@ impl TimeSource for FixedTime {
     }
 }
 
+/// Every deployment's event kinds, flattened so one harness can check them all.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RecordedKind {
+    AnalyticsMain,
+    AnalyticsHistorical,
+    HeatmapMain,
+    ClientIngestionWarning,
+    ExceptionErrorTracking,
+    AiEvents,
+    SnapshotMain,
+}
+
+pub trait RecordKind: Route {
+    fn recorded(self) -> RecordedKind;
+}
+
+fn analytics_kind<A>(kind: AnalyticsKind<A>, analytics: RecordedKind) -> RecordedKind {
+    match kind {
+        AnalyticsKind::Analytics(_) => analytics,
+        AnalyticsKind::Ai => RecordedKind::AiEvents,
+        AnalyticsKind::Heatmap => RecordedKind::HeatmapMain,
+        AnalyticsKind::ClientWarning => RecordedKind::ClientIngestionWarning,
+        AnalyticsKind::Exception => RecordedKind::ExceptionErrorTracking,
+    }
+}
+
+impl RecordKind for AnalyticsKind<MainOrHistorical> {
+    fn recorded(self) -> RecordedKind {
+        let analytics = match self {
+            AnalyticsKind::Analytics(MainOrHistorical::Historical) => {
+                RecordedKind::AnalyticsHistorical
+            }
+            _ => RecordedKind::AnalyticsMain,
+        };
+        analytics_kind(self, analytics)
+    }
+}
+
+impl RecordKind for AnalyticsKind<Historical> {
+    fn recorded(self) -> RecordedKind {
+        analytics_kind(self, RecordedKind::AnalyticsHistorical)
+    }
+}
+
+impl RecordKind for AiKind {
+    fn recorded(self) -> RecordedKind {
+        RecordedKind::AiEvents
+    }
+}
+
+impl RecordKind for SnapshotKind {
+    fn recorded(self) -> RecordedKind {
+        RecordedKind::SnapshotMain
+    }
+}
+
+pub fn record<K: RecordKind>(event: ProcessedEvent<K>) -> ProcessedEvent<RecordedKind> {
+    let ProcessedEvent { metadata, event } = event;
+    ProcessedEvent {
+        event,
+        metadata: ProcessedEventMetadata {
+            kind: metadata.kind.recorded(),
+            session_id: metadata.session_id,
+            computed_timestamp: metadata.computed_timestamp,
+            event_name: metadata.event_name,
+            force_overflow: metadata.force_overflow,
+            skip_person_processing: metadata.skip_person_processing,
+            redirect_to_dlq: metadata.redirect_to_dlq,
+            redirect_to_topic: metadata.redirect_to_topic,
+            skip_heatmap_processing: metadata.skip_heatmap_processing,
+            overflow_reason: metadata.overflow_reason,
+            distinct_id_truncated_from: metadata.distinct_id_truncated_from,
+        },
+    }
+}
+
 #[derive(Clone, Default)]
 struct MemorySink {
-    events: Arc<Mutex<Vec<ProcessedEvent>>>,
+    events: Arc<Mutex<Vec<ProcessedEvent<RecordedKind>>>>,
 }
 
 impl MemorySink {
-    pub fn events(&self) -> Vec<ProcessedEvent> {
+    pub fn events(&self) -> Vec<ProcessedEvent<RecordedKind>> {
         self.events.lock().unwrap().clone()
     }
 }
 
 #[async_trait]
-impl PublishEvents for MemorySink {
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        self.events.lock().unwrap().extend_from_slice(&events);
+impl<K: RecordKind> PublishEvents<K> for MemorySink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent<K>>) -> Result<(), CaptureError> {
+        self.events
+            .lock()
+            .unwrap()
+            .extend(events.into_iter().map(record));
         Ok(())
     }
 }
@@ -1076,8 +1165,35 @@ pub fn build_router_for_mode(mode: CaptureMode) -> Router {
 }
 
 fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, MemorySink) {
-    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
     let sink = MemorySink::default();
+    let router = match mode {
+        CaptureMode::Events => build_router(
+            router::analytics_routes::<AnalyticsKind<MainOrHistorical>>(),
+            mode,
+            &sink,
+            fixed_time,
+        ),
+        CaptureMode::Import => build_router(
+            router::analytics_routes::<AnalyticsKind<Historical>>(),
+            mode,
+            &sink,
+            fixed_time,
+        ),
+        CaptureMode::Ai => build_router(router::ai_routes(26_214_400), mode, &sink, fixed_time),
+        CaptureMode::Recordings => {
+            build_router(router::recordings_routes(), mode, &sink, fixed_time)
+        }
+    };
+    (router, sink)
+}
+
+fn build_router<K: RecordKind + EventKind>(
+    routes: Routes<K>,
+    mode: CaptureMode,
+    sink: &MemorySink,
+    fixed_time: &str,
+) -> Router {
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(fixed_time)
             .expect("Invalid fixed time format in test case")
@@ -1097,40 +1213,38 @@ fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
     let is_mirror_deploy = false; // TODO: remove after migration to 100% capture-rs backend
     let verbose_sample_percent = 0.0_f32;
 
-    (
-        router(
-            timesource,
-            readiness,
-            liveness,
-            Arc::new(OutputRegistry::single(sink.clone())),
-            redis,
-            None, // global_rate_limiter_token_distinctid
-            quota_limiter,
-            TokenDropper::default(),
-            None, // event_restriction_service
-            None, // recorder_handle
-            mode,
-            None,
-            25 * 1024 * 1024,
-            enable_historical_rerouting,
-            historical_rerouting_threshold_days,
-            is_mirror_deploy,
-            verbose_sample_percent,
-            26_214_400,       // 25MB default for AI endpoint
-            983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
-            None,             // body_chunk_read_timeout_ms
-            256,              // body_read_chunk_size_kb
-            10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
-            50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
-            None,             // overflow_limiter
-            None,             // ai_events_overflow_limiter
-            None,             // ai_byte_rate_limiter
-            None,             // replay_overflow_limiter
-            8,                // capture_v1_scatter_gather_min_batch
-            None,             // ai_gateway_signing_secret
-            None,             // ingestion_warning_emitter
-        ),
-        sink,
+    router(
+        routes,
+        timesource,
+        readiness,
+        liveness,
+        Arc::new(OutputRegistry::<K>::single(sink.clone())),
+        redis,
+        None, // global_rate_limiter_token_distinctid
+        quota_limiter,
+        TokenDropper::default(),
+        None, // event_restriction_service
+        None, // recorder_handle
+        mode,
+        None,
+        25 * 1024 * 1024,
+        enable_historical_rerouting,
+        historical_rerouting_threshold_days,
+        is_mirror_deploy,
+        verbose_sample_percent,
+        26_214_400,       // 25MB default for AI endpoint
+        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
+        None,             // replay_overflow_limiter
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
+        None,             // ingestion_warning_emitter
     )
 }
 

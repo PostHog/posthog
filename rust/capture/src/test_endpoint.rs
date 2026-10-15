@@ -2,7 +2,6 @@ use std::{io::Read, ops::Deref};
 
 use axum::{
     body::Body,
-    debug_handler,
     extract::{MatchedPath, Query, State},
     http::{HeaderMap, Method},
     Json,
@@ -17,6 +16,7 @@ use tracing::error;
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     extractors::extract_body_with_timeout,
+    kind::EventKind,
     payload::{Compression, EventFormData, EventQuery},
     router,
     utils::extract_and_verify_token,
@@ -34,10 +34,9 @@ pub const UTF8_FAILED: &str = "capture_test_utf8_failed";
 
 // A handler that does nothing except try to parse the request, and produce a tonne of metrics
 // about failures. Once python capture is dead, we should remove file entirely.
-#[debug_handler]
 #[allow(clippy::too_many_arguments)]
-pub async fn test_black_hole(
-    state: State<router::State>,
+pub async fn test_black_hole<K: EventKind>(
+    state: State<router::State<K>>,
     _ip: InsecureClientIp,
     meta: Query<EventQuery>,
     headers: HeaderMap,

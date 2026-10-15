@@ -17,6 +17,7 @@ use tracing::instrument;
 use tracing::log::{debug, error, info};
 
 use crate::api::CaptureError;
+use crate::kind::EventKind;
 use crate::outputs::{PreparedEvent, PublishEvents, PublishPrepared};
 use crate::sinks::sink::SinkResult;
 
@@ -294,9 +295,9 @@ impl S3Sink {
 }
 
 #[async_trait]
-impl PublishEvents for S3Sink {
+impl<K: EventKind> PublishEvents<K> for S3Sink {
     #[instrument(skip_all)]
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn publish_events(&self, events: Vec<ProcessedEvent<K>>) -> Result<(), CaptureError> {
         let bodies = events
             .iter()
             .map(|event| serde_json::to_vec(&event.event))
@@ -325,8 +326,9 @@ impl PublishPrepared for S3Sink {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kind::{AnalyticsKind, MainOrHistorical};
     use crate::utils::uuid_v7_from_datetime;
-    use crate::v0_request::{DataType, ProcessedEventMetadata};
+    use crate::v0_request::ProcessedEventMetadata;
     use common_types::CapturedEvent;
     use tokio_util::sync::CancellationToken;
 
@@ -357,7 +359,7 @@ mod tests {
         .expect("Failed to create S3 sink")
     }
 
-    fn create_test_event() -> ProcessedEvent {
+    fn create_test_event() -> ProcessedEvent<AnalyticsKind<MainOrHistorical>> {
         let timestamp = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
             .unwrap()
             .with_timezone(&chrono::Utc);
@@ -377,7 +379,7 @@ mod tests {
                 historical_migration: false,
             },
             metadata: ProcessedEventMetadata {
-                data_type: DataType::AnalyticsMain,
+                kind: AnalyticsKind::Analytics(MainOrHistorical::Main),
                 session_id: None,
                 computed_timestamp: None,
                 event_name: "test_event".to_string(),

@@ -38,12 +38,11 @@ use crate::{
             SnapshotDataRejection,
         },
     },
+    kind::SnapshotKind,
     outputs::OutputRegistry,
     prometheus::report_dropped_events,
     utils::uuid_v7_from_datetime,
-    v0_request::{
-        DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
-    },
+    v0_request::{OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext},
 };
 
 fn deserialize_sent_at<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
@@ -254,7 +253,7 @@ impl HasEventName for RawRecording {
 ///
 #[instrument(skip_all, fields(events = events.len(), session_id, request_id))]
 pub async fn process_replay_events(
-    outputs: Arc<OutputRegistry>,
+    outputs: Arc<OutputRegistry<SnapshotKind>>,
     restriction_service: Option<EventRestrictionService>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
@@ -349,7 +348,7 @@ impl ReplayAbort {
 /// modified, including when the request was dropped by an event restriction and
 /// so ingested nothing to warn about.
 async fn process_replay_events_inner(
-    outputs: Arc<OutputRegistry>,
+    outputs: Arc<OutputRegistry<SnapshotKind>>,
     restriction_service: Option<EventRestrictionService>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     events: Vec<RawRecording>,
@@ -555,7 +554,7 @@ async fn process_replay_events_inner(
     };
 
     let metadata = ProcessedEventMetadata {
-        data_type: DataType::SnapshotMain,
+        kind: SnapshotKind,
         session_id: Some(session_id_str.to_string()),
         computed_timestamp: Some(computed_timestamp),
         event_name: "$snapshot_items".to_string(),

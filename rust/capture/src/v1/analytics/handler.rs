@@ -9,11 +9,12 @@ use super::context::Context;
 use super::types::Batch;
 use tracing::Level;
 
+use crate::kind::EventKind;
 use crate::v1::constants::*;
 use crate::{ctx_log, log_stat_error, router, v1};
 
-pub async fn handle_request(
-    state: State<router::State>,
+pub async fn handle_request<K: EventKind>(
+    state: State<router::State<K>>,
     headers: HeaderMap,
     RawQuery(raw_query): RawQuery,
     ip: InsecureClientIp,
@@ -199,7 +200,9 @@ mod tests {
     use crate::v1::constants::*;
     use crate::v1::test_utils::{batch_payload, compressed_payload, valid_event, TestStateBuilder};
 
-    fn test_app(state: router::State) -> Router {
+    fn test_app(
+        state: router::State<crate::kind::AnalyticsKind<crate::kind::MainOrHistorical>>,
+    ) -> Router {
         Router::new()
             .route(CAPTURE_V1_PATH, axum::routing::post(super::handle_request))
             .layer(axum::middleware::from_fn(

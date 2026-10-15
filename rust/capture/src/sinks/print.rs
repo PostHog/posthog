@@ -4,6 +4,7 @@ use metrics::counter;
 use tracing::log::info;
 
 use crate::api::CaptureError;
+use crate::kind::EventKind;
 use crate::outputs::{PreparedEvent, PublishEvents, PublishPrepared};
 use crate::sinks::sink::SinkResult;
 use crate::v0_request::ProcessedEvent;
@@ -11,8 +12,8 @@ use crate::v0_request::ProcessedEvent;
 pub struct PrintSink {}
 
 #[async_trait]
-impl PublishEvents for PrintSink {
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl<K: EventKind> PublishEvents<K> for PrintSink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent<K>>) -> Result<(), CaptureError> {
         let span = tracing::span!(tracing::Level::INFO, "batch of events");
         let _enter = span.enter();
 

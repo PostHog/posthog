@@ -398,9 +398,8 @@ mod tests {
     use crate::event_restrictions::repository::testing::MockRestrictionsRepository;
     use crate::event_restrictions::repository::RestrictionEntry;
     use crate::event_restrictions::types::RestrictionScope;
-    use crate::v0_request::DataType;
+    use crate::kind::{AnalyticsKind, EventKind, MainOrHistorical};
     use common_redis::CustomRedisError;
-    use strum::IntoEnumIterator;
     use tokio_util::sync::CancellationToken;
 
     fn test_lifecycle() -> (CancellationToken, lifecycle::Handle) {
@@ -593,8 +592,15 @@ mod tests {
 
     #[tokio::test]
     async fn events_deployment_loads_restrictions_for_every_classified_pipeline() {
-        for data_type in DataType::iter() {
-            let Some(pipeline) = data_type.pipeline() else {
+        for kind in [
+            AnalyticsKind::Analytics(MainOrHistorical::Main),
+            AnalyticsKind::Analytics(MainOrHistorical::Historical),
+            AnalyticsKind::Ai,
+            AnalyticsKind::Heatmap,
+            AnalyticsKind::ClientWarning,
+            AnalyticsKind::Exception,
+        ] {
+            let Some(pipeline) = kind.pipeline() else {
                 continue;
             };
             let repo = MockRestrictionsRepository::new();
@@ -615,7 +621,7 @@ mod tests {
                 manager.get_restrictions("token", &EventContext::default(), pipeline);
             assert!(
                 restrictions.contains(RestrictionType::DropEvent),
-                "{data_type:?}"
+                "{kind:?}"
             );
         }
     }

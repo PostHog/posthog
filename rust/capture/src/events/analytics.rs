@@ -29,13 +29,14 @@ use crate::{
         emit_distinct_id_truncated_warning, emit_rate_limit_warning,
         legacy::{emit_processing_abort_warning, request_context},
     },
+    kind::{Classify, EventKind, OverflowBudget, Refusal, Route},
     outputs::OutputRegistry,
     prometheus::{report_clock_skew, report_dropped_events, report_timestamp_path},
     router,
     utils::uuid_v7_from_datetime,
     v0_request::{
-        exceeds_max_ai_event_bytes, DataType, OverflowReason, ProcessedEvent,
-        ProcessedEventMetadata, ProcessingContext,
+        exceeds_max_ai_event_bytes, OverflowReason, ProcessedEvent, ProcessedEventMetadata,
+        ProcessingContext,
     },
 };
 
@@ -79,11 +80,11 @@ fn has_heatmap_data(event: &RawEvent) -> bool {
 /// deduplicate against the original. Returns `Ok(None)` if the source event
 /// has no resolvable `distinct_id` — the original event will fail validation
 /// downstream anyway, so no point emitting a redirect that will also fail.
-fn create_heatmap_redirect(
+fn create_heatmap_redirect<K: Classify + EventKind>(
     event: &RawEvent,
     historical_cfg: router::HistoricalConfig,
     context: &ProcessingContext,
-) -> Result<Option<ProcessedEvent>, CaptureError> {
+) -> Result<Option<ProcessedEvent<K>>, CaptureError> {
     let Some(distinct_id) = event.extract_distinct_id() else {
         return Ok(None);
     };
@@ -113,16 +114,22 @@ fn create_heatmap_redirect(
         set_once: None,
     };
 
-    process_single_event(&heatmap_event, historical_cfg, context).map(Some)
+    process_single_event::<K>(&heatmap_event, historical_cfg, context).map(Some)
 }
 
 /// Process a single analytics event from RawEvent to ProcessedEvent.
+///
+/// A deployment that refuses the event's name rejects the whole request: a
+/// client sending non-AI events to an AI endpoint is misconfigured, and a
+/// silent drop would hide that until someone went looking for the data. The
+/// abort path emits an `invalid_ai_event` ingestion warning alongside the 400,
+/// so the project owner sees it too.
 #[instrument(skip_all, fields(event_name, request_id))]
-pub fn process_single_event(
+pub fn process_single_event<K: Classify + EventKind>(
     event: &RawEvent,
     historical_cfg: router::HistoricalConfig,
     context: &ProcessingContext,
-) -> Result<ProcessedEvent, CaptureError> {
+) -> Result<ProcessedEvent<K>, CaptureError> {
     if event.event.is_empty() {
         return Err(CaptureError::MissingEventName);
     }
@@ -130,7 +137,8 @@ pub fn process_single_event(
     Span::current().record("is_mirror_deploy", context.is_mirror_deploy);
     Span::current().record("request_id", &context.request_id);
 
-    let data_type = DataType::from_event_name(&event.event, context.historical_migration);
+    let kind = K::classify(&event.event, context.historical_migration)
+        .map_err(|refusal| refusal.into_capture_error(&event.event))?;
 
     // Redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if event.properties.contains_key("capture_internal") {
@@ -178,7 +186,7 @@ pub fn process_single_event(
         .ok_or(CaptureError::MissingDistinctId)?;
 
     let mut metadata = ProcessedEventMetadata {
-        data_type,
+        kind,
         session_id: None,
         computed_timestamp: Some(parsed_timestamp.timestamp),
         event_name: event_name.clone(),
@@ -191,13 +199,15 @@ pub fn process_single_event(
         distinct_id_truncated_from: extracted_distinct_id.truncated_from_chars,
     };
 
-    if historical_cfg.should_reroute(metadata.data_type, parsed_timestamp.timestamp) {
-        metrics::counter!(
-            "capture_events_rerouted_historical",
-            &[("reason", "timestamp")]
-        )
-        .increment(1);
-        metadata.data_type = DataType::AnalyticsHistorical;
+    if let Some(historical) = metadata.kind.to_historical() {
+        if historical_cfg.should_reroute(parsed_timestamp.timestamp) {
+            metrics::counter!(
+                "capture_events_rerouted_historical",
+                &[("reason", "timestamp")]
+            )
+            .increment(1);
+            metadata.kind = historical;
+        }
     }
 
     let event = CapturedEvent {
@@ -219,7 +229,7 @@ pub fn process_single_event(
         is_cookieless_mode: event
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,
-        historical_migration: metadata.data_type == DataType::AnalyticsHistorical,
+        historical_migration: metadata.kind.is_historical(),
     };
 
     Ok(ProcessedEvent { metadata, event })
@@ -228,21 +238,21 @@ pub fn process_single_event(
 /// Process a batch of analytics events.
 ///
 /// All routing policy lives here: token dropping, AI lane assignment
-/// (resolved into `DataType::AiEvents` at classification time), event
+/// (resolved into the AI kind at classification time), event
 /// restrictions, the AI lane's per-project byte budget, global rate
 /// limiting (per `token:distinct_id`), historical rerouting, and per-key
 /// overflow rerouting via [`OverflowLimiter`]. Overflow stamping
 /// goes through the shared [`stamp_overflow_reason`] helper, which the AI
 /// (`ai_endpoint::ai_handler`) and OTEL (`otel::otel_handler`) paths also
-/// call so every `DataType::AnalyticsMain` event gets identical limiter
+/// call so every analytics main event gets identical limiter
 /// semantics regardless of entry point. The kafka sink is a pure mechanism
-/// layer — it reads `ProcessedEventMetadata::data_type`,
+/// layer — it reads `ProcessedEventMetadata::kind`,
 /// `overflow_reason`, `force_overflow`, `redirect_to_dlq`, and
 /// `redirect_to_topic` to decide which topic and key to produce to.
 #[instrument(skip_all, fields(events = events.len(), request_id))]
 #[allow(clippy::too_many_arguments)]
-pub async fn process_events(
-    outputs: Arc<OutputRegistry>,
+pub async fn process_events<K: Classify + Route>(
+    outputs: Arc<OutputRegistry<K>>,
     dropper: Arc<TokenDropper>,
     restriction_service: Option<EventRestrictionService>,
     historical_cfg: router::HistoricalConfig,
@@ -284,8 +294,8 @@ pub async fn process_events(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn process_events_inner(
-    outputs: Arc<OutputRegistry>,
+async fn process_events_inner<K: Classify + Route>(
+    outputs: Arc<OutputRegistry<K>>,
     dropper: Arc<TokenDropper>,
     restriction_service: Option<EventRestrictionService>,
     historical_cfg: router::HistoricalConfig,
@@ -331,30 +341,30 @@ async fn process_events_inner(
     // we fall back to processing the original unchanged so the events
     // pipeline still extracts as before — no silent data loss.
     let raw_events = events;
-    let mut events: Vec<ProcessedEvent> = Vec::with_capacity(raw_events.len());
+    let mut events: Vec<ProcessedEvent<K>> = Vec::with_capacity(raw_events.len());
     for mut raw in raw_events {
         if raw.event.starts_with("$ai_") {
             raw.properties
                 .retain(|key, _| !key.starts_with(crate::gateway_provenance::GATEWAY_PREFIX));
         }
         if raw.event == "$$heatmap" || !has_heatmap_data(&raw) {
-            events.push(process_single_event(&raw, historical_cfg, context)?);
+            events.push(process_single_event::<K>(&raw, historical_cfg, context)?);
             continue;
         }
-        let mut redirect = match create_heatmap_redirect(&raw, historical_cfg, context) {
+        let mut redirect = match create_heatmap_redirect::<K>(&raw, historical_cfg, context) {
             Ok(Some(redirect)) => redirect,
             Ok(None) => {
-                events.push(process_single_event(&raw, historical_cfg, context)?);
+                events.push(process_single_event::<K>(&raw, historical_cfg, context)?);
                 continue;
             }
             Err(err) => {
                 error!("failed to create heatmap redirect: {err:#}");
-                events.push(process_single_event(&raw, historical_cfg, context)?);
+                events.push(process_single_event::<K>(&raw, historical_cfg, context)?);
                 continue;
             }
         };
         raw.properties.remove("$heatmap_data");
-        let mut processed = process_single_event(&raw, historical_cfg, context)?;
+        let mut processed = process_single_event::<K>(&raw, historical_cfg, context)?;
         processed.metadata.skip_heatmap_processing = true;
         events.push(processed);
         counter!("capture_heatmap_redirects_created").increment(1);
@@ -366,27 +376,6 @@ async fn process_events_inner(
     }
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "created ProcessedEvents batch");
-
-    // capture-ai serves only the AI paths and loads only AI restrictions (see
-    // `Pipeline::for_capture_mode`), so an event on any other lane would run
-    // ungoverned there. Reject the batch rather than dropping the offender: a
-    // client sending non-AI events to an AI endpoint is misconfigured, and a
-    // silent drop would hide that until someone went looking for the data. The
-    // abort path emits an `invalid_ai_event` ingestion warning alongside the
-    // 400, so the project owner sees it too.
-    //
-    // Lane membership is the same answer `DataType::from_event_name` stamped on
-    // each event above.
-    if context.capture_mode == crate::config::CaptureMode::Ai {
-        if let Some(offender) = events
-            .iter()
-            .find(|e| e.metadata.data_type != DataType::AiEvents)
-        {
-            return Err(CaptureError::NonAiEventOnAiLane(
-                offender.metadata.event_name.clone(),
-            ));
-        }
-    }
 
     // Reject an AI-lane event past the deployment's ceiling before it can reach
     // the sink, where the producer's own cap would refuse it anyway — after
@@ -401,11 +390,12 @@ async fn process_events_inner(
     // The uuid says which event to fix, since a batch can carry several of the
     // same name. It is only a handle for clients that send their own; the rest
     // get the one `process_single_event` minted, which identifies nothing they
-    // can look up. The non-AI-event rejection above deliberately omits it: its
-    // offender may be the `$$heatmap` event capture itself synthesized, and
-    // naming a uuid the client never issued would misdirect them.
+    // can look up. The non-AI-event rejection in `process_single_event`
+    // deliberately omits it: its offender may be the `$$heatmap` event capture
+    // itself synthesized, and naming a uuid the client never issued would
+    // misdirect them.
     if let Some(offender) = events.iter().find(|e| {
-        e.metadata.data_type == DataType::AiEvents
+        e.metadata.kind.is_ai()
             && exceeds_max_ai_event_bytes(e.event.data.len(), context.ai_max_event_bytes)
     }) {
         return Err(CaptureError::AiEventTooBig(format!(
@@ -428,13 +418,13 @@ async fn process_events_inner(
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by token_dropper");
 
-    // Apply event restrictions, looking each event up under its `DataType`'s
+    // Apply event restrictions, looking each event up under its kind's
     // pipeline. The single restriction service holds entries for all
     // pipelines its host capture deployment serves; the pipeline argument
     // selects which slice of restrictions applies to each event. A DropEvent
     // tagged only for `analytics` will never silently drop an exception event
     // on the way to the error tracking topic, and vice versa. Snapshots have
-    // no pipeline here and flow through unrestricted. `AiEvents` looks up the `ai` pipeline: a diverted
+    // no pipeline here and flow through unrestricted. An AI kind looks up the `ai` pipeline: a diverted
     // AI event is governed by ai-scoped restrictions (drop/DLQ/redirect still
     // win over the lane, redirect_to_topic beats the AI topic in the sink,
     // force_overflow keeps it on the AI lane) -- mirroring v1.
@@ -443,7 +433,7 @@ async fn process_events_inner(
         let now_ts = context.now.timestamp();
 
         for e in events {
-            let Some(pipeline) = e.metadata.data_type.pipeline() else {
+            let Some(pipeline) = e.metadata.kind.pipeline() else {
                 filtered_events.push(e);
                 continue;
             };
@@ -489,7 +479,7 @@ async fn process_events_inner(
     drop_ai_byte_limited(&mut events, ai_byte_rate_limiter.as_ref()).await;
 
     // Per-(token, distinct_id) global rate limiting: skip person processing for
-    // hot distinct_ids and reroute AnalyticsMain events to overflow.
+    // hot distinct_ids and reroute analytics main events to overflow.
     if context.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = global_rate_limiter {
             let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
@@ -518,11 +508,11 @@ async fn process_events_inner(
 
                 if limited {
                     event.metadata.skip_person_processing = true;
-                    // Reroute the hot key to overflow. AnalyticsMain only: historical
-                    // never overflows, the AI lane keeps its dedicated topic (v1
-                    // gates the same way on Destination::AnalyticsMain), and only
-                    // AnalyticsMain acts on overflow_reason.
-                    if event.metadata.data_type == DataType::AnalyticsMain {
+                    // Reroute the hot key to overflow. Analytics main only:
+                    // historical never overflows, and the AI lane keeps its
+                    // dedicated topic (v1 gates the same way on
+                    // Destination::AnalyticsMain).
+                    if event.metadata.kind.overflow_budget() == Some(OverflowBudget::Analytics) {
                         event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
                     }
                     limited_distinct_ids.insert(&event.event.distinct_id);
@@ -586,7 +576,7 @@ async fn process_events_inner(
     // co-locates overflow with every other pipeline-level routing decision.
     // The stamping helper is shared with the AI (`ai_endpoint::ai_handler`)
     // and OTEL (`otel::otel_handler`) paths so every handler that emits
-    // `DataType::AnalyticsMain` events gets identical limiter semantics and
+    // analytics main events gets identical limiter semantics and
     // metric labels — see `events::overflow_stamping`.
     stamp_overflow_reason(
         &mut events,
@@ -641,6 +631,7 @@ async fn process_events_inner(
 mod tests {
     use super::*;
     use crate::ingestion_warnings::SdkAttribution;
+    use crate::kind::{AiKind, AnalyticsKind, Historical, MainOrHistorical};
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{OverflowReason, ProcessingContext};
     use chrono::{DateTime, TimeZone, Utc};
@@ -734,8 +725,8 @@ mod tests {
         }
     }
 
-    async fn run_pipeline(
-        outputs: Arc<OutputRegistry>,
+    async fn run_pipeline<K: Classify + Route>(
+        outputs: Arc<OutputRegistry<K>>,
         events: Vec<RawEvent>,
         context: &ProcessingContext,
         options: PipelineOptions,
@@ -778,9 +769,12 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        let processed =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context)
-                .unwrap();
+        let processed = process_single_event::<AnalyticsKind<MainOrHistorical>>(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        )
+        .unwrap();
 
         let expected_millis = processed
             .metadata
@@ -815,9 +809,12 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        let processed =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context)
-                .unwrap();
+        let processed = process_single_event::<AnalyticsKind<MainOrHistorical>>(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        )
+        .unwrap();
 
         // The event keeps its pre-epoch timestamp, but the uuid floors to the epoch rather than wrapping to garbage.
         assert!(
@@ -839,8 +836,11 @@ mod tests {
 
         let context = create_test_context(now, None);
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
-        let result =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
+        let result = process_single_event::<AnalyticsKind<MainOrHistorical>>(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -865,8 +865,11 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:59:55Z".to_string()), None, None);
 
-        let result =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
+        let result = process_single_event::<AnalyticsKind<MainOrHistorical>>(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -889,8 +892,11 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, Some(true));
 
-        let result =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
+        let result = process_single_event::<AnalyticsKind<MainOrHistorical>>(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -912,14 +918,20 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let result =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
+        let result = process_single_event::<AnalyticsKind<MainOrHistorical>>(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
 
         assert!(!processed.event.historical_migration);
-        assert_eq!(processed.metadata.data_type, DataType::AnalyticsMain);
+        assert_eq!(
+            processed.metadata.kind,
+            AnalyticsKind::Analytics(MainOrHistorical::Main)
+        );
     }
 
     #[test]
@@ -933,14 +945,20 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let result =
-            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
+        let result = process_single_event::<AnalyticsKind<MainOrHistorical>>(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        );
 
         assert!(result.is_ok());
         let processed = result.unwrap();
 
         assert!(processed.event.historical_migration);
-        assert_eq!(processed.metadata.data_type, DataType::AnalyticsHistorical);
+        assert_eq!(
+            processed.metadata.kind,
+            AnalyticsKind::Analytics(MainOrHistorical::Historical)
+        );
     }
 
     // Mock sink for testing process_events with restrictions
@@ -982,7 +1000,9 @@ mod tests {
         service.update(manager).await;
 
         let result = run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -1027,7 +1047,9 @@ mod tests {
         service.update(manager).await;
 
         let result = run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -1073,7 +1095,9 @@ mod tests {
         service.update(manager).await;
 
         let result = run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -1119,7 +1143,9 @@ mod tests {
         service.update(manager).await;
 
         let result = run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -1172,7 +1198,9 @@ mod tests {
         service.update(manager).await;
 
         let result = run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -1205,7 +1233,9 @@ mod tests {
 
         // No restriction service
         let result = run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions::default(),
@@ -1253,7 +1283,9 @@ mod tests {
         service.update(manager).await;
 
         let result = run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -1298,7 +1330,9 @@ mod tests {
         service.update(manager).await;
 
         let result = run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -1317,56 +1351,22 @@ mod tests {
         );
     }
 
-    /// The AI lane assignment holds across capture modes: `Events` and
-    /// `Import` both divert every AI event (only the AI lane has AI
-    /// processing, so imports must divert too), winning over historical.
-    /// Non-AI events stay on their normal route in every mode. The topic
-    /// itself is resolved in the kafka sink from `DataType::AiEvents`, not
-    /// here.
-    struct AiLaneInput {
+    /// The AI lane assignment holds on both analytics deployments: Events and
+    /// Import both divert every AI event (only the AI lane has AI processing,
+    /// so imports must divert too), winning over historical. Non-AI events stay
+    /// on their normal route. The topic itself is resolved in the kafka sink
+    /// from the kind, not here.
+    async fn ai_lane_assignment<K: Classify + Route + Clone>(
         capture_mode: crate::config::CaptureMode,
-        // Import mode drops non-historical batches before classification, so
-        // its case must arrive flagged historical.
-        historical_migration: bool,
-    }
-
-    struct AiLaneExpected {
-        ai_data_type: DataType,
-        pageview_data_type: DataType,
-    }
-
-    #[rstest]
-    #[case::events_mode(
-        AiLaneInput {
-            capture_mode: crate::config::CaptureMode::Events,
-            historical_migration: false,
-        },
-        AiLaneExpected {
-            ai_data_type: DataType::AiEvents,
-            pageview_data_type: DataType::AnalyticsMain,
-        }
-    )]
-    #[case::import_mode(
-        AiLaneInput {
-            capture_mode: crate::config::CaptureMode::Import,
-            historical_migration: true,
-        },
-        AiLaneExpected {
-            ai_data_type: DataType::AiEvents,
-            pageview_data_type: DataType::AnalyticsHistorical,
-        }
-    )]
-    #[tokio::test]
-    async fn test_process_events_ai_lane_assignment(
-        #[case] input: AiLaneInput,
-        #[case] expected: AiLaneExpected,
-    ) {
+    ) -> (K, K) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
         let mut context = create_test_context(now, None);
-        context.capture_mode = input.capture_mode;
-        context.historical_migration = input.historical_migration;
+        context.capture_mode = capture_mode;
+        // Import mode drops non-historical batches before classification, so
+        // every case arrives flagged historical there.
+        context.historical_migration = capture_mode == crate::config::CaptureMode::Import;
         let events = vec![
             create_test_event_with_name(
                 "$ai_generation",
@@ -1385,7 +1385,7 @@ mod tests {
         let sink = MockSink::new();
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<K>::single(sink.clone())),
             events,
             &context,
             PipelineOptions::default(),
@@ -1399,16 +1399,38 @@ mod tests {
             .iter()
             .find(|e| e.event.event == "$ai_generation")
             .unwrap();
-        assert_eq!(ai_event.metadata.data_type, expected.ai_data_type);
         // Lane assignment must not leak into the restriction-driven redirect
-        // mechanism; the sink resolves the AI topic from the data type alone.
+        // mechanism; the sink resolves the AI topic from the kind alone.
         assert_eq!(ai_event.metadata.redirect_to_topic, None);
         let pageview = captured
             .iter()
             .find(|e| e.event.event == "$pageview")
             .unwrap();
-        assert_eq!(pageview.metadata.data_type, expected.pageview_data_type);
         assert_eq!(pageview.metadata.redirect_to_topic, None);
+        (ai_event.metadata.kind, pageview.metadata.kind)
+    }
+
+    #[tokio::test]
+    async fn test_process_events_ai_lane_assignment_events_mode() {
+        assert_eq!(
+            ai_lane_assignment::<AnalyticsKind<MainOrHistorical>>(
+                crate::config::CaptureMode::Events
+            )
+            .await,
+            (
+                AnalyticsKind::Ai,
+                AnalyticsKind::Analytics(MainOrHistorical::Main)
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn test_process_events_ai_lane_assignment_import_mode() {
+        assert_eq!(
+            ai_lane_assignment::<AnalyticsKind<Historical>>(crate::config::CaptureMode::Import)
+                .await,
+            (AnalyticsKind::Ai, AnalyticsKind::Analytics(Historical))
+        );
     }
 
     /// End-to-end: `process_events` drops the over-budget `$ai_generation` and keeps the small one.
@@ -1422,10 +1444,9 @@ mod tests {
         let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(800)));
 
         let producer = MockKafkaProducer::new();
-        let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
-            producer.clone(),
-            test_outputs(),
-        )));
+        let outputs = Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+            KafkaSinkBase::with_producer(producer.clone(), test_outputs()),
+        ));
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
@@ -1506,7 +1527,9 @@ mod tests {
         oversized.uuid = Some(offender_uuid);
 
         let err = run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             vec![
                 create_test_event_with_name(
                     "$ai_generation",
@@ -1558,7 +1581,9 @@ mod tests {
             .insert("big".to_string(), json!("x".repeat(800)));
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             vec![oversized],
             &context,
             PipelineOptions::default(),
@@ -1619,7 +1644,9 @@ mod tests {
         ];
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -1683,7 +1710,7 @@ mod tests {
         let sink = MockSink::new();
         let collector = Arc::new(CollectingEmitter::new());
         let result = run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AiKind>::single(sink.clone())),
             events,
             &context,
             PipelineOptions {
@@ -1731,7 +1758,9 @@ mod tests {
 
         let sink = MockSink::new();
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions::default(),
@@ -1744,7 +1773,7 @@ mod tests {
         assert_eq!(
             captured
                 .iter()
-                .filter(|e| e.metadata.data_type == DataType::AiEvents)
+                .filter(|e| e.metadata.kind == AnalyticsKind::Ai)
                 .count(),
             1
         );
@@ -1762,10 +1791,9 @@ mod tests {
         let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(800)));
 
         let producer = MockKafkaProducer::new();
-        let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
-            producer.clone(),
-            test_outputs(),
-        )));
+        let outputs = Arc::new(OutputRegistry::<AiKind>::single(
+            KafkaSinkBase::with_producer(producer.clone(), test_outputs()),
+        ));
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
@@ -1856,7 +1884,9 @@ mod tests {
             .insert("$current_url".to_string(), json!("x".repeat(500)));
 
         process_events(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             Arc::new(TokenDropper::default()),
             None,
             router::HistoricalConfig::new(false, 1),
@@ -1874,8 +1904,8 @@ mod tests {
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1, "the over-budget AI event must drop");
         assert_eq!(
-            captured[0].metadata.data_type,
-            DataType::AnalyticsMain,
+            captured[0].metadata.kind,
+            AnalyticsKind::Analytics(MainOrHistorical::Main),
             "the same-sized $pageview must survive"
         );
     }
@@ -1932,7 +1962,9 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -1948,7 +1980,7 @@ mod tests {
             assert!(captured.is_empty());
         } else {
             assert_eq!(captured.len(), 1);
-            assert_eq!(captured[0].metadata.data_type, DataType::AiEvents);
+            assert_eq!(captured[0].metadata.kind, AnalyticsKind::Ai);
         }
     }
 
@@ -1989,7 +2021,9 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2002,7 +2036,7 @@ mod tests {
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].metadata.data_type, DataType::AiEvents);
+        assert_eq!(captured[0].metadata.kind, AnalyticsKind::Ai);
         assert_eq!(
             captured[0].metadata.redirect_to_topic,
             Some("custom_events_topic".to_string())
@@ -2011,12 +2045,14 @@ mod tests {
 
     // ============ non-analytics data types bypass restrictions ============
     // The `EventRestrictionService` in analytics handlers is scoped to the
-    // analytics pipeline. Events whose `data_type` belongs to a different
+    // analytics pipeline. Events whose `kind` belongs to a different
     // pipeline (exceptions → error tracking, heatmaps, client ingestion
     // warnings) must pass through the restriction stage untouched so that an
     // analytics-scoped DropEvent/RedirectToDlq/etc. does not cross pipelines.
 
-    async fn process_single_with_drop_restriction(event_name: &str) -> Vec<ProcessedEvent> {
+    async fn process_single_with_drop_restriction(
+        event_name: &str,
+    ) -> Vec<ProcessedEvent<AnalyticsKind<MainOrHistorical>>> {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -2045,7 +2081,9 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2060,17 +2098,17 @@ mod tests {
     }
 
     #[rstest]
-    #[case("$exception", DataType::ExceptionErrorTracking)]
-    #[case("$$heatmap", DataType::HeatmapMain)]
-    #[case("$$client_ingestion_warning", DataType::ClientIngestionWarning)]
+    #[case("$exception", AnalyticsKind::Exception)]
+    #[case("$$heatmap", AnalyticsKind::Heatmap)]
+    #[case("$$client_ingestion_warning", AnalyticsKind::ClientWarning)]
     #[tokio::test]
     async fn test_non_analytics_events_bypass_drop_restriction(
         #[case] event_name: &str,
-        #[case] expected_data_type: DataType,
+        #[case] expected_data_type: AnalyticsKind<MainOrHistorical>,
     ) {
         let captured = process_single_with_drop_restriction(event_name).await;
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].metadata.data_type, expected_data_type);
+        assert_eq!(captured[0].metadata.kind, expected_data_type);
     }
 
     #[tokio::test]
@@ -2115,7 +2153,9 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2128,10 +2168,7 @@ mod tests {
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
-        assert_eq!(
-            captured[0].metadata.data_type,
-            DataType::ExceptionErrorTracking
-        );
+        assert_eq!(captured[0].metadata.kind, AnalyticsKind::Exception);
         assert!(!captured[0].metadata.force_overflow);
         assert!(!captured[0].metadata.skip_person_processing);
         assert!(!captured[0].metadata.redirect_to_dlq);
@@ -2184,7 +2221,9 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2201,7 +2240,10 @@ mod tests {
             1,
             "exception should be dropped, pageview kept"
         );
-        assert_eq!(captured[0].metadata.data_type, DataType::AnalyticsMain);
+        assert_eq!(
+            captured[0].metadata.kind,
+            AnalyticsKind::Analytics(MainOrHistorical::Main)
+        );
         assert_eq!(captured[0].event.event, "$pageview");
     }
 
@@ -2248,7 +2290,9 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2265,10 +2309,7 @@ mod tests {
             1,
             "pageview should be dropped, exception kept"
         );
-        assert_eq!(
-            captured[0].metadata.data_type,
-            DataType::ExceptionErrorTracking
-        );
+        assert_eq!(captured[0].metadata.kind, AnalyticsKind::Exception);
         assert_eq!(captured[0].event.event, "$exception");
     }
 
@@ -2304,7 +2345,9 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2354,7 +2397,9 @@ mod tests {
         let sink = MockSink::new();
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions::default(),
@@ -2384,7 +2429,9 @@ mod tests {
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2438,7 +2485,9 @@ mod tests {
             .then(|| build_limiter(10, 10, Some("test_token".to_string()), false));
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2451,7 +2500,7 @@ mod tests {
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].metadata.data_type, DataType::AiEvents);
+        assert_eq!(captured[0].metadata.kind, AnalyticsKind::Ai);
         assert_eq!(captured[0].metadata.overflow_reason, case.expected_reason);
     }
 
@@ -2471,7 +2520,9 @@ mod tests {
         let limiter = build_limiter(1, 1, None, true);
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2508,7 +2559,9 @@ mod tests {
         let limiter = build_limiter(1, 1, None, false);
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2562,7 +2615,9 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2599,7 +2654,9 @@ mod tests {
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2613,8 +2670,8 @@ mod tests {
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
         assert_eq!(
-            captured[0].metadata.data_type,
-            DataType::AnalyticsHistorical
+            captured[0].metadata.kind,
+            AnalyticsKind::Analytics(MainOrHistorical::Historical)
         );
         assert_eq!(captured[0].metadata.overflow_reason, None);
     }
@@ -2647,7 +2704,9 @@ mod tests {
         let overflow_limiter = build_limiter(1, 1, None, true);
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2708,7 +2767,9 @@ mod tests {
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2721,7 +2782,10 @@ mod tests {
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
-        assert_eq!(captured[0].metadata.data_type, DataType::AnalyticsMain);
+        assert_eq!(
+            captured[0].metadata.kind,
+            AnalyticsKind::Analytics(MainOrHistorical::Main)
+        );
         assert!(captured[0].metadata.skip_person_processing);
         assert_eq!(
             captured[0].metadata.overflow_reason,
@@ -2773,7 +2837,9 @@ mod tests {
         let collector = Arc::new(CollectingEmitter::new());
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2822,7 +2888,9 @@ mod tests {
         let collector = Arc::new(CollectingEmitter::new());
 
         let result = run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2853,10 +2921,10 @@ mod tests {
         // fix, so the customer-facing warning must stay silent.
         struct RejectingSink;
         #[async_trait::async_trait]
-        impl crate::outputs::PublishEvents for RejectingSink {
+        impl crate::outputs::PublishEvents<AnalyticsKind<MainOrHistorical>> for RejectingSink {
             async fn publish_events(
                 &self,
-                _events: Vec<ProcessedEvent>,
+                _events: Vec<ProcessedEvent<AnalyticsKind<MainOrHistorical>>>,
             ) -> Result<(), CaptureError> {
                 Err(CaptureError::RetryableSinkError)
             }
@@ -2885,7 +2953,9 @@ mod tests {
         let collector = Arc::new(CollectingEmitter::new());
 
         let result = run_pipeline(
-            Arc::new(OutputRegistry::single(RejectingSink)),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                RejectingSink,
+            )),
             events,
             &context,
             PipelineOptions {
@@ -2962,7 +3032,9 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -3030,7 +3102,9 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -3069,7 +3143,9 @@ mod tests {
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -3083,8 +3159,8 @@ mod tests {
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
         assert_eq!(
-            captured[0].metadata.data_type,
-            DataType::AnalyticsHistorical
+            captured[0].metadata.kind,
+            AnalyticsKind::Analytics(MainOrHistorical::Historical)
         );
         // Person processing disabled...
         assert!(captured[0].metadata.skip_person_processing);
@@ -3113,7 +3189,9 @@ mod tests {
         let sink = MockSink::new();
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<Historical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions::default(),
@@ -3146,7 +3224,9 @@ mod tests {
         let sink = MockSink::new();
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<Historical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions::default(),
@@ -3157,8 +3237,8 @@ mod tests {
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
         assert_eq!(
-            captured[0].metadata.data_type,
-            DataType::AnalyticsHistorical
+            captured[0].metadata.kind,
+            AnalyticsKind::Analytics(Historical)
         );
     }
 
@@ -3184,7 +3264,9 @@ mod tests {
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<Historical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions {
@@ -3225,10 +3307,9 @@ mod tests {
         )];
 
         let producer = MockKafkaProducer::new();
-        let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
-            producer.clone(),
-            test_outputs(),
-        )));
+        let outputs = Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+            KafkaSinkBase::with_producer(producer.clone(), test_outputs()),
+        ));
         // test_token in reroute list -> ForceLimited stamped in pipeline.
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
@@ -3281,10 +3362,9 @@ mod tests {
         ];
 
         let producer = MockKafkaProducer::new();
-        let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
-            producer.clone(),
-            test_outputs(),
-        )));
+        let outputs = Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+            KafkaSinkBase::with_producer(producer.clone(), test_outputs()),
+        ));
         // burst=1 => event[1] stamped RateLimited { preserve_locality }.
         let limiter = build_limiter(1, 1, None, preserve_locality);
 
@@ -3444,12 +3524,15 @@ mod tests {
         let context = create_test_context(now, None);
         let event = build_heatmap_carrier_event(HeatmapShape::HeatmapData);
 
-        let redirect =
-            create_heatmap_redirect(&event, router::HistoricalConfig::new(false, 1), &context)
-                .unwrap()
-                .expect("redirect should be created when distinct_id is resolvable");
+        let redirect = create_heatmap_redirect::<AnalyticsKind<MainOrHistorical>>(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        )
+        .unwrap()
+        .expect("redirect should be created when distinct_id is resolvable");
 
-        assert_eq!(redirect.metadata.data_type, DataType::HeatmapMain);
+        assert_eq!(redirect.metadata.kind, AnalyticsKind::Heatmap);
         assert_eq!(redirect.metadata.event_name, "$$heatmap");
         assert!(!redirect.metadata.skip_heatmap_processing);
         assert_eq!(redirect.event.event, "$$heatmap");
@@ -3494,10 +3577,13 @@ mod tests {
             .properties
             .insert("$cookieless_mode".to_string(), json!(true));
 
-        let redirect =
-            create_heatmap_redirect(&event, router::HistoricalConfig::new(false, 1), &context)
-                .unwrap()
-                .expect("redirect should be created");
+        let redirect = create_heatmap_redirect::<AnalyticsKind<MainOrHistorical>>(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        )
+        .unwrap()
+        .expect("redirect should be created");
 
         let data: RawEvent = serde_json::from_str(&redirect.event.data).unwrap();
         for key in [
@@ -3528,9 +3614,12 @@ mod tests {
         event.distinct_id = None;
         event.properties.remove("distinct_id");
 
-        let result =
-            create_heatmap_redirect(&event, router::HistoricalConfig::new(false, 1), &context)
-                .unwrap();
+        let result = create_heatmap_redirect::<AnalyticsKind<MainOrHistorical>>(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        )
+        .unwrap();
         assert!(result.is_none());
     }
 
@@ -3542,10 +3631,13 @@ mod tests {
         // Carrier event has distinct_id only in properties (top-level is None).
         assert!(event.distinct_id.is_none());
 
-        let redirect =
-            create_heatmap_redirect(&event, router::HistoricalConfig::new(false, 1), &context)
-                .unwrap()
-                .expect("redirect should fall back to properties for distinct_id");
+        let redirect = create_heatmap_redirect::<AnalyticsKind<MainOrHistorical>>(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            &context,
+        )
+        .unwrap()
+        .expect("redirect should fall back to properties for distinct_id");
 
         let data: RawEvent = serde_json::from_str(&redirect.event.data).unwrap();
         assert_eq!(data.distinct_id, Some(json!("test_user")));
@@ -3563,7 +3655,9 @@ mod tests {
         let sink = MockSink::new();
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions::default(),
@@ -3589,7 +3683,7 @@ mod tests {
 
         let redirect = &captured[1];
         assert_eq!(redirect.event.event, "$$heatmap");
-        assert_eq!(redirect.metadata.data_type, DataType::HeatmapMain);
+        assert_eq!(redirect.metadata.kind, AnalyticsKind::Heatmap);
         assert!(!redirect.metadata.skip_heatmap_processing);
     }
 
@@ -3605,7 +3699,9 @@ mod tests {
         let sink = MockSink::new();
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions::default(),
@@ -3619,7 +3715,7 @@ mod tests {
             1,
             "$$heatmap events should not produce a redirect"
         );
-        assert_eq!(captured[0].metadata.data_type, DataType::HeatmapMain);
+        assert_eq!(captured[0].metadata.kind, AnalyticsKind::Heatmap);
         assert!(!captured[0].metadata.skip_heatmap_processing);
     }
 
@@ -3636,7 +3732,9 @@ mod tests {
         let sink = MockSink::new();
 
         run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             events,
             &context,
             PipelineOptions::default(),
@@ -3669,10 +3767,9 @@ mod tests {
         let events = vec![event];
 
         let producer = MockKafkaProducer::new();
-        let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
-            producer.clone(),
-            test_outputs(),
-        )));
+        let outputs = Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+            KafkaSinkBase::with_producer(producer.clone(), test_outputs()),
+        ));
 
         run_pipeline(outputs, events, &context, PipelineOptions::default())
             .await
@@ -3855,7 +3952,7 @@ mod tests {
 
     async fn run_batch_collecting_warnings(
         events: Vec<RawEvent>,
-        outputs: Arc<OutputRegistry>,
+        outputs: Arc<OutputRegistry<AnalyticsKind<MainOrHistorical>>>,
     ) -> (
         Result<(), CaptureError>,
         Vec<common_ingestion_warnings::test_support::EmittedWarning>,
@@ -3870,7 +3967,7 @@ mod tests {
 
     async fn run_batch_collecting_warnings_with_dropper(
         events: Vec<RawEvent>,
-        outputs: Arc<OutputRegistry>,
+        outputs: Arc<OutputRegistry<AnalyticsKind<MainOrHistorical>>>,
         dropper: Arc<limiters::token_dropper::TokenDropper>,
     ) -> (
         Result<(), CaptureError>,
@@ -3906,9 +4003,13 @@ mod tests {
         ];
 
         let sink = MockSink::new();
-        let (result, emitted) =
-            run_batch_collecting_warnings(events, Arc::new(OutputRegistry::single(sink.clone())))
-                .await;
+        let (result, emitted) = run_batch_collecting_warnings(
+            events,
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
+        )
+        .await;
         result.unwrap();
 
         let sent = sink.get_events();
@@ -3942,7 +4043,9 @@ mod tests {
 
         let (result, emitted) = run_batch_collecting_warnings(
             events,
-            Arc::new(OutputRegistry::single(MockSink::new())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                MockSink::new(),
+            )),
         )
         .await;
         result.unwrap();
@@ -3964,7 +4067,9 @@ mod tests {
 
         let (result, emitted) = run_batch_collecting_warnings(
             events,
-            Arc::new(OutputRegistry::single(MockSink::new())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                MockSink::new(),
+            )),
         )
         .await;
         result.unwrap();
@@ -3994,7 +4099,9 @@ mod tests {
                 event_with_distinct_id(&dropped_id),
                 event_with_distinct_id("normal_user"),
             ],
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             dropper.clone(),
         )
         .await;
@@ -4010,7 +4117,9 @@ mod tests {
                 event_with_distinct_id(&dropped_id),
                 event_with_distinct_id(&surviving_id),
             ],
-            Arc::new(OutputRegistry::single(sink.clone())),
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                sink.clone(),
+            )),
             dropper,
         )
         .await;
@@ -4032,10 +4141,10 @@ mod tests {
         // the sink refused was not ingested, so emitting would misreport.
         struct RejectingSink;
         #[async_trait::async_trait]
-        impl crate::outputs::PublishEvents for RejectingSink {
+        impl crate::outputs::PublishEvents<AnalyticsKind<MainOrHistorical>> for RejectingSink {
             async fn publish_events(
                 &self,
-                _events: Vec<ProcessedEvent>,
+                _events: Vec<ProcessedEvent<AnalyticsKind<MainOrHistorical>>>,
             ) -> Result<(), CaptureError> {
                 Err(CaptureError::RetryableSinkError)
             }
@@ -4053,9 +4162,13 @@ mod tests {
 
         let events = vec![event_with_distinct_id(&"x".repeat(250))];
 
-        let (result, emitted) =
-            run_batch_collecting_warnings(events, Arc::new(OutputRegistry::single(RejectingSink)))
-                .await;
+        let (result, emitted) = run_batch_collecting_warnings(
+            events,
+            Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+                RejectingSink,
+            )),
+        )
+        .await;
         assert!(matches!(result, Err(CaptureError::RetryableSinkError)));
 
         assert!(emitted.is_empty());

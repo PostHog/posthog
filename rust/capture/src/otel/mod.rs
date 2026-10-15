@@ -26,8 +26,10 @@ use crate::ingestion_warnings::otel::{
     emit_no_ai_spans_warning, emit_otel_parse_warning, emit_span_cap_warning,
     emit_span_too_big_warning, SpanCapStage,
 };
+use crate::kind::AiKind;
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
-use crate::router::State as AppState;
+
+type AppState = crate::router::State<AiKind>;
 use crate::token::validate_token;
 use crate::v0_request::exceeds_max_ai_event_bytes;
 

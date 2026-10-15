@@ -6,8 +6,10 @@ use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::kind::{AiKind, AnalyticsKind, EventKind, Historical, MainOrHistorical};
 use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::CaptureQuotaLimiter;
+use capture::router::Routes;
 use capture::router::{router, BATCH_BODY_SIZE};
 use capture::sinks::sink::SinkResult;
 use capture::time::TimeSource;
@@ -33,25 +35,25 @@ impl TimeSource for FixedTime {
 
 #[derive(Clone)]
 struct CapturingSink {
-    events: Arc<tokio::sync::Mutex<Vec<ProcessedEvent>>>,
+    count: Arc<tokio::sync::Mutex<usize>>,
 }
 
 impl CapturingSink {
     fn new() -> Self {
         Self {
-            events: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            count: Arc::new(tokio::sync::Mutex::new(0)),
         }
     }
 
     async fn count(&self) -> usize {
-        self.events.lock().await.len()
+        *self.count.lock().await
     }
 }
 
 #[async_trait]
-impl PublishEvents for CapturingSink {
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        self.events.lock().await.extend(events);
+impl<K: EventKind> PublishEvents<K> for CapturingSink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent<K>>) -> Result<(), CaptureError> {
+        *self.count.lock().await += events.len();
         Ok(())
     }
 }
@@ -67,6 +69,24 @@ impl PublishPrepared for CapturingSink {
 /// wire cap can produce a 413. This mirrors production, where the decompressed
 /// budget is five times the wire cap.
 fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
+    match mode {
+        CaptureMode::Events => make_client(
+            capture::router::analytics_routes::<AnalyticsKind<MainOrHistorical>>(),
+            mode,
+        ),
+        CaptureMode::Import => make_client(
+            capture::router::analytics_routes::<AnalyticsKind<Historical>>(),
+            mode,
+        ),
+        CaptureMode::Ai => make_client::<AiKind>(capture::router::ai_routes(26_214_400), mode),
+        CaptureMode::Recordings => make_client(capture::router::recordings_routes(), mode),
+    }
+}
+
+fn make_client<K: capture::kind::Route>(
+    routes: Routes<K>,
+    mode: CaptureMode,
+) -> (TestClient, CapturingSink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
@@ -79,10 +99,11 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
     cfg.capture_mode = mode;
 
     let app = router(
+        routes,
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputRegistry::single(sink.clone())),
+        Arc::new(OutputRegistry::<K>::single(sink.clone())),
         redis.clone(),
         None,
         CaptureQuotaLimiter::new(&cfg, redis, Duration::from_secs(60)),
