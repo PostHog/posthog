@@ -45,15 +45,3 @@ def first_integration_reaching_repositories(
         if wanted <= {str(repository["full_name"]).lower() for repository in stored}:
             return integration
     return None
-
-
-def repositories_no_team_installation_reaches(team_id: int, full_names: Iterable[str]) -> list[str]:
-    """The repositories that none of the team's GitHub installations can reach."""
-    unreached = list(full_names)
-    for integration_id in (
-        Integration.objects.filter(team_id=team_id, kind="github").order_by("id").values_list("id", flat=True)
-    ):
-        if not unreached:
-            break
-        unreached = inaccessible_repositories_via_integration(team_id, integration_id, unreached)
-    return unreached

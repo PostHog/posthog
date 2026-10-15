@@ -16,6 +16,10 @@ REPOSITORY_NAME = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 REPOSITORY_NAME_ERROR = "Repository must be an organization/repo name like your-org/your-repo."
 
 
+def is_templated(value: str) -> bool:
+    return "{" in value
+
+
 class HogFlowVariableSerializer(serializers.ListSerializer):
     child = serializers.DictField(
         child=serializers.CharField(allow_blank=True),

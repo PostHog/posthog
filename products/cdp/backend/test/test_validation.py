@@ -1443,19 +1443,6 @@ class TestTaskInputTypeValidation(SimpleTestCase):
         [
             ("repository_string", "task_repository", "example-org/example-repo", True),
             ("repository_not_string", "task_repository", 123, False),
-            (
-                "repository_template_with_allowlist",
-                "task_repository",
-                {"template": "{event.properties.repository}", "allowed": ["example-org/example-repo"]},
-                True,
-            ),
-            ("repository_allowlist_without_template", "task_repository", {"allowed": ["example-org/a"]}, False),
-            (
-                "repository_allowlist_not_strings",
-                "task_repository",
-                {"template": "{event.properties.repository}", "allowed": [1]},
-                False,
-            ),
             ("model_full", "task_model", {"model": "claude-sonnet-5", "reasoning_effort": "high"}, True),
             ("model_without_effort", "task_model", {"model": "claude-sonnet-5"}, True),
             ("model_not_dict", "task_model", "claude-sonnet-5", False),

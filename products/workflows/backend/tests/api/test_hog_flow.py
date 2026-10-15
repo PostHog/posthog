@@ -7278,63 +7278,23 @@ class TestCreateTaskActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions__1__inputs__repository"
 
-    def test_accepts_an_org_slash_repo_repository(self):
-        response = self._post_flow({"repository": {"value": "my-org/my-repo"}})
-
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    def test_accepts_a_templated_repository_with_an_allowlist_and_renders_it(self):
-        self._connect_github(["my-org/api", "my-org/web"])
-        template = {"template": "{event.properties.repository}", "allowed": ["my-org/api", "My-Org/Web"]}
-
-        response = self._post_flow({"repository": {"value": template}})
+    @parameterized.expand(
+        [
+            ("org_slash_repo", "my-org/my-repo", {}),
+            (
+                "hog_template",
+                "{event.properties.repository}",
+                {"event": {"properties": {"repository": "my-org/my-repo"}}},
+            ),
+            ("template_inside_a_name", "my-org/{variables.repo}", {"variables": {"repo": "my-repo"}}),
+        ]
+    )
+    def test_accepts_a_repository_and_renders_it_at_run_time(self, _name, repository, run_globals):
+        response = self._post_flow({"repository": {"value": repository}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         saved = response.json()["actions"][1]["config"]["inputs"]["repository"]
-        run_globals = {"event": {"properties": {"repository": "my-org/web"}}}
-        assert self._render(saved["bytecode"], run_globals) == {
-            "template": "my-org/web",
-            "allowed": ["my-org/api", "My-Org/Web"],
-        }
-
-    @parameterized.expand(
-        [
-            ("template_without_allowlist", "{event.properties.repository}"),
-            ("empty_allowlist", {"template": "{event.properties.repository}", "allowed": []}),
-            ("allowlist_entry_not_org_slash_repo", {"template": "{event.properties.repository}", "allowed": ["api"]}),
-            ("blank_template", {"template": " ", "allowed": ["my-org/api"]}),
-            (
-                "allowlist_entry_no_installation_reaches",
-                {"template": "{event.properties.repository}", "allowed": ["my-org/api", "other-org/secret"]},
-            ),
-        ]
-    )
-    def test_rejects_a_templated_repository_the_step_cannot_restrict(self, _name, repository):
-        self._connect_github(["my-org/api"])
-
-        response = self._post_flow({"repository": {"value": repository}})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "actions__1__inputs__repository"
-
-    def _render(self, compiled: Any, run_globals: dict) -> Any:
-        if isinstance(compiled, dict):
-            return {key: self._render(value, run_globals) for key, value in compiled.items()}
-        if compiled and compiled[0] == "_H":
-            return execute_bytecode(compiled, run_globals).result
-        return [self._render(item, run_globals) for item in compiled]
-
-    def _connect_github(self, repositories: list[str]) -> None:
-        Integration.objects.create(
-            team=self.team,
-            kind="github",
-            config={},
-            repository_cache=[
-                {"id": index, "name": full_name.split("/")[1], "full_name": full_name}
-                for index, full_name in enumerate(repositories)
-            ],
-            repository_cache_updated_at=timezone.now(),
-        )
+        assert execute_bytecode(saved["bytecode"], run_globals).result == "my-org/my-repo"
 
     def test_rejects_a_model_outside_the_task_model_catalogue(self):
         with patch(
