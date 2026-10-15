@@ -1,10 +1,13 @@
 from uuid import UUID
 
+from django.db import connections
+
 import structlog
 from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
 from posthog.tasks.utils import CeleryQueue
+from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 logger = structlog.get_logger(__name__)
 
@@ -73,6 +76,11 @@ def sweep_canvas_builds() -> None:
         if any(counts.values()):
             logger.info("canvas_builds_swept", **counts)
     except Exception as error:
+        if is_stale_connection_read_only_error(error):
+            # The pooled connection outlived a primary failover. Drop it so the next sweep reconnects to the primary.
+            connections.close_all()
+            logger.warning("canvas_build_sweep_stale_connection", error=str(error))
+            return
         logger.exception("canvas_build_sweep_failed", error=str(error))
         capture_exception(error, additional_properties={"task": "sweep_canvas_builds"})
 
