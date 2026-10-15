@@ -310,9 +310,9 @@ depends_on = [
     "products.surveys", "products.access_control",
     # The canvas_app widget resolves its canvas through the canvas facade as the viewer.
     "products.canvas",
-    # Facade-only: the dashboard filter access check asks the exports facade whether a
+    # Facade-only: the dashboard filter access check asks the subscriptions facade whether a
     # subscription delivers the dashboard.
-    "products.exports",
+    "products.subscriptions",
 ]
 layer = "modules"
 
