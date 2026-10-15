@@ -6,6 +6,7 @@ Layered top-down: builder source-readers → `compute_project_profile` end-to-en
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
@@ -1206,18 +1207,35 @@ class TestGetProjectProfile(BaseTest):
         sources = {entry["source"] for entry in result.payload["inventory"]["surfaces"].values()}
         assert sources and "deferred" not in sources
 
-    @parameterized.expand([("expired_row", True), ("no_row", False)])
+    @parameterized.expand(
+        [
+            ("recent_answers", "recent", True),
+            ("answers_older_than_the_copy_window", "old", False),
+            ("failed_queries", "failed", False),
+            ("no_row", None, False),
+        ]
+    )
     def test_cache_miss_read_defers_surface_queries_to_a_background_build(
-        self, _name: str, seed_expired_row: bool
+        self, _name: str, seed: str | None, copies_stored: bool
     ) -> None:
         cache.clear()
         stored = {}
-        if seed_expired_row:
-            old = compute_project_profile(team=self.team)
+        if seed is not None:
+            with (
+                patch(f"{BUILDERS}.run_precheck_query", side_effect=RuntimeError("query failed"))
+                if seed == "failed"
+                else nullcontext()
+            ):
+                old = compute_project_profile(team=self.team)
+            payload = old.payload
+            if seed == "old":
+                answered_at = (timezone.now() - 3 * PROFILE_TTL).isoformat()
+                for entry in payload["inventory"]["surfaces"].values():
+                    entry["evaluated_at"] = answered_at
             SignalProjectProfile.objects.filter(id=old.profile_id).update(
-                expires_at=timezone.now() - timedelta(minutes=1)
+                expires_at=timezone.now() - timedelta(minutes=1), payload=payload
             )
-            stored = old.payload["inventory"]["surfaces"]
+            stored = payload["inventory"]["surfaces"]
         with (
             patch(f"{BUILDERS}.run_precheck_query", side_effect=AssertionError("surface query on a read")),
             patch("products.signals.backend.tasks.build_signal_project_profile.delay") as mock_delay,
@@ -1227,29 +1245,28 @@ class TestGetProjectProfile(BaseTest):
         assert result is not None
         surfaces = result.payload["inventory"]["surfaces"]
         assert set(surfaces) == set(canonical_precheck_queries())
-        if seed_expired_row:
+        if copies_stored:
             assert surfaces == stored
         else:
             assert {entry["source"] for entry in surfaces.values()} == {"deferred"}
-        mock_delay.assert_called_once()
-        assert mock_delay.call_args.args[0] == self.team.id
+        mock_delay.assert_called_once_with(self.team.id)
 
     def test_background_build_fills_surfaces_on_the_read_row_and_skips_a_duplicate(self) -> None:
         cache.clear()
-        with patch("products.signals.backend.tasks.build_signal_project_profile.delay") as mock_delay:
+        with patch("products.signals.backend.tasks.build_signal_project_profile.delay"):
             with self.captureOnCommitCallbacks(execute=True):
                 read = get_project_profile(team_id=self.team.id)
             assert read is not None
-            build_signal_project_profile(*mock_delay.call_args.args)
+            build_signal_project_profile(self.team.id)
         row = SignalProjectProfile.objects.get(team=self.team)
         assert str(row.id) == read.profile_id
         assert "deferred" not in {entry["source"] for entry in row.payload["inventory"]["surfaces"].values()}
         with patch(f"{BUILDERS}.run_precheck_query", side_effect=AssertionError("duplicate surface query")):
-            build_signal_project_profile(*mock_delay.call_args.args)
+            build_signal_project_profile(self.team.id)
 
-    @parameterized.expand([("queued", None), ("broker_down", ConnectionError("broker down"))])
+    @parameterized.expand([("queued", None, 1), ("broker_down", ConnectionError("broker down"), 2)])
     def test_cache_hit_with_deferred_surfaces_queues_a_build_without_failing_the_read(
-        self, _name: str, delay_error: Exception | None
+        self, _name: str, delay_error: Exception | None, expected_enqueues: int
     ) -> None:
         cache.clear()
         cached = compute_project_profile(team=self.team, defer_surfaces=True)
@@ -1257,9 +1274,20 @@ class TestGetProjectProfile(BaseTest):
         with patch(
             "products.signals.backend.tasks.build_signal_project_profile.delay", side_effect=delay_error
         ) as mock_delay:
-            result = get_project_profile(team_id=self.team.id)
-        assert result is not None and result.profile_id == cached.profile_id
-        mock_delay.assert_called_once()
+            first = get_project_profile(team_id=self.team.id)
+            get_project_profile(team_id=self.team.id)
+        assert first is not None and first.profile_id == cached.profile_id
+        assert mock_delay.call_count == expected_enqueues
+
+    def test_force_refresh_queues_a_surface_build_inside_the_dedupe_window(self) -> None:
+        cache.clear()
+        with (
+            patch("products.signals.backend.tasks.build_signal_project_profile.delay") as mock_delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            get_project_profile(team_id=self.team.id)
+            get_project_profile(team_id=self.team.id, force_refresh=True)
+        assert mock_delay.call_count == 2
 
     @parameterized.expand([("fresh", timedelta(minutes=30), False), ("expired", -timedelta(days=1), True)])
     def test_lazy_build_false_returns_newest_row_whatever_its_age(

@@ -951,13 +951,25 @@ def build_surfaces(team: Team) -> dict[str, dict[str, Any]]:
     }
 
 
-def deferred_surfaces(team: Team, stored: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """The `surfaces` section without the queries: the `stored` entries, and `deferred` for the rest."""
+def deferred_surfaces(
+    team: Team, stored: dict[str, dict[str, Any]], *, answered_since: datetime
+) -> dict[str, dict[str, Any]]:
+    """The `surfaces` section without the queries: the stored answers, and `deferred` for the rest.
+
+    A stored entry is kept only when its query answered at or after `answered_since`. A reader
+    cannot tell a copied entry from a new one, so an old answer or a failure is not copied.
+    """
     deferred = {**_UNANSWERED_SURFACE, "source": "deferred"}
     return {
-        skill_name: stored.get(skill_name) or deferred
+        skill_name: stored[skill_name] if _answered_since(stored.get(skill_name), answered_since) else deferred
         for skill_name in _surface_skill_names(team, canonical_precheck_queries())
     }
+
+
+def _answered_since(entry: dict[str, Any] | None, since: datetime) -> bool:
+    if not entry or entry.get("source") != "skill_default" or not entry.get("evaluated_at"):
+        return False
+    return datetime.fromisoformat(entry["evaluated_at"]) >= since
 
 
 def _surface_skill_names(team: Team, queries: dict[str, str]) -> list[str]:
