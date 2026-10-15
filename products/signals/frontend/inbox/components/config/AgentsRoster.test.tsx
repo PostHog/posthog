@@ -45,6 +45,18 @@ describe('AgentsRoster', () => {
     })
     afterEach(cleanup)
 
+    it('renders a window of external sources and finds an unmounted source through search', async () => {
+        render(<AgentsRoster />)
+
+        expect(await screen.findByText('Aha')).toBeInTheDocument()
+        expect(screen.queryByText('Zendesk')).not.toBeInTheDocument()
+
+        await userEvent.type(screen.getByLabelText('Search external sources'), 'Zendesk')
+
+        expect(await screen.findByText('Zendesk')).toBeInTheDocument()
+        expect(screen.getByLabelText('Arm Support')).toBeInTheDocument()
+    })
+
     // The cap keeps a long user-created list from burying the sources below it, but a filter that
     // could not reach past it would make a scanner unfindable by name.
     it('caps the scanner list, and lets both the filter and Show more reach past the cap', async () => {
@@ -75,6 +87,7 @@ describe('AgentsRoster', () => {
 
         expect(await screen.findByText(/Couldn't load your signal sources/)).toBeInTheDocument()
         expect(screen.getByLabelText('Arm Support')).toBeDisabled()
+        await userEvent.type(screen.getByLabelText('Search external sources'), 'GitHub issues')
         const githubButton = await screen.findByLabelText('Turn on GitHub issues')
         expect(githubButton).toHaveAttribute('aria-disabled', 'true')
         await userEvent.click(githubButton)

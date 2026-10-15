@@ -29,6 +29,7 @@ import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
 import { LinearTeamsModal } from './LinearTeamsModal'
 import { SourceSteeringModal } from './SourceSteeringModal'
+import { VirtualizedSourceList } from './VirtualizedSourceList'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
 
@@ -938,6 +939,73 @@ export function AgentsRoster(): JSX.Element {
         [toggleScannerSignals, toggleErrorTrackingType]
     )
 
+    const renderAgent = useCallback(
+        (agent: AgentRosterDefinition): JSX.Element => {
+            const state = stateFor(agent.source)
+            // Steering needs a persisted row to write to, so optimistic `new_`
+            // placeholder rows wait until the reload lands. Disabled sources keep
+            // the control: enabling starts a sync immediately, so rules must be
+            // settable before the first sync runs.
+            const steeringConfigs =
+                agent.steerable &&
+                state.steeringConfigs.length > 0 &&
+                state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
+                    ? state.steeringConfigs
+                    : null
+            const filters =
+                agent.source === 'linear' && linearIssuesConfig && !linearIssuesConfig.id.startsWith('new_')
+                    ? {
+                          summary: linearTeamsSummary(linearIssuesConfig),
+                          changeLabel: 'Change teams',
+                          onChange: () => openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
+                          // A save or reload can replace the row, and the picker reads it on open.
+                          disabledReason: isLinearIssuesToggling
+                              ? 'Saving'
+                              : sourceConfigsLoading
+                                ? 'Refreshing'
+                                : undefined,
+                      }
+                    : undefined
+            return (
+                <AgentRow
+                    key={agent.source}
+                    agent={agent}
+                    state={state}
+                    product={productStatusBySource[agent.source]}
+                    expanded={expandedSource === agent.source}
+                    enablingProduct={
+                        !!enablingProduct && enablingProduct === productStatusBySource[agent.source]?.enablement
+                    }
+                    onExpand={() => setExpandedSource((current) => (current === agent.source ? null : agent.source))}
+                    onToggle={handleToggle}
+                    onToggleEntity={handleToggleEntity}
+                    onEnableProduct={(product) => product.enablement && enableSourceProduct(product.enablement)}
+                    filters={filters}
+                    onSteer={
+                        steeringConfigs
+                            ? () => setSteeringTarget({ configs: steeringConfigs, label: agent.label })
+                            : undefined
+                    }
+                    onRetryData={loadProductDataEvents}
+                />
+            )
+        },
+        [
+            stateFor,
+            linearIssuesConfig,
+            openLinearTeamsPicker,
+            isLinearIssuesToggling,
+            sourceConfigsLoading,
+            productStatusBySource,
+            expandedSource,
+            enablingProduct,
+            handleToggle,
+            handleToggleEntity,
+            enableSourceProduct,
+            loadProductDataEvents,
+        ]
+    )
+
     const allAgents = rosterGroups.flatMap((group) => group.agents)
     const armedCount = allAgents.filter((agent) => stateFor(agent.source).armed).length
 
@@ -1003,64 +1071,11 @@ export function AgentsRoster(): JSX.Element {
                         </LemonBanner>
                     )}
                     <div className={agentListClassName(redesign)}>
-                        {group.agents.map((agent) => {
-                            const state = stateFor(agent.source)
-                            // Steering needs a persisted row to write to, so optimistic `new_`
-                            // placeholder rows wait until the reload lands. Disabled sources keep
-                            // the control: enabling starts a sync immediately, so rules must be
-                            // settable before the first sync runs.
-                            const steeringConfigs =
-                                agent.steerable &&
-                                state.steeringConfigs.length > 0 &&
-                                state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
-                                    ? state.steeringConfigs
-                                    : null
-                            const filters =
-                                agent.source === 'linear' &&
-                                linearIssuesConfig &&
-                                !linearIssuesConfig.id.startsWith('new_')
-                                    ? {
-                                          summary: linearTeamsSummary(linearIssuesConfig),
-                                          changeLabel: 'Change teams',
-                                          onChange: () =>
-                                              openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
-                                          // A save or reload can replace the row, and the picker reads it on open.
-                                          disabledReason: isLinearIssuesToggling
-                                              ? 'Saving'
-                                              : sourceConfigsLoading
-                                                ? 'Refreshing'
-                                                : undefined,
-                                      }
-                                    : undefined
-                            return (
-                                <AgentRow
-                                    key={agent.source}
-                                    agent={agent}
-                                    state={state}
-                                    product={productStatusBySource[agent.source]}
-                                    expanded={expandedSource === agent.source}
-                                    enablingProduct={
-                                        !!enablingProduct &&
-                                        enablingProduct === productStatusBySource[agent.source]?.enablement
-                                    }
-                                    onExpand={() =>
-                                        setExpandedSource((current) => (current === agent.source ? null : agent.source))
-                                    }
-                                    onToggle={handleToggle}
-                                    onToggleEntity={handleToggleEntity}
-                                    onEnableProduct={(product) =>
-                                        product.enablement && enableSourceProduct(product.enablement)
-                                    }
-                                    filters={filters}
-                                    onSteer={
-                                        steeringConfigs
-                                            ? () => setSteeringTarget({ configs: steeringConfigs, label: agent.label })
-                                            : undefined
-                                    }
-                                    onRetryData={loadProductDataEvents}
-                                />
-                            )
-                        })}
+                        {group.id === 'external' ? (
+                            <VirtualizedSourceList sources={group.agents} renderSource={renderAgent} />
+                        ) : (
+                            group.agents.map(renderAgent)
+                        )}
                     </div>
                 </div>
             ))}
