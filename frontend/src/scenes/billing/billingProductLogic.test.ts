@@ -16,14 +16,30 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { BillingPlan, BillingProductV2AddonType, BillingProductV2Type, BillingType, SurveyEventName } from '~/types'
 
+import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
+
 const productByType = (type: string): BillingProductV2Type =>
     billingJson.products.find((p) => p.type === type) as BillingProductV2Type
 
 describe('billingProductLogic', () => {
     const mounted: ReturnType<typeof billingProductLogic.build>[] = []
 
-    const seedBilling = async (customLimits: BillingType['custom_limits_usd']): Promise<void> => {
-        useMocks({ get: { '/api/billing': () => [200, { ...billingJson, custom_limits_usd: customLimits }] } })
+    const seedBilling = async (
+        customLimits: BillingType['custom_limits_usd'],
+        nextPeriodLimits?: BillingType['next_period_custom_limits_usd']
+    ): Promise<void> => {
+        useMocks({
+            get: {
+                '/api/billing': () => [
+                    200,
+                    {
+                        ...billingJson,
+                        custom_limits_usd: customLimits,
+                        next_period_custom_limits_usd: nextPeriodLimits,
+                    },
+                ],
+            },
+        })
         billingLogic.mount()
         await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
     }
@@ -91,6 +107,33 @@ describe('billingProductLogic', () => {
             expect(logic.values.customLimitUsd).toBe(expectedLimit)
             expect(logic.values.hasCustomLimitSet).toBe(expectedHasSet)
         })
+
+        // Billing refuses limits for a product flagged `no_billing_limit`. A stale limit in the
+        // response must still not reach the limit control or draw a limit marker on either gauge.
+        it.each([
+            ['keeps every limit of a product that allows one', false, 500, 400, true],
+            ['drops every limit of a product without billing limits', true, null, null, false],
+        ] as const)('%s', async (_name, noBillingLimit, expectedLimit, expectedNextPeriodLimit, expectLimitShown) => {
+            await seedBilling({ product_analytics: 500 }, { product_analytics: 400 })
+            const product: BillingProductV2Type = {
+                ...productByType('product_analytics'),
+                no_billing_limit: noBillingLimit,
+            }
+            const logic = billingProductLogic({ product })
+            logic.mount()
+            mounted.push(logic)
+
+            const hasLimitMarker = (items: BillingGaugeItemType[]): boolean =>
+                items.some((item) => item.type === BillingGaugeItemKind.BillingLimit)
+            expect(logic.values).toMatchObject({
+                customLimitUsd: expectedLimit,
+                hasCustomLimitSet: expectLimitShown,
+                billingLimitNextPeriod: expectedNextPeriodLimit,
+            })
+            expect(logic.values.billingLimitAsUsage > 0).toBe(expectLimitShown)
+            expect(hasLimitMarker(logic.values.billingGaugeItems)).toBe(expectLimitShown)
+            expect(hasLimitMarker(logic.values.combinedMonetaryGaugeItems)).toBe(expectLimitShown)
+        })
     })
 
     describe('product variants', () => {
@@ -117,6 +160,109 @@ describe('billingProductLogic', () => {
                 { key: 'logs', displayName: 'Logs ingestion (14-day retention)' },
                 ...(listed ? [{ key: 'logs_retention_custom', displayName: 'Custom retention' }] : []),
             ])
+        })
+    })
+
+    describe('companions', () => {
+        const replay = productByType('session_replay')
+        const logs: BillingProductV2Type = {
+            ...replay,
+            type: 'logs',
+            name: 'Logs',
+            current_amount_usd: '100.00',
+            projected_amount_usd_with_limit: '200.00',
+        }
+        const companion = (type: string, companionOf: string, held: boolean): BillingProductV2Type => ({
+            ...replay,
+            type,
+            companion_of: companionOf,
+            inclusion_only: true,
+            no_billing_limit: true,
+            addons: [],
+            usage_limit: null,
+            subscribed: held,
+            plans: replay.plans.map((plan) => ({ ...plan, current_plan: false })),
+            current_amount_usd: '10.00',
+            projected_amount_usd: '20.00',
+        })
+
+        const seedProducts = async (products: BillingProductV2Type[], discountPercent?: number): Promise<void> => {
+            useMocks({
+                get: {
+                    '/api/billing': () => [200, { ...billingJson, products, discount_percent: discountPercent }],
+                },
+            })
+            billingLogic.mount()
+            await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        }
+
+        const mountLogs = (product: BillingProductV2Type = logs): ReturnType<typeof billingProductLogic.build> => {
+            const logic = billingProductLogic({ product })
+            logic.mount()
+            mounted.push(logic)
+            return logic
+        }
+
+        it('lists only the held companions of this parent', async () => {
+            await seedProducts([
+                logs,
+                companion('logs_retention_custom', 'logs', true),
+                companion('logs_not_held', 'logs', false),
+                companion('replay_companion', 'session_replay', true),
+            ])
+
+            expect(mountLogs().values.heldCompanions.map((p) => p.type)).toEqual(['logs_retention_custom'])
+        })
+
+        it('lists nothing when the parent holds no companion', async () => {
+            await seedProducts([logs, companion('logs_not_held', 'logs', false)])
+
+            expect(mountLogs().values.heldCompanions).toEqual([])
+        })
+
+        it('totals the header amounts and the held companions after the discount', async () => {
+            await seedProducts([logs, companion('logs_retention_custom', 'logs', true)], 10)
+            const logic = mountLogs()
+
+            expect(logic.values.combinedMonetaryData).toMatchObject({ currentTotal: 90, projectedTotal: 180 })
+            expect(logic.values.totalsIncludingCompanions).toEqual({ currentTotal: 99, projectedTotal: 198 })
+        })
+
+        it('rounds a half-cent header amount the way the card displays it', async () => {
+            const halfCentLogs = { ...logs, current_amount_usd: '2.01', projected_amount_usd_with_limit: '2.01' }
+            await seedProducts(
+                [
+                    halfCentLogs,
+                    {
+                        ...companion('logs_retention_custom', 'logs', true),
+                        current_amount_usd: '1.00',
+                        projected_amount_usd: '1.00',
+                    },
+                ],
+                50
+            )
+            const logic = mountLogs(halfCentLogs)
+
+            // The header shows $1.01 for $1.005, so the total must be $1.01 + $0.50.
+            expect(logic.values.totalsIncludingCompanions).toEqual({ currentTotal: 1.51, projectedTotal: 1.51 })
+        })
+
+        it('leaves a held companion that can have its own billing limit out of the amounts and the total', async () => {
+            await seedProducts([
+                logs,
+                companion('logs_retention_custom', 'logs', true),
+                { ...companion('logs_limited_extra', 'logs', true), no_billing_limit: undefined },
+            ])
+            const logic = mountLogs()
+
+            expect(logic.values.heldCompanions.map((p) => p.type)).toEqual([
+                'logs_retention_custom',
+                'logs_limited_extra',
+            ])
+            expect(logic.values.noLimitCompanionAmounts.map(({ companion }) => companion.type)).toEqual([
+                'logs_retention_custom',
+            ])
+            expect(logic.values.totalsIncludingCompanions).toEqual({ currentTotal: 110, projectedTotal: 220 })
         })
     })
 

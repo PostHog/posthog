@@ -27,6 +27,7 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomerTaskAssigneeCannotViewAccount,
     CustomerTaskAssigneeInvalid,
     CustomerTaskInvalidTransition,
+    CustomerTaskRoleNotFound,
 )
 from products.customer_analytics.backend.models import Account, CustomerTask, CustomerTaskActivity
 from products.customer_analytics.backend.models.customer_task import CustomerTaskActivityType, CustomerTaskStatus
@@ -273,6 +274,15 @@ def remove_customer_task_assignee_access_for_account(*, team: Team, account_id: 
         )
 
 
+def _list_role_member_user_ids(team_id: int, user_access_control: UserAccessControl, role_id: UUID) -> list[int]:
+    team = user_access_control.team
+    if team is None or team.id != team_id:
+        team = Team.objects.only("organization_id").get(id=team_id)
+    if not access_control_api.role_belongs_to_organization(role_id=role_id, organization_id=team.organization_id):
+        raise CustomerTaskRoleNotFound()
+    return access_control_api.valid_role_member_user_ids(role_id=role_id)
+
+
 def list_customer_tasks(
     *,
     team_id: int,
@@ -292,6 +302,10 @@ def list_customer_tasks(
         queryset = queryset.filter(assigned_to_id__isnull=True)
     elif filters.assigned_to:
         queryset = queryset.filter(assigned_to_id=int(filters.assigned_to))
+    if filters.assigned_role_id is not None:
+        queryset = queryset.filter(
+            assigned_to_id__in=_list_role_member_user_ids(team_id, user_access_control, filters.assigned_role_id)
+        )
     if filters.statuses:
         queryset = queryset.filter(status__in=filters.statuses)
     if filters.archive_state == "active":

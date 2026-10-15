@@ -1,89 +1,47 @@
-import json
 from typing import Any
-from urllib.parse import urlparse
 
 import pytest
-from unittest import mock
 
 import requests
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lattice import (
+    LatticeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice import (
-    PAGE_SIZE,
     LatticeResumeConfig,
     _base_url,
-    lattice_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.settings import (
-    ENDPOINTS,
-    LATTICE_ENDPOINTS,
-)
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the lattice module.
-LATTICE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.source import LatticeSource
 
 
 def _response(
-    items: list[dict[str, Any]] | None, *, has_more: bool = False, ending_cursor: str | None = None
-) -> Response:
-    body: dict[str, Any] = {"data": items or [], "hasMore": has_more, "endingCursor": ending_cursor}
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(resume_state: LatticeResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's (url, params) AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so inspect it when each request
-    is prepared instead of after the run.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(region: str, endpoint: str, manager: mock.MagicMock):
-    return lattice_source(
-        region=region,
-        api_key="key",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
+    items: list[dict[str, Any]],
+    *,
+    has_more: bool = False,
+    ending_cursor: str | None = None,
+    page_info: bool = False,
+) -> ScriptedResponse:
+    body: dict[str, Any] = (
+        {"data": items, "pageInfo": {"endCursor": ending_cursor, "hasNextPage": has_more}}
+        if page_info
+        else {"data": items, "hasMore": has_more, "endingCursor": ending_cursor}
     )
+    return ScriptedResponse(json=body)
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(LatticeSource(), LatticeSourceConfig(region="us", api_key="key"))
 
 
 class TestBaseUrl:
-    def test_us_and_emea_hosts(self):
-        assert _base_url("us") == "https://api.latticehq.com"
-        assert _base_url("emea") == "https://api.emea.latticehq.com"
-
-    def test_invalid_region_raises(self):
+    def test_invalid_region_raises(self) -> None:
         with pytest.raises(ValueError):
             _base_url("evil.example.com")
 
@@ -99,118 +57,116 @@ class TestValidateCredentials:
             (401, False, "Invalid Lattice API key"),
         ],
     )
-    @mock.patch(LATTICE_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected_valid, expected_message):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
+    def test_validate_credentials_status_mapping(
+        self, status_code: int, expected_valid: bool, expected_message: str | None
+    ) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            assert validate_credentials("us", "key") == (expected_valid, expected_message)
 
-        assert validate_credentials("us", "key") == (expected_valid, expected_message)
+        assert [request.path for request in network.requests_log] == ["/v1/users"]
+        assert network.requests_log[0].param("limit") == "1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer key"
 
-    @mock.patch(LATTICE_SESSION_PATCH)
-    def test_validate_credentials_rejects_bad_region_without_request(self, mock_session):
-        is_valid, error = validate_credentials("evil", "key")
+    def test_validate_credentials_rejects_bad_region_without_request(self) -> None:
+        with scripted_network([]) as network:
+            is_valid, error = validate_credentials("evil", "key")
+
         assert is_valid is False
         assert error is not None
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
-    @mock.patch(LATTICE_SESSION_PATCH)
-    def test_validate_credentials_transport_error_is_not_invalid_key(self, mock_session):
+    def test_validate_credentials_transport_error_is_not_invalid_key(self) -> None:
         # A transient connectivity failure must not be reported as a bad key.
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+        with scripted_network(always(requests.ConnectionError("boom"))):
+            is_valid, error = validate_credentials("us", "key")
 
-        is_valid, error = validate_credentials("us", "key")
         assert is_valid is False
         assert error is not None
         assert "Invalid Lattice API key" not in error
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_ending_cursor(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
+    @pytest.mark.parametrize(
+        "endpoint, page_info",
+        [
+            ("users", False),
+            # /v1/goals/updates nests the cursor under pageInfo instead of the top level.
+            ("goal_updates", True),
+        ],
+    )
+    def test_paginates_via_ending_cursor(self, endpoint: str, page_info: bool) -> None:
+        result = _driver().run(
+            endpoint,
             [
-                _response([{"id": "1"}], has_more=True, ending_cursor="cur_abc"),
-                _response([{"id": "2"}], has_more=False),
+                _response([{"id": "1"}], has_more=True, ending_cursor="cur_abc", page_info=page_info),
+                _response([{"id": "2"}], page_info=page_info),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("us", "users", manager))
-
-        assert [r["id"] for r in rows] == ["1", "2"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["1", "2"]
         # Checkpoint saved after the first page (points at the next cursor); the second page ends it.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].starting_after == "cur_abc"
-        assert snaps[1]["params"]["startingAfter"] == "cur_abc"
+        assert result.saved_states == [LatticeResumeConfig(starting_after="cur_abc")]
+        assert result.params("startingAfter") == [None, "cur_abc"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_request_uses_max_page_size(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([])])
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "users",
+            [_response([])],
+            resume_state=LatticeResumeConfig(starting_after="cur_resume"),
+        )
 
-        list(_source("us", "goals", _make_manager()).items())
-
-        assert urlparse(snaps[0]["url"]).path == "/v1/goals"
-        assert snaps[0]["params"]["limit"] == PAGE_SIZE
-        assert "startingAfter" not in snaps[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_emea_region_uses_emea_host(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([])])
-
-        list(_source("emea", "users", _make_manager()).items())
-
-        assert urlparse(snaps[0]["url"]).netloc == "api.emea.latticehq.com"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([])])
-
-        manager = _make_manager(LatticeResumeConfig(starting_after="cur_resume"))
-        list(_source("us", "users", manager).items())
-
-        assert snaps[0]["params"]["startingAfter"] == "cur_resume"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_has_more_without_cursor_stops(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "1"}], has_more=True, ending_cursor=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source("us", "users", manager))
-
-        assert [r["id"] for r in rows] == ["1"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_stops_without_saving_state(self, MockSession):
-        # A server that keeps advertising hasMore with an empty page must not loop forever.
-        session = MockSession.return_value
-        _wire(session, [_response([], has_more=True, ending_cursor="cur_loop")])
-
-        manager = _make_manager()
-        rows = _rows(_source("us", "users", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert result.params("startingAfter") == ["cur_resume"]
 
 
-class TestLatticeSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
-        config = LATTICE_ENDPOINTS[endpoint]
-        response = _source("us", endpoint, _make_manager())
+class TestReviewCycleFanout:
+    @pytest.mark.parametrize(
+        "endpoint, resume_state, expected_child_urls",
+        [
+            (
+                "reviews",
+                None,
+                [
+                    "https://api.latticehq.com/v1/reviewCycle/c1/reviews",
+                    "https://api.latticehq.com/v1/reviewCycle/c2/reviews",
+                ],
+            ),
+            (
+                "reviewees",
+                None,
+                [
+                    "https://api.latticehq.com/v1/reviewCycle/c1/reviewees",
+                    "https://api.latticehq.com/v1/reviewCycle/c2/reviewees",
+                ],
+            ),
+            (
+                "reviews",
+                LatticeResumeConfig(
+                    fanout_state={"completed": ["/v1/reviewCycle/c1/reviews"], "current": None, "child_state": None}
+                ),
+                ["https://api.latticehq.com/v1/reviewCycle/c2/reviews"],
+            ),
+        ],
+    )
+    def test_fans_out_over_review_cycles(
+        self, endpoint: str, resume_state: LatticeResumeConfig | None, expected_child_urls: list[str]
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _response([{"id": "c1"}, {"id": "c2"}]),
+                *[_response([{"id": "r1"}]) for _ in expected_child_urls],
+            ],
+            resume_state=resume_state,
+        )
 
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode is None
-        assert response.partition_keys is None
+        assert result.raised is None
+        urls_without_query = [url.split("?")[0] for url in result.urls]
+        assert urls_without_query[0] == "https://api.latticehq.com/v1/reviewCycles"
+        assert urls_without_query[1:] == expected_child_urls
+        # Review ids repeat across cycles, so each row must carry its cycle for the composite key.
+        expected_cycles = [url.split("/")[-2] for url in expected_child_urls]
+        assert [(row["review_cycle_id"], row["id"]) for row in result.rows] == [
+            (cycle, "r1") for cycle in expected_cycles
+        ]

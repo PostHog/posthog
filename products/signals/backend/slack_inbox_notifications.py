@@ -38,6 +38,7 @@ from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalReportSlackThread,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -49,6 +50,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
 )
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.slack_formatting import (
     is_safe_slack_http_url as _is_safe_http_url,
     prepare_slack_markdown as _prepare_markdown,
@@ -128,21 +130,6 @@ def _meets_min_priority(report_priority: str | None, min_priority: str | None) -
         return True
     # Lower index = higher priority (P0 < P4).
     return report_rank <= min_rank
-
-
-def _report_repository(report: SignalReport) -> str | None:
-    """The repository the report's research selected, from the latest repo_selection artefact."""
-    art = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.REPO_SELECTION).order_by("-created_at").first()
-    if art is None:
-        return None
-    try:
-        data = json.loads(art.content)
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    repo = data.get("repository")
-    return repo.strip() if isinstance(repo, str) and repo.strip() else None
 
 
 def _latest_priority(report: SignalReport) -> str | None:
@@ -373,7 +360,7 @@ def _build_message_blocks(
         {
             "type": "button",
             "text": {"type": "plain_text", "text": "Review in PostHog", "emoji": True},
-            "url": f"{settings.SITE_URL}/project/{report.team_id}/inbox/reports/{report.id}",
+            "url": build_report_url(report.team_id, report.id, ReportLinkSource.SLACK),
         }
     ]
     blocks.append({"type": "actions", "elements": action_elements})
@@ -718,6 +705,7 @@ def _deliver_route_notification(
                 integration_id=route.integration.id,
                 channel=str(posted_channel or channel_id),
                 thread_ts=str(thread_ts),
+                kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
             )
         if signals and thread_ts:
             _post_signal_evidence_thread(slack, channel_id, str(thread_ts), signals)
@@ -737,7 +725,7 @@ def _deliver_to_routes(
     signals: list[dict] | None = None,
 ) -> int:
     """Post the report to every route, returning how many top-level messages were sent."""
-    repository = _report_repository(report)
+    repository = report.selected_repository()
     sent = 0
     for route in routes:
         if _deliver_route_notification(

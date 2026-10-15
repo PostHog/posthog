@@ -8,6 +8,7 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog import settings
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ClickhouseCluster, MutationWaiter, wait_for_mutations_on_shards
 from posthog.dags.common import JobOwners
 from posthog.dags.common.overrides_manager import OverridesSnapshotDictionary, OverridesSnapshotTable
@@ -17,7 +18,13 @@ from posthog.dags.common.staged_dictionary import (
     load_and_verify_on_every_cluster,
 )
 from posthog.dataclasses import frozen
-from posthog.models.deletion_targets import SQUASH_TARGETS, resolve_placements, sweep_clusters
+from posthog.models.deletion_targets import (
+    SQUASH_TARGETS,
+    TargetPlacement,
+    resolve_placements,
+    shards_by_partition,
+    sweep_clusters,
+)
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 
@@ -97,6 +104,7 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         # A host that cannot see the snapshot table reads the staged object instead, which is a
         # query rather than a table name.
         source = "QUERY %(query)s" if query else "TABLE %(table)s"
+        creds = get_clickhouse_creds(ClickHouseUser.DAGSTER_DICT_READER)
         client.execute(
             f"""
             CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
@@ -115,8 +123,8 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
                 "database": settings.CLICKHOUSE_DATABASE,
                 "table": self.source.name,
                 "query": query,
-                "user": settings.CLICKHOUSE_USER,
-                "password": settings.CLICKHOUSE_PASSWORD,
+                "user": creds.user,
+                "password": creds.password,
             },
         )
 
@@ -130,10 +138,12 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         [[checksum]] = results
         return checksum
 
-    @property
-    def update_commands(self):
+    def update_commands(self, partition_clause: str = "", filter_teams: bool = False) -> set[str]:
+        # team_id leads the sorting key, so this set lets the read skip the granules of every team
+        # with no override instead of looking up each of their rows in the dictionary.
+        team_filter = " AND team_id IN (SELECT DISTINCT team_id FROM dictionary(%(name)s))" if filter_teams else ""
         return {
-            "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
+            f"UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)){partition_clause} WHERE dictHas(%(name)s, (team_id, distinct_id)) AND person_id != dictGet(%(name)s, 'person_id', (team_id, distinct_id)){team_filter}"
         }
 
     @property
@@ -282,9 +292,23 @@ def run_person_id_update_mutations(
     one are deleted in the very next op.
     """
     enqueued: list[tuple[ClickhouseCluster, dict[int, MutationWaiter]]] = []
+    patch_part_placements: list[TargetPlacement] = []
     for placement in resolve_placements(cluster, SQUASH_TARGETS):
+        if placement.target.uses_patch_parts:
+            patch_part_placements.append(placement)
+            continue
         runner = dictionary.update_mutation_runner_for(placement.target.data_table)
         enqueued.append((placement.cluster, runner.enqueue_on_shards(placement.cluster)))
+
+    # A lightweight update whose WHERE cannot be pruned holds a block number open in every partition
+    # until it finishes, and writes each chunk as one patch part per partition it touches. One
+    # statement per partition keeps both to a single partition, so the other partitions keep merging.
+    # The patch part is written before enqueue_on_shards returns, so these run in series.
+    for placement in patch_part_placements:
+        for partition_id, shards in sorted(shards_by_partition(placement).items()):
+            runner = dictionary.update_mutation_runner_for(placement.target.data_table, partition_id=partition_id)
+            runner.patch_parts = True
+            runner.enqueue_on_shards(placement.cluster, shards)
 
     # Every mutation is already in flight, so these waits overlap and cost the longest rather than
     # their sum. The capacity wait inside enqueue_on_shards is still per table and serial.

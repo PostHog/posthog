@@ -771,6 +771,8 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         inMenu: false,
         flag: FEATURE_FLAGS.HOG,
     },
+    // The new insight menu adds its own Metrics card, because the card needs two flags.
+    [InsightType.METRICS]: { ...QUERY_TYPES_METADATA[NodeKind.MetricsQuery], inMenu: false },
     [InsightType.WEB_ANALYTICS]: {
         name: 'Web Analytics',
         description: 'Web analytics insights from your website data.',

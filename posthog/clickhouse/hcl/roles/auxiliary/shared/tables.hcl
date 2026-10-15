@@ -1103,4 +1103,32 @@ database "posthog" {
       skip_broken_messages = 100
     }
   }
+  table "sharded_warehouse_object_reads_daily" {
+    partition_by = "toYYYYMMDD(day)"
+    order_by = ["team_id", "day", "read_kind", "subject_kind", "subject_id", "workflow_id", "lc_kind", "lc_product", "lc_feature", "lc_access_method", "source", "scene", "has_user_id", "read_alone"]
+    ttl      = "day + toIntervalDay(60)"
+    settings = {
+      index_granularity = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_warehouse_object_reads_daily_columns"
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.warehouse_object_reads_daily"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+  table "sharded_warehouse_object_reads_daily_staging" {
+    partition_by = "toYYYYMMDD(day)"
+    order_by = ["team_id", "day", "read_kind", "subject_kind", "subject_id", "workflow_id", "lc_kind", "lc_product", "lc_feature", "lc_access_method", "source", "scene", "has_user_id", "read_alone"]
+    ttl      = "day + toIntervalDay(60)"
+    settings = {
+      index_granularity = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_warehouse_object_reads_daily_columns"
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.sharded_warehouse_object_reads_daily_staging"
+      replica_name = "{replica}-{shard}"
+    }
+  }
 }

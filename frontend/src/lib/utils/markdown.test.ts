@@ -26,6 +26,10 @@ describe('markdown utils', () => {
             ['[docs](/docs/guide)', `docs (${window.location.origin}/docs/guide)`],
             ['[api](api/v1)', `api (${window.location.origin}/api/v1)`],
 
+            // Links that URL rejects are kept as written
+            ['[bad host](//[bad)', 'bad host (//[bad)'],
+            ['[bad port](//host:99999)', 'bad port (//host:99999)'],
+
             // Bold/italic/code stripped
             ['**bold** and *italic*', 'bold and italic'],
             ['`inline code`', 'inline code'],

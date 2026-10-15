@@ -232,7 +232,11 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # mypy can't resolve Temporal's start_workflow overloads for string-named workflows.
             async_to_sync(client.start_workflow)(  # type: ignore[misc]
                 "business-knowledge-ingest-source",  # type: ignore[arg-type]
-                IngestSourceInputs(team_id=self.team_id, source_id=str(source.id)),  # type: ignore[arg-type]
+                IngestSourceInputs(  # type: ignore[arg-type]
+                    team_id=self.team_id,
+                    source_id=str(source.id),
+                    claim_id=str(source.processing_claim_id) if source.processing_claim_id else None,
+                ),
                 id=f"business-knowledge-ingest-{source.id}",
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             )
@@ -452,7 +456,11 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             client = sync_connect()
             async_to_sync(client.start_workflow)(  # type: ignore[misc]
                 "business-knowledge-refresh-source",  # type: ignore[arg-type]
-                RefreshSourceInputs(team_id=self.team_id, source_id=str(source.id)),  # type: ignore[arg-type]
+                RefreshSourceInputs(  # type: ignore[arg-type]
+                    team_id=self.team_id,
+                    source_id=str(source.id),
+                    claim_id=str(source.processing_claim_id) if source.processing_claim_id else None,
+                ),
                 id=f"business-knowledge-refresh-{source.id}",
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             )

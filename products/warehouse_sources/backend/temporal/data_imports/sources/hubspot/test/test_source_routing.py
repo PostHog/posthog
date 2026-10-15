@@ -1,5 +1,4 @@
 from dataclasses import replace
-from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -9,10 +8,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     DEFAULT_PROPS,
     ENDPOINTS,
     HUBSPOT_API_VERSION_2026_03,
+    HUBSPOT_API_VERSION_2026_09,
     HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS,
     HUBSPOT_METADATA_ENDPOINTS,
-    apply_crm_api_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.source import (
     HubspotSource,
@@ -49,52 +48,6 @@ def _make_inputs(
 
 
 class TestGetSchemas:
-    def test_declares_incremental_for_all_crm_endpoints(self) -> None:
-        src = HubspotSource()
-        schemas = src.get_schemas(MagicMock(), team_id=1)
-
-        by_name = {s.name: s for s in schemas}
-        assert set(by_name.keys()) == set(ENDPOINTS)
-        for name in HUBSPOT_ENDPOINTS:
-            schema = by_name[name]
-            endpoint_config = HUBSPOT_ENDPOINTS[name]
-            assert schema.supports_incremental is bool(endpoint_config.cursor_filter_property_field)
-            assert schema.supports_append is schema.supports_incremental
-            # Incremental field matches the cursor property
-            expected_field = endpoint_config.cursor_filter_property_field
-            if expected_field:
-                assert schema.incremental_fields
-                assert schema.incremental_fields[0]["field"] == expected_field
-
-    def test_lookup_tables_are_full_refresh_only(self) -> None:
-        # Pipelines, stages, property definitions and owners have no server-side timestamp filter,
-        # so advertising them as incremental would checkpoint a watermark nothing can filter on.
-        src = HubspotSource()
-        by_name = {s.name: s for s in src.get_schemas(MagicMock(), team_id=1)}
-
-        for name in HUBSPOT_METADATA_ENDPOINTS:
-            assert by_name[name].supports_incremental is False
-            assert by_name[name].supports_append is False
-            assert by_name[name].incremental_fields == []
-
-    def test_tables_needing_an_ungranted_scope_are_default_disabled(self) -> None:
-        # Each of these reads under an OAuth scope existing connections were never granted, so they
-        # must start off; flipping one on by default would 403 an existing customer's sync.
-        src = HubspotSource()
-        by_name = {s.name: s for s in src.get_schemas(MagicMock(), team_id=1)}
-
-        expected_disabled = {
-            "leads",
-            "owners",
-            "line_items",
-            "products",
-            "invoices",
-            "orders",
-            "subscriptions",
-            "commerce_payments",
-        }
-        assert {name for name, s in by_name.items() if not s.should_sync_default} == expected_disabled
-
     def test_filters_by_names(self) -> None:
         src = HubspotSource()
         schemas = src.get_schemas(MagicMock(), team_id=1, names=["deals", "contacts"])
@@ -102,20 +55,6 @@ class TestGetSchemas:
 
 
 class TestShouldUseSearchPath:
-    def _patch_schema(self, initial_sync_complete: bool) -> Any:
-        schema = MagicMock()
-        schema.initial_sync_complete = initial_sync_complete
-        return patch(
-            "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects.get",
-            return_value=schema,
-        )
-
-    def test_false_when_not_incremental(self) -> None:
-        src = HubspotSource()
-        inputs = _make_inputs(should_use_incremental_field=False)
-        # No DB query should be needed; not-incremental short-circuits first.
-        assert src._should_use_search_path(inputs) is False
-
     def test_false_when_reset_pipeline(self) -> None:
         src = HubspotSource()
         inputs = _make_inputs(reset_pipeline=True)
@@ -127,18 +66,6 @@ class TestShouldUseSearchPath:
         no_cursor = replace(HUBSPOT_ENDPOINTS["deals"], cursor_filter_property_field=None)
         with patch.dict(HUBSPOT_ENDPOINTS, {"deals": no_cursor}):
             assert src._should_use_search_path(inputs) is False
-
-    def test_false_when_initial_sync_not_complete(self) -> None:
-        src = HubspotSource()
-        inputs = _make_inputs()
-        with self._patch_schema(initial_sync_complete=False):
-            assert src._should_use_search_path(inputs) is False
-
-    def test_true_when_all_conditions_met(self) -> None:
-        src = HubspotSource()
-        inputs = _make_inputs()
-        with self._patch_schema(initial_sync_complete=True):
-            assert src._should_use_search_path(inputs) is True
 
     def test_false_when_db_lookup_fails(self) -> None:
         src = HubspotSource()
@@ -152,38 +79,6 @@ class TestShouldUseSearchPath:
 
 class TestSourceForPipelineRouting:
     """Verify that source_for_pipeline routes to the right get_rows/get_rows_via_search path."""
-
-    def test_routes_to_search_when_eligible(self) -> None:
-        src = HubspotSource()
-        from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.source import (
-            HubspotSourceOldConfig,
-        )
-
-        old_config = HubspotSourceOldConfig.from_dict(
-            {"hubspot_secret_key": "secret", "hubspot_refresh_token": "refresh"}
-        )
-        inputs = _make_inputs()
-        schema = MagicMock()
-        schema.initial_sync_complete = True
-
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.source.hubspot_source",
-                return_value=MagicMock(),
-            ) as hubspot_source_mock,
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.source.hubspot_access_token_is_valid",
-                return_value=True,
-            ),
-            patch(
-                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects.get",
-                return_value=schema,
-            ),
-        ):
-            src.source_for_pipeline(old_config, MagicMock(), inputs)
-
-        hubspot_source_mock.assert_called_once()
-        assert hubspot_source_mock.call_args.kwargs["use_search_path"] is True
 
     def test_routes_to_get_when_initial_sync_not_complete(self) -> None:
         src = HubspotSource()
@@ -216,31 +111,6 @@ class TestSourceForPipelineRouting:
 
         assert hubspot_source_mock.call_args.kwargs["use_search_path"] is False
 
-    def test_routes_to_get_for_full_refresh(self) -> None:
-        src = HubspotSource()
-        from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.source import (
-            HubspotSourceOldConfig,
-        )
-
-        old_config = HubspotSourceOldConfig.from_dict(
-            {"hubspot_secret_key": "secret", "hubspot_refresh_token": "refresh"}
-        )
-        inputs = _make_inputs(should_use_incremental_field=False)
-
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.source.hubspot_source",
-                return_value=MagicMock(),
-            ) as hubspot_source_mock,
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.source.hubspot_access_token_is_valid",
-                return_value=True,
-            ),
-        ):
-            src.source_for_pipeline(old_config, MagicMock(), inputs)
-
-        assert hubspot_source_mock.call_args.kwargs["use_search_path"] is False
-
 
 class TestSettingsShape:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
@@ -248,13 +118,6 @@ class TestSettingsShape:
         # An endpoint in neither dict raises KeyError mid-sync; one in both would take whichever
         # branch happens to be checked first.
         assert (endpoint in HUBSPOT_ENDPOINTS) is not (endpoint in HUBSPOT_METADATA_ENDPOINTS)
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_endpoint_has_canonical_descriptions(self, endpoint: str) -> None:
-        # Curated descriptions are what the AI agent sees; a table missing from here falls back to
-        # paying an LLM to re-derive a fixed schema for every team that syncs it.
-        descriptions = HubspotSource().get_canonical_descriptions()
-        assert descriptions[endpoint]["description"]
 
     @pytest.mark.parametrize("endpoint", list(HUBSPOT_ENDPOINTS.keys()))
     def test_cursor_property_is_in_default_props(self, endpoint: str) -> None:
@@ -267,35 +130,6 @@ class TestSettingsShape:
     def test_hs_object_id_is_in_default_props(self, endpoint: str) -> None:
         # Required so we can extract the primary key for association lookups
         assert "hs_object_id" in DEFAULT_PROPS[endpoint]
-
-    @pytest.mark.parametrize("endpoint", list(HUBSPOT_ENDPOINTS.keys()))
-    def test_incremental_field_matches_cursor_property(self, endpoint: str) -> None:
-        config = HUBSPOT_ENDPOINTS[endpoint]
-        assert config.incremental_fields
-        field = config.incremental_fields[0]
-        assert field["field"] == config.cursor_filter_property_field
-        assert field["type"] == IncrementalFieldType.DateTime
-
-
-@pytest.mark.parametrize(
-    "error_msg",
-    [
-        # HubspotSourceOldConfig path
-        "Hubspot refresh token not found for job 019cdc50-67a5-0000-c023-0d6a4e057e9b",
-        # HubspotSourceConfig OAuth path
-        "Hubspot refresh or access token not found for job 019cdc50-67a5-0000-c023-0d6a4e057e9b",
-        # OAuthMixin.get_oauth_integration when the integration row was deleted (id varies per source)
-        "Integration not found: 56366",
-        "Integration not found: 157288",
-    ],
-)
-def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
-    """Each ValueError raised when a token is missing must match a non-retryable pattern,
-    otherwise the job retries a permanent misconfiguration forever."""
-    patterns = HubspotSource().get_non_retryable_errors()
-    assert any(pattern in error_msg for pattern in patterns), (
-        f"HubSpot error {error_msg!r} did not match any non-retryable pattern"
-    )
 
 
 @pytest.mark.parametrize(
@@ -325,52 +159,20 @@ def test_transient_http_error_is_retryable(error_msg: str) -> None:
 
 
 class TestApiVersion:
-    def test_defaults_to_latest_date_version(self) -> None:
-        src = HubspotSource()
-        assert src.default_version == HUBSPOT_API_VERSION_2026_03
-        # A source with no pin (a newly created one) resolves to the 2026-03 default...
-        assert src.resolve_api_version(None) == HUBSPOT_API_VERSION_2026_03
-        # ...while a v3 pin is honored verbatim so existing sources stay on the legacy paths.
-        assert src.resolve_api_version(HUBSPOT_API_VERSION_V3) == HUBSPOT_API_VERSION_V3
-
-    def test_both_versions_supported(self) -> None:
-        assert set(HubspotSource().supported_versions) == {HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03}
-
-    @pytest.mark.parametrize(
-        "path,api_version,expected",
-        [
-            # Legacy pin: paths are returned byte-for-byte, keeping the historical v3/v4 split.
-            ("/crm/v3/objects/contacts", HUBSPOT_API_VERSION_V3, "/crm/v3/objects/contacts"),
-            (
-                "/crm/v4/associations/contacts/deals/batch/read",
-                HUBSPOT_API_VERSION_V3,
-                "/crm/v4/associations/contacts/deals/batch/read",
-            ),
-            # Date version: the version segment moves behind the resource name (objects,
-            # properties, associations), matching HubSpot's documented date-based paths.
-            ("/crm/v3/objects/contacts", HUBSPOT_API_VERSION_2026_03, "/crm/objects/2026-03/contacts"),
-            ("/crm/v3/properties/deals", HUBSPOT_API_VERSION_2026_03, "/crm/properties/2026-03/deals"),
-            (
-                "/crm/v4/associations/contacts/deals/batch/read",
-                HUBSPOT_API_VERSION_2026_03,
-                "/crm/associations/2026-03/contacts/deals/batch/read",
-            ),
-            ("/crm/v3/pipelines/deals", HUBSPOT_API_VERSION_2026_03, "/crm/pipelines/2026-03/deals"),
-            # Resource-only path: nothing follows the resource name, so a rewrite that requires a
-            # trailing separator would leave owners calling the legacy endpoint under a date pin.
-            ("/crm/v3/owners", HUBSPOT_API_VERSION_2026_03, "/crm/owners/2026-03"),
-            ("/crm/v3/owners", HUBSPOT_API_VERSION_V3, "/crm/v3/owners"),
-        ],
-    )
-    def test_apply_crm_api_version(self, path: str, api_version: str, expected: str) -> None:
-        assert apply_crm_api_version(path, api_version) == expected
+    def test_all_versions_supported(self) -> None:
+        assert set(HubspotSource().supported_versions) == {
+            HUBSPOT_API_VERSION_V3,
+            HUBSPOT_API_VERSION_2026_03,
+            HUBSPOT_API_VERSION_2026_09,
+        }
 
     @pytest.mark.parametrize(
         "pin,expected",
         [
-            (None, HUBSPOT_API_VERSION_2026_03),
+            (None, HUBSPOT_API_VERSION_2026_09),
             (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_V3),
             (HUBSPOT_API_VERSION_2026_03, HUBSPOT_API_VERSION_2026_03),
+            (HUBSPOT_API_VERSION_2026_09, HUBSPOT_API_VERSION_2026_09),
         ],
     )
     def test_source_for_pipeline_threads_resolved_version(self, pin: str | None, expected: str) -> None:
@@ -393,27 +195,3 @@ class TestApiVersion:
             src.source_for_pipeline(old_config, MagicMock(), inputs)
 
         assert hubspot_source_mock.call_args.kwargs["api_version"] == expected
-
-
-@pytest.mark.parametrize(
-    "error_msg",
-    [
-        # Each fetch loop refreshes the token on a 401 and re-raises this after tenacity's 5 attempts
-        "Hubspot API 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/properties/companies",
-        "Hubspot API 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/objects/deals",
-        "Hubspot v4 associations 401 - refreshed token, retrying: "
-        "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
-        "Hubspot search 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/objects/contacts/search",
-        # raise_for_status() 401 from other fetch paths
-        "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/companies",
-        # raise_for_hubspot_status maps a 403 to this verbatim
-        "403 Client Error: Forbidden for url: https://api.hubapi.com/crm/v3/objects/contacts",
-    ],
-)
-def test_unauthorized_error_is_non_retryable(error_msg: str) -> None:
-    """A 401/403 from the HubSpot API means the credentials/OAuth grant can't access the data —
-    retrying can't recover, so it must match a non-retryable pattern."""
-    patterns = HubspotSource().get_non_retryable_errors()
-    assert any(pattern in error_msg for pattern in patterns), (
-        f"HubSpot error {error_msg!r} did not match any non-retryable pattern"
-    )

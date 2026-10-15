@@ -27,27 +27,12 @@ SLACK_APP_MENTION_IDLE_TIMEOUT_SECONDS = 30
 # stays small; old keys only matter for Slack retries, which arrive within
 # minutes of the original event.
 SLACK_APP_MENTION_MAX_PROCESSED_KEYS = 200
-# Temporal runs buffered signal handlers before run() starts, so dedup state seeded in
-# run() arrived too late: a redelivered Slack event signalled into the first workflow task
-# missed the dedup keys and started a duplicate child workflow. Seeding happens in
-# __init__, which runs first. Pre-patch histories drained long ago — these workflows
-# complete after a 30 second idle timeout — so only `deprecate_patch` remains, keeping the
-# recorded marker compatible for executions in flight across the deploy that removes the
-# gate. Standard two-step Temporal patch lifecycle: the call comes out once the histories
-# that recorded a plain marker have drained in turn.
-SLACK_APP_MENTION_SEED_IN_INIT_PATCH = "slack-app-mention-seed-in-init"
-
 # The queue awaits each child serially, so a child that never completes stalls every
 # later message in the conversation and the user sees nothing but an :eyes: reaction
 # that never resolves. The ceiling sits above any healthy run: the child's own wait
 # (15 minutes for the repo picker) plus its 10-minute activity timeouts stay well
 # inside an hour.
 SLACK_APP_MENTION_CHILD_EXECUTION_TIMEOUT = timedelta(hours=1)
-# Bounding the child and telling the user when it dies both add workflow commands. The
-# executions that replayed the unbounded, silent path are long gone; `deprecate_patch`
-# only keeps their marker compatible across the deploy that removes the gate, and comes
-# out on the same lifecycle as the seeding patch above.
-SLACK_APP_MENTION_CHILD_TIMEOUT_PATCH = "slack-app-mention-child-timeout"
 
 
 def derive_slack_app_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) -> str | None:
@@ -100,7 +85,8 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
         # iteration order stays deterministic for the continue_as_new carry-over.
         self._seen_keys: dict[str, None] = {}
         self._queue: list[PostHogCodeSlackMentionWorkflowInputs] = []
-        workflow.deprecate_patch(SLACK_APP_MENTION_SEED_IN_INIT_PATCH)
+        # Temporal runs buffered signal handlers before run() starts, so dedup state seeded
+        # in run() arrives too late and a redelivered Slack event starts a duplicate child.
         self._seed(inputs)
 
     def _seed(self, inputs: SlackAppMentionWorkflowInputs) -> None:
@@ -190,7 +176,6 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
         ALLOW_DUPLICATE mirrors the standalone dispatch's reuse policy for
         retries that outlive this instance's dedup keys.
         """
-        workflow.deprecate_patch(SLACK_APP_MENTION_CHILD_TIMEOUT_PATCH)
         try:
             # The default parent close policy (terminate) is deliberate: an
             # operator killing this queue means "stop this conversation", so

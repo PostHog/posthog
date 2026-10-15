@@ -1,67 +1,31 @@
-import json
-from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
 
-import pytest
 import time_machine
-from unittest import mock
 
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.microsoftclarity import (
+    MicrosoftClaritySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.microsoft_clarity import (
-    BASE_URL,
     INSIGHTS_PATH,
-    _build_params,
-    _resolve_dimensions,
-    microsoft_clarity_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.settings import (
-    ENDPOINT_NAME,
-    NO_DIMENSION,
+from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.settings import ENDPOINT_NAME
+from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.source import (
+    MicrosoftClaritySource,
 )
 
-SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.microsoft_clarity.make_tracked_session"
 
-
-def _make_response(status_code: int, *, json_body: Any = None, text: str | None = None) -> requests.Response:
-    response = requests.Response()
-    response.status_code = status_code
-    response.url = f"{BASE_URL}{INSIGHTS_PATH}"
-    if json_body is not None:
-        response._content = json.dumps(json_body).encode()
-    elif text is not None:
-        response._content = text.encode()
-    else:
-        response._content = b""
-    return response
-
-
-class TestBuildParams:
-    def test_no_dimensions(self) -> None:
-        assert _build_params("1", []) == {"numOfDays": "1"}
-
-    def test_with_dimensions_numbered_in_order(self) -> None:
-        params = _build_params("2", ["OS", "Browser"])
-        assert params == {"numOfDays": "2", "dimension1": "OS", "dimension2": "Browser"}
-
-
-class TestResolveDimensions:
-    def test_all_none_returns_empty(self) -> None:
-        assert _resolve_dimensions(NO_DIMENSION, NO_DIMENSION, NO_DIMENSION) == []
-
-    def test_none_values_are_skipped(self) -> None:
-        assert _resolve_dimensions(None, None, None) == []
-
-    def test_selected_dimensions_are_kept_in_order(self) -> None:
-        assert _resolve_dimensions("OS", "Browser", NO_DIMENSION) == ["OS", "Browser"]
-
-    def test_gap_in_selection_is_compacted(self) -> None:
-        assert _resolve_dimensions("OS", NO_DIMENSION, "Device") == ["OS", "Device"]
-
-    def test_duplicate_selection_is_deduplicated(self) -> None:
-        assert _resolve_dimensions("OS", "OS", "Device") == ["OS", "Device"]
+def _driver() -> SourceDriver:
+    return SourceDriver(MicrosoftClaritySource(), MicrosoftClaritySourceConfig(api_token="token"))
 
 
 class TestValidateCredentials:
@@ -95,7 +59,6 @@ class TestValidateCredentials:
             ),
         ]
     )
-    @mock.patch(SESSION_PATCH)
     def test_status_mapping(
         self,
         _name: str,
@@ -103,25 +66,26 @@ class TestValidateCredentials:
         json_body: Any,
         expected_valid: bool,
         expected_error: str | None,
-        MockSession: Any,
     ) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _make_response(status, json_body=json_body)
-
-        valid, error = validate_credentials("token")
+        answer = ScriptedResponse(status=status, json=json_body)
+        script = always(answer) if status == 429 else [answer]
+        with scripted_network(script) as network:
+            valid, error = validate_credentials("token")
 
         assert valid is expected_valid
         assert error == expected_error
+        assert {request.path for request in network.requests_log} == {INSIGHTS_PATH}
+        assert {request.param("numOfDays") for request in network.requests_log} == {"1"}
+        assert {request.headers["authorization"] for request in network.requests_log} == {"Bearer token"}
+        assert network.session_options[0]["redact_values"] == ("token",)
 
-    @mock.patch(SESSION_PATCH)
-    def test_transport_exception_is_invalid(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        session.get.side_effect = requests.ConnectionError("down")
-
-        valid, error = validate_credentials("token")
+    def test_transport_exception_is_invalid(self) -> None:
+        with scripted_network(always(requests.ConnectionError("down"))) as network:
+            valid, error = validate_credentials("token")
 
         assert valid is False
         assert error == "Could not reach Microsoft Clarity. Please try again."
+        assert {request.path for request in network.requests_log} == {INSIGHTS_PATH}
 
 
 SAMPLE_PAYLOAD = [
@@ -153,16 +117,17 @@ SAMPLE_PAYLOAD = [
 
 class TestMicrosoftClaritySource:
     @time_machine.travel("2026-07-23T12:00:00Z", tick=False)
-    @mock.patch(SESSION_PATCH)
-    def test_flattens_every_metric_and_information_row(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _make_response(200, json_body=SAMPLE_PAYLOAD)
-
-        response = microsoft_clarity_source(
-            token="token", num_of_days="1", dimension1="OS", dimension2=NO_DIMENSION, dimension3=NO_DIMENSION
+    def test_flattens_every_metric_and_information_row(self) -> None:
+        driver = SourceDriver(
+            MicrosoftClaritySource(), MicrosoftClaritySourceConfig(api_token="token", dimension1="OS")
         )
-        rows = list(cast("Iterable[Any]", response.items()))
+        result = driver.run(ENDPOINT_NAME, [ScriptedResponse(json=SAMPLE_PAYLOAD)])
 
+        assert result.raised is None
+        assert result.paths == [INSIGHTS_PATH]
+        assert result.requests[0].param("dimension1") == "OS"
+        assert result.requests[0].param("numOfDays") == "1"
+        rows = result.rows
         assert len(rows) == 3
         assert rows[0]["metric_name"] == "Traffic"
         assert rows[0]["row_index"] == 0
@@ -174,67 +139,17 @@ class TestMicrosoftClaritySource:
         assert rows[2]["metric_name"] == "ScrollDepth"
         assert rows[2]["row_index"] == 0
 
-    @mock.patch(SESSION_PATCH)
-    def test_num_of_days_is_recorded_on_every_row(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _make_response(200, json_body=SAMPLE_PAYLOAD)
+    def test_non_list_payload_yields_no_rows(self) -> None:
+        result = _driver().run(ENDPOINT_NAME, [ScriptedResponse(json={"unexpected": "shape"})])
 
-        response = microsoft_clarity_source(
-            token="token", num_of_days="3", dimension1=NO_DIMENSION, dimension2=NO_DIMENSION, dimension3=NO_DIMENSION
-        )
-        rows = list(cast("Iterable[Any]", response.items()))
-
-        assert all(row["num_of_days"] == 3 for row in rows)
-
-    @mock.patch(SESSION_PATCH)
-    def test_source_response_shape(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _make_response(200, json_body=SAMPLE_PAYLOAD)
-
-        response = microsoft_clarity_source(
-            token="token", num_of_days="1", dimension1=NO_DIMENSION, dimension2=NO_DIMENSION, dimension3=NO_DIMENSION
-        )
-
-        assert response.name == ENDPOINT_NAME
-        assert response.primary_keys == ["metric_name", "synced_at", "row_index"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["synced_at"]
-
-    @mock.patch(SESSION_PATCH)
-    def test_dimension_params_are_sent_to_the_api(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _make_response(200, json_body=[])
-
-        microsoft_clarity_source(
-            token="token", num_of_days="2", dimension1="Browser", dimension2="Device", dimension3=NO_DIMENSION
-        )
-
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"numOfDays": "2", "dimension1": "Browser", "dimension2": "Device"}
-
-    @mock.patch(SESSION_PATCH)
-    def test_non_list_payload_yields_no_rows(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _make_response(200, json_body={"unexpected": "shape"})
-
-        response = microsoft_clarity_source(
-            token="token", num_of_days="1", dimension1=NO_DIMENSION, dimension2=NO_DIMENSION, dimension3=NO_DIMENSION
-        )
-
-        assert list(cast("Iterable[Any]", response.items())) == []
+        assert result.raised is None
+        assert result.rows == []
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("quota_exceeded", 429), ("server_error", 500)])
-    @mock.patch(SESSION_PATCH)
-    def test_error_status_raises(self, _name: str, status: int, MockSession: Any) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _make_response(status, text="boom")
+    def test_error_status_raises(self, _name: str, status: int) -> None:
+        answer = ScriptedResponse(status=status, body=b"boom")
+        script = always(answer) if status in (429, 500) else [answer]
+        result = _driver().run(ENDPOINT_NAME, script)
 
-        with pytest.raises(requests.HTTPError):
-            microsoft_clarity_source(
-                token="token",
-                num_of_days="1",
-                dimension1=NO_DIMENSION,
-                dimension2=NO_DIMENSION,
-                dimension3=NO_DIMENSION,
-            )
+        assert isinstance(result.raised, requests.HTTPError)
+        assert {request.path for request in result.requests} == {INSIGHTS_PATH}

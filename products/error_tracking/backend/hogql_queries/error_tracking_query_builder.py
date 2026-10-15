@@ -23,7 +23,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_u
     extract_aggregations,
     extract_event,
     innermost_frame_attribute,
-    order_direction,
+    order_by_exprs,
     search_tokenizer,
     select_sparkline_array,
 )
@@ -429,7 +429,7 @@ class ErrorTrackingQueryBuilder:
             ),
             where=ast.And(exprs=outer_where_exprs) if outer_where_exprs else None,
             group_by=[ast.Field(chain=["id"])],
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=[self.query.orderBy]), order=order_direction(self.query))],
+            order_by=order_by_exprs(self.query),
         )
 
     def _build_inner_query(self) -> ast.SelectQuery:
@@ -741,7 +741,7 @@ class ErrorTrackingQueryBuilder:
             select_from=select_from,
             where=ast.And(exprs=self._where_exprs_legacy()),
             group_by=[ast.Field(chain=["id"])],
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=[self.query.orderBy]), order=order_direction(self.query))],
+            order_by=order_by_exprs(self.query),
         )
 
     def _select_expressions_legacy(self) -> list[ast.Expr]:

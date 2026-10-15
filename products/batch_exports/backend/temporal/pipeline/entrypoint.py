@@ -13,12 +13,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.models.batch_export import BatchExportRun
-from products.batch_exports.backend.service import (
-    BackfillDetails,
-    BatchExportField,
-    BatchExportModel,
-    BatchExportSchema,
-)
+from products.batch_exports.backend.service import BackfillDetails, BatchExportField, BatchExportModel
 from products.batch_exports.backend.temporal.batch_exports import FinishBatchExportRunInputs, finish_batch_export_run
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
@@ -50,7 +45,6 @@ class _BatchExportInputsProtocol(typing.Protocol):
     run_id: str | None = None
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
     is_backfill: bool = False
     batch_export_id: str | None = None
     destination_default_fields: list[BatchExportField] | None = None
@@ -209,7 +203,6 @@ async def _stage_batch_export_data(
         batch_export_model=batch_export_inputs.batch_export_model,
         is_workflows=is_workflows,
         on_demand=batch_export_inputs.on_demand,
-        batch_export_schema=batch_export_inputs.batch_export_schema,
         destination_default_fields=batch_export_inputs.destination_default_fields,
     )
     return await workflow.execute_activity(

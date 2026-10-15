@@ -59,6 +59,12 @@ INGRESS_FORWARDS_TOTAL = Counter(
     labelnames=["provider", "app", "outcome"],
 )
 
+INGRESS_BUDGET_EXHAUSTED_TOTAL = Counter(
+    "posthog_ingress_budget_exhausted_total",
+    "Deliveries that skipped consumers on a spent budget, labeled by the consumer that spent it",
+    labelnames=["provider", "consumer"],
+)
+
 INGRESS_CONSUMER_DURATION_SECONDS = Histogram(
     "posthog_ingress_consumer_duration_seconds",
     "Wall-clock seconds one consumer spent on one inbound webhook delivery",
@@ -84,3 +90,7 @@ def observe_forward(*, provider: str, app: str, outcome: ForwardOutcome) -> None
 
 def observe_consumer_duration(*, provider: str, consumer: str, seconds: float) -> None:
     INGRESS_CONSUMER_DURATION_SECONDS.labels(provider=provider, consumer=consumer).observe(seconds)
+
+
+def observe_budget_exhausted(*, provider: str, consumer: str) -> None:
+    INGRESS_BUDGET_EXHAUSTED_TOTAL.labels(provider=provider, consumer=consumer).inc()

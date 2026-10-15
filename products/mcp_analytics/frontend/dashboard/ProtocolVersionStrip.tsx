@@ -82,7 +82,7 @@ export function ProtocolVersionStrip({
     return (
         <LemonCard className="flex min-w-0 flex-col gap-1 bg-surface-secondary px-3 py-2" hoverEffect={false}>
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <h3 className="mb-0 text-sm font-medium">
+                <h3 className="mb-0 text-sm font-bold">
                     <SummarySpan
                         tooltip={`MCP protocol versions are named by their release date. Clients and servers agree on one for each request. ${CURRENT_PROTOCOL_VERSION} removed the initialize handshake that older versions use. Select a version to read what changed in it.`}
                         docLink={PROTOCOL_VERSIONING_URL}

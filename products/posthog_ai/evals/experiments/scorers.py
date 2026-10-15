@@ -23,7 +23,7 @@ dir under ``products/posthog_ai/eval_harness/logs/``.
   scenario, did the agent recommend ``experiment-ship-variant`` rather
   than ``experiment-end``? Tests row 1 of the decision-framework matrix.
 
-The next three back the ``diagnosing-experiment-results`` skill (groups A–E).
+The next three back the ``diagnosing-experiment-health`` skill (groups A–E).
 
 * ``CitesDiagnosticGroup`` — LLM judge (binary). Did the agent's final
   message name the expected diagnostic (uneven-split bias, inactive-flag

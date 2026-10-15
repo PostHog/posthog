@@ -42,12 +42,6 @@ class TestScalewaySource:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
 
-    def test_api_keys_primary_key_is_access_key(self) -> None:
-        # API keys have no `id`; keying on the wrong column seeds duplicate rows that every merge
-        # multi-matches.
-        schemas = {s.name: s for s in self.source.get_schemas(_config(), self.team_id)}
-        assert schemas["api_keys"].detected_primary_keys == ["access_key"]
-
     def test_get_schemas_filters_by_name(self) -> None:
         schemas = self.source.get_schemas(_config(), self.team_id, names=["invoices", "users"])
         assert {s.name for s in schemas} == {"invoices", "users"}

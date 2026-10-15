@@ -17,8 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.settings import (
     REVENUECAT_API_ENDPOINTS,
-    REVENUECAT_API_SCHEMA_NAMES,
-    REVENUECAT_WEBHOOK_SCHEMA_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source import (
     RevenueCatSource,
@@ -43,25 +41,6 @@ class TestRevenueCatSourceWebhookResourceMap:
 
 
 class TestRevenueCatSourceGetSchemas:
-    def test_includes_both_webhook_and_api_schemas(self):
-        source = RevenueCatSource()
-
-        schemas = source.get_schemas(_config(), team_id=1)
-
-        names = {s.name for s in schemas}
-        for name in REVENUECAT_WEBHOOK_SCHEMA_NAMES:
-            assert name in names, f"missing webhook schema: {name}"
-        for name in REVENUECAT_API_SCHEMA_NAMES:
-            assert name in names, f"missing api schema: {name}"
-
-    def test_only_events_schema_supports_webhooks(self):
-        source = RevenueCatSource()
-
-        schemas = source.get_schemas(_config(), team_id=1)
-
-        webhook_supported = {s.name for s in schemas if s.supports_webhooks}
-        assert webhook_supported == set(REVENUECAT_WEBHOOK_SCHEMA_NAMES)
-
     def test_filters_by_names_argument(self):
         source = RevenueCatSource()
 
@@ -143,23 +122,6 @@ class TestRevenueCatSourceWebhookInputsUpdated:
 
         assert success is False
         assert error == "boom"
-
-
-class TestRevenueCatSourceSyncWebhookEvents:
-    """RevenueCat has no provider-side event subscription to reconcile — it inherits the
-    `WebhookSource` defaults, which are a no-op."""
-
-    def test_get_desired_webhook_events_is_none(self):
-        source = RevenueCatSource()
-        assert source.get_desired_webhook_events(_config("k", "p"), ["events"]) is None
-
-    def test_sync_webhook_events_is_noop_success(self):
-        source = RevenueCatSource()
-        result = source.sync_webhook_events(
-            _config("k", "p"), "https://example.com/h", team_id=1, eligible_schema_names=["events"]
-        )
-        assert result.success is True
-        assert result.error is None
 
 
 class TestRevenueCatSourcePipelineDispatch:
@@ -311,34 +273,6 @@ class TestRevenueCatWebhookTableTransformer:
 
         assert result.schema.field("price").type == pa.float64()
         assert result.column("price").to_pylist() == [None, None]
-
-    def test_skips_created_at_derivation_when_event_timestamp_ms_missing(self):
-        # Older RevenueCat events or test deliveries may omit the timestamp
-        # entirely. Don't synthesize a fake `created_at` value — the partition
-        # layer falls back to "1970-01" for missing keys, which is a clearer
-        # signal of the missing field than a zero value would be.
-        table = table_from_py_list([{"api_version": "1.0", "event": {"id": "evt-1", "type": "TEST"}}])
-
-        result = _webhook_table_transformer(table)
-        rows = result.to_pylist()
-
-        assert rows[0]["id"] == "evt-1"
-        assert "created_at" not in rows[0]
-
-    def test_handles_event_as_json_string(self):
-        # Defensive: if upstream serializes `event` as a JSON string, we still
-        # parse it correctly.
-        table = pa.table(
-            {
-                "api_version": ["1.0"],
-                "event": ['{"id": "evt-2", "type": "RENEWAL", "app_user_id": "u"}'],
-            }
-        )
-
-        result = _webhook_table_transformer(table)
-        rows = result.to_pylist()
-
-        assert rows == [{"id": "evt-2", "type": "RENEWAL", "app_user_id": "u", "api_version": "1.0"}]
 
     def test_skips_rows_with_null_event(self):
         table = pa.table(

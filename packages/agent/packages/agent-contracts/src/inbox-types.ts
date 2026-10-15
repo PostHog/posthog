@@ -419,6 +419,7 @@ export type SourceProduct =
   | "error_tracking"
   | "health_checks"
   | "llm_analytics"
+  | "logs"
   | "replay_vision"
   | "session_replay"
   | "signals_scout"
@@ -430,11 +431,12 @@ export type SourceProduct =
  * `signals_scout` appears only as a signal origin and is always on. `replay_vision` authorizes
  * itself through each scanner's own `emits_signals` flag, so there is no config row to toggle.
  * `session_replay` is retired: the session summarization behind it is gone, and it survives here
- * only so reports emitted before that still render their source.
+ * only so reports emitted before that still render their source. `logs` signals come from logs
+ * alerts, which are configured in the logs product rather than toggled here.
  */
 export type ToggleableSourceProduct = Exclude<
   SourceProduct,
-  "signals_scout" | "replay_vision" | "session_replay"
+  "signals_scout" | "replay_vision" | "session_replay" | "logs"
 >;
 
 /**

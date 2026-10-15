@@ -9,19 +9,20 @@ import { percentage } from 'lib/utils/numbers'
 import { alphabet } from 'lib/utils/strings'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import {
-    FormattedDateOptions,
-    getDatumTitle,
-    getFormattedDate,
-    getTooltipTitle,
-    SeriesDatum,
-} from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { formatAggregationValue, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
 import { ActionFilter, CompareLabelType, IntervalType } from '~/types'
+
+import {
+    FormattedDateOptions,
+    getDatumTitle,
+    getFormattedDate,
+    getTooltipTitle,
+    SeriesDatum,
+} from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 
 import { getSeriesIdentification, type SeriesIdentification } from './seriesIdentification'
 
@@ -65,6 +66,8 @@ export interface InsightSeriesTooltipProps<Meta extends InsightSeriesMetaBase> {
     sortedByValue?: boolean
     /** Hide rows whose value is exactly 0 (e.g. absent lifecycle statuses). */
     hideZeroRows?: boolean
+    /** Append a total row that sums the series at the hovered point (stacked bars). */
+    showTotal?: boolean
     /** Override the default "click to view X" footer, for charts whose click goes somewhere other than persons. */
     footerOverride?: React.ReactNode
 }
@@ -233,6 +236,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     renderSeriesOverride,
     sortedByValue = true,
     hideZeroRows,
+    showTotal,
     footerOverride,
 }: InsightSeriesTooltipProps<Meta>): React.ReactElement {
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -394,6 +398,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
             {...context}
             sortedByValue={sortedByValue}
             hideZeroRows={hideZeroRows}
+            showTotal={showTotal}
             showHeader={showHeader !== false}
             labelFormatter={labelFormatter}
             labelRenderer={labelRenderer}

@@ -1,7 +1,7 @@
 """Eval: agent handles mid-run / lifecycle scenarios across three carrier shapes.
 
 Carrier scenarios for diagnostic group E from
-``products/experiments/skills/diagnosing-experiment-results/SKILL.md``.
+``products/experiments/skills/diagnosing-experiment-health/SKILL.md``.
 
 Three cases:
 

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 import time
 import atexit
 import asyncio
 import logging
+import subprocess
 from collections.abc import Sequence
 from contextlib import AsyncExitStack, ExitStack
 from dataclasses import replace
@@ -37,7 +39,7 @@ from .cli import (
 )
 from .context import EvalContext
 from .demo_data import SandboxedDemoData, ensure_demo_ready
-from .discovery import MULTI_TURN_MODULE_MARKER, EvalSuite, discover_suites
+from .discovery import MULTI_TURN_MODULE_MARKER, REPO_ROOT, EvalSuite, discover_suites
 from .django_env import EvalDatabase
 from .env_preflight import validate_eval_env
 from .kernel_sandboxes import reclaim_kernels
@@ -47,6 +49,7 @@ from .providers import PreflightError, SandboxProviderStrategy, build_provider
 from .reporting import ProgressReporter, SuiteRunResult
 from .requirements import Infra, infra_union
 from .services import (
+    LONG_LIVED_SUBPROCESSES,
     build_local_skills,
     ensure_personhog_binaries,
     package_local_skills_archive,
@@ -87,6 +90,25 @@ def eval_feature_enabled(
     return key not in FORCED_OFF_FEATURE_FLAGS
 
 
+def _git(*args: str) -> str | None:
+    """Stdout of a git command run in the checkout under test; ``None`` when git fails."""
+    # GIT_DIR, GIT_WORK_TREE and friends would point git away from REPO_ROOT.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    try:
+        result = subprocess.run(
+            ["git", *args], cwd=REPO_ROOT, env=env, check=True, capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip()
+
+
+def _worktree_dirty() -> bool | None:
+    """Whether tracked files differ from ``HEAD``; ``None`` when git can't tell."""
+    status = _git("status", "--porcelain", "--untracked-files=no")
+    return None if status is None else bool(status)
+
+
 class SandboxedEvalHarness:
     """Boots the shared eval infrastructure once, then runs every selected suite concurrently.
 
@@ -108,6 +130,9 @@ class SandboxedEvalHarness:
         self._posthog_client: Posthog | None = None
         self._posthog_evaluation_client: Posthog | None = None
         self._demo_data: SandboxedDemoData | None = None
+        # Read before asyncio.run so the git subprocesses never block the event loop.
+        self._git_sha = _git("rev-parse", "HEAD")
+        self._git_dirty = _worktree_dirty()
 
     def run(self) -> int:
         # Discover before anything is provisioned: a typo'd selector should cost a
@@ -144,7 +169,7 @@ class SandboxedEvalHarness:
             flags = ", ".join(self.options.sandbox_flags_set)
             raise PreflightError(f"{flags}: no selected suite is sandboxed, so sandbox flags have no effect")
 
-        reporter = ProgressReporter(total_suites=len(suites))
+        reporter = ProgressReporter(total_suites=len(suites), verbose=self.options.verbose)
         reporter.print_run_header(
             provider=self.options.provider,
             agent_runtime=self.options.agent_runtime,
@@ -158,6 +183,7 @@ class SandboxedEvalHarness:
         results: list[SuiteRunResult] | None = None
         interrupted = False
         try:
+            reporter.setup_started("check configuration")
             validate_eval_env(self.options.agent_runtime, kinds=kinds, engine_env=self._engine.required_env())
             if Infra.SANDBOX in required:
                 self.provider = build_provider(
@@ -168,7 +194,9 @@ class SandboxedEvalHarness:
                 self._validate_agent_options()
                 self.provider.preflight()
             if Infra.PERSONHOG in required:
+                reporter.setup_started("build personhog")
                 ensure_personhog_binaries()
+            reporter.setup_started("start shared services and prepare demo data")
             self._bootstrap(required)
             results = asyncio.run(self._run_suites(suites, required, reporter))
         except KeyboardInterrupt:
@@ -199,7 +227,7 @@ class SandboxedEvalHarness:
         return exit_code
 
     def _exit_code(self, results: Sequence[SuiteRunResult], reporter: ProgressReporter) -> int:
-        if any(result.status == "crashed" for result in results):
+        if any(result.status == "crashed" for result in results) or reporter.has_case_errors():
             return 1
         if self.options.fail_under is None:
             return 0
@@ -223,6 +251,7 @@ class SandboxedEvalHarness:
     def _bootstrap(self, required: frozenset[Infra]) -> None:
         """Stand up everything the selected suites share. Teardown is registered in
         reverse on the stack, so what wasn't started is never torn down."""
+        LONG_LIVED_SUBPROCESSES.startup_retries = self.options.infrastructure_retries
         # Belt and braces for the SIGINT / SIGTERM paths, where the ExitStack never unwinds.
         atexit.register(stop_all_subprocesses)
         if self.provider is not None:
@@ -368,7 +397,8 @@ class SandboxedEvalHarness:
                 )
             else:
                 logger.info("Running %d suite(s) without sandbox infrastructure", len(suites))
-            results = await asyncio.gather(*(self._run_suite(suite, ctx) for suite in suites))
+            async with reporter.live_updates():
+                results = await asyncio.gather(*(self._run_suite(suite, ctx) for suite in suites))
         return results
 
     async def _sweep_notebook_kernels(self) -> None:
@@ -403,6 +433,9 @@ class SandboxedEvalHarness:
             engine=self._engine,
             per_case_timeout_seconds=self.options.per_case_timeout_seconds,
             trials=self.options.trials,
+            git_sha=self._git_sha,
+            git_dirty=self._git_dirty,
+            infrastructure_retries=self.options.infrastructure_retries,
         )
 
     async def _run_suite(self, suite: EvalSuite, ctx: EvalContext) -> SuiteRunResult:

@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product cross_project_dashboards
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product cross_project_dashboards
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Cross-project dashboards
 feature: cross_project_dashboards
 url_prefix: /cross-project-dashboards
@@ -25,12 +23,6 @@ tools:
             and any filters that apply to it alone.
         feature_flag: cross-project-dashboards
         feature_flag_behavior: enable
-    cross-project-dashboards-create:
-        operation: cross_project_dashboards_create
-        enabled: false
-    cross-project-dashboards-destroy:
-        operation: cross_project_dashboards_destroy
-        enabled: false
     cross-project-dashboards-get:
         operation: cross_project_dashboards_retrieve
         enabled: true
@@ -64,18 +56,3 @@ tools:
             its filters and counts of the tiles and projects the reader can open. Get one dashboard to read its tiles.
         feature_flag: cross-project-dashboards
         feature_flag_behavior: enable
-    cross-project-dashboards-partial-update:
-        operation: cross_project_dashboards_partial_update
-        enabled: false
-    cross-project-dashboards-tiles-create:
-        operation: cross_project_dashboards_tiles_create
-        enabled: false
-    cross-project-dashboards-tiles-destroy:
-        operation: cross_project_dashboards_tiles_destroy
-        enabled: false
-    cross-project-dashboards-tiles-partial-update:
-        operation: cross_project_dashboards_tiles_partial_update
-        enabled: false
-    cross-project-dashboards-tiles-retrieve:
-        operation: cross_project_dashboards_tiles_retrieve
-        enabled: false

@@ -1077,18 +1077,6 @@ class TestRunScheduled:
         update_config.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_a_failing_compaction_keeps_the_vacuum_cadence(self):
-        # A compaction that fails on every sync must not stop the vacuum, or its table leaks dead files.
-        schema = self._schema()
-        table = MagicMock(version=MagicMock(side_effect=[150, 152]))
-        compact = AsyncMock(side_effect=RuntimeError("compaction blew up"))
-        _, vacuum, update_config, capture = await self._run(_make_maintenance(table), schema, compact=compact)
-
-        vacuum.assert_awaited_once()
-        update_config.assert_called_once()
-        capture.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_pre_write_and_post_load_passes_vacuum_once(self):
         # Both passes of one sync share the schema object. The post-load pass must see the vacuum that
         # the pre-write pass persisted, and still run the table-wide small-file check that it skipped.
@@ -1114,11 +1102,14 @@ class TestRunScheduled:
         [
             # (name, compact_small_files, version watermark, days since vacuum, expected_table_wide) at
             # version 150 with a 100-commit cadence.
-            ("vacuum_due", True, 40, 1, True),
-            ("vacuum_not_due", True, 100, 1, False),
-            ("vacuumed_earlier_in_this_job", True, 149, 0.01, True),
-            ("watermark_not_seeded", True, None, None, False),
-            ("small_file_triggers_off", False, 40, 1, False),
+            ("vacuum_due", True, 40, 1, False, True),
+            ("vacuum_not_due", True, 100, 1, False, False),
+            ("vacuumed_earlier_in_this_job", True, 149, 0.01, False, True),
+            ("watermark_not_seeded", True, None, None, False, False),
+            ("small_file_triggers_off", False, 40, 1, False, False),
+            # A vacuum that keeps failing must not enable the table-wide trigger on every pass.
+            ("due_vacuum_failed", True, 40, 1, True, False),
+            ("due_vacuum_failed_after_a_vacuum_earlier_in_this_job", True, 40, 0.01, True, True),
         ]
     )
     @pytest.mark.asyncio
@@ -1128,6 +1119,7 @@ class TestRunScheduled:
         compact_small_files: bool,
         version: int | None,
         vacuumed_days_ago: float | None,
+        vacuum_fails: bool,
         expected_table_wide: bool,
     ):
         config: dict = {}
@@ -1138,55 +1130,72 @@ class TestRunScheduled:
             config["last_full_vacuum_at"] = (_NOW - dt.timedelta(days=1)).isoformat()
         table = MagicMock(version=MagicMock(side_effect=[150, 152]))
         compact, _, _, _ = await self._run(
-            _make_maintenance(table), self._schema(config), compact_small_files=compact_small_files
+            _make_maintenance(table),
+            self._schema(config),
+            compact_small_files=compact_small_files,
+            vacuum=AsyncMock(side_effect=OSError("Generic S3 error: SlowDown")) if vacuum_fails else None,
         )
 
         assert compact.await_args is not None
         assert compact.await_args.kwargs["compact_small_files"] is compact_small_files
         assert compact.await_args.kwargs["table_wide_small_files"] is expected_table_wide
 
+    # A genuine maintenance bug must be captured for visibility but never raise — the sync itself
+    # must proceed either way. The full transient-vs-genuine classification matrix lives in
+    # test_errors.py; these cover the handling paths.
+    _MAINTENANCE_ERRORS: list[tuple[str, Exception, bool]] = [
+        ("genuine_bug_captured", RuntimeError("maintenance blew up"), True),
+        # A transient infra blip self-heals on the next scheduled pass and must not be promoted into
+        # a fresh error-tracking issue.
+        ("transient_blip_warned_only", OSError("Generic S3 error: Please reduce your request rate."), False),
+        # A commit conflict that exhausted execute_with_conflict_retry's budget (sustained contention
+        # from another still-running maintenance pass) is the same self-healing race, just losing at
+        # commit time instead of during compact's file scan.
+        (
+            "commit_conflict_retries_exhausted_warned_only",
+            deltalake.exceptions.CommitFailedError(
+                "Commit failed: a concurrent transaction deleted data this operation read."
+            ),
+            False,
+        ),
+        # A refused read/write/delete on our own bucket is a policy condition rather than a
+        # maintenance defect, and no code change fixes it, so reporting it once per sync says the
+        # same thing repeatedly.
+        ("object_store_refusal_warned_only", ObjectStorePermissionDeniedError("denied"), False),
+    ]
+
     @parameterized.expand(
         [
-            # A genuine maintenance bug must be captured for visibility but never raise — the sync
-            # itself must proceed either way. The full transient-vs-genuine classification matrix
-            # lives in test_errors.py; this covers the two handling paths.
-            ("genuine_bug_captured", RuntimeError("maintenance blew up"), True),
-            # A transient infra blip self-heals on the next scheduled pass and must not be promoted
-            # into a fresh error-tracking issue.
-            ("transient_blip_warned_only", OSError("Generic S3 error: Please reduce your request rate."), False),
-            # A commit conflict that exhausted execute_with_conflict_retry's budget (sustained
-            # contention from another still-running maintenance pass) is the same self-healing race,
-            # just losing at commit time instead of during compact's file scan.
-            (
-                "commit_conflict_retries_exhausted_warned_only",
-                deltalake.exceptions.CommitFailedError(
-                    "Commit failed: a concurrent transaction deleted data this operation read."
-                ),
-                False,
-            ),
-            # A refused read/write/delete on our own bucket is a policy condition rather than a
-            # maintenance defect, and no code change fixes it, so reporting it once per sync says
-            # the same thing repeatedly. The watermark assertion below is what keeps the cadence
-            # re-attempting the vacuum instead of waiting for a cleanup that never ran.
-            ("object_store_refusal_warned_only", ObjectStorePermissionDeniedError("denied"), False),
+            (f"{step}_{name}", step, error, expect_capture)
+            for name, error, expect_capture in _MAINTENANCE_ERRORS
+            for step in ("vacuum", "compact")
         ]
     )
     @pytest.mark.asyncio
-    async def test_never_raises(self, _name: str, error: Exception, expect_capture: bool):
+    async def test_never_raises(self, _name: str, failing_step: str, error: Exception, expect_capture: bool):
         maintenance = _make_maintenance(MagicMock(version=MagicMock(return_value=150)))
         logger = make_logger()
         maintenance._logger = logger
+        failing = AsyncMock(side_effect=error)
 
-        _, _, update_config, capture = await self._run(
-            maintenance, self._schema({"last_vacuum_version": 10}), vacuum=AsyncMock(side_effect=error)
+        compact, vacuum, update_config, capture = await self._run(
+            maintenance,
+            self._schema({"last_vacuum_version": 10}),
+            vacuum=failing if failing_step == "vacuum" else None,
+            compact=failing if failing_step == "compact" else None,
         )
 
         assert capture.called is expect_capture
-        update_config.assert_not_called()
         if expect_capture:
             logger.aexception.assert_awaited_once()
         else:
             logger.awarning.assert_awaited_once()
+        # Each step is best-effort: a failed vacuum must not stop the compaction, and a failed
+        # compaction must not stop the vacuum cadence.
+        vacuum.assert_awaited_once()
+        compact.assert_awaited_once()
+        # An unpersisted watermark keeps the cadence re-attempting a vacuum that never finished.
+        assert update_config.called is (failing_step == "compact")
 
 
 class TestVacuumOnARealTable:

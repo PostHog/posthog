@@ -173,7 +173,6 @@ export function EndpointScene(): JSX.Element {
                 status: 'danger',
                 onClick: () => {
                     deleteEndpoint(endpoint.name)
-                    router.actions.push(urls.endpoints())
                 },
                 size: 'small',
             },

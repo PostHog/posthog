@@ -75,31 +75,72 @@ export function classifyAuthFailure(error: unknown): McpAuthFailure {
 // marker in the body (e.g. SDK transport wrappers).
 export function mapKnownErrorMessage(text: string): Response | null {
     if (text.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
-        return new Response('OAuth token is inactive', { status: 401 })
+        return buildRejectedTokenResponse('OAuth token is inactive')
     }
     if (text.includes(ErrorCode.INVALID_API_KEY)) {
-        return new Response('Invalid API key', { status: 401 })
+        return buildRejectedTokenResponse('Invalid API key')
     }
     return null
+}
+
+// RFC 6750 requires a `WWW-Authenticate` challenge on every 401. Without `error="invalid_token"`,
+// an OAuth client reads the 401 as a plain failure and keeps sending the rejected token.
+// The challenge has no `resource_metadata`, because the Hono runtime sits behind the worker proxy
+// and does not know the origin the client connected to. The worker adds it, and a client that
+// connects to Hono directly discovers the metadata from its own server URL.
+function buildRejectedTokenResponse(description: string): Response {
+    return new Response(description, {
+        status: 401,
+        headers: { 'WWW-Authenticate': `Bearer error="invalid_token", error_description="${description}"` },
+    })
+}
+
+export function isRejectedTokenChallenge(response: Response): boolean {
+    return response.status === 401 && (response.headers.get('WWW-Authenticate') ?? '').includes('error="invalid_token"')
+}
+
+// The worker answers the protected-resource metadata request, so the metadata URL must name the
+// origin the client connected to, not the regional Hono origin that the proxy rewrites it to.
+export function withResourceMetadata(
+    response: Response,
+    request: Request,
+    effectiveRegion: CloudRegion | null
+): Response {
+    const challenge = response.headers.get('WWW-Authenticate')
+    if (!challenge) {
+        return response
+    }
+    const rewritten = new Response(response.body, response)
+    rewritten.headers.set(
+        'WWW-Authenticate',
+        `${challenge}, resource_metadata="${buildResourceMetadataUrl(request, effectiveRegion)}"`
+    )
+    return rewritten
+}
+
+// Per RFC 9728, the well-known path goes between the host and the resource path:
+// resource /mcp has its metadata at /.well-known/oauth-protected-resource/mcp.
+function buildResourceMetadataUrl(request: Request, effectiveRegion: CloudRegion | null): string {
+    const metadataUrl = getPublicUrl(request)
+    metadataUrl.pathname = `/.well-known/oauth-protected-resource${new URL(request.url).pathname}`
+    metadataUrl.search = ''
+    if (effectiveRegion) {
+        metadataUrl.searchParams.set('region', effectiveRegion)
+    }
+    return metadataUrl.toString()
 }
 
 // Build the RFC 9728 `WWW-Authenticate` response for an unauthenticated request.
 // The `resource_metadata` URL points clients at the protected-resource metadata so
 // they can discover the authorization server.
 export function buildMissingTokenResponse(request: Request, effectiveRegion: CloudRegion | null): Response {
-    const url = new URL(request.url)
-    const metadataUrl = getPublicUrl(request)
-    metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
-    metadataUrl.search = ''
-    if (effectiveRegion) {
-        metadataUrl.searchParams.set('region', effectiveRegion)
-    }
-
     return new Response(
         `No token provided, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
         {
             status: 401,
-            headers: { 'WWW-Authenticate': `Bearer resource_metadata="${metadataUrl.toString()}"` },
+            headers: {
+                'WWW-Authenticate': `Bearer resource_metadata="${buildResourceMetadataUrl(request, effectiveRegion)}"`,
+            },
         }
     )
 }

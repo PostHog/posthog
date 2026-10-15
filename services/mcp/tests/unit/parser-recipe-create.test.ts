@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { PostHogApiError } from '@/lib/errors'
 import parserRecipeCreate from '@/tools/aiObservability/parserRecipeCreate'
 import type { Context } from '@/tools/types'
 
@@ -195,12 +196,27 @@ describe('llma-parser-recipe-create handler', () => {
         expect(request).toHaveBeenCalledTimes(1)
     })
 
-    it('reports a persistence failure as valid-but-unsaved so the agent does not rewrite', async () => {
-        const request = vi.fn().mockResolvedValueOnce({ results: [] }).mockRejectedValueOnce(new Error('500 from API'))
+    it.each([
+        { error: new Error('500 from API'), expected: '500 from API' },
+        {
+            error: new PostHogApiError({
+                status: 503,
+                statusText: 'Service Unavailable',
+                body: 'Cluster busy',
+                url: 'https://us.posthog.com/api/projects/42/llm_analytics/parser_recipes/',
+                method: 'POST',
+                message: 'Cluster busy',
+                retryAfterSeconds: 45,
+            }),
+            expected:
+                'Cluster busy The PostHog API is temporarily unavailable. Wait at least 45 seconds before retrying this request.',
+        },
+    ])('reports a persistence failure with recovery guidance: $expected', async ({ error, expected }) => {
+        const request = vi.fn().mockResolvedValueOnce({ results: [] }).mockRejectedValueOnce(error)
         const { context } = createContext({ events: [generationEvent()], request })
 
         const result = await parserRecipeCreate().handler(context, baseParams)
 
-        expect(result).toEqual({ valid: true, saved: false, error: '500 from API' })
+        expect(result).toEqual({ valid: true, saved: false, error: expected })
     })
 })

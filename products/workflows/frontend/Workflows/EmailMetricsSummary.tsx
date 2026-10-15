@@ -53,6 +53,12 @@ export function EmailMetricsSummary({
     )
 
     const sentTotal = sumTimeSeries(getSingleTrendSeries('email_sent'))
+    // A frequency-capped send is skipped before the provider sees it, so it is not part of `sent`.
+    // Its rate reads against every attempted send, the same denominator as the Issues column.
+    const attemptedTotal =
+        sentTotal +
+        sumTimeSeries(getSingleTrendSeries('email_bounce_prevented')) +
+        sumTimeSeries(getSingleTrendSeries('message_frequency_capped'))
 
     return (
         <>
@@ -60,9 +66,11 @@ export function EmailMetricsSummary({
                 {EMAIL_METRIC_KEYS.map((key) => {
                     const metric = WORKFLOW_EMAIL_METRICS[key]
                     const canDrillDown = !!onMetricClick && !!EMAIL_METRIC_INVOCATION_FILTERS[key]
-                    const shareOfSent =
-                        key !== 'email_sent' && sentTotal > 0
-                            ? percentage(sumTimeSeries(getSingleTrendSeries(key)) / sentTotal, 1)
+                    const readsAgainstAttempts = key === 'message_frequency_capped'
+                    const shareTotal = readsAgainstAttempts ? attemptedTotal : sentTotal
+                    const share =
+                        key !== 'email_sent' && shareTotal > 0
+                            ? percentage(sumTimeSeries(getSingleTrendSeries(key)) / shareTotal, 1)
                             : null
                     return (
                         <WorkflowMetricCard
@@ -76,7 +84,13 @@ export function EmailMetricsSummary({
                             colorIfZero={getColorVar('muted')}
                             onClick={canDrillDown ? () => onMetricClick(key) : undefined}
                             onClickTooltip={`View invocations with a ${metric.name.toLowerCase()} log entry in this timeframe`}
-                            footer={shareOfSent ? <span>{shareOfSent} of sent</span> : null}
+                            footer={
+                                share ? (
+                                    <span>
+                                        {share} of {readsAgainstAttempts ? 'attempts' : 'sent'}
+                                    </span>
+                                ) : null
+                            }
                             compact={compact}
                         />
                     )

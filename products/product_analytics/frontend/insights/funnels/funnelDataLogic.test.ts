@@ -3,11 +3,17 @@ import { expectLogic } from 'kea-test-utils'
 import timekeeper from 'timekeeper'
 
 import { FunnelLayout } from 'lib/constants'
-import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
+import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataNode, FunnelsQuery, FunnelsQuerySeriesNodeUnion, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DataNode,
+    FunnelExclusion,
+    FunnelsQuery,
+    FunnelsQuerySeriesNodeUnion,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     EntityType,
@@ -19,6 +25,8 @@ import {
     InsightModel,
     StepOrderValue,
 } from '~/types'
+
+import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'products/product_analytics/frontend/insights/shared/aggregationTargetUtils'
 
 import {
     funnelResult,
@@ -35,6 +43,8 @@ import {
 } from './__mocks__/funnelDataLogicMocks'
 import { funnelDataLogic } from './funnelDataLogic'
 import { dimPreviousPeriodColor, getVisibilityKey } from './funnelUtils'
+
+type PickerLogic = ReturnType<typeof entityFilterLogic.build>
 
 let logic: ReturnType<typeof funnelDataLogic.build>
 let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
@@ -249,6 +259,81 @@ describe('funnelDataLogic', () => {
             }).toMatchValues({
                 aggregationTargetLabel: AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE,
             })
+        })
+    })
+
+    describe('exclusions', () => {
+        const steps: FunnelsQuerySeriesNodeUnion[] = [
+            { kind: NodeKind.EventsNode, event: '$pageview' },
+            { kind: NodeKind.EventsNode, event: 'signed_up' },
+            { kind: NodeKind.EventsNode, event: 'paid' },
+        ]
+        const autocaptureExclusion: FunnelExclusion = {
+            kind: NodeKind.EventsNode,
+            event: '$autocapture',
+            name: '$autocapture',
+            funnelFromStep: 1,
+            funnelToStep: 2,
+        }
+        const actionExclusion: FunnelExclusion = {
+            kind: NodeKind.ActionsNode,
+            id: 7,
+            name: 'Sign up',
+            funnelFromStep: 0,
+            funnelToStep: 1,
+        }
+
+        it.each([
+            {
+                edit: 'adds a pageview exclusion across the whole funnel',
+                exclusions: [autocaptureExclusion],
+                apply: (picker: PickerLogic) => picker.actions.addSeries(),
+                expected: [
+                    autocaptureExclusion,
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        funnelFromStep: 0,
+                        funnelToStep: 2,
+                    },
+                ],
+            },
+            {
+                edit: 'keeps the step range when the event changes',
+                exclusions: [autocaptureExclusion],
+                apply: (picker: PickerLogic) =>
+                    picker.actions.updateSeriesEntity(0, {
+                        kind: NodeKind.EventsNode,
+                        key: 'logged_out',
+                        name: 'logged_out',
+                    }),
+                expected: [{ ...autocaptureExclusion, event: 'logged_out', name: 'logged_out' }],
+            },
+            {
+                edit: 'keeps an action exclusion when another exclusion is removed',
+                exclusions: [autocaptureExclusion, actionExclusion],
+                apply: (picker: PickerLogic) => picker.actions.removeSeries(0),
+                expected: [actionExclusion],
+            },
+        ])('$edit', async ({ exclusions, apply, expected }) => {
+            logic.actions.updateQuerySource({
+                kind: NodeKind.FunnelsQuery,
+                series: steps,
+                funnelsFilter: { exclusions },
+            } as FunnelsQuery)
+            const picker = entityFilterLogic({
+                typeKey: 'funnel-exclusions',
+                series: logic.values.funnelsFilter?.exclusions ?? [],
+                onChange: logic.actions.updateExclusions,
+                newSeriesDefaults: logic.values.newExclusionDefaults,
+            })
+            picker.mount()
+
+            apply(picker)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.funnelsFilter?.exclusions).toEqual(expected)
         })
     })
 

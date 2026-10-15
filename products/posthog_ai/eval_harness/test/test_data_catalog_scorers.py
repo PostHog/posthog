@@ -20,7 +20,9 @@ from products.data_catalog.evals.scorers import (
     MetricsCatalogBeforeAnswer,
     MetricsCatalogBeforeDataDiscovery,
     MetricsCatalogQueried,
+    ProposedBadgeShown,
     SemanticMetadataQueried,
+    TrustBadgeShown,
 )
 
 CATALOG_QUERY = "SELECT name, status, is_drifted FROM system.information_schema.metrics"
@@ -442,6 +444,8 @@ def test_deprecation_proposed(
         (CanonicalMetricRun(), "canonical_metric_run"),
         (DeprecationProposed(), "deprecation_proposed"),
         (MetricDescriptionConcise(), "metric_description_concise"),
+        (TrustBadgeShown(), "trust_badge"),
+        (ProposedBadgeShown(), "proposed_badge"),
     ]
 )
 def test_new_catalog_scorers_self_skip_when_not_requested(scorer: Any, scorer_name: str) -> None:
@@ -449,6 +453,77 @@ def test_new_catalog_scorers_self_skip_when_not_requested(scorer: Any, scorer_na
 
     assert score.name == scorer_name
     assert score.score is None
+
+
+@parameterized.expand(
+    [
+        ("badge_expected_and_shown", True, "\U0001f6e1\ufe0f **From your data catalog**: MRR\n\n$42k", 1.0),
+        ("badge_expected_but_missing", True, "MRR is $42k.", 0.0),
+        ("badge_expected_but_trailing", True, "MRR is $42k.\n\n\U0001f6e1\ufe0f **From your data catalog**: MRR", 0.0),
+        ("no_badge_expected_and_none", False, "Activation is 31%.", 1.0),
+        ("badge_claimed_for_unapproved", False, "\U0001f6e1 Activation is 31%.", 0.0),
+    ]
+)
+def test_trust_badge_shown(_name: str, should_show: bool, answer: str, expected_score: float) -> None:
+    score = TrustBadgeShown()._run_eval_sync({"last_message": answer}, {"trust_badge": {"shown": should_show}})
+
+    assert score.score == expected_score
+
+
+_PROPOSED_LINK = "[Activation](https://example.com/project/1/data-catalog/metrics/activation_rate)"
+
+
+@parameterized.expand(
+    [
+        (
+            "ran_with_badge_and_link",
+            "completed",
+            f"\U0001f4dd **Proposed definition in your data catalog**: {_PROPOSED_LINK}",
+            1.0,
+        ),
+        ("ran_without_badge", "completed", f"Activation is 31%. {_PROPOSED_LINK}", 0.0),
+        (
+            "ran_with_badge_after_the_result",
+            "completed",
+            f"Activation is 31%.\n\n\U0001f4dd **Proposed definition in your data catalog**: {_PROPOSED_LINK}",
+            0.0,
+        ),
+        (
+            "ran_with_badge_but_no_link",
+            "completed",
+            "\U0001f4dd **Proposed definition in your data catalog**: Activation",
+            0.0,
+        ),
+        (
+            "ran_with_badge_and_bare_path",
+            "completed",
+            "\U0001f4dd **Proposed definition in your data catalog**: /data-catalog/metrics/activation_rate",
+            0.0,
+        ),
+        (
+            "ran_with_badge_linking_a_prefix_metric",
+            "completed",
+            "\U0001f4dd **Proposed definition in your data catalog**: "
+            "[Activation v2](https://example.com/project/1/data-catalog/metrics/activation_rate_v2)",
+            0.0,
+        ),
+        (
+            "ran_with_link_outside_the_badge",
+            "completed",
+            f"\U0001f4dd **Proposed definition in your data catalog**: Activation\n\nSee {_PROPOSED_LINK}.",
+            0.0,
+        ),
+        ("run_failed_so_not_used", "failed", "Activation is 31%.", None),
+    ]
+)
+def test_proposed_badge_shown(_name: str, run_status: str, answer: str, expected_score: float | None) -> None:
+    log = _tool_log([("data-catalog-metric-run", {"name": "activation_rate"}, run_status)])
+
+    score = ProposedBadgeShown()._run_eval_sync(
+        {"raw_log": log, "last_message": answer}, {"proposed_badge": {"metric_name": "activation_rate"}}
+    )
+
+    assert score.score == expected_score
 
 
 _SHORT_DESCRIPTION = "Canonical MRR over the trailing 30 days, excluding personal/free plans."
