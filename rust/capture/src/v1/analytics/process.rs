@@ -92,7 +92,7 @@ async fn run_pipeline(
     }
     context.set_batch_metadata(&batch);
 
-    let mut events = match validate_events(context, batch) {
+    let mut events = match validate_events(&state.historical_cfg, context, batch) {
         Ok(events) => events,
         Err(err) => {
             emit_batch_abort_warning(state, context, &err, batch_len);
@@ -138,10 +138,6 @@ async fn run_pipeline(
         &mut events,
     )
     .await?;
-
-    // Runs before restrictions and overflow stamping, which overflow only
-    // AnalyticsMain: AnalyticsHistorical must never overflow (v0's `pipeline::resolve`).
-    apply_historical_rerouting(&state.historical_cfg, context, &mut events);
 
     if let Some(ref service) = state.event_restriction_service {
         apply_restrictions(
@@ -499,7 +495,11 @@ fn validate_batch(batch: &Batch) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
+fn validate_events(
+    historical_cfg: &router::HistoricalConfig,
+    context: &RequestContext,
+    batch: Batch,
+) -> Result<Vec<WrappedEvent>, Error> {
     let batch_len = batch.batch.len();
     let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch_len);
     let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch_len);
@@ -564,7 +564,7 @@ fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<Wrapped
                     } else {
                         None
                     },
-                    destination,
+                    destination: route_historical(historical_cfg, context, destination, adjusted),
                     force_disable_person_processing: illegal,
                     spread_partitions: false,
                     is_gateway_verified: false,
@@ -744,36 +744,29 @@ fn normalize_timestamp(
     adjusted
 }
 
-fn apply_historical_rerouting(
+fn route_historical(
     cfg: &router::HistoricalConfig,
     context: &RequestContext,
-    events: &mut [WrappedEvent],
-) {
-    for event in events.iter_mut() {
-        if event.result != EventResult::Ok || event.destination != Destination::AnalyticsMain {
-            continue;
-        }
-
-        // Batch-level flag: all events in a historical migration batch are historical
-        if context.historical_migration {
-            event.destination = Destination::AnalyticsHistorical;
-            metrics::counter!(CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, "reason" => "batch_flag")
-                .increment(1);
-            continue;
-        }
-
-        // Timestamp-based: reroute old events when the feature is enabled
-        if let Some(ts) = event.adjusted_timestamp {
-            if cfg.should_reroute(crate::v0_request::DataType::AnalyticsMain, ts) {
-                event.destination = Destination::AnalyticsHistorical;
-                metrics::counter!(
-                    CAPTURE_V1_EVENTS_REROUTED_HISTORICAL,
-                    "reason" => "timestamp"
-                )
-                .increment(1);
-            }
-        }
+    destination: Destination,
+    adjusted_timestamp: DateTime<Utc>,
+) -> Destination {
+    if destination != Destination::AnalyticsMain {
+        return destination;
     }
+    if context.historical_migration {
+        metrics::counter!(CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, "reason" => "batch_flag")
+            .increment(1);
+        return Destination::AnalyticsHistorical;
+    }
+    if cfg.should_reroute(
+        crate::v0_request::DataType::AnalyticsMain,
+        adjusted_timestamp,
+    ) {
+        metrics::counter!(CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, "reason" => "timestamp")
+            .increment(1);
+        return Destination::AnalyticsHistorical;
+    }
+    destination
 }
 
 fn apply_overflow_stamping(
@@ -1217,10 +1210,14 @@ mod tests {
     use crate::v1::prepare::DEFAULT_SCATTER_GATHER_MIN_BATCH;
     use crate::v1::test_utils::{
         self, find_by_did, malformed_wrapped_event, raw_obj, valid_event, wrapped_event,
-        wrapped_event_at,
     };
     use crate::v1::types::Destination;
     use crate::v1::Error;
+
+    const HISTORICAL_OFF: router::HistoricalConfig = router::HistoricalConfig {
+        enable_historical_rerouting: false,
+        historical_rerouting_threshold_days: 1,
+    };
 
     fn valid_batch(events: Vec<Event>) -> Batch {
         Batch {
@@ -1517,7 +1514,7 @@ mod tests {
         let normal = valid_event();
         let normal_uuid = Uuid::parse_str(&normal.uuid).unwrap();
         let batch = valid_batch(vec![perf, normal]);
-        let events = validate_events(&ctx, batch).unwrap();
+        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
         // Vec preserves input order: perf first, normal second.
         let p = &events[0];
@@ -1541,7 +1538,7 @@ mod tests {
             ..valid_event()
         };
         let batch = valid_batch(vec![p1, p2]);
-        let events = validate_events(&ctx, batch).unwrap();
+        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
         for ev in &events {
             assert_eq!(ev.result, EventResult::Drop);
@@ -1557,7 +1554,7 @@ mod tests {
             illegal_event.distinct_id = id.to_string();
             let legal_event = valid_event();
             let batch = valid_batch(vec![illegal_event, legal_event]);
-            let events = validate_events(&ctx, batch).unwrap();
+            let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
             assert_eq!(events.len(), 2, "id={id:?}");
 
             let flagged = &events[0];
@@ -1581,7 +1578,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let event = deserialized_event(&Uuid::new_v4().to_string(), "  NULL  ");
         let batch = valid_batch(vec![event]);
-        let events = validate_events(&ctx, batch).unwrap();
+        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
         assert_eq!(events[0].result, EventResult::Ok);
         assert!(events[0].force_disable_person_processing);
         assert_eq!(events[0].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
@@ -1594,7 +1591,7 @@ mod tests {
             let mut illegal_event = valid_event();
             illegal_event.distinct_id = id.to_string();
             let batch = valid_batch(vec![illegal_event]);
-            let events = validate_events(&ctx, batch).unwrap();
+            let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
             assert_eq!(events.len(), 1, "id={id:?}");
             assert!(events[0].should_publish(), "id={id:?}");
         }
@@ -1621,7 +1618,7 @@ mod tests {
                 },
             ],
         };
-        let err = validate_events(&ctx, batch).unwrap_err();
+        let err = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap_err();
         assert!(matches!(err, Error::DuplicateEventUuid(_)));
     }
 
@@ -1637,7 +1634,7 @@ mod tests {
                 ..valid_event()
             }],
         };
-        let err = validate_events(&ctx, batch).unwrap_err();
+        let err = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap_err();
         assert!(matches!(err, Error::InvalidEventUuid(_)));
     }
 
@@ -1653,7 +1650,7 @@ mod tests {
                 ..valid_event()
             }],
         };
-        let err = validate_events(&ctx, batch).unwrap_err();
+        let err = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap_err();
         assert!(matches!(err, Error::MissingEventUuid));
     }
 
@@ -1685,7 +1682,7 @@ mod tests {
 
         let count = dropped_count("duplicate_event_uuid", "validation_abort", || {
             assert!(matches!(
-                validate_events(&ctx, batch).unwrap_err(),
+                validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap_err(),
                 Error::DuplicateEventUuid(_)
             ));
         });
@@ -1707,7 +1704,7 @@ mod tests {
 
         let count = dropped_count("invalid_event_uuid", "validation_abort", || {
             assert!(matches!(
-                validate_events(&ctx, batch).unwrap_err(),
+                validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap_err(),
                 Error::InvalidEventUuid(_)
             ));
         });
@@ -1727,7 +1724,7 @@ mod tests {
 
         let count = dropped_count("missing_event_uuid", "validation_abort", || {
             assert!(matches!(
-                validate_events(&ctx, batch).unwrap_err(),
+                validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap_err(),
                 Error::MissingEventUuid
             ));
         });
@@ -1775,7 +1772,7 @@ mod tests {
         let event = deserialized_event(&padded_uuid, "user-42");
         assert_eq!(event.uuid, inner_uuid.to_string());
         let batch = valid_batch(vec![event]);
-        let events = validate_events(&ctx, batch).unwrap();
+        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].uuid, inner_uuid);
     }
@@ -1794,7 +1791,7 @@ mod tests {
             capture_internal: None,
             batch: vec![bad_event],
         };
-        let events = validate_events(&ctx, batch).unwrap();
+        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
         assert_eq!(events.len(), 1);
         let event = &events[0];
         assert_eq!(event.uuid, uuid);
@@ -1842,7 +1839,7 @@ mod tests {
                 ("result", "malformed"),
                 ("error", expected_drop.unwrap_or("none")),
             ],
-            || events = validate_events(&ctx, batch).unwrap(),
+            || events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap(),
         );
 
         assert_eq!(events[0].result, EventResult::Ok);
@@ -1879,7 +1876,7 @@ mod tests {
             capture_internal: None,
             batch: vec![ev1, ev2],
         };
-        let result = validate_events(&ctx, batch);
+        let result = validate_events(&HISTORICAL_OFF, &ctx, batch);
         assert!(result.is_ok());
         let events = result.unwrap();
         assert_eq!(events[0].result, EventResult::Drop);
@@ -1901,7 +1898,7 @@ mod tests {
             capture_internal: None,
             batch: vec![ev],
         };
-        let events = validate_events(&ctx, batch).unwrap();
+        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].options.disable_skew_correction, Some(true));
     }
@@ -1925,7 +1922,7 @@ mod tests {
             capture_internal: None,
             batch: vec![ev],
         };
-        let events = validate_events(&ctx, batch).unwrap();
+        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
         assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].details, Some("missing_event_name"));
     }
@@ -3138,153 +3135,52 @@ mod tests {
         assert_eq!(ev.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
 
-    // --- apply_historical_rerouting ---
+    // --- route_historical ---
 
-    #[test]
-    fn historical_batch_flag_reroutes_all_events() {
-        let cfg = router::HistoricalConfig::new(false, 1);
+    struct RouteInput {
+        destination: Destination,
+        historical_migration: bool,
+        rerouting_enabled: bool,
+        event_age: Duration,
+    }
+
+    #[rstest::rstest]
+    #[case::batch_flag(
+        RouteInput { destination: Destination::AnalyticsMain, historical_migration: true, rerouting_enabled: false, event_age: Duration::hours(1) },
+        Destination::AnalyticsHistorical,
+    )]
+    #[case::old_timestamp(
+        RouteInput { destination: Destination::AnalyticsMain, historical_migration: false, rerouting_enabled: true, event_age: Duration::days(60) },
+        Destination::AnalyticsHistorical,
+    )]
+    #[case::recent_timestamp(
+        RouteInput { destination: Destination::AnalyticsMain, historical_migration: false, rerouting_enabled: true, event_age: Duration::hours(1) },
+        Destination::AnalyticsMain,
+    )]
+    #[case::rerouting_disabled(
+        RouteInput { destination: Destination::AnalyticsMain, historical_migration: false, rerouting_enabled: false, event_age: Duration::days(60) },
+        Destination::AnalyticsMain,
+    )]
+    #[case::ai_lane_ignores_batch_flag(
+        RouteInput { destination: Destination::AiMain, historical_migration: true, rerouting_enabled: true, event_age: Duration::days(60) },
+        Destination::AiMain,
+    )]
+    #[case::exceptions_ignore_batch_flag(
+        RouteInput { destination: Destination::ErrorTrackingMain, historical_migration: true, rerouting_enabled: true, event_age: Duration::days(60) },
+        Destination::ErrorTrackingMain,
+    )]
+    fn route_historical_moves_only_analytics_main(
+        #[case] input: RouteInput,
+        #[case] expected: Destination,
+    ) {
+        let cfg = router::HistoricalConfig::new(input.rerouting_enabled, 30);
         let mut ctx = test_utils::test_context();
-        ctx.historical_migration = true;
-        let mut events = vec![
-            wrapped_event("$pageview", "user-1"),
-            wrapped_event("$identify", "user-2"),
-        ];
+        ctx.historical_migration = input.historical_migration;
 
-        apply_historical_rerouting(&cfg, &ctx, &mut events);
+        let destination =
+            route_historical(&cfg, &ctx, input.destination, Utc::now() - input.event_age);
 
-        for ev in &events {
-            assert_eq!(ev.destination, Destination::AnalyticsHistorical);
-        }
-    }
-
-    #[test]
-    fn historical_timestamp_reroutes_old_event() {
-        let cfg = router::HistoricalConfig::new(true, 30);
-        let ctx = test_utils::test_context();
-        let old_ts = Utc::now() - Duration::days(60);
-        let mut events = vec![wrapped_event_at(old_ts)];
-
-        apply_historical_rerouting(&cfg, &ctx, &mut events);
-
-        let ev = &events[0];
-        assert_eq!(ev.destination, Destination::AnalyticsHistorical);
-    }
-
-    #[test]
-    fn historical_timestamp_keeps_recent_event() {
-        let cfg = router::HistoricalConfig::new(true, 30);
-        let ctx = test_utils::test_context();
-        let recent_ts = Utc::now() - Duration::hours(1);
-        let mut events = vec![wrapped_event_at(recent_ts)];
-
-        apply_historical_rerouting(&cfg, &ctx, &mut events);
-
-        let ev = &events[0];
-        assert_eq!(ev.destination, Destination::AnalyticsMain);
-    }
-
-    #[test]
-    fn historical_rerouting_disabled_no_change() {
-        let cfg = router::HistoricalConfig::new(false, 30);
-        let ctx = test_utils::test_context();
-        let old_ts = Utc::now() - Duration::days(60);
-        let mut events = vec![wrapped_event_at(old_ts)];
-
-        apply_historical_rerouting(&cfg, &ctx, &mut events);
-
-        let ev = &events[0];
-        assert_eq!(ev.destination, Destination::AnalyticsMain);
-    }
-
-    #[test]
-    fn historical_skips_non_analytics_main() {
-        let cfg = router::HistoricalConfig::new(true, 30);
-        let mut ctx = test_utils::test_context();
-        ctx.historical_migration = true;
-        let ev = wrapped_event("$pageview", "user-1");
-        let ev_uuid = ev.uuid;
-        let mut events = vec![ev];
-        events
-            .iter_mut()
-            .find(|e| e.uuid == ev_uuid)
-            .unwrap()
-            .destination = Destination::AnalyticsOverflow;
-
-        apply_historical_rerouting(&cfg, &ctx, &mut events);
-
-        assert_eq!(
-            events
-                .iter()
-                .find(|e| e.uuid == ev_uuid)
-                .unwrap()
-                .destination,
-            Destination::AnalyticsOverflow
-        );
-    }
-
-    #[test]
-    fn historical_skips_dropped_events() {
-        let cfg = router::HistoricalConfig::new(true, 30);
-        let mut ctx = test_utils::test_context();
-        ctx.historical_migration = true;
-        let ev = wrapped_event("$pageview", "user-1");
-        let ev_uuid = ev.uuid;
-        let mut events = vec![ev];
-        let e = events.iter_mut().find(|e| e.uuid == ev_uuid).unwrap();
-        e.result = EventResult::Drop;
-
-        apply_historical_rerouting(&cfg, &ctx, &mut events);
-
-        assert_eq!(
-            events
-                .iter()
-                .find(|e| e.uuid == ev_uuid)
-                .unwrap()
-                .destination,
-            Destination::AnalyticsMain
-        );
-    }
-
-    #[test]
-    fn historical_skips_malformed_events() {
-        let cfg = router::HistoricalConfig::new(true, 30);
-        let mut ctx = test_utils::test_context();
-        ctx.historical_migration = true;
-        let mut events = vec![malformed_wrapped_event()];
-
-        apply_historical_rerouting(&cfg, &ctx, &mut events);
-
-        let ev = &events[0];
-        assert_eq!(ev.destination, Destination::AnalyticsMain);
-    }
-
-    #[test]
-    fn historical_mixed_batch_flag_and_already_redirected() {
-        let cfg = router::HistoricalConfig::new(false, 1);
-        let mut ctx = test_utils::test_context();
-        ctx.historical_migration = true;
-        let dlq_ev = wrapped_event("$identify", "user-2");
-        let dlq_uuid = dlq_ev.uuid;
-        let mut events = vec![wrapped_event("$pageview", "user-1"), dlq_ev];
-        events
-            .iter_mut()
-            .find(|e| e.uuid == dlq_uuid)
-            .unwrap()
-            .destination = Destination::Dlq;
-
-        apply_historical_rerouting(&cfg, &ctx, &mut events);
-
-        let main_ev = find_by_did(&events, "user-1");
-        assert_eq!(main_ev.destination, Destination::AnalyticsHistorical);
-        // DLQ event untouched
-        assert_eq!(
-            events
-                .iter()
-                .find(|e| e.uuid == dlq_uuid)
-                .unwrap()
-                .destination,
-            Destination::Dlq
-        );
+        assert_eq!(destination, expected);
     }
 
     // --- ordering preservation regressions ---
@@ -3321,7 +3217,7 @@ mod tests {
         };
         let batch = valid_batch(vec![normal_a, perf, normal_b, normal_c]);
 
-        let events = validate_events(&ctx, batch).unwrap();
+        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
 
         assert_eq!(
             distinct_id_sequence(&events),
@@ -3335,36 +3231,8 @@ mod tests {
         let ctx = test_utils::test_context();
         let (first, second) = test_utils::realistic_dup_uuid_pair();
         let batch = valid_batch(vec![first, second]);
-        let err = validate_events(&ctx, batch).unwrap_err();
+        let err = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap_err();
         assert!(matches!(err, Error::DuplicateEventUuid(_)));
-    }
-
-    #[tokio::test]
-    async fn apply_historical_rerouting_preserves_order() {
-        // Interleave old + recent so the timestamp branch flips some events.
-        let cfg = router::HistoricalConfig::new(true, 30);
-        let ctx = test_utils::test_context();
-        let now = Utc::now();
-        let mut e0 = wrapped_event_at(now - Duration::days(60));
-        e0.event.distinct_id = "user-pos-0".to_string();
-        let mut e1 = wrapped_event_at(now - Duration::hours(1));
-        e1.event.distinct_id = "user-pos-1".to_string();
-        let mut e2 = wrapped_event_at(now - Duration::days(90));
-        e2.event.distinct_id = "user-pos-2".to_string();
-        let mut e3 = wrapped_event_at(now - Duration::minutes(5));
-        e3.event.distinct_id = "user-pos-3".to_string();
-        let mut events = vec![e0, e1, e2, e3];
-
-        apply_historical_rerouting(&cfg, &ctx, &mut events);
-
-        assert_eq!(
-            distinct_id_sequence(&events),
-            vec!["user-pos-0", "user-pos-1", "user-pos-2", "user-pos-3"],
-        );
-        assert_eq!(events[0].destination, Destination::AnalyticsHistorical);
-        assert_eq!(events[1].destination, Destination::AnalyticsMain);
-        assert_eq!(events[2].destination, Destination::AnalyticsHistorical);
-        assert_eq!(events[3].destination, Destination::AnalyticsMain);
     }
 
     #[tokio::test]
@@ -3453,18 +3321,7 @@ mod tests {
             "user-pos-5",
         ];
 
-        // Stage 1: historical rerouting (batch flag on).
-        let cfg = router::HistoricalConfig::new(false, 1);
-        let mut ctx = test_utils::test_context();
-        ctx.historical_migration = true;
-        apply_historical_rerouting(&cfg, &ctx, &mut events);
-        assert_eq!(
-            distinct_id_sequence(&events),
-            expected,
-            "order changed after apply_historical_rerouting",
-        );
-
-        // Stage 2: restrictions (no rules → passthrough, still iterates).
+        // Stage 1: restrictions (no rules → passthrough, still iterates).
         let service =
             EventRestrictionService::new(vec![Pipeline::Analytics], StdDuration::from_secs(300));
         service.update(RestrictionManager::new()).await;
@@ -3476,7 +3333,7 @@ mod tests {
             "order changed after apply_restrictions",
         );
 
-        // Stage 3: token+distinct_id limits — limit one Ok mid-batch.
+        // Stage 2: token+distinct_id limits — limit one Ok mid-batch.
         let mut tdctx = test_utils::test_context();
         tdctx.api_token = "phc_tok".to_string();
         let limiter = mock_limiter(vec!["phc_tok:user-pos-2"]);
@@ -4415,7 +4272,7 @@ mod tests {
 
     #[tokio::test]
     async fn import_mode_historical_batch_never_overflows() {
-        // In Events mode, ForceOverflow alone, or burst=1 on one token:distinct_id, would overflow these.
+        // In Events mode, ForceOverflow or burst=1 would overflow the $pageview.
         let restrictions = restriction_service(
             "phc_test_token",
             vec![Restriction {
@@ -4430,6 +4287,10 @@ mod tests {
             .with_overflow_limiter(1, 1)
             .with_restriction_service(restrictions)
             .build();
+        assert!(
+            !ts.state.ai_events_overflow_enabled,
+            "capture-import leaves the AI valve unarmed"
+        );
         let mut ctx = test_utils::test_analytics_context();
         let batch = historical_batch(vec![
             Event {

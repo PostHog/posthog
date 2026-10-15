@@ -446,12 +446,8 @@ impl Publishable for WrappedEvent {
         buf
     }
 
-    /// Computed here rather than stamped during processing because it depends
-    /// on the final destination: `apply_restrictions` can disable person
-    /// processing while an event is still `AnalyticsMain`, and
-    /// `apply_historical_rerouting` may afterwards move it to
-    /// `AnalyticsHistorical`, whose consumers need the key. Deciding late
-    /// keeps the rule correct no matter how the stages are ordered.
+    /// Computed at publish time, not stamped by a stage: overflow stamping can
+    /// change the destination after `apply_restrictions` disables person processing.
     fn ordering(&self) -> OrderingGuarantee {
         if !self.destination.absorbs_hot_keys() {
             return OrderingGuarantee::PerDistinctId;
