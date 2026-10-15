@@ -4,6 +4,7 @@ import os
 import time
 import signal
 import asyncio
+import selectors
 import threading
 from collections import Counter, deque
 from collections.abc import Callable, Iterator
@@ -281,7 +282,10 @@ class EvalDashboard:
 
     def _run(self) -> None:
         try:
-            self.application.run(pre_run=self._configure_loop, set_exception_handler=False, handle_sigint=False)
+            # macOS kqueue can reject keyboard input opened through /dev/tty.
+            with asyncio.Runner(loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector())) as runner:
+                runner.get_loop().set_exception_handler(self._application_error)
+                runner.run(self.application.run_async(set_exception_handler=False, handle_sigint=False))
             if self._exit_code is None and not self._stopping.is_set():
                 raise RuntimeError("The terminal view closed before the eval run completed")
         except BaseException as error:
@@ -291,9 +295,6 @@ class EvalDashboard:
                 self.request_cancel()
         finally:
             self._ready.set()
-
-    def _configure_loop(self) -> None:
-        asyncio.get_running_loop().set_exception_handler(self._application_error)
 
     def _application_error(self, _loop: asyncio.AbstractEventLoop, context: dict[str, object]) -> None:
         error = context.get("exception")

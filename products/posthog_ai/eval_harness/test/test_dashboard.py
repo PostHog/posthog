@@ -115,7 +115,7 @@ async def test_dashboard_shows_trial_results_and_supports_logs_search_and_safe_c
             await asyncio.wait_for(task, timeout=5)
 
 
-@pytest.mark.parametrize("mode", ["dumb", "stderr", "redirected"])
+@pytest.mark.parametrize("mode", ["dumb", "stderr", "redirected", "tty-selector"])
 def test_dashboard_opens_through_hogli_with_redirected_streams(tmp_path: Path, mode: str) -> None:
     runner = (
         "from pathlib import Path; "
@@ -125,12 +125,31 @@ def test_dashboard_opens_through_hogli_with_redirected_streams(tmp_path: Path, m
         "harness._run = lambda *args, **kwargs: 0; "
         f"raise SystemExit(harness.main({[] if mode == 'stderr' else ['--tui']!r}))"
     )
+    if mode == "tty-selector":
+        runner = (
+            dedent("""
+            import errno
+            import os
+            import selectors
+            import stat
+
+            class NoTerminalSelector(selectors.DefaultSelector):
+                def register(self, fileobj, events, data=None):
+                    fd = fileobj if isinstance(fileobj, int) else fileobj.fileno()
+                    if stat.S_ISCHR(os.fstat(fd).st_mode):
+                        raise OSError(errno.EINVAL, "Invalid argument")
+                    return super().register(fileobj, events, data)
+
+            selectors.DefaultSelector = NoTerminalSelector
+        """)
+            + runner
+        )
     launcher = (
         "import os, sys; "
         "from hogli.command_types import _run; "
         "terminal = os.dup(0); "
         "null = os.open(os.devnull, os.O_RDWR); "
-        f"[os.dup2(null, fd) for fd in {([0, 1, 2] if mode == 'redirected' else [2])!r}]; "
+        f"[os.dup2(null, fd) for fd in {([0, 1, 2] if mode in {'redirected', 'tty-selector'} else [2])!r}]; "
         "_run([sys.executable, '-c', sys.argv[1]])"
     )
     environment = dict(os.environ, TERM="dumb" if mode == "dumb" else "xterm-256color")
