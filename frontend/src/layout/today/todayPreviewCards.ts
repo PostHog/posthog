@@ -1,5 +1,9 @@
+import { libraryObjectHref, libraryObjectName, libraryTypeLabel } from 'scenes/library/libraryUtils'
+
+import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
+
 import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
-import type { ReportChartApi, ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 import { PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
 
@@ -36,41 +40,18 @@ export interface TodayChatPreview {
     timestamp: string | null
 }
 
-/** What a report's hover card says, read from a personal briefing item or from one of the team's reports. */
-export interface TodayReportCard {
-    /** Stable per report and list. It keys the card's live metric queries and its analytics. */
-    key: string
-    /** The report the card's resolve and dismiss buttons act on, or null when the card has no report. */
-    reportId: string | null
-    title: string
-    /** Why the briefing picked the report. Null for the team's reports, which no briefing picked. */
-    reason: string | null
-    /** Resolved or dismissed since the briefing, or null while open. */
-    stateLabel: string | null
-    resolved: boolean
-    /** Whether the person is one of the report's suggested reviewers, and so can step off it. */
-    canLeaveReview: boolean
-    priority: string | null
-    summary: string | null
-    pullRequestState: PrStateEnumApi | null
-    pullRequestUrl: string | null
-    signalCount: number | null
-    updatedAt: string | null
-    metrics: ReportMetricApi[]
-    /** Charts from the report body. The card draws one when no metric has a chart. */
-    charts: ReportChartApi[]
-    sourceLabel: string
+export interface TodayObjectPreview {
+    kind: 'object'
+    name: string
+    type: string | undefined
+    ref: string | null
+    typeLabel: string | null
+    folder: string[]
+    href: string | null
+    lastViewedAt: string | null
 }
 
-/** A report's hover card. The card text comes with the page, so it opens without a request. */
-export interface TodayReportPreview {
-    kind: 'report'
-    card: TodayReportCard
-    /** Where the card opened: a link in the briefing text, or a left-bar row. */
-    surface: 'briefing' | 'sidebar'
-}
-
-export type TodayPreviewPayload = TodaySessionPreview | TodayChatPreview | TodayReportPreview
+export type TodayPreviewPayload = TodaySessionPreview | TodayChatPreview | TodayObjectPreview
 
 export function sessionPreview(
     item: TodayWorkItem,
@@ -109,6 +90,19 @@ export function sessionPreview(
         timestamp: item.timestamp,
         message: item.finalMessage,
         menu: sessionMenuTarget(item, { menuId, pinned, userId }),
+    }
+}
+
+export function objectPreview(entry: FileSystemEntry): TodayObjectPreview {
+    return {
+        kind: 'object',
+        name: libraryObjectName(entry),
+        type: entry.type,
+        ref: entry.ref ?? null,
+        typeLabel: libraryTypeLabel(entry.type),
+        folder: splitPath(entry.path).slice(0, -1),
+        href: libraryObjectHref(entry),
+        lastViewedAt: entry.last_viewed_at ?? null,
     }
 }
 

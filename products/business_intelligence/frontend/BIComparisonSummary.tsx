@@ -5,6 +5,7 @@ import { ChartSettings } from '~/queries/schema/schema-general'
 
 import { BIComparisonRow, buildBIComparisonRows, getBIComparisonValues } from './biComparisonResults'
 import { getBIFieldPillLabel } from './biEditorTypes'
+import { createBIMemberLabelLookup } from './biMemberAliases'
 import { formatBIMeasure, getBIResultMeasures } from './biResultPresentation'
 
 export function BIComparisonSummary({
@@ -22,6 +23,7 @@ export function BIComparisonSummary({
     card?: boolean
     onInspect?: (record: Record<string, unknown>) => void
 }): JSX.Element {
+    const memberLabel = createBIMemberLabelLookup(config)
     const rows = buildBIComparisonRows(config, columns, results)
     const measures = getBIResultMeasures(config, chartSettings)
     const dimensions = [...config.rows, ...config.columns]
@@ -78,7 +80,8 @@ export function BIComparisonSummary({
                                 <div className="text-xs text-secondary break-words">
                                     {row.dimensions
                                         .map(
-                                            (value, index) => `${dimensions[index].name}: ${String(value ?? '(empty)')}`
+                                            (value, index) =>
+                                                `${dimensions[index].name}: ${memberLabel(dimensions[index], value)}`
                                         )
                                         .join(' · ')}
                                 </div>
@@ -117,7 +120,7 @@ export function BIComparisonSummary({
                                       key: field.id,
                                       title: getBIFieldPillLabel(field),
                                       render: (_: unknown, row: BIComparisonRow) =>
-                                          String(row.dimensions[index] ?? '(empty)'),
+                                          memberLabel(field, row.dimensions[index]),
                                   })),
                               },
                           ]
