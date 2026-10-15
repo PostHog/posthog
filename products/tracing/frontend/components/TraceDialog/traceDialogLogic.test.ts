@@ -2,16 +2,21 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
+import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
 import type { Span } from 'products/tracing/frontend/types'
 
 import { traceDialogLogic } from './traceDialogLogic'
 
 type TracePage = Awaited<ReturnType<typeof api.tracing.getTrace>>
 
-function span(spanId: string): Span {
+function span(spanId: string, statusCode = 0): Span {
     return {
         uuid: spanId,
         trace_id: 'abc123',
@@ -20,7 +25,7 @@ function span(spanId: string): Span {
         name: spanId,
         kind: 0,
         service_name: 'agent-worker',
-        status_code: 0,
+        status_code: statusCode,
         timestamp: '2026-10-14T10:00:00.000000Z',
         end_time: '2026-10-14T10:00:01.000000Z',
         duration_nano: 1_000_000_000,
@@ -40,7 +45,16 @@ describe('traceDialogLogic', () => {
     let getTraceSpy: jest.SpyInstance
 
     beforeEach(() => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.ErrorTracking]: AccessControlLevel.Viewer,
+            },
+        } as AppContext
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true })
         getTraceSpy = jest.spyOn(api.tracing, 'getTrace').mockResolvedValue(page(['a'], null))
         router.actions.push('/logs')
         logic = traceDialogLogic()
@@ -169,5 +183,59 @@ describe('traceDialogLogic', () => {
         })
             .toDispatchActions(['loadTraceSpansSuccess'])
             .toMatchValues({ traceSpansFailed: false })
+    })
+
+    it.each([
+        ['leads with errors on an error span', 2, 'errors'],
+        ['leads with logs on any other span', 0, 'logs'],
+    ])('%s', async (_name, statusCode, expectedTab) => {
+        getTraceSpy.mockResolvedValueOnce({ results: [span('a', statusCode)], hasMore: false, nextOffset: null })
+
+        await expectLogic(logic, () => {
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' })
+        })
+            .toDispatchActions(['loadTraceSpansSuccess'])
+            .toMatchValues({ activeInspectorTab: expectedTab })
+    })
+
+    it('keeps a picked tab across spans, and drops it for the next trace', async () => {
+        getTraceSpy.mockResolvedValue({ results: [span('a', 2), span('b')], hasMore: false, nextOffset: null })
+        logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' })
+        await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+
+        logic.actions.setInspectorTab('attributes')
+        await expectLogic(logic, () => {
+            logic.actions.selectSpan('b')
+        }).toMatchValues({ activeInspectorTab: 'attributes' })
+
+        await expectLogic(logic, () => {
+            logic.actions.openTraceDialog({ traceId: 'def456', spanId: 'a' })
+        })
+            .toDispatchActions(['loadTraceSpansSuccess'])
+            .toMatchValues({ activeInspectorTab: 'errors' })
+    })
+
+    it('treats a missing parent row as its own selection, not the root span', async () => {
+        const orphan = { ...span('child'), parent_span_id: 'GONE' }
+        getTraceSpy.mockResolvedValueOnce({ results: [span('a'), orphan], hasMore: false, nextOffset: null })
+        logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' })
+        await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.selectSpan('GONE')
+        }).toMatchValues({ missingParentSpanId: 'GONE' })
+
+        await expectLogic(logic, () => {
+            logic.actions.selectSpan('child')
+        }).toMatchValues({ missingParentSpanId: null })
+    })
+
+    it.each([
+        ['a recording opens', () => sessionPlayerModalLogic.actions.openSessionPlayer({ id: 'session-1' })],
+        ['the full-screen logs viewer opens', () => logsViewerModalLogic.actions.openLogsViewerModal()],
+    ])('closes when %s, since that modal sits behind the dialog', async (_name, open) => {
+        logic.actions.openTraceDialog({ traceId: 'abc123' })
+
+        await expectLogic(logic, open).toMatchValues({ isOpen: false })
     })
 })
