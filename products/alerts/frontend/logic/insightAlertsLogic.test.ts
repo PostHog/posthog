@@ -7,12 +7,13 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { Node, NodeKind } from '~/queries/schema/schema-general'
+import { AlertConditionType, InsightThresholdType, Node, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, HogFunctionType, InsightLogicProps, InsightShortId } from '~/types'
 
 import type { AlertType } from '../types'
 import {
+    alertsToThresholdGoalLines,
     alertsUnsupportedReason,
     areAlertsSupportedForInsight,
     areAnomalyAlertsSupportedForInsight,
@@ -72,6 +73,25 @@ describe('insightAlertsLogic', () => {
     afterEach(() => {
         listSpy.mockRestore()
         hogFunctionsListSpy.mockRestore()
+    })
+
+    it('keeps fixed threshold lines when an anomaly alert has no threshold', () => {
+        const alerts = [
+            { id: 'anomaly', name: 'Event ingestion changes', detector_config: { type: 'zscore' } },
+            {
+                id: 'fixed',
+                name: 'Event count',
+                threshold: {
+                    configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { lower: 10, upper: 100 } },
+                },
+                condition: { type: AlertConditionType.ABSOLUTE_VALUE },
+            },
+        ] as AlertType[]
+
+        expect(alertsToThresholdGoalLines(alerts)).toEqual([
+            { label: 'Event count Upper Threshold', value: 100 },
+            { label: 'Event count Lower Threshold', value: 10 },
+        ])
     })
 
     function mountInsightStack(insightLogicProps: InsightLogicProps): void {
