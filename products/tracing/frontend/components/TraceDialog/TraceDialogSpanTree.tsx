@@ -8,7 +8,7 @@ import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { getTimelineTicks } from 'products/tracing/frontend/spanTree'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
-import { traceDialogLogic, type TraceDialogTimeline } from './traceDialogLogic'
+import { traceDialogLogic, type TraceDialogSource, type TraceDialogTimeline } from './traceDialogLogic'
 import { TraceDialogMoreSpansRow } from './TraceDialogMoreSpansRow'
 import { rowSpanNode, type TraceDialogRow } from './traceDialogRows'
 import { TraceDialogSpanRow } from './TraceDialogSpanRow'
@@ -24,6 +24,7 @@ interface SpanListRowData {
     selectedSpanId: string | null
     openedSpanId: string | null
     openedAtUs: number | null
+    openedFrom: TraceDialogSource | null
     onSelect: (spanId: string) => void
     onToggleCollapsed: (spanId: string) => void
     onToggleChain: (spanId: string) => void
@@ -40,6 +41,7 @@ function SpanListRow({
     selectedSpanId,
     openedSpanId,
     openedAtUs,
+    openedFrom,
     onShowAll,
     ...rowProps
 }: {
@@ -59,6 +61,7 @@ function SpanListRow({
                     selectedSpanId={selectedSpanId}
                     openedSpanId={openedSpanId}
                     openedAtUs={openedAtUs}
+                    openedFrom={openedFrom}
                     descendantCounts={descendantCounts}
                     collapsedSpanIds={collapsedSpanIds}
                     rowProps={rowProps}
@@ -73,6 +76,7 @@ function SpanOrChainRow({
     selectedSpanId,
     openedSpanId,
     openedAtUs,
+    openedFrom,
     descendantCounts,
     collapsedSpanIds,
     rowProps,
@@ -81,6 +85,7 @@ function SpanOrChainRow({
     selectedSpanId: string | null
     openedSpanId: string | null
     openedAtUs: number | null
+    openedFrom: TraceDialogSource | null
     descendantCounts: Map<string, number>
     collapsedSpanIds: Set<string>
     rowProps: Pick<SpanListRowData, 'timeline' | 'serviceColorMap' | 'onSelect' | 'onToggleCollapsed' | 'onToggleChain'>
@@ -91,6 +96,7 @@ function SpanOrChainRow({
             row={row}
             isSelected={spanId === selectedSpanId}
             openedAtUs={spanId === openedSpanId ? openedAtUs : null}
+            openedFrom={spanId === openedSpanId ? openedFrom : null}
             descendantCount={descendantCounts.get(spanId) ?? 0}
             isCollapsed={collapsedSpanIds.has(spanId)}
             {...rowProps}
@@ -126,6 +132,7 @@ export function TraceDialogSpanTree(): JSX.Element {
         missingParentSpanId,
         trace,
         openedAtUs,
+        openedFrom,
     } = useValues(traceDialogLogic)
     const { selectSpan, toggleSpanCollapsed, toggleChain, showAllChildren } = useActions(traceDialogLogic)
     const [topIndex, setTopIndex] = useState(0)
@@ -245,6 +252,7 @@ export function TraceDialogSpanTree(): JSX.Element {
                                 selectedSpanId,
                                 openedSpanId,
                                 openedAtUs,
+                                openedFrom,
                                 onSelect: selectSpan,
                                 onToggleCollapsed: toggleSpanCollapsed,
                                 onToggleChain: toggleChain,

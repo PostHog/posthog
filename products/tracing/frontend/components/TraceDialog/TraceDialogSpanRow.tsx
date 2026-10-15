@@ -1,4 +1,5 @@
 import { IconChevronRight, IconWarning } from '@posthog/icons'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
 import { cn } from 'lib/utils/css-classes'
@@ -6,7 +7,8 @@ import { cn } from 'lib/utils/css-classes'
 import { parseTimestampUs } from 'products/tracing/frontend/spanTree'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
-import type { TraceDialogTimeline } from './traceDialogLogic'
+import type { TraceDialogSource, TraceDialogTimeline } from './traceDialogLogic'
+import { LOG_MARK_TAG_TYPE, TraceDialogLogMark } from './TraceDialogLogMark'
 import type { TraceDialogRow } from './traceDialogRows'
 import { indentPx, MAX_VISUAL_DEPTH, TraceDialogTreeLines } from './TraceDialogTreeLines'
 
@@ -19,12 +21,25 @@ export interface TraceDialogSpanRowProps {
     isSelected: boolean
     /** Set only on the span that emitted the record the dialog was opened from. */
     openedAtUs: number | null
+    /** The log the dialog was opened from, set with openedAtUs. */
+    openedFrom: TraceDialogSource | null
     /** How many spans sit under this one. Zero for a span with no children. */
     descendantCount: number
     isCollapsed: boolean
     onSelect: (spanId: string) => void
     onToggleCollapsed: (spanId: string) => void
     onToggleChain: (spanId: string) => void
+}
+
+// Clock skew between a service's logs and spans can put the log outside the span it names.
+function logTimingLabel(logUs: number, startUs: number, durationUs: number): string {
+    if (logUs < startUs) {
+        return `written ${formatDuration((startUs - logUs) * 1_000)} before this span started`
+    }
+    if (logUs > startUs + durationUs) {
+        return `written ${formatDuration((logUs - startUs - durationUs) * 1_000)} after this span ended`
+    }
+    return `+${formatDuration((logUs - startUs) * 1_000)} into this span`
 }
 
 function percentOfTrace(us: number, timeline: TraceDialogTimeline): number {
@@ -37,6 +52,7 @@ export function TraceDialogSpanRow({
     serviceColorMap,
     isSelected,
     openedAtUs,
+    openedFrom,
     descendantCount,
     isCollapsed,
     onSelect,
@@ -61,7 +77,8 @@ export function TraceDialogSpanRow({
     const isError = (row.kind === 'chain' ? row.nodes : [node]).some((member) => member.span.status_code === 2)
     const serviceColor = getSeriesColor(serviceColorMap.get(span.service_name) ?? 0)
     const barColor = isError ? ERROR_COLOR : serviceColor
-    const openedAtPct = openedAtUs != null ? Math.min(Math.max(percentOfTrace(openedAtUs, timeline), 0), 100) : null
+    const openedAtPct =
+        openedAtUs != null && openedFrom ? Math.min(Math.max(percentOfTrace(openedAtUs, timeline), 0), 100) : null
 
     return (
         // The collapse toggle cannot sit inside the select button, so the button fills the row from
@@ -155,6 +172,16 @@ export function TraceDialogSpanRow({
                 >
                     {name}
                 </span>
+                {openedAtPct != null && openedFrom && (
+                    <LemonTag
+                        size="small"
+                        type={LOG_MARK_TAG_TYPE[openedFrom.severity] ?? 'muted'}
+                        className="relative shrink-0"
+                        data-attr="trace-dialog-your-log-chip"
+                    >
+                        Your log
+                    </LemonTag>
+                )}
                 {openChainLength && (
                     <button
                         type="button"
@@ -180,13 +207,29 @@ export function TraceDialogSpanRow({
                         }}
                     />
                 )}
-                {openedAtPct != null && (
-                    <span
-                        className="absolute -inset-y-1 w-0.5 bg-accent"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ left: `${openedAtPct}%` }}
-                        data-attr="trace-dialog-opened-at-marker"
-                    />
+                {openedAtPct != null && openedFrom && (
+                    <Tooltip
+                        title={
+                            <div className="flex flex-col gap-0.5 max-w-80">
+                                <span className="text-xs opacity-75">
+                                    Your log · {logTimingLabel(openedAtUs!, startUs, span.duration_nano / 1_000)} ·{' '}
+                                    {openedFrom.severity}
+                                </span>
+                                <span className="ph-replay-block ph-no-capture font-mono line-clamp-4" translate="no">
+                                    {openedFrom.body}
+                                </span>
+                            </div>
+                        }
+                    >
+                        <span
+                            className="pointer-events-auto absolute top-1/2 -translate-x-1/2 -translate-y-1/2 flex"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ left: `${openedAtPct}%` }}
+                            data-attr="trace-dialog-opened-at-marker"
+                        >
+                            <TraceDialogLogMark severity={openedFrom.severity} />
+                        </span>
+                    </Tooltip>
                 )}
             </span>
             <span
