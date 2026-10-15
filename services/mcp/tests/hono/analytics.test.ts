@@ -101,22 +101,31 @@ describe('Hono MCP analytics contexts', () => {
         expect(mockCapture).not.toHaveBeenCalled()
     })
 
-    it.each(['scout-trial-create', 'scout-trial-get'])(
-        'excludes exec discovery metadata for %s with ordinary operator credentials',
-        async (targetTool) => {
-            await trackToolCall(
-                'exec',
-                12,
-                false,
-                makeState({ suppressAnalytics: false }),
-                { $mcp_exec_verb: 'info', $mcp_exec_target_tool: targetTool },
-                { intent: 'Compare synthetic scout variants' }
-            )
+    it.each([
+        'scout-trial-create',
+        'scout-trial-get',
+        'scout-trial-start',
+        'scout-trial-report',
+        'scout-trial-list',
+        'scout-trial-resume',
+        'scout-trial-archive',
+        'scout-trial-setup',
+        'scout-rubric-generate',
+        'scout-rubric-get',
+        'scout-rubric-save',
+    ])('excludes exec discovery metadata for %s with ordinary operator credentials', async (targetTool) => {
+        await trackToolCall(
+            'exec',
+            12,
+            false,
+            makeState({ suppressAnalytics: false }),
+            { $mcp_exec_verb: 'info', $mcp_exec_target_tool: targetTool },
+            { intent: 'Compare synthetic scout variants' }
+        )
 
-            expect(mockCaptureToolCall).not.toHaveBeenCalled()
-            expect(mockCapture).not.toHaveBeenCalled()
-        }
-    )
+        expect(mockCaptureToolCall).not.toHaveBeenCalled()
+        expect(mockCapture).not.toHaveBeenCalled()
+    })
 
     it.each([
         { impersonated: true, isError: false },

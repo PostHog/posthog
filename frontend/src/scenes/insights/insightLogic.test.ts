@@ -437,6 +437,23 @@ describe('insightLogic', () => {
     })
 
     describe('takes data from other logics if available', () => {
+        it.each([true, false])('only fetches the definition when notebook retention is %s', async (retain) => {
+            const requests: URL[] = []
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': ({ request }) => {
+                        requests.push(new URL(request.url))
+                        return { results: [insightModelWith({})] }
+                    },
+                },
+            })
+            logic = insightLogic({ dashboardItemId: Insight42, retainResponseOnUnmount: retain })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightSuccess'])
+            expect(requests).toHaveLength(1)
+            expect(requests[0].searchParams.get('basic')).toBe(retain ? 'true' : null)
+        })
+
         const verifyItLoadsFromTheAPI = async (logicUnderTest: ReturnType<typeof insightLogic.build>): Promise<void> =>
             expectLogic(logicUnderTest)
                 .toDispatchActions(['loadInsight'])

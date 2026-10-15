@@ -107,6 +107,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
+    FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
 
 
 class ExperimentHealthFindingSeverity(LabeledStrEnum):
@@ -233,3 +234,26 @@ class Experiment:
     start_date: datetime | None = None
     end_date: datetime | None = None
     updated_at: datetime | None = None
+
+
+@frozen
+class MetricCalculationKeys:
+    """The calculation key of each metric on an experiment. Result rows and the stored metric
+    `fingerprint` fields hold these keys."""
+
+    # By metric uuid. When inline metrics share a uuid, the first one in primary-then-secondary order
+    # wins, which is the metric the daily calculation computes for that uuid.
+    inline: dict[str, str]
+    # By saved-metric link id.
+    saved: dict[int, str]
+
+
+@frozen
+class DailyMetricCalculation:
+    """One metric that the daily timeseries calculation computes for an experiment."""
+
+    experiment_id: int
+    team_id: int
+    metric_uuid: str
+    # The key that files the metric's daily result.
+    calculation_key: str

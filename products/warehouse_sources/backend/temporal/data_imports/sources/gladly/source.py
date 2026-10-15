@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
+    codebase_detection = detect(env=("^GLADLY_",), script_hosts=("cdn.gladly.com", "chat-sdk.cdn.gladly.com"))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developer.gladly.com"

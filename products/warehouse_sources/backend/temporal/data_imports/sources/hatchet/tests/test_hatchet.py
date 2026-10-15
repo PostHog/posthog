@@ -1,5 +1,6 @@
 import json
 import base64
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -9,19 +10,27 @@ from unittest import mock
 import requests
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hatchet import (
+    HatchetSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet import (
-    HatchetConnection,
     HatchetHostNotAllowedError,
     HatchetResumeConfig,
     HatchetTokenError,
     _build_initial_params,
     _fetch_page,
     _resolve_since,
-    get_rows,
     resolve_connection,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.settings import HATCHET_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.source import HatchetSource
 
 logger = structlog.get_logger()
 
@@ -31,23 +40,6 @@ def _make_token(claims: dict[str, Any]) -> str:
     header = base64.urlsafe_b64encode(json.dumps({"alg": "none"}).encode()).rstrip(b"=").decode()
     payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=").decode()
     return f"{header}.{payload}.signature"
-
-
-class FakeManager:
-    """Stand-in for ResumableSourceManager that records saved state and can replay a resume value."""
-
-    def __init__(self, resume: HatchetResumeConfig | None = None):
-        self._resume = resume
-        self.saved: list[HatchetResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._resume is not None
-
-    def load_state(self) -> HatchetResumeConfig | None:
-        return self._resume
-
-    def save_state(self, data: HatchetResumeConfig) -> None:
-        self.saved.append(data)
 
 
 class TestResolveConnection:
@@ -87,7 +79,7 @@ class TestBuildInitialParams:
         assert "since" in params
 
 
-def _collect(tables) -> list[dict[str, Any]]:
+def _collect(tables: Iterable[Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for table in tables:
         rows.extend(table.to_pylist())
@@ -99,92 +91,61 @@ def _row(row_id: str) -> dict[str, Any]:
 
 
 class TestGetRows:
-    def _connection(self) -> HatchetConnection:
-        return HatchetConnection(base_url="https://cloud.example", tenant_id="tenant-1")
+    @staticmethod
+    def _driver(host: str = "https://cloud.example") -> SourceDriver:
+        token = _make_token({"sub": "tenant-1", "server_url": host})
+        return SourceDriver(HatchetSource(), HatchetSourceConfig(api_token=token, host=None, tenant_id=None))
 
     def test_pagination_walks_offsets_until_num_pages_reached(self):
-        manager = FakeManager()
         full_page = [_row(f"p1-{i}") for i in range(100)]
         second_page = [_row(f"p2-{i}") for i in range(100)]
-        pages = [
-            {"rows": full_page, "pagination": {"current_page": 1, "num_pages": 2}},
-            {"rows": second_page, "pagination": {"current_page": 2, "num_pages": 2}},
-        ]
-        captured_urls: list[str] = []
+        result = self._driver().run(
+            "workflow_runs",
+            [
+                ScriptedResponse(json={"rows": full_page, "pagination": {"current_page": 1, "num_pages": 2}}),
+                ScriptedResponse(json={"rows": second_page, "pagination": {"current_page": 2, "num_pages": 2}}),
+            ],
+        )
 
-        def fake_fetch(session, url, headers, log):
-            captured_urls.append(url)
-            return pages[len(captured_urls) - 1]
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._fetch_page",
-            side_effect=fake_fetch,
-        ):
-            rows = _collect(
-                get_rows("tok", self._connection(), "workflow_runs", logger, manager, team_id=1)  # type: ignore[arg-type]
-            )
-
-        assert len(rows) == 200
+        assert result.raised is None
+        assert len(_collect(result.items)) == 200
         # Second request advances the offset by the page size.
-        assert "offset=0" in captured_urls[0]
-        assert "offset=100" in captured_urls[1]
+        assert result.params("offset") == ["0", "100"]
 
     def test_resume_starts_from_saved_offset_and_pins_since(self):
-        manager = FakeManager(resume=HatchetResumeConfig(offset=100, since="2026-01-01T00:00:00.000000Z"))
-        captured_urls: list[str] = []
+        result = self._driver().run(
+            "workflow_runs",
+            [ScriptedResponse(json={"rows": [_row("x")], "pagination": {"current_page": 2, "num_pages": 2}})],
+            resume_state=HatchetResumeConfig(offset=100, since="2026-01-01T00:00:00.000000Z"),
+            should_use_incremental_field=True,
+        )
 
-        def fake_fetch(session, url, headers, log):
-            captured_urls.append(url)
-            return {"rows": [_row("x")], "pagination": {"current_page": 2, "num_pages": 2}}
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._fetch_page",
-            side_effect=fake_fetch,
-        ):
-            _collect(get_rows("tok", self._connection(), "workflow_runs", logger, manager, 1, True, None))  # type: ignore[arg-type]
-
-        assert "offset=100" in captured_urls[0]
+        assert result.raised is None
+        assert result.params("offset") == ["100"]
         # The window the interrupted run started on is replayed, not recomputed from a new watermark.
-        assert "since=2026-01-01T00%3A00%3A00.000000Z" in captured_urls[0]
+        assert result.params("since") == ["2026-01-01T00:00:00.000000Z"]
 
     def test_syncs_bare_top_level_array_response(self):
         # event_keys returns a top-level JSON array, not a `{"rows": [...]}` envelope; it must still
         # sync instead of silently loading zero rows.
-        manager = FakeManager()
+        result = self._driver().run("event_keys", [ScriptedResponse(json=["user:signed_up", "billing:charged"])])
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._fetch_page",
-            return_value=["user:signed_up", "billing:charged"],
-        ):
-            rows = _collect(
-                get_rows("tok", self._connection(), "event_keys", logger, manager, team_id=1)  # type: ignore[arg-type]
-            )
-
-        assert rows == [{"key": "user:signed_up"}, {"key": "billing:charged"}]
+        assert result.raised is None
+        assert _collect(result.items) == [{"key": "user:signed_up"}, {"key": "billing:charged"}]
 
     def test_unsafe_host_raises_before_any_fetch(self):
-        manager = FakeManager()
-
-        with (
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._is_host_safe",
-                return_value=(False, "Hosts with internal IP addresses are not allowed"),
-            ),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._fetch_page",
-            ) as fetch,
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._is_host_safe",
+            return_value=(False, "Hosts with internal IP addresses are not allowed"),
         ):
-            with pytest.raises(HatchetHostNotAllowedError):
-                _collect(get_rows("tok", self._connection(), "workflow_runs", logger, manager, team_id=99))  # type: ignore[arg-type]
+            result = self._driver().run("workflow_runs", [], team_id=99)
 
-        fetch.assert_not_called()
+        assert isinstance(result.raised, HatchetHostNotAllowedError)
+        assert result.requests == []
 
     def test_plaintext_http_host_raises_on_cloud(self):
         # On cloud the bearer token must never go over plaintext http, even when the host passes the
         # SSRF check.
-        manager = FakeManager()
-        connection = HatchetConnection(base_url="http://cloud.example", tenant_id="tenant-1")
-
         with (
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._is_host_safe",
@@ -194,39 +155,28 @@ class TestGetRows:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.is_cloud",
                 return_value=True,
             ),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._fetch_page",
-            ) as fetch,
         ):
-            with pytest.raises(HatchetHostNotAllowedError):
-                _collect(get_rows("tok", connection, "workflow_runs", logger, manager, team_id=1))  # type: ignore[arg-type]
+            result = self._driver("http://cloud.example").run("workflow_runs", [])
 
-        fetch.assert_not_called()
+        assert isinstance(result.raised, HatchetHostNotAllowedError)
+        assert result.requests == []
 
     def test_session_disables_redirects_and_redacts_token(self):
         # The bearer token is sent to a user-controlled host, so the session must never follow a
         # redirect off it and must redact the token from captured samples/logs. Response bodies
         # carry opaque workflow payloads, so they must also be excluded from HTTP sample capture.
-        manager = FakeManager()
         page = {"rows": [_row("a")], "pagination": {"current_page": 1, "num_pages": 1}}
+        driver = self._driver()
+        result = driver.run("workflow_runs", [ScriptedResponse(json=page)])
 
-        with (
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.make_tracked_session"
-            ) as session,
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._fetch_page",
-                return_value=page,
-            ),
-        ):
-            _collect(get_rows("tok", self._connection(), "workflow_runs", logger, manager, team_id=1))  # type: ignore[arg-type]
-
-        assert session.call_args.kwargs["allow_redirects"] is False
-        assert session.call_args.kwargs["redact_values"] == ("tok",)
-        assert session.call_args.kwargs["capture"] is False
+        assert result.raised is None
+        assert result.session_options[0]["allow_redirects"] is False
+        assert result.session_options[0]["redact_values"] == (
+            _make_token({"sub": "tenant-1", "server_url": "https://cloud.example"}),
+        )
+        assert result.session_options[0]["capture"] is False
 
     def test_fan_out_tags_child_rows_with_parent_run_and_skips_purged_runs(self):
-        manager = FakeManager()
         parent_page = {
             "rows": [
                 {"metadata": {"id": "run-1", "createdAt": "2026-06-01T00:00:00Z", "updatedAt": "2026-06-01T00:00:00Z"}},
@@ -240,36 +190,32 @@ class TestGetRows:
             ],
             "pagination": {"current_page": 1, "num_pages": 1},
         }
-        child_pages = {
-            "/api/v1/stable/workflow-runs/run-1/task-events": {
-                "rows": [
-                    {"id": 1, "taskId": "task-a", "eventType": "STARTED", "timestamp": "2026-06-01T00:00:01Z"},
-                    {"id": 2, "taskId": "task-a", "eventType": "FINISHED", "timestamp": "2026-06-01T00:00:02Z"},
-                ],
-                "pagination": {},
-            },
-            "/api/v1/stable/workflow-runs/run-gone/task-events": None,
-        }
-        captured_urls: list[str] = []
+        result = self._driver().run(
+            "task_events",
+            [
+                ScriptedResponse(json=parent_page),
+                ScriptedResponse(
+                    json={
+                        "rows": [
+                            {"id": 1, "taskId": "task-a", "eventType": "STARTED", "timestamp": "2026-06-01T00:00:01Z"},
+                            {"id": 2, "taskId": "task-a", "eventType": "FINISHED", "timestamp": "2026-06-01T00:00:02Z"},
+                        ],
+                        "pagination": {},
+                    }
+                ),
+                ScriptedResponse(status=404),
+            ],
+            should_use_incremental_field=True,
+        )
 
-        def fake_fetch(session, url, headers, log, allow_not_found=False):
-            captured_urls.append(url)
-            path = url.removeprefix("https://cloud.example").split("?")[0]
-            if path in child_pages:
-                assert allow_not_found is True
-                return child_pages[path]
-            return parent_page
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._fetch_page",
-            side_effect=fake_fetch,
-        ):
-            rows = _collect(
-                get_rows("tok", self._connection(), "task_events", logger, manager, 1, True, None)  # type: ignore[arg-type]
-            )
-
-        assert "/api/v1/stable/tenants/tenant-1/workflow-runs?" in captured_urls[0]
-        assert "include_payloads=false" in captured_urls[0]
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v1/stable/tenants/tenant-1/workflow-runs",
+            "/api/v1/stable/workflow-runs/run-1/task-events",
+            "/api/v1/stable/workflow-runs/run-gone/task-events",
+        ]
+        assert result.requests[0].param("include_payloads") == "false"
+        rows = _collect(result.items)
         assert [(r["id"], r["workflow_run_id"], r["workflow_run_created_at"]) for r in rows] == [
             (1, "run-1", "2026-06-01T00:00:00Z"),
             (2, "run-1", "2026-06-01T00:00:00Z"),
@@ -298,28 +244,23 @@ class TestValidateCredentials:
     )
     def test_status_mapping(self, status_code, expected_valid):
         token = _make_token({"sub": "tenant-1", "server_url": "https://cloud.example"})
-        response = mock.MagicMock()
-        response.status_code = status_code
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.make_tracked_session"
-        ) as session:
-            session.return_value.get.return_value = response
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             valid, message = validate_credentials(token, None, None)
 
         assert valid is expected_valid
         if not expected_valid:
             assert message
+        assert network.requests_log[0].path == "/api/v1/stable/tenants/tenant-1/events/keys"
+        assert network.requests_log[0].headers["authorization"] == f"Bearer {token}"
 
     def test_undecodable_token_fails_without_network_call(self):
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.make_tracked_session"
-        ) as session:
+        with scripted_network([]) as network:
             valid, message = validate_credentials("garbage", None, None)
 
         assert valid is False
         assert message
-        session.assert_not_called()
+        assert network.requests_log == []
+        assert network.session_options == []
 
     def test_unsafe_host_fails_before_network_call(self):
         # A host resolving to an internal address must be rejected before the token is ever sent.
@@ -330,15 +271,14 @@ class TestValidateCredentials:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet._is_host_safe",
                 return_value=(False, "Hosts with internal IP addresses are not allowed"),
             ),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.make_tracked_session"
-            ) as session,
+            scripted_network([]) as network,
         ):
             valid, message = validate_credentials(token, None, None, team_id=99)
 
         assert valid is False
         assert message
-        session.assert_not_called()
+        assert network.requests_log == []
+        assert network.session_options == []
 
     def test_plaintext_http_host_fails_on_cloud(self):
         # On cloud, a plaintext http host must be rejected before the token is sent — even when the
@@ -354,12 +294,11 @@ class TestValidateCredentials:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.is_cloud",
                 return_value=True,
             ),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet.make_tracked_session"
-            ) as session,
+            scripted_network([]) as network,
         ):
             valid, message = validate_credentials(token, None, None, team_id=99)
 
         assert valid is False
         assert message
-        session.assert_not_called()
+        assert network.requests_log == []
+        assert network.session_options == []

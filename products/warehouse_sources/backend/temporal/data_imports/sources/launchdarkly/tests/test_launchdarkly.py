@@ -1,76 +1,37 @@
-import json
 from typing import Any
 
 import pytest
-from unittest import mock
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.launchdarkly import (
+    LaunchDarklySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly import (
     API_HOST,
     BASE_URL,
     LaunchDarklyResumeConfig,
     _resolve_url,
-    launchdarkly_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.settings import (
     ENDPOINTS,
     LAUNCHDARKLY_ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the launchdarkly module.
-LD_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.source import LaunchDarklySource
 
 
-def _make_manager(resume_state: LaunchDarklyResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(LaunchDarklySource(), LaunchDarklySourceConfig(access_token="token"))
 
 
-def _response(items: list[dict[str, Any]], next_href: str | None = None, status_code: int = 200) -> Response:
-    links: dict[str, Any] = {}
-    if next_href:
-        links["next"] = {"href": next_href}
-    resp = Response()
-    resp.status_code = status_code
-    resp.url = f"{BASE_URL}/members"
-    resp._content = json.dumps({"items": items, "_links": links}).encode()
-    return resp
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session; capture each request's URL and params AT SEND TIME.
-
-    The paginator mutates ``request.url``/``request.params`` in place across pages, so a copy is
-    snapshotted when each request is prepared.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock):
-    return launchdarkly_source("token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+def _page(items: list[dict[str, Any]], next_href: str | None = None) -> ScriptedResponse:
+    links = {"next": {"href": next_href}} if next_href else {}
+    return ScriptedResponse(json={"items": items, "_links": links})
 
 
 class TestUrlHelpers:
@@ -81,147 +42,114 @@ class TestUrlHelpers:
             ("https://app.launchdarkly.com/api/v2/members?offset=40", f"{API_HOST}/api/v2/members?offset=40"),
         ],
     )
-    def test_resolve_url(self, href, expected):
+    def test_resolve_url(self, href: str, expected: str) -> None:
         assert _resolve_url(href) == expected
 
 
 class TestValidateCredentials:
-    @mock.patch(LD_SESSION_PATCH)
-    def test_returns_none_on_exception(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("api-token") is None
+    def test_returns_none_on_exception(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            assert validate_credentials("api-token") is None
+
+        assert {request.path for request in network.requests_log} == {"/api/v2/caller-identity"}
 
 
 class TestGetRowsTopLevel:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_links_next(self, mock_session):
-        session = mock_session.return_value
-        snaps = _wire(
-            session,
-            [
-                _response([{"_id": "1"}, {"_id": "2"}], "/api/v2/members?limit=20&offset=20"),
-                _response([{"_id": "3"}], None),
-            ],
+    def test_paginates_via_links_next(self) -> None:
+        next_url = f"{API_HOST}/api/v2/members?limit=20&offset=20"
+        result = _driver().run(
+            "members",
+            [_page([{"_id": "1"}, {"_id": "2"}], "/api/v2/members?limit=20&offset=20"), _page([{"_id": "3"}])],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("members", manager))
-
-        assert [item["_id"] for item in rows] == ["1", "2", "3"]
+        assert result.raised is None
+        assert [item["_id"] for item in result.rows] == ["1", "2", "3"]
         # No project key injected for top-level endpoints.
-        assert all("_project_key" not in item for item in rows)
+        assert all("_project_key" not in item for item in result.rows)
         # First page targets the base path; second follows the (resolved) _links.next href.
-        assert snaps[0]["url"] == f"{BASE_URL}/members"
-        assert snaps[0]["params"]["limit"] == 20
-        assert snaps[1]["url"] == f"{API_HOST}/api/v2/members?limit=20&offset=20"
+        assert result.requests[0].path == "/api/v2/members"
+        assert result.requests[0].param("limit") == "20"
+        assert result.requests[1].url == next_url
         # One checkpoint, saved after the first page (points at the next URL); the last page saves none.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == LaunchDarklyResumeConfig(
-            next_url=f"{API_HOST}/api/v2/members?limit=20&offset=20"
+        assert result.saved_states == [LaunchDarklyResumeConfig(next_url=next_url)]
+
+    def test_resumes_from_saved_state(self) -> None:
+        resume_url = f"{API_HOST}/api/v2/members?limit=20&offset=80"
+        result = _driver().run(
+            "members", [_page([{"_id": "9"}])], resume_state=LaunchDarklyResumeConfig(next_url=resume_url)
         )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_state(self, mock_session):
-        session = mock_session.return_value
-        snaps = _wire(session, [_response([{"_id": "9"}], None)])
-
-        resume_url = f"{API_HOST}/api/v2/members?limit=20&offset=80"
-        manager = _make_manager(LaunchDarklyResumeConfig(next_url=resume_url))
-        _rows(_source("members", manager))
-
-        assert snaps[0]["url"] == resume_url
+        assert result.raised is None
+        assert result.urls == [resume_url]
 
 
 class TestGetRowsFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_iterates_projects_and_injects_project_key(self, mock_session):
-        session = mock_session.return_value
-        snaps = _wire(
-            session,
-            [
-                _response([{"key": "proj1"}, {"key": "proj2"}], None),
-                _response([{"_id": "e1"}], None),
-                _response([{"_id": "e2"}], None),
-            ],
+    def test_iterates_projects_and_injects_project_key(self) -> None:
+        result = _driver().run(
+            "environments",
+            [_page([{"key": "proj1"}, {"key": "proj2"}]), _page([{"_id": "e1"}]), _page([{"_id": "e2"}])],
         )
 
-        rows = _rows(_source("environments", _make_manager()))
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"_id": "e1", "_project_key": "proj1"},
             {"_id": "e2", "_project_key": "proj2"},
         ]
-        urls = [snap["url"] for snap in snaps]
-        assert urls[0] == f"{BASE_URL}/projects"
-        assert urls[1] == f"{BASE_URL}/projects/proj1/environments"
-        assert urls[2] == f"{BASE_URL}/projects/proj2/environments"
+        assert result.paths == [
+            "/api/v2/projects",
+            "/api/v2/projects/proj1/environments",
+            "/api/v2/projects/proj2/environments",
+        ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_midproject_uses_saved_url(self, mock_session):
-        session = mock_session.return_value
+    def test_resume_midproject_uses_saved_url(self) -> None:
         resume_url = f"{BASE_URL}/projects/proj1/environments?limit=20&offset=20"
-        snaps = _wire(
-            session,
-            [
-                _response([{"key": "proj1"}, {"key": "proj2"}], None),
-                _response([{"_id": "e1b"}], None),
-                _response([{"_id": "e2"}], None),
-            ],
-        )
-        manager = _make_manager(
-            LaunchDarklyResumeConfig(
+        result = _driver().run(
+            "environments",
+            [_page([{"key": "proj1"}, {"key": "proj2"}]), _page([{"_id": "e1b"}]), _page([{"_id": "e2"}])],
+            resume_state=LaunchDarklyResumeConfig(
                 fanout_state={
                     "completed": [],
                     "current": "/projects/proj1/environments",
                     "child_state": {"next_url": resume_url},
                 }
-            )
+            ),
         )
 
-        _rows(_source("environments", manager))
-
-        urls = [snap["url"] for snap in snaps]
-        assert urls == [
-            f"{BASE_URL}/projects",
-            resume_url,
-            f"{BASE_URL}/projects/proj2/environments",
-        ]
+        assert result.raised is None
+        assert result.requests[0].path == "/api/v2/projects"
+        assert result.requests[1].url == resume_url
+        assert result.requests[2].path == "/api/v2/projects/proj2/environments"
 
 
 class TestGetRowsEnvironmentFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_iterates_environments_of_every_project_and_injects_both_keys(self, mock_session):
-        session = mock_session.return_value
-        snaps = _wire(
-            session,
+    def test_iterates_environments_of_every_project_and_injects_both_keys(self) -> None:
+        next_url = f"{API_HOST}/api/v2/segments/proj1/prod?limit=20&offset=20&sort=creationDate"
+        result = _driver().run(
+            "segments",
             [
-                _response([{"key": "proj1"}], None),
-                _response([{"key": "prod"}, {"key": "dev"}], None),
-                _response([{"key": "s1"}], "/api/v2/segments/proj1/prod?limit=20&offset=20&sort=creationDate"),
-                _response([{"key": "s2"}], None),
-                _response([{"key": "s3"}], None),
+                _page([{"key": "proj1"}]),
+                _page([{"key": "prod"}, {"key": "dev"}]),
+                _page([{"key": "s1"}], "/api/v2/segments/proj1/prod?limit=20&offset=20&sort=creationDate"),
+                _page([{"key": "s2"}]),
+                _page([{"key": "s3"}]),
             ],
         )
 
-        rows = _rows(_source("segments", _make_manager()))
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"key": "s1", "_environment_key": "prod", "_project_key": "proj1"},
             {"key": "s2", "_environment_key": "prod", "_project_key": "proj1"},
             {"key": "s3", "_environment_key": "dev", "_project_key": "proj1"},
         ]
-        assert [snap["url"] for snap in snaps] == [
-            f"{BASE_URL}/projects",
-            f"{BASE_URL}/projects/proj1/environments",
-            f"{BASE_URL}/segments/proj1/prod",
-            f"{API_HOST}/api/v2/segments/proj1/prod?limit=20&offset=20&sort=creationDate",
-            f"{BASE_URL}/segments/proj1/dev",
-        ]
-        assert snaps[2]["params"] == {"limit": 20, "sort": "creationDate"}
+        assert result.requests[0].path == "/api/v2/projects"
+        assert result.requests[1].path == "/api/v2/projects/proj1/environments"
+        assert result.requests[2].path == "/api/v2/segments/proj1/prod"
+        assert result.requests[3].url == next_url
+        assert result.requests[4].path == "/api/v2/segments/proj1/dev"
+        assert result.requests[2].param("limit") == "20"
+        assert result.requests[2].param("sort") == "creationDate"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_flag_statuses_take_flag_key_from_self_link(self, mock_session):
-        session = mock_session.return_value
+    def test_flag_statuses_take_flag_key_from_self_link(self) -> None:
         status = {
             "name": "inactive",
             "_links": {
@@ -229,75 +157,54 @@ class TestGetRowsEnvironmentFanout:
                 "self": {"href": "/api/v2/flag-statuses/proj1/prod/my-flag"},
             },
         }
-        snaps = _wire(
-            session,
-            [
-                _response([{"key": "proj1"}], None),
-                _response([{"key": "prod"}], None),
-                _response([status], None),
-            ],
-        )
+        result = _driver().run("flag_statuses", [_page([{"key": "proj1"}]), _page([{"key": "prod"}]), _page([status])])
 
-        rows = _rows(_source("flag_statuses", _make_manager()))
-
-        assert [(row["_flag_key"], row["_project_key"], row["_environment_key"]) for row in rows] == [
+        assert result.raised is None
+        assert [(row["_flag_key"], row["_project_key"], row["_environment_key"]) for row in result.rows] == [
             ("my-flag", "proj1", "prod")
         ]
-        assert snaps[2]["url"] == f"{BASE_URL}/flag-statuses/proj1/prod"
-        assert snaps[2]["params"] == {}
+        assert result.requests[2].path == "/api/v2/flag-statuses/proj1/prod"
+        assert result.requests[2].param("limit") is None
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_completed_environments(self, mock_session):
-        session = mock_session.return_value
+    def test_resume_skips_completed_environments(self) -> None:
         resume_url = f"{BASE_URL}/projects/proj1/environments/dev/holdouts?limit=20&offset=20"
-        snaps = _wire(
-            session,
-            [
-                _response([{"key": "proj1"}], None),
-                _response([{"key": "prod"}, {"key": "dev"}], None),
-                _response([{"_id": "h2"}], None),
-            ],
-        )
-        manager = _make_manager(
-            LaunchDarklyResumeConfig(
+        result = _driver().run(
+            "holdouts",
+            [_page([{"key": "proj1"}]), _page([{"key": "prod"}, {"key": "dev"}]), _page([{"_id": "h2"}])],
+            resume_state=LaunchDarklyResumeConfig(
                 fanout_state={
                     "completed": ["/projects/proj1/environments/prod/holdouts"],
                     "current": "/projects/proj1/environments/dev/holdouts",
                     "child_state": {"next_url": resume_url},
                 }
-            )
+            ),
         )
 
-        rows = _rows(_source("holdouts", manager))
-
-        assert rows == [{"_id": "h2", "_environment_key": "dev", "_project_key": "proj1"}]
-        assert [snap["url"] for snap in snaps] == [
-            f"{BASE_URL}/projects",
-            f"{BASE_URL}/projects/proj1/environments",
-            resume_url,
-        ]
+        assert result.raised is None
+        assert result.rows == [{"_id": "h2", "_environment_key": "dev", "_project_key": "proj1"}]
+        assert result.requests[0].path == "/api/v2/projects"
+        assert result.requests[1].path == "/api/v2/projects/proj1/environments"
+        assert result.requests[2].url == resume_url
 
 
 class TestRetryAndErrors:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_4xx_raises(self, mock_session):
-        session = mock_session.return_value
-        _wire(session, [_response([], None, status_code=403)])
+    def test_4xx_raises(self) -> None:
+        result = _driver().run("members", [ScriptedResponse(status=403, json={"items": []})])
 
-        with pytest.raises(Exception, match="403 Client Error"):
-            _rows(_source("members", _make_manager()))
+        assert isinstance(result.raised, Exception)
+        assert "403 Client Error" in str(result.raised)
 
 
 class TestLaunchDarklySourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, mock_session, endpoint):
-        mock_session.return_value.headers = {}
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = LAUNCHDARKLY_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
+        result = _driver().run(endpoint, always(_page([])))
 
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_key
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == config.primary_key
         # Partitioning is intentionally off (epoch-ms timestamps).
-        assert response.partition_mode is None
-        assert response.partition_keys is None
+        assert result.response.partition_mode is None
+        assert result.response.partition_keys is None

@@ -23,7 +23,7 @@ from .config_setup import (
     setup_incremental_object,
 )
 from .jsonpath_utils import TJsonPath
-from .paginators import BasePaginator
+from .paginators import BasePaginator, set_json_param
 from .resource import PageCheckpoints, Resource
 from .rest_client import DEFAULT_RETRY_ATTEMPTS, DEFAULT_RETRY_BACKOFF_MAX_SECONDS, RESTClient, RESTClientRetryableError
 from .typing import ClientConfig, Endpoint, EndpointResource, HTTPMethodBasic, ResolvedParam, RESTAPIConfig
@@ -191,8 +191,9 @@ def _make_paginate_dependent_resource(
         page_rows = 0
 
         if incremental_object:
-            params = _set_incremental_params(
+            params, _ = _set_incremental_params(
                 params,
+                None,
                 incremental_object,
                 incremental_param,
                 incremental_cursor_transform,
@@ -339,6 +340,11 @@ def create_resources(
             incremental_param,
             incremental_cursor_transform,
         ) = setup_incremental_object(request_params, endpoint_config.get("incremental"))
+        # A dependent resource sends no request body, so a JSON-body cursor would be silently dropped.
+        if resolved_params and incremental_param is not None and incremental_param.location == "json":
+            raise ValueError(
+                f"Resource {resource_name} depends on another resource, so its incremental cursor can't go in the JSON body"
+            )
 
         client = RESTClient(
             base_url=client_config.get("base_url"),
@@ -424,8 +430,9 @@ def create_resources(
                 ),
             ) -> Iterator[list[Any]]:
                 if incremental_object:
-                    params = _set_incremental_params(
+                    params, json = _set_incremental_params(
                         params,
+                        json,
                         incremental_object,
                         incremental_param,
                         incremental_cursor_transform,
@@ -523,11 +530,12 @@ def create_resources(
 
 def _set_incremental_params(
     params: dict[str, Any],
+    json: Optional[dict[str, Any]],
     incremental_object: Incremental,
     incremental_param: Optional[IncrementalParam],
     transform: Optional[Callable[..., Any]],
     db_incremental_field_last_value: Optional[Any] = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
     def identity_func(x: Any) -> Any:
         return x
 
@@ -535,7 +543,7 @@ def _set_incremental_params(
         transform = identity_func
 
     if incremental_param is None:
-        return params
+        return params, json
 
     last_value = (
         db_incremental_field_last_value
@@ -543,7 +551,15 @@ def _set_incremental_params(
         else incremental_object.last_value
     )
 
-    params[incremental_param.start] = transform(last_value)
+    values = {incremental_param.start: transform(last_value)}
     if incremental_param.end:
-        params[incremental_param.end] = transform(incremental_object.end_value)
-    return params
+        values[incremental_param.end] = transform(incremental_object.end_value)
+
+    if incremental_param.location == "json":
+        if json is None:
+            json = {}
+        for name, value in values.items():
+            set_json_param(json, name, value)
+    else:
+        params.update(values)
+    return params, json

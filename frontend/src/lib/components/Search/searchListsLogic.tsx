@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -29,6 +30,7 @@ import { Setting, SettingSection, SettingSectionId } from '~/scenes/settings/typ
 import { ActivityTab, IntegrationType, UserType } from '~/types'
 
 import { SearchItem, fileSystemEntryToSearchItem } from './searchItems'
+import { SEARCH_TAB_CATEGORY } from './utils'
 
 const isEnabledByFlag = (flag: string | undefined, featureFlags: FeatureFlagsSet): boolean =>
     !flag || !!(featureFlags as Record<string, boolean>)[flag]
@@ -48,7 +50,7 @@ const toSearchTabItems = (
                 id: `${parent.id}-tab-${tab.name}`,
                 name: `${displayNameOf(parent)} ${tab.name}`,
                 displayName: tab.name,
-                category: parent.category,
+                category: SEARCH_TAB_CATEGORY,
                 parentName: displayNameOf(parent),
                 href: tab.href,
                 itemType: parent.itemType,
@@ -252,7 +254,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     if (!isDev && !user?.is_staff && product.category === 'Unreleased') {
                         return false
                     }
-                    if (!isEnabledByFlag(product.flag, featureFlags)) {
+                    if (!isFileSystemImportFlagEnabled(product, featureFlags)) {
                         return false
                     }
                     return true
@@ -309,7 +311,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
-                    if (!isEnabledByFlag(item.flag, featureFlags)) {
+                    if (!isFileSystemImportFlagEnabled(item, featureFlags)) {
                         return false
                     }
                     return true
@@ -358,7 +360,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
-                    if (!isEnabledByFlag(item.flag, featureFlags)) {
+                    if (!isFileSystemImportFlagEnabled(item, featureFlags)) {
                         return false
                     }
                     return true

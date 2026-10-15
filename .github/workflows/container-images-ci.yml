@@ -20,16 +20,16 @@ jobs:
             contents: read
             pull-requests: read
         outputs:
-            # The image is only consumed by ci-hobby.yml. Skip the long image build
-            # when ci-hobby would also skip, plus on changes to inputs that can
-            # only break inside the Docker build (workflow self-edits, frontend
-            # lockfile bumps that ci-hobby's filter ignores).
+            # Build for Hobby on PRs. In the merge queue, also check inputs that
+            # can break inside the Docker build, including frontend source.
             should_build: >-
                 ${{
                     steps.filter.outputs.hobby == 'true'
-                    || steps.filter.outputs.build_inputs == 'true'
+                    || (startsWith(github.head_ref, 'trunk-merge/') && steps.filter.outputs.build_inputs == 'true')
                     || contains(github.event.pull_request.labels.*.name, 'hobby-preview')
+                    || steps.filter.outputs.dagster_ml == 'true'
                 }}
+            dagster_ml_changed: ${{ steps.filter.outputs.dagster_ml }}
             dockerignore_changed: ${{ steps.filter.outputs.dockerignore }}
             # Drives the Dockerfile lint job: a boolean plus the shell-escaped, space-separated
             # list of changed Dockerfiles to hand straight to hadolint.
@@ -79,12 +79,10 @@ jobs:
                         - uv.lock
                         - .github/workflows/ci-hobby.yml
                       # Inputs that can break inside the Docker build but aren't covered
-                      # by the `hobby:` filter — workflow self-edits, `.dockerignore`
-                      # (silently changes the build context), and `pnpm-lock.yaml` so
-                      # Renovate-style dep bumps are exercised on PR (otherwise they'd
-                      # only fail after merging). Root `package.json` carries the
-                      # `packageManager` pin the image seeds corepack from, and a pin-only
-                      # edit leaves the lockfile untouched.
+                      # by the `hobby:` filter. The merge queue checks these before
+                      # merging. Root `package.json` carries the `packageManager` pin
+                      # the image seeds corepack from, and a pin-only edit leaves the
+                      # lockfile untouched.
                       build_inputs:
                         - .github/workflows/container-images-ci.yml
                         - .github/workflows/container-images-label-ci.yml
@@ -92,6 +90,37 @@ jobs:
                         - .dockerignore
                         - pnpm-lock.yaml
                         - package.json
+                        - pnpm-workspace.yaml
+                        - tsconfig.json
+                        - turbo.json
+                        - bin/turbo
+                        - patches/**
+                        - frontend/**
+                        - products/**/frontend/**
+                        - products/**/*.ts
+                        - products/**/*.tsx
+                        - products/**/*.json
+                        - '!products/desktop/**'
+                        - common/esbuilder/**
+                        - common/hogvm/typescript/**
+                        - common/replay-shared/**
+                        - common/tailwind/**
+                        - packages/quill/**
+                        - packages/llm-normalizer/**
+                        - packages/agent/packages/agent-contracts/src/**
+                        - docs/onboarding/**
+                        - '!products/**/*.test.*'
+                        - '!products/**/*.spec.*'
+                        - '!products/**/*.stories.*'
+                        - '!frontend/src/**/*.test.*'
+                        - '!frontend/src/**/*.spec.*'
+                        - '!frontend/src/**/*.stories.*'
+                      # The Dagster ML image is the main image plus the inbox-ranking group, so
+                      # validating it needs the main image build of this PR too.
+                      dagster_ml:
+                        - Dockerfile
+                        - Dockerfile.dagster-ml
+                        - uv.lock
                       # Drives the fast PR-time guard below (models `COPY . .`, so it only reacts
                       # to .dockerignore — Dockerfile COPY changes are covered by the image boot check).
                       dockerignore:
@@ -147,15 +176,16 @@ jobs:
               uses: ./.github/actions/build-n-cache-image
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-                  push-image: ${{ github.repository == 'PostHog/posthog' }} # Don't push on forks due to lack of credentials
+                  push-image: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
                   # PR-only publish role: any branch, but can ONLY push to posthog-cloud-prs (not posthog-cloud).
                   aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
-                  pr-number: ${{ github.event.number }}
+                  pr-number: ${{ !startsWith(github.head_ref, 'trunk-merge/') && github.event.number || '' }}
                   no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
 
             - name: Container image digest
+              if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
               env:
                   IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
                   IMAGE_REGISTRY: ${{ steps.build.outputs.registry }}
@@ -169,6 +199,46 @@ jobs:
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- Digest: \`$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
+
+    # Validates Dockerfile.dagster-ml on the image this PR built. It builds but never pushes, and
+    # skips in the merge queue, where posthog_build pushes no image to build from.
+    dagster_ml_build:
+        needs: [changes, posthog_build]
+        name: Build Dagster ML image
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 30
+        permissions:
+            id-token: write
+            contents: read
+        if: needs.changes.outputs.dagster_ml_changed == 'true' && needs.posthog_build.outputs.digest != '' && !startsWith(github.head_ref, 'trunk-merge/')
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            # Pull-only use of the PR role: the base image lives in posthog-cloud-prs.
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
+            - name: Build Dagster ML image
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: .
+                  file: ./Dockerfile.dagster-ml
+                  buildx-fallback: false
+                  push: false
+                  platforms: linux/amd64,linux/arm64
+                  build-args: |
+                      BASE_IMAGE=${{ steps.aws-ecr.outputs.registry }}/posthog-cloud-prs@${{ needs.posthog_build.outputs.digest }}
 
     lint:
         needs: changes

@@ -3,36 +3,46 @@ from datetime import date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
 
 import requests
 from parameterized import parameterized
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opencorporates import (
+    OpencorporatesSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.opencorporates.opencorporates import (
     OpencorporatesResumeConfig,
     _format_incremental_filter,
-    opencorporates_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the opencorporates module.
-OPENCORPORATES_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.opencorporates.opencorporates.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.opencorporates.source import OpencorporatesSource
 
 
-def _companies_page(companies: list[dict[str, Any]], *, page: int, total_pages: int) -> Response:
-    return _response(
-        {"results": {"companies": [{"company": c} for c in companies], "page": page, "total_pages": total_pages}}
+def _driver(*, jurisdiction_code: str | None = None) -> SourceDriver:
+    return SourceDriver(
+        OpencorporatesSource(),
+        OpencorporatesSourceConfig(api_token="supersecret", query="acme", jurisdiction_code=jurisdiction_code),
     )
 
 
-def _officers_page(officers: list[dict[str, Any]], *, drop_total_pages: bool = False) -> Response:
+def _companies_page(companies: list[dict[str, Any]], *, page: int, total_pages: int) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"results": {"companies": [{"company": c} for c in companies], "page": page, "total_pages": total_pages}}
+    )
+
+
+def _officers_page(officers: list[dict[str, Any]], *, drop_total_pages: bool = False) -> ScriptedResponse:
     results: dict[str, Any] = {"officers": [{"officer": o} for o in officers]}
     if not drop_total_pages:
         results["total_pages"] = 1
-    return _response({"results": results})
+    return ScriptedResponse(json={"results": results})
 
 
 def _response(body: Any, *, status: int = 200, reason: str = "OK") -> Response:
@@ -43,57 +53,6 @@ def _response(body: Any, *, status: int = 200, reason: str = "OK") -> Response:
     resp.headers["Content-Type"] = "application/json"
     resp.url = "https://api.opencorporates.com/v0.4/companies/search?api_token=supersecret&page=1"
     return resp
-
-
-def _make_manager(resume_state: OpencorporatesResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and snapshot each request's params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(
-    endpoint: str = "Companies",
-    manager: mock.MagicMock | None = None,
-    *,
-    query: str = "acme",
-    jurisdiction_code: str | None = None,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Any:
-    return opencorporates_source(
-        "supersecret",
-        query,
-        jurisdiction_code,
-        endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager or _make_manager(),
-        should_use_incremental_field=should_use_incremental_field,
-        db_incremental_field_last_value=db_incremental_field_last_value,
-    )
 
 
 class TestCursorFormatting:
@@ -109,79 +68,63 @@ class TestCursorFormatting:
 
 
 class TestCompaniesPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_total_pages_reached(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_paginates_until_total_pages_reached(self) -> None:
         page1 = [{"company_number": f"{i}", "jurisdiction_code": "gb"} for i in range(100)]
         page2 = [{"company_number": f"{i}", "jurisdiction_code": "gb"} for i in range(100, 150)]
-        params = _wire(
-            session,
+        result = _driver().run(
+            "Companies",
             [_companies_page(page1, page=1, total_pages=2), _companies_page(page2, page=2, total_pages=2)],
         )
 
-        rows = _rows(_source("Companies"))
+        assert result.raised is None
+        assert len(result.rows) == 150
+        assert result.params("page") == ["1", "2"]
+        assert len(result.requests) == 2
 
-        assert len(rows) == 150
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session, [_companies_page([{"company_number": "1", "jurisdiction_code": "gb"}], page=3, total_pages=3)]
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run(
+            "Companies",
+            [_companies_page([{"company_number": "1", "jurisdiction_code": "gb"}], page=3, total_pages=3)],
+            resume_state=OpencorporatesResumeConfig(next_page=3),
         )
 
-        _rows(_source("Companies", manager=_make_manager(OpencorporatesResumeConfig(next_page=3))))
-
         # The first request must start from the persisted page, not page 1.
-        assert params[0]["page"] == 3
+        assert result.raised is None
+        assert result.params("page") == ["3"]
 
 
 class TestRequestParams:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_jurisdiction_code_is_passed_when_set(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_companies_page([], page=1, total_pages=0)])
+    def test_jurisdiction_code_is_passed_when_set(self) -> None:
+        result = _driver(jurisdiction_code="gb").run("Companies", [_companies_page([], page=1, total_pages=0)])
 
-        _rows(_source("Companies", jurisdiction_code="gb"))
+        assert result.raised is None
+        assert result.requests[0].param("jurisdiction_code") == "gb"
 
-        assert params[0]["jurisdiction_code"] == "gb"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_passes_open_ended_updated_at_range_and_order(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_companies_page([], page=1, total_pages=0)])
-
-        _rows(
-            _source(
-                "Companies",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 15, 8, 0),
-            )
+    def test_incremental_passes_open_ended_updated_at_range_and_order(self) -> None:
+        result = _driver().run(
+            "Companies",
+            [_companies_page([], page=1, total_pages=0)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 15, 8, 0),
         )
 
-        assert params[0]["updated_at"] == "2026-01-15:"
-        assert params[0]["order"] == "updated_at"
+        assert result.raised is None
+        assert result.requests[0].param("updated_at") == "2026-01-15:"
+        assert result.requests[0].param("order") == "updated_at"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_officers_never_sends_incremental_filter(self, MockSession) -> None:
+    def test_officers_never_sends_incremental_filter(self) -> None:
         # officers/search has no documented date filter, so it must stay full refresh even if the
         # caller passes a watermark (defensive against a future config wiring bug).
-        session = MockSession.return_value
-        params = _wire(session, [_officers_page([])])
-
-        _rows(
-            _source(
-                "Officers",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 15),
-            )
+        result = _driver().run(
+            "Officers",
+            [_officers_page([])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 15),
         )
 
-        assert "updated_at" not in params[0]
-        assert "order" not in params[0]
+        assert result.raised is None
+        assert result.requests[0].param("updated_at") is None
+        assert result.requests[0].param("order") is None
 
 
 class TestPageCap:
@@ -195,7 +138,15 @@ class TestPageCap:
 
         with caplog.at_level("INFO"):
             paginator.update_state(
-                _companies_page([{"company_number": "1", "jurisdiction_code": "gb"}], page=100, total_pages=500),
+                _response(
+                    {
+                        "results": {
+                            "companies": [{"company": {"company_number": "1", "jurisdiction_code": "gb"}}],
+                            "page": 100,
+                            "total_pages": 500,
+                        }
+                    }
+                ),
                 data=[{}],
             )
 
@@ -211,21 +162,16 @@ class TestHttpErrors:
             ("forbidden", 403, "Forbidden"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_permanent_status_raises_without_leaking_token(
-        self, _name: str, status: int, reason: str, MockSession
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"error": {"message": "bad"}}, status=status, reason=reason)])
-
-        with pytest.raises(requests.HTTPError) as exc:
-            _rows(_source("Companies"))
+    def test_permanent_status_raises_without_leaking_token(self, _name: str, status: int, reason: str) -> None:
+        result = _driver().run("Companies", [ScriptedResponse(status=status, json={"error": {"message": "bad"}})])
 
         # The api_token rides in the query string, so it must be redacted out of the error message
         # that becomes the user-visible `latest_error`.
-        assert str(status) in str(exc.value)
-        assert "supersecret" not in str(exc.value)
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert str(status) in str(result.raised)
+        assert reason in str(result.raised)
+        assert "supersecret" not in str(result.raised)
+        assert len(result.requests) == 1
 
 
 class TestSourceResponse:
@@ -238,7 +184,12 @@ class TestSourceResponse:
     def test_source_response_keys_and_partitioning(
         self, endpoint: str, expected_keys: list[str], expected_partition: str | None
     ) -> None:
-        response = _source(endpoint)
+        script = [_companies_page([], page=1, total_pages=0)] if endpoint == "Companies" else [_officers_page([])]
+        result = _driver().run(endpoint, script)
+
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         assert response.sort_mode == "desc"
@@ -259,22 +210,22 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
-        response = mock.MagicMock()
-        response.status_code = status
-        session = mock.MagicMock()
-        session.get.return_value = response
-        with mock.patch(OPENCORPORATES_SESSION_PATCH, return_value=session):
+        script = always(ScriptedResponse(status=status)) if status == 500 else [ScriptedResponse(status=status)]
+        with scripted_network(script) as network:
             ok, message = validate_credentials("k")
+
         assert ok is expected
         if expected:
             assert message is None
         else:
             assert message
+        assert {request.path for request in network.requests_log} == {"/v0.4/account_status"}
+        assert network.requests_log[0].param("api_token") == "k"
 
     def test_handles_network_error(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch(OPENCORPORATES_SESSION_PATCH, return_value=session):
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
             ok, message = validate_credentials("k")
+
         assert ok is False
         assert message
+        assert {request.path for request in network.requests_log} == {"/v0.4/account_status"}

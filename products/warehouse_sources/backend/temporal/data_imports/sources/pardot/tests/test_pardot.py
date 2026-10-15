@@ -10,17 +10,25 @@ import requests
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pardot import PardotSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.pardot import (
     PardotPageTokenExpiredError,
     PardotQueryRejectedError,
     PardotResumeConfig,
     _build_query_params,
     _format_datetime,
-    get_rows,
     pardot_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.settings import PARDOT_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.source import PardotSource
 
 SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.pardot.pardot.make_tracked_session"
 REFRESH_PATCH = (
@@ -73,25 +81,22 @@ def _session(get_responses: list[Response]) -> mock.MagicMock:
     return session
 
 
-def _collect(
-    session: mock.MagicMock,
-    manager: FakeResumeManager,
-    endpoint: str = "prospects",
-    **kwargs: Any,
-) -> list[dict[str, Any]]:
-    with mock.patch(SESSION_PATCH, return_value=session):
-        pages = get_rows(
-            endpoint=endpoint,
-            api_version="v5",
-            resumable_source_manager=manager,
-            logger=mock.MagicMock(),
-            **{**CREDENTIALS, **kwargs},
-        )
-        return [row for page in pages for row in page]
-
-
-def _get_params(session: mock.MagicMock) -> list[dict[str, Any]]:
-    return [call.kwargs["params"] for call in session.get.call_args_list]
+def _drive(
+    endpoint: str,
+    script: Script,
+    *,
+    resume_state: PardotResumeConfig | None = None,
+    refresh_token: str | None = "refresh",
+    **inputs: Any,
+) -> DriveResult:
+    config = PardotSourceConfig(business_unit_id=CREDENTIALS["business_unit_id"], pardot_integration_id=7)
+    integration = mock.MagicMock(
+        access_token=CREDENTIALS["access_token"],
+        refresh_token=refresh_token,
+        config={"instance_url": CREDENTIALS["instance_url"]},
+    )
+    with mock.patch.object(PardotSource, "get_oauth_integration", return_value=integration):
+        return SourceDriver(PardotSource(), config).run(endpoint, script, resume_state=resume_state, **inputs)
 
 
 class TestFormatDatetime:
@@ -162,162 +167,173 @@ class TestFieldLists:
         assert write_only_field not in PARDOT_ENDPOINTS[endpoint].fields
 
     def test_a_refused_field_is_dropped_and_the_query_retried(self) -> None:
-        session = _session(
+        result = _drive(
+            "forms",
             [
-                _response(_refused_field_body("salesforceCmsId"), status_code=400),
-                _response({"values": [{"id": 1}], "nextPageToken": "t1"}),
-                _response({"values": [{"id": 2}]}),
-            ]
+                ScriptedResponse(status=400, json=_refused_field_body("salesforceCmsId")),
+                ScriptedResponse(json={"values": [{"id": 1}], "nextPageToken": "t1"}),
+                ScriptedResponse(json={"values": [{"id": 2}]}),
+            ],
         )
+        first, retried, paged = result.requests
 
-        rows = _collect(session, FakeResumeManager(), endpoint="forms")
-        first, retried, paged = _get_params(session)
-
-        assert [row["id"] for row in rows] == [1, 2]
-        assert "salesforceCmsId" in first["fields"].split(",")
-        assert "salesforceCmsId" not in retried["fields"].split(",")
-        assert paged["fields"] == retried["fields"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2]
+        assert "salesforceCmsId" in (first.param("fields") or "").split(",")
+        assert "salesforceCmsId" not in (retried.param("fields") or "").split(",")
+        assert paged.param("fields") == retried.param("fields")
+        assert result.saved_states == [PardotResumeConfig(next_page_token="t1")]
 
     def test_a_refused_primary_key_stops_the_endpoint(self) -> None:
-        session = _session([_response(_refused_field_body("id"), status_code=400)])
+        result = _drive("forms", [ScriptedResponse(status=400, json=_refused_field_body("id"))])
 
-        with pytest.raises(PardotQueryRejectedError):
-            _collect(session, FakeResumeManager(), endpoint="forms")
+        assert isinstance(result.raised, PardotQueryRejectedError)
 
 
 class TestResume:
     def test_expired_resume_token_restarts_the_endpoint(self) -> None:
-        session = _session(
+        result = _drive(
+            "prospects",
             [
-                _response({"code": 184, "message": "Invalid page token"}, status_code=400),
-                _response({"values": [{"id": 1}]}),
-            ]
+                ScriptedResponse(status=400, json={"code": 184, "message": "Invalid page token"}),
+                ScriptedResponse(json={"values": [{"id": 1}]}),
+            ],
+            resume_state=PardotResumeConfig(next_page_token="stale-token"),
         )
-        manager = FakeResumeManager(PardotResumeConfig(next_page_token="stale-token"))
 
-        rows = _collect(session, manager)
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1]
+        assert result.params("nextPageToken") == ["stale-token", None]
+        assert result.final_state is None
 
-        assert [row["id"] for row in rows] == [1]
-        assert manager.clear_count == 2  # once when the token is dropped, once on completion
-        assert "nextPageToken" not in _get_params(session)[1]
+        failed_restart = _drive(
+            "prospects",
+            [
+                ScriptedResponse(status=400, json={"code": 184, "message": "Invalid page token"}),
+                ScriptedResponse(status=400, json={"message": "Invalid request"}),
+            ],
+            resume_state=PardotResumeConfig(next_page_token="stale-token"),
+        )
+        assert isinstance(failed_restart.raised, PardotQueryRejectedError)
+        assert failed_restart.final_state is None
 
     def test_expired_token_mid_sync_is_not_swallowed(self) -> None:
-        session = _session(
+        result = _drive(
+            "prospects",
             [
-                _response({"values": [{"id": 1}], "nextPageToken": "t1"}),
-                _response({"message": "page token expired"}, status_code=400),
-            ]
+                ScriptedResponse(json={"values": [{"id": 1}], "nextPageToken": "t1"}),
+                ScriptedResponse(status=400, json={"message": "page token expired"}),
+            ],
         )
 
-        with pytest.raises(PardotPageTokenExpiredError):
-            _collect(session, FakeResumeManager())
+        assert isinstance(result.raised, PardotPageTokenExpiredError)
+        assert result.params("nextPageToken") == [None, "t1"]
+        assert result.saved_states == [PardotResumeConfig(next_page_token="t1")]
+        assert result.final_state is None
 
     def test_other_bad_requests_surface_the_reason_rather_than_restarting(self) -> None:
         # raise_for_status would store the 900-character request URL as the customer's error,
         # which says nothing about why v5 refused it.
-        session = _session(
+        result = _drive(
+            "prospects",
             [
-                _response(
-                    {"code": 51, "message": "Invalid parameter: Parameter updatedAtAfterOrEqualTo is invalid."},
-                    status_code=400,
+                ScriptedResponse(
+                    status=400,
+                    json={"code": 51, "message": "Invalid parameter: Parameter updatedAtAfterOrEqualTo is invalid."},
                 )
-            ]
+            ],
+            resume_state=PardotResumeConfig(next_page_token="saved-token"),
         )
-        manager = FakeResumeManager(PardotResumeConfig(next_page_token="saved-token"))
 
-        with pytest.raises(PardotQueryRejectedError) as exc_info:
-            _collect(session, manager)
-
-        assert "Parameter updatedAtAfterOrEqualTo is invalid" in str(exc_info.value)
+        assert isinstance(result.raised, PardotQueryRejectedError)
+        assert "Parameter updatedAtAfterOrEqualTo is invalid" in str(result.raised)
+        assert result.params("nextPageToken") == ["saved-token"]
+        assert result.final_state == PardotResumeConfig(next_page_token="saved-token")
 
 
 class TestAuth:
     def test_repeated_401_surfaces_the_error(self) -> None:
-        session = _session(
-            [
-                _response({"message": "Session expired"}, status_code=401),
-                _response({"message": "Session expired"}, status_code=401),
-            ]
-        )
+        responses = [ScriptedResponse(status=401, json={"message": "Session expired"})] * 2
 
-        with mock.patch(REFRESH_PATCH, return_value="refreshed"), pytest.raises(requests.HTTPError):
-            _collect(session, FakeResumeManager())
+        with mock.patch(REFRESH_PATCH, return_value="refreshed"):
+            result = _drive("prospects", responses)
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert [request.headers["authorization"] for request in result.requests] == [
+            "Bearer access",
+            "Bearer refreshed",
+        ]
 
     def test_401_without_a_refresh_token_asks_for_a_reconnect(self) -> None:
-        session = _session([_response({"message": "Session expired"}, status_code=401)])
+        result = _drive(
+            "prospects", [ScriptedResponse(status=401, json={"message": "Session expired"})], refresh_token=None
+        )
 
-        with pytest.raises(ValueError, match="Reconnect"):
-            _collect(session, FakeResumeManager(), refresh_token=None)
+        assert isinstance(result.raised, ValueError)
+        assert "Reconnect" in str(result.raised)
 
     def test_business_unit_header_and_secrets_redaction_are_wired(self) -> None:
-        session = _session([_response({"values": []})])
+        result = _drive("prospects", [ScriptedResponse(json={"values": []})])
 
-        with mock.patch(SESSION_PATCH, return_value=session) as make_session:
-            list(
-                get_rows(
-                    endpoint="prospects",
-                    api_version="v5",
-                    resumable_source_manager=FakeResumeManager(),
-                    logger=mock.MagicMock(),
-                    **CREDENTIALS,
-                )
-            )
-
-        kwargs = make_session.call_args.kwargs
+        assert result.raised is None
+        kwargs = result.session_options[0]
         assert kwargs["headers"]["Pardot-Business-Unit-Id"] == CREDENTIALS["business_unit_id"]
         assert set(kwargs["redact_values"]) == {CREDENTIALS["access_token"], CREDENTIALS["refresh_token"]}
 
     def test_unknown_environment_is_rejected(self) -> None:
-        with pytest.raises(ValueError):
-            list(
-                get_rows(
-                    **{**CREDENTIALS, "environment": "staging"},
-                    endpoint="prospects",
-                    api_version="v5",
-                    resumable_source_manager=FakeResumeManager(),
-                    logger=mock.MagicMock(),
-                )
-            )
+        config = PardotSourceConfig(
+            business_unit_id=CREDENTIALS["business_unit_id"],
+            pardot_integration_id=7,
+            environment="staging",  # type: ignore[arg-type]
+        )
+        with mock.patch.object(
+            PardotSource, "get_oauth_integration", return_value=mock.MagicMock(access_token="access")
+        ):
+            result = SourceDriver(PardotSource(), config).run("prospects", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []
 
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid",
-        [(200, True), (403, False), (500, False)],
+        [(200, True), (403, False), (400, False), (500, False)],
     )
     def test_probe_status_maps_to_validity(self, status_code: int, expected_valid: bool) -> None:
-        session = _session([_response({"values": []}, status_code=status_code)])
-
-        with mock.patch(SESSION_PATCH, return_value=session):
+        with scripted_network([ScriptedResponse(status=status_code, json={"values": []})]) as network:
             is_valid, message = validate_credentials(**CREDENTIALS)
 
         assert is_valid is expected_valid
         assert (message is None) is expected_valid
+        assert network.requests_log[0].path == "/api/v5/objects/campaigns"
 
     def test_stale_stored_token_is_refreshed_before_giving_up(self) -> None:
         # The stored access token is often older than its lifetime by the time the source is
         # configured, so a 401 must not be reported as a bad connection.
-        session = _session(
-            [
-                _response({"message": "Session expired"}, status_code=401),
-                _response({"values": []}),
-            ]
-        )
-
-        with mock.patch(SESSION_PATCH, return_value=session), mock.patch(REFRESH_PATCH, return_value="refreshed"):
-            is_valid, message = validate_credentials(**CREDENTIALS)
+        with mock.patch(REFRESH_PATCH, return_value="refreshed"):
+            with scripted_network(
+                [
+                    ScriptedResponse(status=401, json={"message": "Session expired"}),
+                    ScriptedResponse(json={"values": []}),
+                ]
+            ) as network:
+                is_valid, message = validate_credentials(**CREDENTIALS)
 
         assert (is_valid, message) == (True, None)
-        assert session.get.call_args.kwargs["headers"]["Authorization"] == "Bearer refreshed"
+        assert [request.headers["authorization"] for request in network.requests_log] == [
+            "Bearer access",
+            "Bearer refreshed",
+        ]
 
     def test_failed_refresh_asks_the_user_to_reconnect(self) -> None:
-        session = _session([_response({"message": "Session expired"}, status_code=401)])
-
-        with mock.patch(SESSION_PATCH, return_value=session), mock.patch(REFRESH_PATCH, side_effect=requests.HTTPError):
-            is_valid, message = validate_credentials(**CREDENTIALS)
+        with mock.patch(REFRESH_PATCH, side_effect=requests.HTTPError):
+            with scripted_network([ScriptedResponse(status=401, json={"message": "Session expired"})]) as network:
+                is_valid, message = validate_credentials(**CREDENTIALS)
 
         assert is_valid is False
         assert message is not None and "Reconnect" in message
+        assert len(network.requests_log) == 1
 
     def test_unknown_environment_is_reported_not_raised(self) -> None:
         is_valid, message = validate_credentials(**{**CREDENTIALS, "environment": "staging"})

@@ -18,6 +18,7 @@ import {
     personProfileBatchIgnoredPropertiesCounter,
     personProfileBatchUpdateOutcomeCounter,
     personPropertyKeyUpdateCounter,
+    personResolveKeysPerCallHistogram,
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from '~/common/persons/metrics'
@@ -794,6 +795,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             fetchPromise = (async () => {
                 try {
                     this.incrementDatabaseOperation('fetchForChecking', distinctId)
+                    personResolveKeysPerCallHistogram.observe({ backend: this.backend, site: 'fetch_for_checking' }, 1)
                     const start = performance.now()
                     const { result: person, dropped } = await this.readRows(
                         () =>
@@ -887,6 +889,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         // Create a shared promise for the batch fetch that populates caches when complete
         // Use primary (useReadReplica=false) to ensure fresh data for updates
+        personResolveKeysPerCallHistogram.observe({ backend: this.backend, site: 'prefetch' }, uncachedEntries.length)
         const read = this.personCache.beginRead()
         const batchFetchPromise = this.personRepository
             .fetchPersonsByDistinctIds(
@@ -1003,6 +1006,10 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     let person: InternalPerson | undefined
                     // A person dropped while the read was out may have changed, so it is read once more.
                     for (let attempt = 0; ; attempt++) {
+                        personResolveKeysPerCallHistogram.observe(
+                            { backend: this.backend, site: 'fetch_for_update' },
+                            1
+                        )
                         const { result, dropped } = await this.readRows(
                             () =>
                                 this.personRepository.fetchPerson(teamId, distinctId, {
@@ -1962,6 +1969,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         // Fetch latest person data to get current version and properties
         this.incrementDatabaseOperation('fetchPerson', personUpdate.distinct_id)
+        personResolveKeysPerCallHistogram.observe({ backend: this.backend, site: 'version_conflict' }, 1)
         const latestPerson = await this.personRepository.fetchPerson(personUpdate.team_id, personUpdate.distinct_id, {
             callerTag: 'ingestion/person-version-conflict',
         })
@@ -2129,6 +2137,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
      * @returns updated PersonUpdate with new person ID if found, null if person no longer exists
      */
     private async refreshPersonIdAfterMerge(personUpdate: PersonUpdate): Promise<PersonUpdate | null> {
+        personResolveKeysPerCallHistogram.observe({ backend: this.backend, site: 'redirect_survivor' }, 1)
         const currentPerson = await this.personRepository.fetchPerson(personUpdate.team_id, personUpdate.distinct_id, {
             callerTag: 'ingestion/person-merge-refresh',
         })

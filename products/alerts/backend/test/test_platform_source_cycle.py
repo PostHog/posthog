@@ -26,13 +26,19 @@ from products.alerts.backend.platform_source_cycle import (
     evaluate_insight_check,
     plan_insight_batch,
 )
+from products.alerts.backend.temporal.platform_evaluate import (
+    InsightBatchPlanInputs,
+    plan_platform_insight_round_activity,
+)
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
+    AlertBatchKey,
     AlertEventKind,
     PlatformAlertOutcome,
     PlatformConfigurationSnapshot,
+    SourceEvaluationInputs,
     SourceKind,
 )
 
@@ -99,14 +105,31 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert AlertConfiguration.objects.values("state", "next_check_at", "last_checked_at").get(id=alert.id) == before
         assert not AlertCheck.objects.filter(alert_configuration=alert).exists()
 
-    @parameterized.expand([("allowlisted", True), ("not_allowlisted", False)])
-    def test_only_an_allowlisted_alert_asks_for_a_delivery(self, _name: str, allowlisted: bool) -> None:
+    @parameterized.expand(
+        [
+            ("allowlisted", True, False),
+            ("not_allowlisted", False, False),
+            ("allowlisted_resolve", True, True),
+        ]
+    )
+    def test_only_an_allowlisted_firing_or_failure_asks_for_a_delivery(
+        self, _name: str, allowlisted: bool, was_firing: bool
+    ) -> None:
         alert = self._alert()
         configuration = self._copy(alert)
         allowlist = frozenset({str(alert.id)}) if allowlisted else frozenset()
+        if was_firing:
+            fired, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
+            assert fired is not None
+            record_outcomes(self.team.id, (fired,), CUTOFF)
+            with team_scope(self.team.id):
+                platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
 
         with patch(f"{_MODULE}.LIVE_DELIVERY_INSIGHT_ALERT_IDS", allowlist):
-            self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
+            self._evaluate(
+                configuration,
+                result=AlertEvaluationResult(value=50.0, breaches=[] if was_firing else ["above 100"]),
+            )
 
         expected = [
             (
@@ -118,7 +141,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert [
             (delivery.configuration_id, delivery.destination_alert_id, delivery.event_ids_by_kind)
             for delivery in self.deliveries
-        ] == (expected if allowlisted else [])
+        ] == (expected if allowlisted and not was_firing else [])
 
     @parameterized.expand(
         [
@@ -178,5 +201,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         with patch(f"{_MODULE}.check_alert_for_insight", return_value=AlertEvaluationResult(value=1.0, breaches=[])):
             evaluate_insight_check(self.team.id, slot, CUTOFF, admitted, held_until=expires_at, evaluation_id="test")
 
-        assert len(plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at + 60)) == 1
-        assert {str(first.id), str(second.id)} >= {admitted}
+        # Through the activity the workflow calls, so a dropped `exclude` there fails here too.
+        replanned = plan_platform_insight_round_activity(
+            InsightBatchPlanInputs(
+                evaluation=SourceEvaluationInputs(
+                    source=SourceKind.INSIGHT,
+                    cutoff=CUTOFF.isoformat(),
+                    batch_key=AlertBatchKey(team_id=self.team.id, slot=slot),
+                ),
+                expires_at=expires_at,
+                exclude=(admitted,),
+            )
+        )
+        assert replanned == list({str(first.id), str(second.id)} - {admitted})

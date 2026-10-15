@@ -152,7 +152,7 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
         return self.get_checksum(client)
 
     @abstractmethod
-    def update_commands(self, partition_clause: str = "") -> set[str]:
+    def update_commands(self, partition_clause: str = "", filter_teams: bool = False) -> set[str]:
         raise NotImplementedError()
 
     def update_mutation_runner_for(self, table: str, partition_id: str | None = None) -> AlterTableMutationRunner:
@@ -160,7 +160,7 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
 
         A squash rewrites every table that stamps the overridden column, so the table is an
         argument rather than a property of the snapshot. A partition_id limits the rewrite to that
-        one partition.
+        one partition and to the teams in the snapshot.
         """
         if partition_id is None:
             return AlterTableMutationRunner(
@@ -170,7 +170,7 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
             )
         return AlterTableMutationRunner(
             table=table,
-            commands=self.update_commands(" IN PARTITION ID %(partition_id)s"),
+            commands=self.update_commands(" IN PARTITION ID %(partition_id)s", filter_teams=True),
             parameters={"name": self.qualified_name, "partition_id": partition_id},
         )
 

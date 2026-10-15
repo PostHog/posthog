@@ -7,10 +7,8 @@ import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
@@ -23,10 +21,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
+import { EMAIL_PREFILL_PARAM } from '../MessageAudience/messageDrafts'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { WorkflowSuggestions } from './suggestions/WorkflowSuggestions'
+import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSuggestionsAvailabilityLogic'
 import { WorkflowSuggestionsNotice } from './suggestions/WorkflowSuggestionsNotice'
 import { WorkflowSuggestionsTabLabel } from './suggestions/WorkflowSuggestionsTabLabel'
 import { Workflow } from './Workflow'
@@ -74,11 +74,15 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             ? JSON.stringify(rawTriggerPrefill)
             : rawTriggerPrefill
     const entrySource = searchParams[SOURCE_PREFILL_PARAM]
+    const rawEmailPrefill = searchParams[EMAIL_PREFILL_PARAM]
+    const emailPrefill =
+        rawEmailPrefill && typeof rawEmailPrefill !== 'string' ? JSON.stringify(rawEmailPrefill) : rawEmailPrefill
     const workflowProps: WorkflowLogicProps = {
         id: workflowSceneProps.id,
         templateId,
         editTemplateId,
         triggerPrefill,
+        emailPrefill,
         entrySource: typeof entrySource === 'string' ? entrySource : undefined,
     }
 
@@ -100,8 +104,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         useMemo(() => ({ workflow, id: workflowSceneProps.id ?? 'new' }), [workflow, workflowSceneProps.id]),
         500
     )
-    const { featureFlags } = useValues(featureFlagLogic)
-    const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
+    const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
     const isSavedWorkflow = !!props.id && props.id !== 'new'
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
     const { aiComposerAvailable } = useValues(newWorkflowLogic)
@@ -183,7 +186,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              */
             content: <WorkflowMetrics id={workflowSceneProps.id!} />,
         },
-        selfOptimisingEnabled
+        suggestionsAvailable
             ? {
                   label: <WorkflowSuggestionsTabLabel id={workflowSceneProps.id!} />,
                   key: 'self-driving',
@@ -226,7 +229,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
-                {selfOptimisingEnabled && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
+                {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
                     <Workflow {...workflowProps} />

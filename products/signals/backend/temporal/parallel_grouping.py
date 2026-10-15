@@ -381,7 +381,9 @@ async def _process_parallel_batch(
             old_ctx = report_contexts.get(result.assign_result.report_id)
             report_contexts[result.assign_result.report_id] = ReportContext(
                 report_id=result.assign_result.report_id,
-                title=result.updated_title or (old_ctx.title if old_ctx else ""),
+                title=result.assign_result.report_title
+                if result.assign_result.report_title is not None
+                else result.updated_title or (old_ctx.title if old_ctx else ""),
                 signal_count=(old_ctx.signal_count if old_ctx else 0) + 1,
             )
         else:

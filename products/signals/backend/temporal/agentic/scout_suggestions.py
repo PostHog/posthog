@@ -75,6 +75,9 @@ class PlanSuggestionsOutput:
     # they are stamped with the run so the planner leaves them alone for a refresh window.
     # Defaulted so a plan serialized before the check existed still deserializes across a deploy.
     skipped_team_ids: list[int] = field(default_factory=list)
+    activity_reads_answered: int = 0
+    activity_reads_capped: int = 0
+    activity_reads_failed: int = 0
 
 
 @dataclass(frozen=True)
@@ -93,6 +96,9 @@ class SuggestionsCoordinatorOutput:
     started_count: int
     skipped_count: int
     low_activity_count: int = 0
+    activity_reads_answered: int = 0
+    activity_reads_capped: int = 0
+    activity_reads_failed: int = 0
 
 
 @dataclass(frozen=True)
@@ -149,16 +155,26 @@ async def plan_scout_suggestion_runs_activity(_input: PlanSuggestionsInput) -> P
         selection = await database_sync_to_async(select_teams_to_scan, thread_sensitive=False)(
             planned, settings, limit=cap
         )
-    logger.info(
+    reads = selection.reads_answered + selection.reads_capped + selection.reads_failed
+    # A capped read counts as active, so a guard that trips on most reads turns the check off
+    # without an error.
+    log = logger.warning if reads and selection.reads_capped * 2 > reads else logger.info
+    log(
         "scout_suggestions coordinator: planned",
         count=len(selection.dispatch),
         low_activity=len(selection.skipped_team_ids),
+        activity_reads_answered=selection.reads_answered,
+        activity_reads_capped=selection.reads_capped,
+        activity_reads_failed=selection.reads_failed,
         enabled=settings.enabled,
     )
     return PlanSuggestionsOutput(
         planned=[PlannedSuggestion(team_id=run.team_id, tier=run.tier) for run in selection.dispatch],
         skipped_team_ids=list(selection.skipped_team_ids),
         settings_json=_settings_to_json(settings),
+        activity_reads_answered=selection.reads_answered,
+        activity_reads_capped=selection.reads_capped,
+        activity_reads_failed=selection.reads_failed,
     )
 
 
@@ -312,6 +328,9 @@ class ScoutSuggestionsCoordinatorWorkflow:
             started_count=started,
             skipped_count=skipped,
             low_activity_count=len(plan.skipped_team_ids),
+            activity_reads_answered=plan.activity_reads_answered,
+            activity_reads_capped=plan.activity_reads_capped,
+            activity_reads_failed=plan.activity_reads_failed,
         )
 
 

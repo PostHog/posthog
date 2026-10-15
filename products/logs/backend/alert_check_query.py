@@ -649,7 +649,10 @@ def is_projection_eligible(filters: dict) -> bool:
         return True
     if not isinstance(filter_group, dict):
         return False
-    for group in filter_group.get("values", []):
+    groups = filter_group.get("values", [])
+    if not isinstance(groups, list):
+        return False
+    for group in groups:
         if not isinstance(group, dict):
             return False
         if group.get("values"):

@@ -1,3 +1,5 @@
+import { IconStack, IconStackItem } from '@posthog/quill'
+
 export interface TodayChip {
     key: string
     /** Read out for the chip, which shows only an icon. */
@@ -6,8 +8,8 @@ export interface TodayChip {
     icon: JSX.Element
     /** Lifted, because the matching item is hovered elsewhere on the page. */
     active?: boolean
-    onClick?: () => void
-    onHoverChange?: (hovered: boolean) => void
+    onClick: () => void
+    onHoverChange: (hovered: boolean) => void
 }
 
 interface TodayChipStackProps {
@@ -20,30 +22,26 @@ export function TodayChipStack({ chips, dataAttr }: TodayChipStackProps): JSX.El
         return null
     }
     return (
-        <span className="TodayChipStack">
-            {chips.map((chip, index) => (
-                <button
+        <IconStack className="TodayChipStack">
+            {chips.map((chip) => (
+                <IconStackItem
                     key={chip.key}
-                    type="button"
-                    className="TodayChipStack__chip"
-                    aria-label={`Open ${chip.label}`}
-                    data-active={chip.active ?? false}
-                    data-attr={dataAttr}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={
-                        {
-                            '--index': index,
-                            '--tilt': index % 2 === 0 ? '-3deg' : '3deg',
-                            '--report-color': chip.color,
-                        } as React.CSSProperties
+                    color={chip.color}
+                    active={chip.active}
+                    render={
+                        <button
+                            type="button"
+                            aria-label={`Open ${chip.label}`}
+                            data-attr={dataAttr}
+                            onClick={chip.onClick}
+                            onMouseEnter={() => chip.onHoverChange(true)}
+                            onMouseLeave={() => chip.onHoverChange(false)}
+                        />
                     }
-                    onClick={chip.onClick}
-                    onMouseEnter={() => chip.onHoverChange?.(true)}
-                    onMouseLeave={() => chip.onHoverChange?.(false)}
                 >
                     {chip.icon}
-                </button>
+                </IconStackItem>
             ))}
-        </span>
+        </IconStack>
     )
 }

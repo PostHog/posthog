@@ -9,6 +9,7 @@ import { useChartTheme } from 'lib/charts/hooks'
 import { type SearchPoint, formatDelta, searchYDomain } from '../agentSearch'
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { AgentSearchOverlay } from './AgentSearchOverlay'
+import { SectionCard } from './SectionCard'
 
 const STATUS_LABEL: Record<SearchPoint['status'], string> = {
     kept: 'Kept',
@@ -74,13 +75,10 @@ export function AgentSearchChart(): JSX.Element | null {
     }
 
     return (
-        <div className="border rounded p-3 space-y-2">
-            <div>
-                <div className="text-sm font-semibold">How the agent found it</div>
-                <div className="text-xs text-muted">
-                    Each dot is one experiment. The agent keeps a change only when it beats the best score so far.
-                </div>
-            </div>
+        <SectionCard
+            title="How the agent found it"
+            description="Each dot is one experiment. The agent keeps a change only when it beats the best score so far."
+        >
             <div className="h-64 min-w-0 flex flex-col">
                 <ScatterChart
                     series={series}
@@ -116,6 +114,6 @@ export function AgentSearchChart(): JSX.Element | null {
                     <AgentSearchOverlay search={agentSearch} />
                 </ScatterChart>
             </div>
-        </div>
+        </SectionCard>
     )
 }

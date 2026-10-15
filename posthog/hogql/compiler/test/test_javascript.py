@@ -1,11 +1,13 @@
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from posthog.hogql import ast
 from posthog.hogql.compiler.javascript import JavaScriptCompiler, Local, _sanitize_identifier, to_js_expr, to_js_program
 from posthog.hogql.errors import QueryError
 
 
-class TestSanitizeIdentifier(BaseTest):
+class TestSanitizeIdentifier(SimpleTestCase):
     def test_valid_identifiers(self):
         self.assertEqual(_sanitize_identifier("validName"), "validName")
         self.assertEqual(_sanitize_identifier("_validName123"), "_validName123")

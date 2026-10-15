@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +39,77 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HoneycombSource(ResumableSource[HoneycombSourceConfig, HoneycombResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^HONEYCOMB_",
+            "^HONEYCOMBIO_APIKEY$",
+            "^LIBHONEY_API_KEY$",
+            "^LIBHONEY_DATASET$",
+            "^LIBHONEY_API_HOST$",
+            "^BUILDEVENT_APIKEY$",
+            "^BUILDEVENT_DATASET$",
+            "^BUILDEVENT_APIHOST$",
+            "^REFINERY_HONEYCOMB_",
+        ),
+        npm=(
+            "@honeycombio/opentelemetry-node",
+            "honeycomb-beeline",
+            "@honeycombio/opentelemetry-web",
+            "libhoney",
+            "@honeycombio/opentelemetry-react-native",
+            "@honeycombio/experimental-opentelemetry-web",
+            "@cloudflare/workers-honeycomb-logger",
+            "@cloudflare/pages-plugin-honeycomb",
+        ),
+        pypi=(
+            "honeycomb-beeline",
+            "libhoney",
+            "honeycomb-opentelemetry",
+            "honeycomb-pycpp",
+            "opentelemetry-ext-honeycomb",
+        ),
+        cargo=("libhoney-rust", "tracing-honeycomb"),
+        cocoapods=("LibHoney",),
+        go=(
+            "github.com/honeycombio/beeline-go",
+            "github.com/honeycombio/libhoney-go",
+            "github.com/honeycombio/otel-config-go",
+            "github.com/honeycombio/honeycomb-opentelemetry-go",
+            "github.com/honeycombio/opentelemetry-exporter-go",
+            "github.com/honeycombio/opentelemetry-samplers-go",
+            "github.com/honeycombio/opencensus-exporter",
+        ),
+        maven=(
+            "io.honeycomb.libhoney:libhoney-java",
+            "io.honeycomb:honeycomb-opentelemetry-sdk",
+            "io.honeycomb:honeycomb-opentelemetry-javaagent",
+            "io.honeycomb:libhoney-java",
+            "io.honeycomb.android:honeycomb-opentelemetry-android",
+            "io.honeycomb.android:honeycomb-opentelemetry-android-compose",
+            "io.honeycomb.android:honeycomb-opentelemetry-android-interaction",
+            "io.honeycomb.android:honeycomb-proguard-uuid-plugin",
+            "io.honeycomb.beeline:beeline-core",
+            "io.honeycomb.beeline:beeline-spring-boot-starter",
+            "io.honeycomb.beeline:beeline-spring-boot-sleuth-starter",
+            "io.honeycomb.opentelemetry:honeycomb-opentelemetry-exporters",
+            "io.honeycomb.opentelemetry:honeycomb-opentelemetry-samplers",
+        ),
+        rubygems=(
+            "honeycomb-beeline",
+            "libhoney",
+            "honeycomb-opentelemetry",
+            "honeycomb-rails",
+            "rack-honeycomb",
+            "faraday-honeycomb",
+            "sequel-honeycomb",
+            "activerecord-honeycomb",
+            "fluent-plugin-honeycomb",
+            "logstash-output-honeycomb_json_batch",
+        ),
+        swiftpm=("github.com/honeycombio/honeycomb-opentelemetry-swift", "github.com/honeycombio/libhoney-cocoa"),
+        alternative_to=(ProductKey.TRACING,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("1",)  # v1 API, addressed via the /1/ URL path prefix
     default_version = "1"
