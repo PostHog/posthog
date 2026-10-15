@@ -1,5 +1,6 @@
 import json
 import base64
+from copy import deepcopy
 from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -22,15 +23,17 @@ if TYPE_CHECKING:
 
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.constants import AvailableFeature
-from posthog.models import PersonalAPIKey, PropertyDefinition
+from posthog.models import PersonalAPIKey, PropertyDefinition, Team
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.actions.backend.models.action import Action
 from products.cdp.backend.mcp_event_delivery import MCPCallbackError, signing_key, verify_callback
 from products.cdp.backend.mcp_event_properties import MCPEventPropertyAccess
 from products.cdp.backend.mcp_events import MCPEventSubscriptions
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.mcp_event_subscription import MCPEventSubscription
+from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
 
 class TestMCPEventSigning(SimpleTestCase):
@@ -74,6 +77,21 @@ class TestMCPEventPropertyMasking(SimpleTestCase):
                 {"$groups.organization": "hidden", "$groups%2Eorganization": "hidden", "plan": "visible"},
                 {"$groups.organization"},
                 {"plan": "visible"},
+            ),
+            (
+                {
+                    "customer": {"ssn": "hidden"},
+                    "customer.ssn": "hidden",
+                    "customer%2Essn": "hidden",
+                    "customer_name": "visible",
+                },
+                {"customer"},
+                {"customer_name": "visible"},
+            ),
+            (
+                {"customer%2Eprofile": {"ssn": "hidden", "public": "visible"}, "customer.profile.ssn.child": "hidden"},
+                {"customer.profile.ssn"},
+                {"customer%2Eprofile": {"public": "visible"}},
             ),
             (
                 {"items": [{"secret": "hidden", "public": "visible"}]},
@@ -151,7 +169,10 @@ class MCPEventSubscriptionTestCase(APIBaseTest):
         return MCPEventSubscription.objects.for_team(self.team.pk).get(id=response.json()["id"])
 
     def authorize(
-        self, subscription: MCPEventSubscription, generation: object | None = None
+        self,
+        subscription: MCPEventSubscription,
+        generation: object | None = None,
+        filter_bytecode: list[JsonValue] | None = None,
     ) -> "_MonkeyPatchedResponse":
         body = {
             "eventId": "a5524ac5-d7c5-43b6-862c-f5971da694c8",
@@ -167,7 +188,9 @@ class MCPEventSubscriptionTestCase(APIBaseTest):
             {
                 "generation": str(generation or subscription.generation),
                 "function_id": str(subscription.hog_function_id),
-                "filter_bytecode": subscription.hog_function.filters["bytecode"],
+                "filter_bytecode": filter_bytecode
+                if filter_bytecode is not None
+                else subscription.hog_function.filters["bytecode"],
                 "url": self.callback_url,
                 "body": json.dumps(body),
             },
@@ -296,14 +319,41 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         self.assertFalse(MCPEventSubscription.objects.for_team(self.team.pk).exists())
         self.assertFalse(HogFunction.objects.filter(team=self.team).exists())
 
-    def test_property_restrictions_apply_to_delivery_after_subscribing(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "event",
+                PropertyDefinition.Type.EVENT,
+                {"key": "plan", "type": "event", "operator": "exact", "value": "enterprise"},
+            ),
+            (
+                "person",
+                PropertyDefinition.Type.PERSON,
+                {"key": "plan", "type": "person", "operator": "exact", "value": "enterprise"},
+            ),
+            (
+                "pdi_field",
+                PropertyDefinition.Type.PERSON,
+                {"type": "hogql", "key": "pdi.person.properties.plan = 'enterprise'"},
+            ),
+            (
+                "pdi_properties",
+                PropertyDefinition.Type.PERSON,
+                {"type": "hogql", "key": "pdi.person.properties IS NOT NULL"},
+            ),
+            ("pdi_person", PropertyDefinition.Type.PERSON, {"type": "hogql", "key": "pdi.person IS NOT NULL"}),
+            ("pdi", PropertyDefinition.Type.PERSON, {"type": "hogql", "key": "pdi IS NOT NULL"}),
+        ]
+    )
+    def test_property_restrictions_apply_to_creation_and_delivery(
+        self, _name: str, property_type: int, property_filter: dict[str, JsonValue]
+    ) -> None:
         subscription = self.subscribe()
-        assert subscription.hog_function is not None
         self.payload["arguments"] = {
             "project_id": self.team.pk,
             "filters": {
                 "events": [{"id": "example_event", "type": "events"}],
-                "properties": [{"key": "plan", "type": "event", "operator": "exact", "value": "enterprise"}],
+                "properties": [property_filter],
             },
         }
         filtered_subscription = self.subscribe()
@@ -312,25 +362,46 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         ]
         self.organization.save()
         definition = PropertyDefinition.objects.create(
-            team=self.team, name="plan", property_type="String", type=PropertyDefinition.Type.EVENT
+            team=self.team, name="plan", property_type="String", type=property_type
         )
         PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
         response = self.authorize(subscription)
         self.assertEqual(response.status_code, 200, response.json())
-        self.assertEqual(json.loads(response.json()["body"])["data"]["properties"], {})
+        expected = {} if property_type == PropertyDefinition.Type.EVENT else {"plan": "enterprise"}
+        self.assertEqual(json.loads(response.json()["body"])["data"]["properties"], expected)
         forbidden = self.authorize(filtered_subscription)
-        self.assertIn(forbidden.status_code, [400, 403], forbidden.json())
+        self.assertEqual(forbidden.status_code, 403, forbidden.json())
+        creation = self.client.post(
+            self.url + "subscribe/", self.payload, HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"]
+        )
+        self.assertEqual(creation.status_code, 403, creation.json())
 
-    def test_queued_test_account_filter_keeps_its_original_permissions(self) -> None:
-        self.team.test_account_filters = [{"key": "plan", "type": "event", "operator": "exact", "value": "internal"}]
-        self.team.save()
-        self.payload["arguments"] = {
-            "project_id": self.team.pk,
-            "filters": {"events": [{"id": "example_event", "type": "events"}], "filter_test_accounts": True},
-        }
+    @parameterized.expand(["test_account", "action"])
+    def test_filter_refresh_authorizes_new_filters_and_rejects_stale_queued_filters(self, source: str) -> None:
+        original = [{"key": "plan", "type": "event", "operator": "exact", "value": "internal"}]
+        updated = [{"key": "next_plan", "type": "event", "operator": "exact", "value": "internal"}]
+        if source == "action":
+            action = Action.objects.create(
+                team=self.team, name="Example action", steps_json=[{"event": "example_event", "properties": original}]
+            )
+            filters: dict[str, JsonValue] = {"actions": [{"id": str(action.id), "type": "actions"}]}
+        else:
+            self.team.test_account_filters = original
+            self.team.save()
+            filters = {"events": [{"id": "example_event", "type": "events"}], "filter_test_accounts": True}
+        self.payload["arguments"] = {"project_id": self.team.pk, "filters": filters}
         subscription = self.subscribe()
-        self.team.test_account_filters = []
-        self.team.save()
+        assert subscription.hog_function is not None
+        assert subscription.hog_function.filters is not None
+        queued_bytecode = deepcopy(subscription.hog_function.filters["bytecode"])
+        if source == "action":
+            action.steps_json = [{"event": "example_event", "properties": updated}]
+            action.save()
+            self.assertEqual(refresh_affected_hog_functions(action_id=action.pk), 1)
+        else:
+            self.team.test_account_filters = updated
+            self.team.save()
+            self.assertEqual(refresh_affected_hog_functions(team_id=self.team.pk), 1)
         self.organization.available_product_features = [
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
@@ -339,7 +410,48 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
             team=self.team, name="plan", property_type="String", type=PropertyDefinition.Type.EVENT
         )
         PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
-        self.assertEqual(self.authorize(subscription).status_code, 403)
+        self.assertEqual(self.authorize(subscription, filter_bytecode=queued_bytecode).status_code, 403)
+        subscription.refresh_from_db()
+        self.assertTrue(subscription.active)
+        current = self.authorize(subscription)
+        self.assertEqual(current.status_code, 200, current.json())
+        next_definition = PropertyDefinition.objects.create(
+            team=self.team, name="next_plan", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(team=self.team, property_definition=next_definition, access_level="none")
+        restricted = self.authorize(subscription)
+        self.assertEqual(restricted.status_code, 403, restricted.json())
+
+    def test_subscriptions_remain_isolated_between_child_environments(self) -> None:
+        parent = self.team
+        children = [
+            Team.objects.create(organization=self.organization, project=parent.project, parent_team=parent, name=name)
+            for name in ("Staging", "Preview")
+        ]
+        subscriptions = []
+        for child in children:
+            self.team = child
+            self.url = f"/api/projects/{child.pk}/mcp_event_subscriptions/"
+            self.payload["arguments"] = {
+                "project_id": child.pk,
+                "filters": {"events": [{"id": "example_event", "type": "events"}]},
+            }
+            subscription = self.subscribe()
+            self.assertEqual(subscription.team_id, child.pk)
+            assert subscription.hog_function is not None
+            self.assertEqual(subscription.hog_function.team_id, child.pk)
+            subscriptions.append(subscription)
+        PersonalAPIKey.objects.filter(user=self.user).update(scoped_teams=[children[-1].pk])
+        page = self.client.get(self.url, HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"])
+        self.assertEqual(page.status_code, 200, page.json())
+        self.assertEqual(page.json()["count"], 1)
+        self.assertEqual([row["id"] for row in page.json()["results"]], [str(subscriptions[-1].pk)])
+        sibling = self.client.get(
+            self.url + str(subscriptions[0].pk) + "/", HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"]
+        )
+        self.assertEqual(sibling.status_code, 404, sibling.json())
+        authorized = self.authorize(subscriptions[-1])
+        self.assertEqual(authorized.status_code, 200, authorized.json())
 
     def test_delivery_does_not_consume_the_client_api_throttle(self) -> None:
         subscription = self.subscribe()

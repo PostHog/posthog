@@ -207,8 +207,6 @@ class MCPEventSubscriptions:
         MCPEventFilterAccessValidator.validate_snapshot(
             compiled_filters["mcp_property_dependencies"], team=self.team, user=self.user
         )
-        subscription.delivery["filter_bytecode"] = deepcopy(compiled_filters["bytecode"])
-        subscription.delivery["filter_dependencies"] = deepcopy(compiled_filters["mcp_property_dependencies"])
 
     def subscribe(
         self,
@@ -374,9 +372,10 @@ class MCPEventSubscriptions:
             or str(subscription.hog_function_id) != function_id
         ):
             raise PermissionDenied("This subscription is no longer active.")
-        if filter_bytecode != subscription.delivery.get("filter_bytecode"):
-            raise PermissionDenied("The queued filter has changed. Renew the subscription.")
-        dependencies = subscription.delivery.get("filter_dependencies")
+        compiled_filters = subscription.hog_function.filters if subscription.hog_function is not None else None
+        if not isinstance(compiled_filters, dict) or filter_bytecode != compiled_filters.get("bytecode"):
+            raise PermissionDenied("The queued filter has changed.")
+        dependencies = compiled_filters.get("mcp_property_dependencies")
         if not isinstance(dependencies, dict):
             raise PermissionDenied("Renew the subscription before delivering events.")
         MCPEventFilterAccessValidator.validate_snapshot(dependencies, team=self.team, user=self.user)

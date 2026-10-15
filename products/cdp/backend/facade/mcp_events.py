@@ -57,6 +57,7 @@ class MCPEventSubscriptionsAPI:
             raise MCPEventSubscriptionNotFoundError from None
         subscription = (
             MCPEventSubscription.objects.for_team(self._service.team.pk)
+            .select_related("hog_function")
             .filter(created_by=self._service.user, pk=subscription_uuid)
             .first()
         )

@@ -39,8 +39,12 @@ class FilterPropertyReferences(TraversingVisitor):
         self.references: dict[str, list[str | None]] = {}
 
     def visit_field(self, node: ast.Field) -> None:
-        chain = list(node.chain)
+        chain: list[str | int] = list(node.chain)
         if chain and chain[0] == "events":
+            chain = chain[1:]
+        if chain == ["pdi"]:
+            chain[0] = "person"
+        elif chain[:2] == ["pdi", "person"]:
             chain = chain[1:]
         scope: str | None = None
         path: list[str | int] = []
@@ -658,10 +662,10 @@ def compile_filters_bytecode(
         if SelectFinder.has_select(expr):
             raise Exception("Select queries are not allowed in filters")
 
-        if include_property_dependencies:
+        references = None
+        if include_property_dependencies or "mcp_property_dependencies" in filters:
             references = FilterPropertyReferences()
             references.visit(expr)
-            filters["mcp_property_dependencies"] = references.references
         expr = _LowerConstantMembership().visit(expr)
         compiled = _compile_against_runtime(expr, team, cohort_membership_supported, allowed_cohort_ids)
         if compiled.unknown_roots and filters.get("source") in DATA_WAREHOUSE_SOURCES:
@@ -706,6 +710,8 @@ def compile_filters_bytecode(
         if context.errors:
             error_messages = "; ".join(e.message for e in context.errors if e.message)
             raise Exception(f"Filter compilation errors: {error_messages}")
+        if references is not None:
+            filters["mcp_property_dependencies"] = references.references
         if "bytecode_error" in filters:
             del filters["bytecode_error"]
     except CohortInlineError as e:

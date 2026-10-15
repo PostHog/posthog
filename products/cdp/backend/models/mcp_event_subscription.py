@@ -1,11 +1,13 @@
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.utils import UUIDModel, uuid7
 
 
-class MCPEventSubscription(TeamScopedRootMixin, UUIDModel):
+class MCPEventSubscription(UUIDModel):
+    objects = EnvironmentScopedManager()
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     principal = models.CharField(max_length=255)
@@ -23,5 +25,6 @@ class MCPEventSubscription(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         indexes = [
-            models.Index(fields=["expires_at"], name="cdp_mcp_active_expiry_idx", condition=models.Q(active=True))
+            models.Index(fields=["expires_at"], name="cdp_mcp_active_expiry_idx", condition=models.Q(active=True)),
+            models.Index(fields=["team", "created_by", "-created_at", "-id"], name="cdp_mcp_owner_created_idx"),
         ]

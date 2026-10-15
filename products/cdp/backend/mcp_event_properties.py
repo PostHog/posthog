@@ -26,10 +26,13 @@ class MCPEventPropertyAccess:
             for item in value:
                 cls._remove_path(item, path)
         elif isinstance(value, dict):
-            value.pop(".".join(path), None)
-            value.pop("%2E".join(path), None)
-            if len(path) > 1 and path[0] in value:
-                cls._remove_path(value[path[0]], path[1:])
+            target = ".".join(path)
+            for key in list(value):
+                normalized = key.replace("%2E", ".")
+                if normalized == target or normalized.startswith(target + "."):
+                    value.pop(key)
+                elif target.startswith(normalized + "."):
+                    cls._remove_path(value[key], target[len(normalized) + 1 :].split("."))
 
     @classmethod
     def redact(cls, properties: dict[str, JsonValue], restricted_names: set[str]) -> dict[str, JsonValue]:
