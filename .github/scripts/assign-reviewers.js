@@ -38,7 +38,6 @@ const CONFIG = {
     maxTeamsRequested: 5,
     // Marker so we update our own comment in place instead of stacking copies.
     commentMarker: '<!-- auto-assign-reviewers -->',
-    teamsToRequestAndLabel: [{ team: 'team-agent-infrastructure', label: 'feature/agent-infra' }],
 }
 
 // Ownership is resolved by the shared hogli resolver (distributed owners.yaml +
@@ -169,6 +168,14 @@ function teamSlugToLabel(name) {
         return null
     }
     return name.replace(/^team-/, 'team/')
+}
+
+const FEATURE_LABEL_BY_TEAM = new Map([['team-agent-infrastructure', 'feature/agent-infra']])
+
+function featureLabelsFor(footprints) {
+    return footprints
+        .filter((footprint) => footprint.type === 'team' && FEATURE_LABEL_BY_TEAM.has(footprint.name))
+        .map((footprint) => FEATURE_LABEL_BY_TEAM.get(footprint.name))
 }
 
 function partitionExternalTeams(teams) {
@@ -329,38 +336,6 @@ function computeSensitiveOwners(resolutionByPath, changedFiles, config = CONFIG)
         }
     }
     return Array.from(owners.values())
-}
-
-function teamsOwningChanges(resolutionByPath, changedFiles, config = CONFIG) {
-    const teams = new Set()
-    for (const file of changedFiles) {
-        for (const changedPath of changedPaths(file)) {
-            const resolution = resolutionByPath[changedPath]
-            if (
-                !resolution ||
-                isExcludedFile(changedPath, config.excludedPatterns) ||
-                isGeneratedOrVendored(changedPath, resolution)
-            ) {
-                continue
-            }
-            for (const rawOwner of resolution.owners || []) {
-                const resolved = mapResolvedOwner(rawOwner)
-                if (resolved && resolved.type === 'team') {
-                    teams.add(resolved.name)
-                }
-            }
-        }
-    }
-    return teams
-}
-
-function matchTeamsToRequestAndLabel(resolutionByPath, changedFiles, config = CONFIG) {
-    const owningTeams = teamsOwningChanges(resolutionByPath, changedFiles, config)
-    const matched = config.teamsToRequestAndLabel.filter(({ team }) => owningTeams.has(team))
-    return {
-        labels: matched.map(({ label }) => label),
-        teams: matched.map(({ team }) => classifyOwner(`@PostHog/${team}`)),
-    }
 }
 
 function isSubstantive(footprint, config = CONFIG) {
@@ -613,15 +588,15 @@ async function assignReviewers(teams, users) {
 }
 
 // Best-effort: a label failure must never fail the job.
-async function applyLabels(labels) {
+async function applyTeamLabels(labels) {
     const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
 
     if (labels.length === 0) {
-        console.info('ℹ️  No labels to apply')
+        console.info('ℹ️  No team labels to apply')
         return
     }
 
-    console.info(`Applying labels: ${labels.join(', ')}`)
+    console.info(`Applying team labels: ${labels.join(', ')}`)
 
     try {
         const response = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels`, {
@@ -635,13 +610,13 @@ async function applyLabels(labels) {
         })
 
         if (!response.ok) {
-            console.warn(`⚠️  Could not apply labels: ${response.status} ${response.statusText}`)
+            console.warn(`⚠️  Could not apply team labels: ${response.status} ${response.statusText}`)
             return
         }
 
-        console.info('✅ Labels applied')
+        console.info('✅ Team labels applied')
     } catch (error) {
-        console.warn(`⚠️  Skipping labels: ${error.message}`)
+        console.warn(`⚠️  Skipping team labels: ${error.message}`)
     }
 }
 
@@ -747,12 +722,7 @@ async function main() {
         const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
         const additionOwners = computeAdditionOwners(resolutionByPath, changedFiles)
         const sensitiveOwners = computeSensitiveOwners(resolutionByPath, changedFiles)
-        const requestAndLabel = matchTeamsToRequestAndLabel(resolutionByPath, changedFiles)
-        const { requested, demoted } = classifyOwnersWithPinned(footprints, [
-            ...additionOwners,
-            ...sensitiveOwners,
-            ...requestAndLabel.teams,
-        ])
+        const { requested, demoted } = classifyOwnersWithPinned(footprints, [...additionOwners, ...sensitiveOwners])
 
         const teams = requested.filter((f) => f.type === 'team').map((f) => f.name)
         const users = requested.filter((f) => f.type === 'user').map((f) => f.name)
@@ -766,20 +736,17 @@ async function main() {
         console.info(`Demoted to comment: ${demoted.map((f) => f.owner).join(', ') || 'none'}`)
         console.info(`Owners of additions: ${additionOwners.map((entry) => entry.owner).join(', ') || 'none'}`)
         console.info(`Owners of sensitive paths: ${sensitiveOwners.map((entry) => entry.owner).join(', ') || 'none'}`)
-        console.info(
-            `Teams to request and label: ${requestAndLabel.teams.map((entry) => entry.owner).join(', ') || 'none'}`
-        )
         console.info()
 
         const { toLabel, toRequest } = isExternal ? partitionExternalTeams(teams) : { toLabel: [], toRequest: teams }
-        await applyLabels([...requestAndLabel.labels, ...toLabel.map(teamSlugToLabel).filter(Boolean)])
+        await applyTeamLabels([...featureLabelsFor(footprints), ...toLabel.map(teamSlugToLabel).filter(Boolean)])
         await assignReviewers(toRequest, users)
 
         const commentBody = buildReviewerComment(
             requested,
             demoted,
             additionOwners,
-            sensitiveOwnersToExplain(sensitiveOwners, footprints, [...additionOwners, ...requestAndLabel.teams])
+            sensitiveOwnersToExplain(sensitiveOwners, footprints, additionOwners)
         )
         if (commentBody) {
             await upsertReviewerComment(commentBody)
@@ -799,12 +766,12 @@ module.exports = {
     isExcludedFile,
     classifyOwner,
     teamSlugToLabel,
+    featureLabelsFor,
     partitionExternalTeams,
     computeOwnerFootprints,
     computeAdditionOwners,
     computeSensitiveOwners,
     sensitiveOwnersToExplain,
-    matchTeamsToRequestAndLabel,
     isSubstantive,
     classifyOwners,
     classifyOwnersWithPinned,

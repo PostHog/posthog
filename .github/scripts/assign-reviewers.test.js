@@ -8,12 +8,12 @@ const {
     isExcludedFile,
     classifyOwner,
     teamSlugToLabel,
+    featureLabelsFor,
     partitionExternalTeams,
     computeOwnerFootprints,
     computeAdditionOwners,
     computeSensitiveOwners,
     sensitiveOwnersToExplain,
-    matchTeamsToRequestAndLabel,
     isSubstantive,
     classifyOwners,
     classifyOwnersWithPinned,
@@ -215,6 +215,19 @@ const fp = (owner, lines, fileCount = 1, type = 'team') => ({
     fileCount,
     lines,
 })
+
+for (const [description, footprints, expected] of [
+    [
+        'labels a minor agent infra change next to a larger one',
+        [fp('@PostHog/team-surveys', 200), fp('@PostHog/team-agent-infrastructure', 1)],
+        ['feature/agent-infra'],
+    ],
+    ['labels nothing without agent infra code', [fp('@PostHog/team-surveys', 200)], []],
+]) {
+    test(`featureLabelsFor: ${description}`, () => {
+        assert.deepEqual(featureLabelsFor(footprints), expected)
+    })
+}
 
 test('classifyOwners: a single matched owner is always requested, even when tiny', () => {
     const { requested, demoted } = classifyOwners([fp('@PostHog/team-a', 1)])
@@ -432,43 +445,6 @@ test('classifyOwnersWithPinned: requests owners of additions and of sensitive pa
         ['@PostHog/team-small']
     )
 })
-
-const AGENT_INFRA_MATCH = { labels: ['feature/agent-infra'], teams: ['@PostHog/team-agent-infrastructure'] }
-const NO_MATCH = { labels: [], teams: [] }
-
-const TEAM_RULE_RESOLUTIONS = {
-    'packages/agent/src/run.ts': resolved(['team-agent-infrastructure'], 'packages/agent/owners.yaml'),
-    'products/surveys/backend/api.py': resolved(['team-surveys'], 'products/surveys/product.yaml'),
-}
-
-for (const { description, files, expected } of [
-    {
-        description: 'a minor change to agent infra code requests and labels the team',
-        files: [file('products/surveys/backend/api.py', 200), file('packages/agent/src/run.ts', 1)],
-        expected: AGENT_INFRA_MATCH,
-    },
-    {
-        description: 'a rename out of agent infra code requests and labels the team',
-        files: [
-            {
-                ...file('products/surveys/backend/api.py', 1),
-                status: 'renamed',
-                previousFilename: 'packages/agent/src/run.ts',
-            },
-        ],
-        expected: AGENT_INFRA_MATCH,
-    },
-    {
-        description: 'a PR without agent infra code requests nobody',
-        files: [file('products/surveys/backend/api.py', 50)],
-        expected: NO_MATCH,
-    },
-]) {
-    test(`matchTeamsToRequestAndLabel: ${description}`, () => {
-        const { labels, teams } = matchTeamsToRequestAndLabel(TEAM_RULE_RESOLUTIONS, files)
-        assert.deepEqual({ labels, teams: teams.map((entry) => entry.owner) }, expected)
-    })
-}
 
 const requested = [
     {
