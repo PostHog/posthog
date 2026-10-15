@@ -10,7 +10,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { SpanTreeNode } from '~/queries/schema/schema-general'
 
 import { CHANGE_THRESHOLD, MIN_BASELINE_COUNT } from './compareUtils'
-import { formatDuration } from './TraceWaterfallView'
+import { formatDuration } from './spanTime'
 
 interface TreeNode {
     serviceName: string

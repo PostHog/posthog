@@ -896,13 +896,30 @@ export interface _SymbolStatsResponseApi {
 export interface _TracingTraceRequestApi {
     /** Date range for the query. Omit it to search all retained spans for this trace. */
     dateRange?: _TracingDateRangeApi
-    /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
+    /** Omit the per-span attributes, resource attributes and events from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
     /**
      * Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.
      * @minimum 0
      */
     offset?: number
+}
+
+/**
+ * Event attributes. Keys are whatever the instrumentation set.
+ */
+export type _SpanEventApiAttributes = { [key: string]: string }
+
+export interface _SpanEventApi {
+    /** Event name, for example `exception`. */
+    name: string
+    /**
+     * When the event occurred. Null when the SDK did not set a time.
+     * @nullable
+     */
+    timestamp: string | null
+    /** Event attributes. Keys are whatever the instrumentation set. */
+    attributes: _SpanEventApiAttributes
 }
 
 /**
@@ -916,7 +933,7 @@ export type _TraceSpanApiAttributes = { [key: string]: string }
 export type _TraceSpanApiResourceAttributes = { [key: string]: string }
 
 /**
- * A span in a single trace. The trace action adds self time, which the list does not compute.
+ * A span in a single trace. The trace action adds self time and span events, which the list does not return.
  */
 export interface _TraceSpanApi {
     /** Span's own UUID. */
@@ -955,6 +972,8 @@ export interface _TraceSpanApi {
     resource_attributes: _TraceSpanApiResourceAttributes
     /** Span duration minus the time spent in its children, in nanoseconds. */
     self_time_nano: number
+    /** OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true. */
+    events?: _SpanEventApi[]
 }
 
 export interface _TracingTraceResponseApi {

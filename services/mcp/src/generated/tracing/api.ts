@@ -935,7 +935,7 @@ export const TracingSpansTraceCreateBody = () => zod.object({
         .boolean()
         .default(tracingSpansTraceCreateBodyExcludeAttributesDefault)
         .describe(
-            'Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.'
+            'Omit the per-span attributes, resource attributes and events from results to keep payloads compact. Defaults to false.'
         ),
     offset: zod
         .number()

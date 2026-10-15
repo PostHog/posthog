@@ -5,7 +5,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 
 import { formatIdentityCoverage } from './identityCoverage'
-import { formatDuration } from './TraceWaterfallView'
+import { formatDuration } from './spanTime'
 import { VirtualizedTable, VirtualizedTableColumn } from './VirtualizedTable'
 
 // Span count over the aggregation window, rendered as a request rate. Empty window → no rate.

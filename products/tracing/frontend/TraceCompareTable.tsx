@@ -16,7 +16,7 @@ import { ResizableColumnSpec } from './components/TableColumns/columnWidths'
 import { TableCell } from './components/TableColumns/TableCell'
 import { TableHeaderCell } from './components/TableColumns/TableHeaderCell'
 import { ResizableColumns, useResizableColumns } from './components/TableColumns/useResizableColumns'
-import { formatDuration } from './TraceWaterfallView'
+import { formatDuration } from './spanTime'
 
 const ROW_HEIGHT = 44
 const HEADER_HEIGHT = 32

@@ -375,7 +375,7 @@ class _TracingTraceRequestSerializer(serializers.Serializer):
     excludeAttributes = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
+        help_text="Omit the per-span attributes, resource attributes and events from results to keep payloads compact. Defaults to false.",
     )
     offset = serializers.IntegerField(
         required=False,
@@ -807,11 +807,27 @@ class _SpanSerializer(serializers.Serializer):
     )
 
 
+class _SpanEventSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Event name, for example `exception`.")
+    timestamp = serializers.DateTimeField(
+        allow_null=True, help_text="When the event occurred. Null when the SDK did not set a time."
+    )
+    attributes = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Event attributes. Keys are whatever the instrumentation set.",
+    )
+
+
 class _TraceSpanSerializer(_SpanSerializer):
-    """A span in a single trace. The trace action adds self time, which the list does not compute."""
+    """A span in a single trace. The trace action adds self time and span events, which the list does not return."""
 
     self_time_nano = serializers.FloatField(
         help_text="Span duration minus the time spent in its children, in nanoseconds."
+    )
+    events = _SpanEventSerializer(
+        many=True,
+        required=False,
+        help_text="OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true.",
     )
 
 
