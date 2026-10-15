@@ -11287,9 +11287,9 @@ snapshots:
     scenes-app-inbox-discussreportbutton--without-suggestions--light:
         hash: v1.k794b7964.9108dd99dd7c78fc3f18d4326d19f4ae6db81b0a925c742130145b315bfefce8.SDY7Xb9wigNSFb_k-94O75WyV7EloF11LgkDK9YH0Wo
     scenes-app-inbox-hotkeyradio--with-selection--dark:
-        hash: v1.k794b7964.ee23fd931ed2324fdc42cbb44bb06176f40e1e47d5c03f9118ccc0f5f013201b.BmJiKZm5EO6qY8tSt5oSll_wmMMWh7IJ0dqN_bSQwa8
+        hash: v1.k794b7964.096221ba2a8740bc3f146596ab7d2e9576a9634b42608a196af46696de44024b.Aa_uyyUpzKzR72cUKsxLQJvhEiP0VxyLDoYjQgAa-mo
     scenes-app-inbox-hotkeyradio--with-selection--light:
-        hash: v1.k794b7964.3e50641442cc87cebfb5e0380042c05c0e5f15e238011e5aab24f8e69da5ea8e.IarzlyKga2lc-4CZ8UpBjuU1D_75I4SRnyKDESA9drk
+        hash: v1.k794b7964.b33f3d0a7456ea8e8dc412a08edd39d375f5cbfe508986fcc3add5190ccf2841.34SlHTQlR87Vqw5S3O9_k7v8sXrshNONFUqpF1Z97X0
     scenes-app-inbox-implementbutton--choices--dark:
         hash: v1.k794b7964.04e3f5a9e20f0032cff25e7878e16328871b41813d2a4e3064e731f91d3b876c.hVFY_MWjWZDX4fr9y2vacAy3wHZuNHwp5cYjveu_KfE
     scenes-app-inbox-implementbutton--choices--light:
@@ -14494,6 +14494,10 @@ snapshots:
         hash: v1.k794b7964.f723b2160bdf85cd5a827fa3dac4c281d75950f47555cdef7fc01f2ef689dfc6.wAOg7AG2Pf4mYO8EjKdD8lFlC1Ulv4MhkXIEMkzfCrg
     scenes-app-signals-artefactloglist--replacement-lifecycle--light:
         hash: v1.k794b7964.bb6f3f49907d13832cfad4b4c2c5ca3793bb4b29ab9bfcdda58a3abb848996a6.IjmVg1UPLdiV6r2dZcxKXAqYdiY6qBiuRiVeIqhd_hY
+    scenes-app-signals-artefactloglist--report-verdicts--dark:
+        hash: v1.k794b7964.e83b5beef6e337264ba02e44e08dec0b89ae0b055f58462e75f628682efb45cb.27b8MBKf1ZGxDx_4njLGUb6cqLKeIjuutlNiHJpVHig
+    scenes-app-signals-artefactloglist--report-verdicts--light:
+        hash: v1.k794b7964.2700c0aee71780b7938fdf212bb2d9f6010a0781da41c3d7bb9b5ad647d14f97.op16fkIw6utBe_-1aQLa3cCPSI395xX649Lc0OtOMUA
     scenes-app-signals-artefactloglist--revision-limit--dark:
         hash: v1.k794b7964.d9e475caa06b8c102d144f5a714e26addf9fdfe71d0b5008a4d09448142d60d7.KrLa7tfvjyW7kx7jRx7f8a2uctJrVoOP47m2TBccgrc
     scenes-app-signals-artefactloglist--revision-limit--light:
