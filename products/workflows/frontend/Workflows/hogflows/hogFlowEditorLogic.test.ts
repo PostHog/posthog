@@ -233,16 +233,21 @@ describe('hogFlowEditorLogic', () => {
             localStorage.clear()
         })
 
-        const openOtherWorkflowEditor = async (
+        const openWorkflowEditor = async (
+            id: string,
             searchParams: Record<string, string> = {}
         ): Promise<ReturnType<typeof hogFlowEditorLogic.build>> => {
             logic.unmount()
-            router.actions.push(urls.workflow(OTHER_WORKFLOW_ID, 'workflow'), searchParams)
-            const otherEditor = hogFlowEditorLogic({ id: OTHER_WORKFLOW_ID })
-            otherEditor.mount()
-            await expectLogic(otherEditor).toFinishAllListeners()
-            return otherEditor
+            router.actions.push(urls.workflow(id, 'workflow'), searchParams)
+            const editor = hogFlowEditorLogic({ id })
+            editor.mount()
+            await expectLogic(editor).toFinishAllListeners()
+            return editor
         }
+
+        const openOtherWorkflowEditor = (
+            searchParams: Record<string, string> = {}
+        ): Promise<ReturnType<typeof hogFlowEditorLogic.build>> => openWorkflowEditor(OTHER_WORKFLOW_ID, searchParams)
 
         it.each([
             { description: 'the picked view when the link has none', searchParams: {}, expected: 'advanced' },
@@ -271,6 +276,17 @@ describe('hogFlowEditorLogic', () => {
             const otherEditor = await openOtherWorkflowEditor()
 
             expect(otherEditor.values.editorLayout).toEqual('simple')
+        })
+
+        it('keeps the view the link asks for when a new workflow is saved for the first time', async () => {
+            logic.actions.pickEditorLayout('advanced')
+            const newWorkflowEditor = await openWorkflowEditor('new', { view: 'linear' })
+
+            workflowLogic({ id: 'new' }).actions.saveWorkflowSuccess({ ...NEW_WORKFLOW, id: OTHER_WORKFLOW_ID })
+            await expectLogic(newWorkflowEditor).toFinishAllListeners()
+
+            expect(router.values.location.pathname).toContain(OTHER_WORKFLOW_ID)
+            expect(newWorkflowEditor.values.editorLayout).toEqual('simple')
         })
     })
 
