@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -20,6 +21,7 @@ import type {
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { heatmapLogic } from '../scenes/heatmap/heatmapLogic'
+import { pageHistoryCaptureLogic } from './pageHistoryCaptureLogic'
 import { pageHistoryLogic, selectCapturesBetween } from './pageHistoryLogic'
 
 const saved: HeatmapScreenshotResponseApi = {
@@ -110,6 +112,7 @@ describe('pageHistoryLogic', () => {
 
     describe('selecting history', () => {
         let logic: ReturnType<typeof pageHistoryLogic>
+        let captureLogic: ReturnType<typeof pageHistoryCaptureLogic>
         const dataLogic = heatmapDataLogic({ context: 'in-app' })
 
         beforeEach(async () => {
@@ -134,6 +137,8 @@ describe('pageHistoryLogic', () => {
             dataLogic.actions.setWindowWidthOverride(1440)
             logic = pageHistoryLogic({ id: 'hm_test' })
             logic.mount()
+            captureLogic = pageHistoryCaptureLogic({ id: 'hm_test' })
+            captureLogic.mount()
             await expectLogic(logic, () => logic.actions.loadHistory()).toFinishAllListeners()
         })
 
@@ -143,6 +148,7 @@ describe('pageHistoryLogic', () => {
         })
 
         it('scopes the overlay to the day, shows that day on its screenshot and locks the width', async () => {
+            expect(captureLogic.values.completedCapture).toBeNull()
             await expectLogic(logic, () => logic.actions.selectCapture('cap-3')).toFinishAllListeners()
 
             expect(dataLogic.values.effectiveCommonFilters).toMatchObject({
@@ -294,6 +300,161 @@ describe('pageHistoryLogic', () => {
             const exportAction = jest.spyOn(scene.actions, 'startHeatmapExport')
             scene.actions.exportHeatmap()
             expect(exportAction).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['no record of the request', null, null],
+            ['a capture that finished', 'cap-3', null],
+            ['a capture that failed', null, "couldn't finish"],
+        ])(
+            'clears loading when a request status poll fails, then reconciles %s',
+            async (_label, completedId, error) => {
+                jest.useFakeTimers()
+                const poll = jest
+                    .spyOn(heatmapApi, 'savedScreenshotHistoryRequestsRetrieve')
+                    .mockRejectedValue(new Error('unavailable'))
+                captureLogic.actions.pollRequest('request-1')
+                expect(captureLogic.values.capturing).toBe(true)
+                await jest.advanceTimersByTimeAsync(10000)
+                expect(poll).toHaveBeenCalledWith('997', 'hm_test', 'request-1')
+                expect(captureLogic.values.capturing).toBe(false)
+                expect(captureLogic.values.captureStatusUnknown).toBe(true)
+                expect(captureLogic.values.captureNowDisabledReason).toContain('Check the current capture')
+
+                jest.useRealTimers()
+                const reconciled =
+                    completedId !== null
+                        ? capture('cap-3', '2024-05-03', { revision: 'request-1' })
+                        : error !== null
+                          ? capture('cap-3', '2024-05-03', {
+                                latest_request: {
+                                    request_id: 'request-1',
+                                    state: 'failed',
+                                    failure_cause: 'browserless_timeout',
+                                    page_status: null,
+                                    deadline: '2024-05-03T12:30:00Z',
+                                    completed_at: '2024-05-03T12:05:00Z',
+                                },
+                            })
+                          : captures[0]
+                jest.spyOn(heatmapApi, 'savedScreenshotHistoryRetrieve').mockResolvedValue(
+                    historyResponse([reconciled, ...captures.slice(1)])
+                )
+                await expectLogic(logic, () => logic.actions.loadHistory()).toFinishAllListeners()
+                expect(captureLogic.values.captureStatusUnknown).toBe(false)
+                expect(captureLogic.values.completedCapture?.id ?? null).toBe(completedId)
+                if (error) {
+                    expect(captureLogic.values.captureError).toContain(error)
+                } else {
+                    expect(captureLogic.values.captureError).toBeNull()
+                }
+            }
+        )
+
+        it('offers a completed capture without changing the historical date being analyzed', async () => {
+            await expectLogic(logic, () => logic.actions.selectCapture('cap-1')).toFinishAllListeners()
+            jest.useFakeTimers()
+            const completed = capture('cap-3', '2024-05-03', { revision: 'request-1' })
+            jest.spyOn(heatmapApi, 'savedScreenshotHistoryRequestsRetrieve').mockResolvedValue({
+                request_id: 'request-1',
+                state: 'succeeded',
+                deadline: '2024-05-03T12:30:00Z',
+                completed_at: '2024-05-03T12:00:00Z',
+                failure_cause: null,
+                page_status: 200,
+            })
+            jest.spyOn(heatmapApi, 'savedScreenshotHistoryRetrieve').mockResolvedValue(
+                historyResponse([completed, ...captures.slice(1)])
+            )
+            captureLogic.actions.pollRequest('request-1')
+            await jest.advanceTimersByTimeAsync(10000)
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(captureLogic.values.completedCapture?.id).toBe('cap-3')
+            expect(logic.values.selectedBackground?.id).toBe('cap-1')
+            expect(captureLogic.values.capturing).toBe(false)
+        })
+
+        it.each([
+            ['rate limited', new ApiError('Throttled', 429, new Headers({ 'Retry-After': '600' })), '10 minutes'],
+            ['unavailable', new Error('Unavailable'), 'Try again later'],
+        ])('clears capture loading and explains a creation failure: %s', async (_label, error, message) => {
+            jest.spyOn(heatmapApi, 'savedScreenshotHistoryCaptureCreate').mockRejectedValue(error)
+            await expectLogic(captureLogic, () => captureLogic.actions.captureNow()).toFinishAllListeners()
+            expect(captureLogic.values.capturing).toBe(false)
+            expect(captureLogic.values.captureError).toContain(message)
+        })
+
+        it('resumes polling a pending capture when the strip mounts after history loaded', async () => {
+            const pending = capture('cap-3', '2024-05-03', {
+                latest_request: {
+                    request_id: 'request-1',
+                    state: 'running',
+                    failure_cause: null,
+                    page_status: null,
+                    deadline: '2024-05-03T12:30:00Z',
+                    completed_at: null,
+                },
+            })
+            captureLogic.unmount()
+            await expectLogic(logic, () =>
+                logic.actions.loadHistorySuccess(historyResponse([pending, ...captures.slice(1)]))
+            ).toFinishAllListeners()
+
+            captureLogic = pageHistoryCaptureLogic({ id: 'hm_test' })
+            captureLogic.mount()
+
+            expect(captureLogic.values.capturing).toBe(true)
+        })
+
+        it('ignores a capture request that resolves after the page changed', async () => {
+            let resolveCreate: (
+                value: Awaited<ReturnType<typeof heatmapApi.savedScreenshotHistoryCaptureCreate>>
+            ) => void
+            jest.spyOn(heatmapApi, 'savedScreenshotHistoryCaptureCreate').mockImplementation(
+                () => new Promise((resolve) => (resolveCreate = resolve))
+            )
+            captureLogic.actions.captureNow()
+            expect(captureLogic.values.capturing).toBe(true)
+
+            logic.actions.pageChanged()
+            resolveCreate!({ request_id: 'request-old' } as Awaited<
+                ReturnType<typeof heatmapApi.savedScreenshotHistoryCaptureCreate>
+            >)
+            await expectLogic(captureLogic).toFinishAllListeners()
+
+            expect(captureLogic.values.capturing).toBe(false)
+        })
+
+        it('picks up a capture the server accepted when the create response was lost', async () => {
+            const accepted = capture('cap-3', '2024-05-03', {
+                latest_request: {
+                    request_id: 'request-1',
+                    state: 'queued',
+                    failure_cause: null,
+                    page_status: null,
+                    deadline: '2024-05-03T12:30:00Z',
+                    completed_at: null,
+                },
+            })
+            jest.spyOn(heatmapApi, 'savedScreenshotHistoryCaptureCreate').mockRejectedValue(new Error('Network error'))
+            jest.spyOn(heatmapApi, 'savedScreenshotHistoryRetrieve').mockResolvedValue(
+                historyResponse([accepted, ...captures.slice(1)])
+            )
+
+            await expectLogic(captureLogic, () => captureLogic.actions.captureNow()).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(captureLogic.values.capturing).toBe(true)
+            expect(captureLogic.values.captureError).toBeNull()
+        })
+
+        it('stops polling when navigation unmounts the history logic', async () => {
+            jest.useFakeTimers()
+            const poll = jest.spyOn(heatmapApi, 'savedScreenshotHistoryRequestsRetrieve')
+            captureLogic.actions.pollRequest('request-1')
+            captureLogic.unmount()
+            await jest.advanceTimersByTimeAsync(10000)
+            expect(poll).not.toHaveBeenCalled()
         })
 
         it('keeps history selections separate between projects', async () => {

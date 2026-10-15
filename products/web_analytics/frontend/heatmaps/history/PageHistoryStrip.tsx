@@ -2,14 +2,15 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
-import { IconChevronLeft, IconChevronRight, IconEllipsis, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonMenu, Tooltip } from '@posthog/lemon-ui'
+import { IconCamera, IconChevronLeft, IconChevronRight, IconEllipsis, IconRefresh } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonCard, LemonMenu, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { dayjs } from 'lib/dayjs'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 
+import { pageHistoryCaptureLogic } from './pageHistoryCaptureLogic'
 import { pageHistoryLogic } from './pageHistoryLogic'
 import { PageHistoryRangeEditor } from './PageHistoryRangeEditor'
 import { PageHistoryTile } from './PageHistoryTile'
@@ -44,6 +45,10 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
         setHistoryExpanded,
         setMissingCaptureDate,
     } = useActions(logic)
+    const captureLogic = pageHistoryCaptureLogic({ id })
+    const { capturing, captureError, captureStatusUnknown, completedCapture, captureNowDisabledReason, todaysCapture } =
+        useValues(captureLogic)
+    const { requestCapture, setCompletedRequestId } = useActions(captureLogic)
     const { effectiveCommonFilters } = useValues(heatmapDataLogic({ context: 'in-app' }))
     const contextRef = useRef<HTMLElement | null>(null)
     const [browserMaxHeight, setBrowserMaxHeight] = useState(640)
@@ -77,6 +82,7 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
         setHistoryExpanded(false)
         browseRef.current?.focus({ preventScroll: true })
     }
+    const captureLabel = todaysCapture ? "Update today's screenshot" : "Capture today's screenshot"
 
     return (
         <section
@@ -158,6 +164,13 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
                         <LemonMenu
                             items={[
                                 {
+                                    label: captureLabel,
+                                    icon: <IconCamera />,
+                                    onClick: () => requestCapture(),
+                                    disabledReason: captureNowDisabledReason,
+                                    'data-attr': 'heatmap-page-history-capture-now',
+                                },
+                                {
                                     label: 'Refresh screenshots',
                                     icon: <IconRefresh />,
                                     onClick: () => loadHistory(),
@@ -169,6 +182,7 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
                             <LemonButton
                                 size="small"
                                 icon={<IconEllipsis />}
+                                loading={capturing}
                                 aria-label="Screenshot actions"
                                 data-attr="heatmap-page-history-actions"
                             />
@@ -210,6 +224,48 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
                 </LemonBanner>
             ) : null}
             <div role="status" aria-live="polite">
+                {captureStatusUnknown ? (
+                    <LemonBanner
+                        type="warning"
+                        className="mt-2"
+                        action={{ children: 'Check capture', onClick: () => loadHistory(), loading: historyLoading }}
+                    >
+                        Couldn't check the capture's status. It may still be running. Check again before starting
+                        another.
+                    </LemonBanner>
+                ) : captureError ? (
+                    <LemonBanner
+                        type="error"
+                        className="mt-2"
+                        action={{
+                            children: 'Try again',
+                            onClick: () => requestCapture(),
+                            disabledReason: captureNowDisabledReason,
+                        }}
+                    >
+                        {captureError}
+                    </LemonBanner>
+                ) : capturing ? (
+                    <div className="flex items-center gap-2 text-sm mt-2">
+                        <Spinner className="shrink-0" />
+                        <span>Capturing today's page. You can keep exploring history.</span>
+                    </div>
+                ) : completedCapture ? (
+                    <LemonBanner
+                        type="success"
+                        className="mt-2"
+                        onClose={() => setCompletedRequestId(null)}
+                        action={{
+                            children: 'View capture',
+                            onClick: () => {
+                                browseCapture(completedCapture.id)
+                                setCompletedRequestId(null)
+                            },
+                        }}
+                    >
+                        <span>{`Your ${dayjs(completedCapture.captured_on).format('MMM D')} screenshot is ready.`}</span>
+                    </LemonBanner>
+                ) : null}
                 {navigationNotice ? <p className="text-xs text-muted mt-2 mb-0">{navigationNotice}</p> : null}
             </div>
             {missingCaptureDate ? (
@@ -246,6 +302,17 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
                             ? "Automatic captures build history for recently viewed pages. Earlier page designs can't be recovered."
                             : 'Screenshot storage is unavailable on this installation. Ask your administrator to configure it.'}
                     </p>
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        icon={<IconCamera />}
+                        onClick={requestCapture}
+                        loading={capturing}
+                        disabledReason={captureNowDisabledReason}
+                        data-attr="heatmap-page-history-capture-now"
+                    >
+                        Capture today's screenshot
+                    </LemonButton>
                     <p className="text-xs text-muted mb-0 mt-2">
                         <span>{`Saved screenshots are kept for ${history.retention_days} days. Some days may be missing.`}</span>
                     </p>
