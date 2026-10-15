@@ -232,6 +232,10 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     # [minIf(..., notNullIn(...))]` (THERE_IS_NO_COLUMN). Same bug class as #64487; disabling the rewrite avoids it
     # without touching NULL semantics (unlike transform_null_in).
     optimize_min_inequality_conjunction_chain_length: Optional[int] = 4294967295
+    # A bugfix workaround for MULTIPLE_EXPRESSIONS_FOR_ALIAS (code 179). The new analyzer rewrites
+    # `max(timestamp - INTERVAL 7 HOUR)` into `max(timestamp) - INTERVAL 7 HOUR`, but both the inner aggregate and the
+    # outer `minus` keep the original implicit alias, so ClickHouse rejects the query.
+    optimize_arithmetic_operations_in_aggregate_functions: Optional[bool] = False
     # experimental support for nonequal joins
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
