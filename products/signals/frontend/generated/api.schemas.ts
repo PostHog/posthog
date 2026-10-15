@@ -776,7 +776,7 @@ export interface SignalReportListApi {
     /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
     readonly ranking: ReportRankingApi | null
     /**
-     * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the ranking score decile, then the priority as a tiebreak. Reports without a usable score sort after scored ones. Null for every other sort.
+     * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's head (open, action or fixed), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
      * @nullable
      */
     readonly inbox_merge_key: number | null
@@ -790,7 +790,7 @@ export interface PaginatedSignalReportListListApi {
     previous?: string | null
     results: SignalReportListApi[]
     /**
-     * The ranker that ordered the page when sort=recommended: priority, or fixed for the served ranking model's fixed head. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+     * The ranker that ordered the page when sort=recommended: priority, or open, action or fixed for that head of the served ranking model. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
      * @nullable
      */
     ranker?: string | null
@@ -3229,9 +3229,9 @@ export interface SignalReportBulkStateResponseApi {
 }
 
 export interface SignalReportsForYouResponseApi {
-    /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks reports the same way. */
+    /** One page of the open, actionable reports that matter most to the current user. The ranking model picks which reports make the page; the page is then in display order: by priority, P0 first and reports without a priority last, then best first within a priority. They are reports waiting for their input, reports they claimed, reports naming them as a reviewer, and P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks reports the same way. */
     results: SignalReportListApi[]
-    /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. Counted over the same set as `results`, so it follows `include_unowned` too. */
+    /** How many open, actionable reports are for the current user, on every page together, without the `exclude` ids. Counted over the same set as `results`, so it follows `include_unowned` too. */
     count: number
 }
 
@@ -5859,8 +5859,7 @@ export interface ProjectProfileInventoryApi {
 /**
  * Top-level `payload` shape on a `SignalProjectProfile` row.
  *
- * v1 carries `inventory` only. Phase 7 will add `deltas`, `activity_notes`, and
- * `narrative` slots — they're absent (not null) in v1 responses.
+ * Carries `inventory` only.
  */
 export interface ProjectProfilePayloadApi {
     /** Deterministic snapshot of what's true about the project. */
@@ -5871,9 +5870,9 @@ export interface ProjectProfilePayloadApi {
  * Wire shape for the project profile returned by `signals-scout-harness-project-profile-list`.
  *
  * Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
- * is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
- * latest cached profile or a freshly-built one if the cache was stale or the caller passed
- * `force_refresh=true`.
+ * is per-team with a soft TTL (`PROFILE_TTL`). The internal scout token gets a fresh
+ * profile, built on a stale cache or `force_refresh=true`. Other callers get the newest
+ * stored profile, with `stale=true` when it is past `expires_at`.
  *
  * `summary` leads the response and `payload` trails it: the inventory runs to tens of
  * kilobytes, so a client that truncates a long tool result would otherwise cut off the emit
@@ -5888,6 +5887,8 @@ export interface ProjectProfileApi {
     computed_at: string
     /** ISO-8601 timestamp after which the profile is considered stale. */
     expires_at: string
+    /** True when the profile is past `expires_at`. Only read-only callers get a stale profile. Read `computed_at` to see how old it is, and verify a detail live when its age matters. */
+    stale: boolean
     /** Schema version of the inventory builder. Bumps invalidate older cached rows. */
     source_version: string
     /** Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`. */
@@ -7806,7 +7807,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per project to a ranker: the priority order, or the served ranking model's fixed head with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
+     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fixed head of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
      */
     sort?: string
     /**
@@ -7946,6 +7947,11 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
 
 export type SignalsReportsForYouRetrieveParams = {
     /**
+     * Report ids to leave out of `results` and `count`, for example the reports a briefing already shows, as repeated parameters or comma-separated. The other reports keep their order.
+     * @maxItems 20
+     */
+    exclude?: string[]
+    /**
      * Whether to include P0 reports that nobody owns. These belong to the project rather than to one person, and they rank above everything else, so a surface that only shows a person's own work passes false. Defaults to true.
      */
     include_unowned?: boolean
@@ -7955,6 +7961,11 @@ export type SignalsReportsForYouRetrieveParams = {
      * @maximum 20
      */
     limit?: number
+    /**
+     * How many reports of the ranked list to skip, after `exclude` is applied. Pages of the same query are slices of one ranked list. Defaults to 0.
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export type SignalsReportsPrCiStatusesParams = {

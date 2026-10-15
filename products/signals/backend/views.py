@@ -1137,9 +1137,9 @@ class SignalReportListPagination(LimitOffsetPagination):
             "type": "string",
             "nullable": True,
             "description": (
-                "The ranker that ordered the page when sort=recommended: priority, or fixed for the served "
-                "ranking model's fixed head. Null for every other sort. Each row's inbox_merge_key belongs "
-                "to this ranker."
+                "The ranker that ordered the page when sort=recommended: priority, or open, action or fixed "
+                "for that head of the served ranking model. Null for every other sort. Each row's "
+                "inbox_merge_key belongs to this ranker."
             ),
         }
         return paginated
@@ -2475,9 +2475,9 @@ class SignalReportViewSet(
                 required=False,
                 description=(
                     "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when "
-                    "ordering is supplied. recommended resolves per project to a ranker: the priority order, or "
-                    "the served ranking model's fixed head with unscored and stale reports in priority order "
-                    "after the scored ones. The response's ranker field names the one used."
+                    "ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
+                    "the open, action or fixed head of the served ranking model with unscored and stale reports "
+                    "in priority order after the scored ones. The response's ranker field names the one used."
                 ),
             ),
             OpenApiParameter(
@@ -2665,35 +2665,36 @@ class SignalReportViewSet(
         responses={200: OpenApiResponse(response=SignalReportsForYouResponseSerializer)},
         summary="List the reports that matter most to the current user",
         description=(
-            "The open, actionable reports for the current user, best first, and how many there are in "
-            "total. Uses the same ranking and count as the Today briefing, so this is the short list to "
-            "show someone who asks what needs them. Pass `include_unowned=false` to leave out the P0 "
-            "reports nobody owns, which belong to the project rather than to this person."
+            "One page of the open, actionable reports for the current user, and how many there are in "
+            "total. The ranking picks the page and priority orders it for display. Uses the same ranking and count as the Today briefing, so this is the short "
+            "list to show someone who asks what needs them. Pass `exclude` to leave out reports already "
+            "on screen and `offset` to get the next page. Pass `include_unowned=false` to leave out the "
+            "P0 reports nobody owns, which belong to the project rather than to this person."
         ),
     )
     @action(detail=False, methods=["get"], url_path="for_you", required_scopes=["task:read"])
     def for_you(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         user = cast(User, request.user)
-        include_unowned = request.validated_query_data["include_unowned"]
+        query = request.validated_query_data
+        excluded = [str(report_id) for report_id in query["exclude"]]
         ranked_ids = [
             report.report_id
             for report in reports_for_briefing(
                 team_id=self.team_id,
                 user_id=user.id,
-                limit=request.validated_query_data["limit"],
-                include_unowned=include_unowned,
+                limit=query["limit"],
+                include_unowned=query["include_unowned"],
+                offset=query["offset"],
+                exclude_report_ids=excluded,
             )
         ]
         by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=ranked_ids)}
         reports = [by_id[report_id] for report_id in ranked_ids if report_id in by_id]
-        more = open_report_counts(
-            team_id=self.team_id,
-            user=user,
-            exclude_report_ids=[str(report.id) for report in reports],
-            include_unowned=include_unowned,
+        counts = open_report_counts(
+            team_id=self.team_id, user=user, exclude_report_ids=excluded, include_unowned=query["include_unowned"]
         )
         rows = self._render_report_rows(reports, include_source_metadata=True)
-        return Response({"results": rows, "count": len(rows) + more.for_person})
+        return Response({"results": rows, "count": counts.for_person})
 
     @extend_schema(
         summary="List the org members who can be suggested as reviewers",

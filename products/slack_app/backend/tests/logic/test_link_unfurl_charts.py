@@ -12,16 +12,16 @@ from temporalio.exceptions import ApplicationError
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.integration import Integration
-from posthog.temporal.ai.slack_app.types import (
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.product_analytics.backend.facade.models import Insight
+from products.slack_app.backend.logic.link_unfurl_charts import post_unfurl_charts, unfurl_chart_targets
+from products.slack_app.backend.temporal.types import (
     SlackAppUnfurlChartsPostInput,
     SlackAppUnfurlChartsWorkflowInputs,
     SlackUnfurlChartAsset,
     SlackUnfurlChartRequest,
 )
-
-from products.access_control.backend.models.access_control import AccessControl
-from products.product_analytics.backend.facade.models import Insight
-from products.slack_app.backend.logic.link_unfurl_charts import post_unfurl_charts, unfurl_chart_targets
 
 _URL = "https://us.posthog.com/project/1/insights/abc123"
 _SHORT_URL = "https://us.posthog.com/i/abc123"

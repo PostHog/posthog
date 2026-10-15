@@ -29,6 +29,7 @@ from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Cli
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContentFilteredError,
+    ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
@@ -40,6 +41,7 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
+from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS, truncate_by_line_sampling
 
 logger = structlog.get_logger(__name__)
 
@@ -57,6 +59,7 @@ LLM_TAGGER_RETRY_POLICY = RetryPolicy(
 TAGGER_DISABLED_ERROR_TYPE = "tagger_disabled"
 TAGGER_PARSE_ERROR_TYPE = "tagger_parse_error"
 TAGGER_REQUEST_REJECTED_ERROR_TYPE = "tagger_request_rejected"
+TAGGER_CONTEXT_WINDOW_ERROR_TYPE = "tagger_context_window_exceeded"
 # model_resolution is shared with evaluations, so the tagger types its skip reasons on the way out.
 MODEL_RESOLUTION_SKIP_ERROR_TYPES = {
     "provider_key_required": "tagger_provider_key_required",
@@ -69,6 +72,7 @@ SKIPPED_RESULT_ERROR_TYPES = frozenset(
         TAGGER_DISABLED_ERROR_TYPE,
         TAGGER_PARSE_ERROR_TYPE,
         TAGGER_REQUEST_REJECTED_ERROR_TYPE,
+        TAGGER_CONTEXT_WINDOW_ERROR_TYPE,
         *MODEL_RESOLUTION_SKIP_ERROR_TYPES.values(),
     }
 )
@@ -106,6 +110,18 @@ def build_tag_result_schema(tag_names: list[str], min_tags: int = 0, max_tags: i
     DynamicTagResult.__name__ = "TagResult"
     DynamicTagResult.__qualname__ = "TagResult"
     return DynamicTagResult
+
+
+def _render_tagger_user_prompt(input_data: str, output_data: str) -> str:
+    return f"Input: {input_data}\n\nOutput: {output_data}"
+
+
+def build_tagger_user_prompt(input_data: str, output_data: str) -> str:
+    budget = EVENT_TEXT_MAX_CHARS - len(_render_tagger_user_prompt("", ""))
+    # Budget each side separately, because sampling the joined text can drop a short output at its end.
+    output_data = truncate_by_line_sampling(output_data, max(budget // 2, budget - len(input_data)))
+    input_data = truncate_by_line_sampling(input_data, budget - len(output_data))
+    return _render_tagger_user_prompt(input_data, output_data)
 
 
 def build_tagger_system_prompt(prompt: str, tags: list[dict[str, str]], min_tags: int, max_tags: int | None) -> str:
@@ -280,9 +296,7 @@ def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
     tag_names = [tag["name"] for tag in tags]
     response_format = build_tag_result_schema(tag_names, min_tags, max_tags)
 
-    user_prompt = f"""Input: {input_data}
-
-Output: {output_data}"""
+    user_prompt = build_tagger_user_prompt(input_data, output_data)
 
     config = None
 
@@ -350,6 +364,14 @@ Output: {output_data}"""
             str(e),
             {"error_type": "request_rejected"},
             type=TAGGER_REQUEST_REJECTED_ERROR_TYPE,
+            non_retryable=True,
+        ) from e
+    except ContextWindowExceededError as e:
+        # Skip rather than retry: retrying can't fix an over-window prompt and just spams error tracking.
+        raise ApplicationError(
+            str(e),
+            {"error_type": "context_window_exceeded"},
+            type=TAGGER_CONTEXT_WINDOW_ERROR_TYPE,
             non_retryable=True,
         ) from e
     except (OutputTokenLimitError, StructuredOutputParseError, ContentFilteredError) as e:
@@ -684,6 +706,7 @@ class RunTaggerWorkflow(PostHogWorkflow):
                         "parse_error",
                         "no_default_model",
                         "request_rejected",
+                        "context_window_exceeded",
                     ):
                         if error_type in (
                             "provider_key_required",

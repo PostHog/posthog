@@ -368,6 +368,11 @@ export interface hogFlowEditorTestLogicMeta {
                                 type: 'internal-event'
                             }
                           | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
+                            }
+                          | {
                                 filters: {
                                     properties?: any[] | undefined
                                 }
@@ -495,6 +500,11 @@ export interface hogFlowEditorTestLogicMeta {
                                     source: 'internal-events'
                                 }
                                 type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
                             }
                           | {
                                 filters: {
@@ -630,6 +640,11 @@ export interface hogFlowEditorTestLogicMeta {
                                 type: 'internal-event'
                             }
                           | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
+                            }
+                          | {
                                 filters: {
                                     properties?: any[] | undefined
                                 }
@@ -757,6 +772,11 @@ export interface hogFlowEditorTestLogicMeta {
                                     source: 'internal-events'
                                 }
                                 type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
                             }
                           | {
                                 filters: {
