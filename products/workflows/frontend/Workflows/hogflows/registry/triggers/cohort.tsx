@@ -10,7 +10,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { cohortsModel } from '~/models/cohortsModel'
 
-import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
+import {
+    PERSON_FREQUENCY_OPTIONS,
+    registerTriggerType,
+} from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
 
 import { HogFlowAction } from '../../types'
@@ -89,4 +92,5 @@ registerTriggerType({
         return { valid: true, errors: {} }
     },
     ConfigComponent: StepTriggerConfigurationCohort,
+    frequencyOptions: PERSON_FREQUENCY_OPTIONS,
 })

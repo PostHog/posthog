@@ -1,3 +1,4 @@
+import { chunk } from 'lodash'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
@@ -49,10 +50,15 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
     protected hogflowQueue: JobQueue
     protected kafkaConsumer: KafkaConsumerInterface
     private hogFlowPipeline: HogFlowInvocationPipeline
+    private queueConfig: Pick<
+        PluginsServerConfig,
+        'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE' | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
+    >
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps, jobQueues: { hogflowQueue: JobQueue }) {
         super(config, deps)
         this.hogflowQueue = jobQueues.hogflowQueue
+        this.queueConfig = config
         // A fresh group starts at the tip. Replaying the retained topic would start runs for old changes.
         this.kafkaConsumer = createKafkaConsumer(
             { groupId: 'cdp-cohort-membership-trigger-consumer', topic: KAFKA_COHORT_MEMBERSHIP_CHANGED },
@@ -78,7 +84,7 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
             return { backgroundTask: Promise.resolve(), invocations: [] }
         }
 
-        const invocations = await this.hogFlowPipeline.buildInvocations(invocationGlobals, {
+        const { invocations, release } = await this.hogFlowPipeline.buildInvocationsWithRelease(invocationGlobals, {
             eligibilityFn: isMatchingCohortTrigger,
         })
 
@@ -88,8 +94,48 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
 
         return {
             backgroundTask: Promise.all([
-                instrumentFn({ key: 'cdp.background_task.queue_hogflow_invocations', sendException: false }, () =>
-                    this.hogflowQueue.queueInvocations(invocations)
+                instrumentFn(
+                    { key: 'cdp.background_task.queue_hogflow_invocations', sendException: false },
+                    async () => {
+                        // One insert per chunk, so a failure leaves a known set of runs queued.
+                        const batches = chunk(invocations, this.queueConfig.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
+                        const queued: CyclotronJobInvocation[] = []
+                        let failure: { error: unknown } | null = null
+                        if (this.queueConfig.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
+                            const results = await Promise.allSettled(
+                                batches.map((batch) => this.hogflowQueue.queueInvocations(batch))
+                            )
+                            results.forEach((result, index) => {
+                                if (result.status === 'fulfilled') {
+                                    queued.push(...batches[index])
+                                } else {
+                                    failure ??= { error: result.reason }
+                                }
+                            })
+                        } else {
+                            for (const batch of batches) {
+                                try {
+                                    await this.hogflowQueue.queueInvocations(batch)
+                                    queued.push(...batch)
+                                } catch (error) {
+                                    failure = { error }
+                                    break
+                                }
+                            }
+                        }
+                        if (failure) {
+                            // The batch is retried. Runs that never reached the queue release their claims, or the
+                            // retry finds them masked. Queued runs keep theirs, so their people do not run twice.
+                            await release(queued)
+                            const queuedIds = new Set(queued.map((invocation) => invocation.id))
+                            this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor(
+                                invocations
+                                    .filter((invocation) => !queuedIds.has(invocation.id))
+                                    .map((invocation) => invocation.id)
+                            )
+                            throw failure.error
+                        }
+                    }
                 ),
                 instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
                     try {
