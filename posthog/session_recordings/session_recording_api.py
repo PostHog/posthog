@@ -1030,8 +1030,10 @@ class SessionRecordingViewSet(
                 query=query, team=self.team
             ).get_event_ids_for_session()
         except Exception as e:
-            if not _is_retryable_matching_events_error(e):
+            # A transient error that already carries a status (capacity 503, cluster memory 513) keeps it.
+            if isinstance(e, exceptions.APIException) or not _is_retryable_matching_events_error(e):
                 raise
+            logger.warning("matching_events_clickhouse_retryable_error", error_type=type(e).__name__)
             raise ClickHouseAtCapacity() from e
 
         response = JsonResponse(

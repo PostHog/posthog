@@ -1181,6 +1181,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ("aborted", 236, status.HTTP_503_SERVICE_UNAVAILABLE),
             ("query_was_cancelled", 394, status.HTTP_503_SERVICE_UNAVAILABLE),
             ("timeout_exceeded", 159, status.HTTP_504_GATEWAY_TIMEOUT),
+            ("cluster_memory_limit", 241, 513),
         ]
     )
     def test_get_matching_events_clickhouse_failure_status(self, _name: str, code: int, expected_status: int) -> None:

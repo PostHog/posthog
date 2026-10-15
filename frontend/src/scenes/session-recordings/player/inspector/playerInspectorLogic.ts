@@ -989,21 +989,22 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         session_ids: [props.sessionRecordingId],
                     }
 
-                    let results: MatchedRecordingEvent[]
+                    let results: MatchedRecordingEvent[] = []
+                    let failure: unknown = null
                     try {
                         results = (await api.recordings.getMatchingEvents(toParams(params))).results
                     } catch (error) {
                         // Highlights are optional, so the recording plays on without them.
                         // Also clear the previous filters' highlights instead of keeping them.
-                        if (shouldReportApiFailure(error)) {
-                            posthog.captureException(error)
-                        }
-                        results = []
+                        failure = error
                     }
                     // kea-loaders still dispatches success for a superseded call. Drop this response
                     // when a newer load started while it was in flight, so that it cannot overwrite
                     // the newer events or settle the skip on the previous filters' events.
                     breakpoint()
+                    if (failure && shouldReportApiFailure(failure)) {
+                        posthog.captureException(failure)
+                    }
                     return results
                 },
             },
