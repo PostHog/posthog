@@ -14,6 +14,7 @@ class Migration(migrations.Migration):
             name="prompt_topic",
             field=models.CharField(
                 blank=True,
+                db_default="",
                 default="",
                 help_text="Prompt topic at the time of the run.",
                 max_length=200,
@@ -33,6 +34,7 @@ class Migration(migrations.Migration):
             name="topic",
             field=models.CharField(
                 blank=True,
+                db_default="",
                 default="",
                 help_text="Theme the prompt belongs to; the runner samples every topic on each run.",
                 max_length=200,

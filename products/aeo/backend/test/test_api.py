@@ -34,11 +34,12 @@ class TestAEOPromptAPI(APIBaseTest):
             "prompts": [
                 {"prompt": "Best session replay tool?", "topic": "Session replay", "external_visibility": 42.5},
                 {"prompt": "Best feature flag tool?", "topic": "Feature flags"},
+                {"prompt": "   "},
             ]
         }
         response = self.client.post(f"{self.url}bulk_import/", payload, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"created": 2, "updated": 0, "skipped": 0}
+        assert response.json() == {"created": 2, "updated": 0, "skipped": 1}
 
         listed = {row["prompt"]: row for row in self.client.get(self.url).json()["results"]}
         assert listed["Best session replay tool?"]["topic"] == "Session replay"
@@ -52,7 +53,7 @@ class TestAEOPromptAPI(APIBaseTest):
         assert response.json()["topic"] == "Session replay"
 
         response = self.client.post(f"{self.url}bulk_import/", payload, format="json")
-        assert response.json() == {"created": 0, "updated": 2, "skipped": 0}
+        assert response.json() == {"created": 0, "updated": 2, "skipped": 1}
         assert AEOPrompt.objects.for_team(self.team.id).get(id=replay_id).active is False
 
     def test_list_pages_without_overlap(self) -> None:
@@ -67,10 +68,11 @@ class TestAEOPromptAPI(APIBaseTest):
         ids = [row["id"] for row in first["results"] + second["results"]]
         assert len(ids) == len(set(ids)) == 5
 
-    def test_bulk_import_rejects_out_of_range_visibility(self) -> None:
+    @parameterized.expand([("above_range", 140), ("not_a_number", "NaN"), ("infinite", "Infinity")])
+    def test_bulk_import_rejects_invalid_visibility(self, _name: str, visibility: object) -> None:
         response = self.client.post(
             f"{self.url}bulk_import/",
-            {"prompts": [{"prompt": "q?", "external_visibility": 140}]},
+            {"prompts": [{"prompt": "q?", "external_visibility": visibility}]},
             format="json",
         )
 

@@ -59,7 +59,8 @@ def team(db: None) -> Team:
 
 
 def test_reseeding_the_same_prompt_updates_instead_of_duplicating(team: Team) -> None:
-    assert upsert_prompts(team, [_candidate("Best session replay?")])["created"] == 1
+    first = upsert_prompts(team, [_candidate("Best session replay?"), _candidate("best session replay?")])
+    assert first == {"created": 1, "updated": 1, "skipped": 0}
     AEOPrompt.objects.for_team(team.id).update(active=False)
 
     result = upsert_prompts(team, [_candidate("  best   SESSION replay?  ", topic="Session replay")])

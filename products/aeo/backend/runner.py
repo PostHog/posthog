@@ -18,7 +18,8 @@ import uuid
 from typing import Any, Optional
 
 from django.conf import settings
-from django.db.models import F
+from django.db.models import F, Window
+from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 import structlog
@@ -152,11 +153,15 @@ def select_prompts(team: Team, limit: int) -> list[AEOPrompt]:
     rotates. A small topic runs out of unchecked prompts first and is then
     re-checked while larger topics still rotate.
     """
+    freshness = [F("last_checked_at").asc(nulls_first=True), F("rank").desc(), F("created_at").asc()]
     by_topic: dict[str, list[AEOPrompt]] = {}
+    # The round-robin never takes more than `limit` prompts from one topic, so load no more than that.
     for prompt in (
         AEOPrompt.objects.for_team(team.id)
         .filter(active=True)
-        .order_by(F("last_checked_at").asc(nulls_first=True), "-rank", "created_at")
+        .annotate(position_in_topic=Window(RowNumber(), partition_by=[F("topic")], order_by=freshness))
+        .filter(position_in_topic__lte=limit)
+        .order_by(*freshness)
     ):
         by_topic.setdefault(prompt.topic, []).append(prompt)
 

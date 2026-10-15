@@ -18,9 +18,12 @@ import hashlib
 from dataclasses import field
 from typing import Any
 
+from django.utils import timezone
+
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH
@@ -75,30 +78,38 @@ def upsert_prompts(team: Team, candidates: list[PromptCandidate]) -> dict[str, i
     single prompt from bloating every check event it appears on, and it matches
     what a check event records for prompt_text.
     """
-    created = updated = skipped = 0
+    skipped = 0
+    rows: dict[str, AEOPrompt] = {}
+    now = timezone.now()
     for candidate in candidates:
         text = normalize_prompt(candidate.text)
         if not text or len(text) > MAX_PROMPT_LENGTH:
             skipped += 1
             continue
-        # for_team scopes the fail-closed manager; team is still passed
-        # explicitly because queryset filters don't propagate into row creation.
-        fields = {
-            "prompt": text,
-            "prompt_source": candidate.source,
-            "topic": normalize_prompt(candidate.topic)[:PROMPT_TOPIC_MAX_LENGTH],
-            "rank": candidate.rank,
-            "evidence": candidate.evidence,
-        }
-        # `active` is only set on create, so a re-import keeps prompts someone turned off.
-        _, was_created = AEOPrompt.objects.for_team(team.id).update_or_create(
+        key = prompt_hash(text)
+        # Keyed by hash because one upsert statement cannot touch the same row twice; the later copy wins.
+        rows[key] = AEOPrompt(
             team=team,
-            prompt_hash=prompt_hash(text),
-            defaults=fields,
-            create_defaults={**fields, "active": True},
+            prompt=text,
+            prompt_hash=key,
+            prompt_source=candidate.source,
+            topic=normalize_prompt(candidate.topic)[:PROMPT_TOPIC_MAX_LENGTH],
+            rank=candidate.rank,
+            evidence=candidate.evidence,
+            active=True,
+            updated_at=now,
         )
-        created += was_created
-        updated += not was_created
+    valid = len(candidates) - skipped
+    with team_scope(team.id):
+        existing = set(AEOPrompt.objects.filter(prompt_hash__in=rows.keys()).values_list("prompt_hash", flat=True))
+        # `active` is left out of the update, so a re-import keeps prompts someone turned off.
+        AEOPrompt.objects.bulk_create(
+            list(rows.values()),
+            update_conflicts=True,
+            unique_fields=["team", "prompt_hash"],
+            update_fields=["prompt", "prompt_source", "topic", "rank", "evidence", "updated_at"],
+        )
+    created = len(rows.keys() - existing)
     if skipped:
         logger.info("aeo_seed_candidates_skipped", team_id=team.id, skipped=skipped)
-    return {"created": created, "updated": updated, "skipped": skipped}
+    return {"created": created, "updated": valid - created, "skipped": skipped}

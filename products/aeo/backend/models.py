@@ -53,6 +53,7 @@ class AEOPrompt(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDT
         max_length=PROMPT_TOPIC_MAX_LENGTH,
         blank=True,
         default="",
+        db_default="",
         help_text="Theme the prompt belongs to; the runner samples every topic on each run.",
     )
     rank = models.FloatField(default=0, help_text="Seeding score; higher runs first within a topic.")
@@ -100,7 +101,11 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
     prompt_text = models.TextField(help_text="The question as it ran, snapshotted from the prompt set.")
     prompt_source = models.CharField(max_length=32, help_text="Prompt source at the time of the run.")
     prompt_topic = models.CharField(
-        max_length=PROMPT_TOPIC_MAX_LENGTH, blank=True, default="", help_text="Prompt topic at the time of the run."
+        max_length=PROMPT_TOPIC_MAX_LENGTH,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Prompt topic at the time of the run.",
     )
     prompt_hash = models.CharField(max_length=64, help_text="SHA-256 of the normalized prompt text.")
 

@@ -1,3 +1,4 @@
+import math
 from typing import Any
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -60,6 +61,7 @@ class AEOPromptImportItemSerializer(DataclassSerializer):
         ref_name = "AEOPromptImport"
         extra_kwargs = {
             "prompt": {
+                "allow_blank": True,
                 "max_length": MAX_IMPORTED_PROMPT_CHARS,
                 "help_text": "The question to ask the answer engines, as a user would phrase it. Matching ignores case and whitespace, so a re-import updates the existing prompt.",
             },
@@ -70,6 +72,12 @@ class AEOPromptImportItemSerializer(DataclassSerializer):
             },
             "external_visibility": {"min_value": 0, "max_value": 100, "help_text": EXTERNAL_VISIBILITY_HELP},
         }
+
+    def validate_external_visibility(self, value: float | None) -> float | None:
+        # DRF parses "NaN" and "Infinity" as floats, and NaN passes both bounds checks.
+        if value is not None and not math.isfinite(value):
+            raise serializers.ValidationError("Must be a finite number between 0 and 100.")
+        return value
 
 
 class AEOPromptBulkImportRequestSerializer(serializers.Serializer):
