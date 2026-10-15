@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from types import MappingProxyType
 from typing import Any
@@ -55,6 +56,7 @@ CHECKS_MODULE = "products.product_analytics.backend.insight_data_checks"
 RESULTS_MODULE = "products.product_analytics.backend.insight_data_check_results"
 ON_LOCAL_HOST = {"key": "$host", "value": [LOCAL_HOST], "operator": "exact", "type": "event"}
 FROM_A_BOT = {"key": "$raw_user_agent", "value": [BOT_USER_AGENT], "operator": "exact", "type": "event"}
+NOT_A_BOT = {"key": "$virt_traffic_type", "value": ["Bot"], "operator": "is_not", "type": "event"}
 IS_PAID = {"key": "plan", "value": ["paid"], "operator": "exact", "type": "event"}
 HAS_NO_PLAN_TODAY = {"key": "plan", "value": "is_not_set", "operator": "is_not_set", "type": "person"}
 ONE_STEP = [{"kind": "EventsNode", "event": EVENT}]
@@ -110,6 +112,11 @@ class TestEvaluateDataChecks(SimpleTestCase):
             ),
             ("duplicates_fifth_is_a_problem", checked(1000, repeats=250), {DUPLICATES: PROBLEM}),
             ("sample_too_small_to_check", checked(500, sample_rate=0.1), {BOTS: SKIPPED, DUPLICATES: SKIPPED}),
+            (
+                "local_with_an_empty_partial_sample_is_at_most_a_warning",
+                checked(0, local=60, sample_rate=0.1),
+                {LOCAL: WARNING, BOTS: SKIPPED, DUPLICATES: SKIPPED},
+            ),
         ]
     )
     def test_level_follows_count_and_share(
@@ -128,6 +135,12 @@ class TestEvaluateDataChecks(SimpleTestCase):
         [
             ("local_with_too_many_events_to_count", LOCAL, checked(1000, local=None), "too_many_events"),
             ("bots_with_too_few_sampled_events", BOTS, checked(500, sample_rate=0.1), "too_few_sampled_events"),
+            (
+                "bots_when_the_insight_filters_on_traffic_type",
+                BOTS,
+                replace(checked(1000), insight_filters_traffic_type=True),
+                "filtered_by_traffic_type",
+            ),
             (
                 "duplicates_whose_sample_hit_the_read_limit",
                 DUPLICATES,
@@ -435,7 +448,20 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         assert (result.status, coverage.days_in_range, coverage.days_checked) == (status, 20, 7)
         assert coverage.events_checked == events_checked
 
-    def test_ignores_bot_rules_a_project_defines_itself(self) -> None:
+    @parameterized.expand(
+        [
+            ("insight_without_a_traffic_type_filter", [], 620, 60, None),
+            ("insight_that_filters_on_traffic_type", [NOT_A_BOT], 540, None, "filtered_by_traffic_type"),
+        ]
+    )
+    def test_applies_a_projects_own_bot_rules_only_to_the_insights_filters(
+        self,
+        _name: str,
+        properties: list[dict[str, Any]],
+        events_checked: int,
+        bot_events: int | None,
+        bot_skip_reason: str | None,
+    ) -> None:
         self._events(20, properties={"$raw_user_agent": ORDINARY_BROWSER_USER_AGENT})
         flush_persons_and_events()
         self.team.modifiers = {
@@ -450,10 +476,11 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         }
         self.team.save()
 
-        result = self._check(self._query())
+        result = self._check(self._query(properties=properties))
 
         bots = next(check for check in result.checks if check.key == BOTS)
-        assert bots.events == 60
+        assert self._coverage(result).events_checked == events_checked
+        assert (bots.events, bots.skip_reason) == (bot_events, bot_skip_reason)
 
     def test_counts_an_event_as_sent_twice_only_when_an_identical_one_came_under_100_ms_before(self) -> None:
         sent_twice_by_the_app = (timedelta(0), timedelta(milliseconds=20))

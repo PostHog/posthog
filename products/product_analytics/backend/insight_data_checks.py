@@ -13,11 +13,16 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.errors import CHQueryErrorTooManyBytes
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -70,6 +75,13 @@ REPEAT_WINDOW_MILLISECONDS = 100
 # A hidden property reads as empty, so the checks cannot run when one of these is hidden.
 CHECKED_PROPERTIES = frozenset(
     {"$host", "$raw_user_agent", "$ip", "$current_url", "$screen_name", "$feature_flag", "$event_type"}
+)
+# The fields and functions that classify traffic, which apply a project's own bot rules.
+TRAFFIC_TYPE_FIELDS = frozenset(
+    {"$virt_is_bot", "$virt_traffic_type", "$virt_traffic_category", "$virt_bot_name", "$virt_bot_operator"}
+)
+TRAFFIC_TYPE_FUNCTIONS = frozenset(
+    {"isLikelyBot", "getTrafficType", "getTrafficCategory", "getBotName", "getBotOperator"}
 )
 
 _EVENTS_PER_DAY_QUERY = """
@@ -173,8 +185,10 @@ class _EventReader:
             )
         except CHQueryErrorTooManyBytes:
             return Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT)
-        except ClickHouseQueryTimeOut:
+        except (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong):
             return Skipped(reason=InsightDataCheckSkipReason.TIME_LIMIT)
+        except ClickHouseQueryMemoryLimitExceeded:
+            return Skipped(reason=InsightDataCheckSkipReason.MEMORY_LIMIT)
         return [list(row) for row in response.results or []]
 
 
@@ -188,10 +202,32 @@ def _query_settings(max_bytes_read_per_shard: int) -> HogQLGlobalSettings:
     )
 
 
-def _check_modifiers(chart_modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
+class _TrafficTypeFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.found = self.found or any(part in TRAFFIC_TYPE_FIELDS for part in node.chain)
+
+    def visit_call(self, node: ast.Call) -> None:
+        self.found = self.found or node.name in TRAFFIC_TYPE_FUNCTIONS
+        super().visit_call(node)
+
+
+def _filters_on_traffic_type(where: ast.Expr) -> bool:
+    finder = _TrafficTypeFinder()
+    finder.visit(where)
+    return finder.found
+
+
+def _check_modifiers(chart_modifiers: HogQLQueryModifiers, *, keep_project_bot_rules: bool) -> HogQLQueryModifiers:
     # With `debug` on, a failed query returns an error and no rows, which would read as no events.
-    # The bot check uses PostHog's definition of a bot, so a project's own bot rules do not apply.
-    return chart_modifiers.model_copy(update={"debug": False, "customBotDefinitions": []})
+    update: dict[str, Any] = {"debug": False}
+    if not keep_project_bot_rules:
+        # The bot check uses PostHog's definition of a bot, so a project's own bot rules do not apply.
+        update["customBotDefinitions"] = []
+    return chart_modifiers.model_copy(update=update)
 
 
 def _hidden_property_names(team: Team, user: User) -> set[str]:
@@ -331,7 +367,13 @@ def _sample_events(
 
 
 def _read_checked_days(
-    events: ChartEvents, reader: _EventReader, window: CheckWindow, timezone: ZoneInfo, *, hides_properties: bool
+    events: ChartEvents,
+    reader: _EventReader,
+    window: CheckWindow,
+    timezone: ZoneInfo,
+    *,
+    hides_properties: bool,
+    filters_traffic_type: bool,
 ) -> CheckedEvents:
     where = events.where
     if not window.checks_whole_range:
@@ -342,7 +384,7 @@ def _read_checked_days(
     if window.events_on_days_to_check <= MAX_COUNTED_EVENTS:
         local = _count_local_events(events, reader, where, use_prewhere=not hides_properties)
     sample = _sample_events(events, reader, where, events_before_filters=window.events_on_days_to_check)
-    return CheckedEvents(local=local, sample=sample)
+    return CheckedEvents(local=local, sample=sample, insight_filters_traffic_type=filters_traffic_type)
 
 
 def _sample_summary(sample: SampledEvents | Skipped) -> InsightDataChecksSample | None:
@@ -383,17 +425,26 @@ def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) ->
         if hidden_properties & CHECKED_PROPERTIES:
             return _nothing_checked(InsightDataChecksStatus.UNSUPPORTED)
 
+        # A chart that filters on traffic type reads the project's bot rules, so the checks keep them to read its events.
+        filters_traffic_type = _filters_on_traffic_type(events.where)
         reader = _EventReader(
             team=team,
             user=user,
-            modifiers=_check_modifiers(events.modifiers),
+            modifiers=_check_modifiers(events.modifiers, keep_project_bot_rules=filters_traffic_type),
             database=events.database,
         )
         timezone = ZoneInfo(team.timezone)
         window = _choose_window(events, reader, timezone)
         if isinstance(window, Skipped):
             return _nothing_checked(InsightDataChecksStatus.INCONCLUSIVE, reason=window.reason)
-        checked = _read_checked_days(events, reader, window, timezone, hides_properties=bool(hidden_properties))
+        checked = _read_checked_days(
+            events,
+            reader,
+            window,
+            timezone,
+            hides_properties=bool(hidden_properties),
+            filters_traffic_type=filters_traffic_type,
+        )
 
     coverage = _coverage(events, window, checked.sample)
     if found_no_events(checked):

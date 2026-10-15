@@ -53,6 +53,7 @@ class SampledEvents:
 class CheckedEvents:
     local: LocalEvents | Skipped
     sample: SampledEvents | Skipped
+    insight_filters_traffic_type: bool = False
 
 
 def not_checked(key: InsightDataCheckKey, reason: InsightDataCheckSkipReason | None = None) -> InsightDataCheck:
@@ -65,12 +66,22 @@ def _finding_level(share: float | None) -> InsightDataCheckLevel:
     return InsightDataCheckLevel.WARNING
 
 
-def _local_share(local_events: int, sample: SampledEvents | Skipped) -> float | None:
+def _usable_sample(sample: SampledEvents | Skipped) -> SampledEvents | Skipped:
     if isinstance(sample, Skipped):
+        return sample
+    if not sample.events or (not sample.read_every_event and sample.events < MIN_SAMPLED_EVENTS):
+        return Skipped(reason=InsightDataCheckSkipReason.TOO_FEW_SAMPLED_EVENTS)
+    return sample
+
+
+def _local_share(local_events: int, sample: SampledEvents | Skipped) -> float | None:
+    """The share of local events, or None when the sample is too small to estimate the events checked."""
+    usable = _usable_sample(sample)
+    if isinstance(usable, Skipped):
         return None
     # The local count is exact and the sample is an estimate, so the share is capped at all of the events.
-    events_checked = max(sample.events / sample.rate, local_events)
-    return local_events / events_checked if events_checked else 0.0
+    events_checked = max(usable.events / usable.rate, local_events)
+    return local_events / events_checked
 
 
 def _local_development_check(checked: CheckedEvents) -> InsightDataCheck:
@@ -94,16 +105,12 @@ def _local_development_check(checked: CheckedEvents) -> InsightDataCheck:
     )
 
 
-def _usable_sample(sample: SampledEvents | Skipped) -> SampledEvents | Skipped:
-    if isinstance(sample, Skipped):
-        return sample
-    if not sample.events or (not sample.read_every_event and sample.events < MIN_SAMPLED_EVENTS):
-        return Skipped(reason=InsightDataCheckSkipReason.TOO_FEW_SAMPLED_EVENTS)
-    return sample
-
-
 def _bot_traffic_check(checked: CheckedEvents) -> InsightDataCheck:
     key = InsightDataCheckKey.BOT_TRAFFIC
+    # The insight's own traffic type filter already decides which bots it keeps, so a bot check adds nothing.
+    if checked.insight_filters_traffic_type:
+        return not_checked(key, InsightDataCheckSkipReason.FILTERED_BY_TRAFFIC_TYPE)
+
     sample = _usable_sample(checked.sample)
     if isinstance(sample, Skipped):
         return not_checked(key, sample.reason)
