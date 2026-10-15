@@ -11,7 +11,7 @@ const MAX_TOTAL_LENGTH = 20_000_000
 const MAX_ENTRY_LENGTH = 5_000_000
 export const RESPONSE_CACHE_TTL = 15 * 60 * 1000
 
-type Entry = { value: unknown; length: number; expiresAt: number }
+type Entry = { serialized: string; expiresAt: number }
 type Cache = { entries: Map<string, Entry>; totalLength: number }
 const caches = new WeakMap<ReturnType<typeof getContext>, Cache>()
 
@@ -75,7 +75,7 @@ function forget(cache: Cache, key: string): void {
     const entry = cache.entries.get(key)
     if (entry) {
         cache.entries.delete(key)
-        cache.totalLength -= entry.length
+        cache.totalLength -= entry.serialized.length
     }
 }
 
@@ -91,7 +91,7 @@ function read<T>(key: string | null): T | null {
     }
     cache.entries.delete(key)
     cache.entries.set(key, entry)
-    return structuredClone(entry.value) as T
+    return JSON.parse(entry.serialized) as T
 }
 
 function write(key: string, value: unknown): void {
@@ -101,11 +101,7 @@ function write(key: string, value: unknown): void {
     if (serialized.length > MAX_ENTRY_LENGTH) {
         return
     }
-    cache.entries.set(key, {
-        value: JSON.parse(serialized),
-        length: serialized.length,
-        expiresAt: Date.now() + RESPONSE_CACHE_TTL,
-    })
+    cache.entries.set(key, { serialized, expiresAt: Date.now() + RESPONSE_CACHE_TTL })
     cache.totalLength += serialized.length
     while (cache.entries.size > MAX_ENTRIES || cache.totalLength > MAX_TOTAL_LENGTH) {
         forget(cache, cache.entries.keys().next().value!)
