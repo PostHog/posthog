@@ -94,7 +94,20 @@ c" \
         <(search_item e "feat: follow-up to #42" "Builds on #42") |
         pick_existing_reverts "$culprit" 42)"
 
+check "a job that only timed out is weaker evidence than one that failed" \
+    "timed_out_only failure failure" \
+    "$(pick_evidence timed_out timed_out) $(pick_evidence timed_out failure) $(pick_evidence failure failure)"
+
 printf 'body\n' >"$workdir/body.md"
+check "open refuses when the job only timed out in the red runs" \
+    "refused=the job only timed out in the red runs, so a person decides on the revert
+exit=10" \
+    "$( (
+        # shellcheck disable=SC2329  # replaces the boundary read that cmd_open calls
+        cmd_boundary() { printf 'culprit_sha=%s\nevidence=timed_out_only\n' "$culprit"; }
+        cmd_open "$culprit" 42 ci.yml job "$workdir/body.md"
+    ) 2>/dev/null || echo "exit=$?")"
+
 check "open reports a failed GitHub read in the boundary recheck as a read failure" \
     "5" \
     "$( (
@@ -162,6 +175,36 @@ check "prepare reverts the culprit when it is the master tip" \
     "branch=$(revert_branch "$tip_culprit")
 staged_files=1|absent" \
     "$(prepare "$tip_culprit" || true)|$([ -e "$workdir/clone/tip.py" ] && echo present || echo absent)"
+reset_clone
+
+leftover_branch=$(revert_branch "$clean_culprit")
+leftover_state() {
+    git -C "$workdir/origin.git" show-ref --quiet --verify "refs/heads/$leftover_branch" && echo present || echo absent
+}
+seed_in push --quiet origin "master:refs/heads/$leftover_branch"
+
+check "prepare keeps a leftover branch that a pull request uses" \
+    "refused=https://github.com/PostHog/posthog/pull/7|present" \
+    "$( (
+        # shellcheck disable=SC2329  # stands in for the pull request lookup
+        api() { echo '[{"html_url":"https://github.com/PostHog/posthog/pull/7"}]'; }
+        # shellcheck disable=SC2329  # a deletion here would close the pull request
+        gh() { return 1; }
+        prepare "$clean_culprit"
+    ) || true)|$(leftover_state)"
+reset_clone
+
+check "prepare deletes a leftover branch that no pull request uses, then stages the revert" \
+    "deleted_leftover_branch=$leftover_branch
+branch=$leftover_branch
+staged_files=1|absent" \
+    "$( (
+        # shellcheck disable=SC2329  # stands in for the pull request lookup
+        api() { echo '[]'; }
+        # shellcheck disable=SC2329  # stands in for the GitHub ref deletion
+        gh() { git -C "$workdir/origin.git" update-ref -d "refs/heads/$leftover_branch"; }
+        prepare "$clean_culprit"
+    ) || true)|$(leftover_state)"
 reset_clone
 
 seed_in mv app.py renamed.py

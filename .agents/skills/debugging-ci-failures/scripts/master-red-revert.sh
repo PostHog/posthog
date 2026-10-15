@@ -103,6 +103,15 @@ pick_job_conclusion() {
         | if length == 1 then .[0] else "absent" end'
 }
 
+# A slow or lost runner also times out, so a job that only timed out does not prove the culprit.
+pick_evidence() {
+    if [ "$1" = failure ] || [ "$2" = failure ]; then
+        echo failure
+    else
+        echo timed_out_only
+    fi
+}
+
 job_conclusion() {
     local run_id=$1 job=$2 page out pages=""
     for page in $(seq 1 "$MAX_RUN_PAGES"); do
@@ -136,6 +145,7 @@ cmd_boundary() {
         *) refuse 10 "job is $red_job in the first red run $red_id" ;;
     esac
     [ "$green_job" = "success" ] || refuse 10 "job is $green_job in the last green run $green_id"
+    newest_job=$red_job
     if [ "$newest_red_id" != "$red_id" ]; then
         newest_job=$(job_conclusion "$newest_red_id" "$job") || fail "GitHub read failed: jobs of run $newest_red_id"
         case "$newest_job" in
@@ -154,6 +164,7 @@ cmd_boundary() {
     echo "green_run=https://github.com/$REPO/actions/runs/$green_id"
     echo "first_red_run=https://github.com/$REPO/actions/runs/$red_id"
     echo "newest_red_run=https://github.com/$REPO/actions/runs/$newest_red_id"
+    echo "evidence=$(pick_evidence "$red_job" "$newest_job")"
 }
 
 cmd_pr() {
@@ -211,6 +222,22 @@ revert_matches_culprit() {
     [ "$(printf '%s' "$expected" | head -1)" = "$(git rev-parse "$ref^{tree}")" ]
 }
 
+# A refused `open` leaves its signed commit on the branch. The next attempt stages onto a newer
+# master, and the signed-commit tool refuses a branch whose tip it does not hold, so the branch
+# would block every later attempt for this culprit.
+clear_leftover_branch() {
+    local branch=$1 owner=${REPO%%/*} status=0 prs
+    git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 || status=$?
+    [ "$status" -ne 2 ] || return 0
+    [ "$status" -eq 0 ] || fail "could not list $branch on origin"
+    prs=$(api "repos/$REPO/pulls?state=all&head=$owner:$branch&per_page=10" | jq -r '.[].html_url') ||
+        fail "GitHub read failed: pulls from $branch"
+    [ -z "$prs" ] || refuse 12 "$(printf '%s' "$prs" | head -1)"
+    gh api -X DELETE "repos/$REPO/git/refs/heads/$branch" >/dev/null 2>&1 ||
+        fail "could not delete the leftover branch $branch"
+    echo "deleted_leftover_branch=$branch"
+}
+
 cmd_prepare() {
     local sha=$1 branch parents changed
     branch=$(revert_branch "$sha")
@@ -225,6 +252,7 @@ cmd_prepare() {
         refuse 11 "$sha changes .github/workflows, which needs the workflows permission"
     fi
 
+    clear_leftover_branch "$branch"
     git checkout --quiet -B "$branch" refs/remotes/origin/master
     if ! git revert --no-commit "$sha" >/dev/null 2>&1; then
         git revert --abort >/dev/null 2>&1 || git reset --quiet --hard
@@ -247,6 +275,8 @@ cmd_open() {
     [ "$lane_status" -ne 5 ] || exit 5
     [ "$lane_status" -eq 0 ] || refuse 10 "the lane changed since the boundary check: ${lane#refused=}"
     printf '%s\n' "$lane" | grep -qx "culprit_sha=$sha" || refuse 10 "the boundary no longer names $sha"
+    printf '%s\n' "$lane" | grep -qx "evidence=failure" ||
+        refuse 10 "the job only timed out in the red runs, so a person decides on the revert"
 
     found=$(find_existing "$sha" "$pr")
     [ -z "$found" ] || refuse 12 "$(printf '%s' "$found" | head -1)"
