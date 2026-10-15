@@ -259,6 +259,36 @@ describe("TaskRunEventStreamSender", () => {
     await sender.stop();
   });
 
+  it("serializes concurrent ack requests through upload closure", async () => {
+    let uploads = 0;
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        uploads += 1;
+        const body = await readRequestBody(init);
+        bodies.push(body);
+        return responseForBody(body);
+      }),
+    );
+    const sender = createSender({
+      eventIngestBaseUrl: "http://agent-proxy:8003/",
+      keepProxyStreamOpen: true,
+    });
+    const acks: Promise<number | null>[] = [];
+    for (let i = 0; i < 3; i++) {
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "turn" },
+      });
+      acks.push(sender.awaitAckOfLastEvent());
+    }
+    await expect(Promise.all(acks)).resolves.toEqual([1, 2, 3]);
+    await sender.stop();
+    expect(bodies).toHaveLength(uploads);
+    expect(bodies.flatMap(eventSequences)).toEqual([1, 2, 3]);
+  });
+
   it("still closes a held-open upload for an ack after the first upload fails", async () => {
     let uploads = 0;
     const fetchMock = vi.fn(

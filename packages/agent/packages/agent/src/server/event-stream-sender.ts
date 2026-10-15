@@ -120,7 +120,7 @@ export class TaskRunEventStreamSender {
   private lastKnownAcceptedSeq = 0;
   private bufferedEvents: EventEnvelope[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
-  private flushPromise: Promise<void> | null = null;
+  private flushPromise: Promise<boolean> | null = null;
   private streamClosePromise: Promise<void> | null = null;
   private activeStream: ActiveStream | null = null;
   private stopPromise: Promise<void> | null = null;
@@ -280,31 +280,33 @@ export class TaskRunEventStreamSender {
   }
 
   private async flush(): Promise<boolean> {
-    if (this.flushPromise) {
+    while (this.flushPromise) {
       await this.flushPromise.catch(() => undefined);
     }
 
+    const flushPromise = this.performFlush();
+    this.flushPromise = flushPromise;
+    let madeProgress = false;
+    try {
+      madeProgress = await flushPromise;
+      return madeProgress;
+    } finally {
+      this.flushPromise = null;
+      if (!this.stopped && this.hasUnwrittenBufferedEvents()) {
+        this.scheduleFlush(madeProgress ? 0 : this.retryDelayMs);
+      }
+    }
+  }
+
+  private async performFlush(): Promise<boolean> {
     if (this.bufferedEvents.length === 0) {
       this.closedThroughRequest = this.closeRequests;
       return true;
     }
 
     const previousBufferLength = this.bufferedEvents.length;
-    const flushPromise = this.flushBufferedEvents();
-    this.flushPromise = flushPromise;
-
     try {
-      await flushPromise;
-      // The ingress ahead of the agent-proxy only forwards the request body once the
-      // upload closes, so close per drained batch to avoid stranding buffered events.
-      const closeRequest = this.closeRequests;
-      if (
-        !this.stopped &&
-        (closeRequest > this.closedThroughRequest || !this.keepProxyStreamOpen)
-      ) {
-        await this.closeActiveStream();
-        this.closedThroughRequest = closeRequest;
-      }
+      await this.flushAndClose();
       return this.bufferedEvents.length < previousBufferLength;
     } catch (error) {
       this.config.logger.warn(
@@ -312,17 +314,21 @@ export class TaskRunEventStreamSender {
         this.describeError(error),
       );
       await this.abortActiveStream();
-      if (!this.stopped) {
-        this.scheduleFlush(this.retryDelayMs);
-      }
       return false;
-    } finally {
-      if (this.flushPromise === flushPromise) {
-        this.flushPromise = null;
-      }
-      if (!this.stopped && this.hasUnwrittenBufferedEvents()) {
-        this.scheduleFlush(0);
-      }
+    }
+  }
+
+  private async flushAndClose(): Promise<void> {
+    await this.flushBufferedEvents();
+    // The ingress ahead of the agent-proxy only forwards the request body once the
+    // upload closes, so close per drained batch to avoid stranding buffered events.
+    const closeRequest = this.closeRequests;
+    if (
+      !this.stopped &&
+      (closeRequest > this.closedThroughRequest || !this.keepProxyStreamOpen)
+    ) {
+      await this.closeActiveStream();
+      this.closedThroughRequest = closeRequest;
     }
   }
 
