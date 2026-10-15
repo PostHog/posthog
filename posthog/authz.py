@@ -4,6 +4,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.db.models import Model, Q, QuerySet
 
 from posthog.models import Team, User
+from posthog.models.access_filter import filter_q
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
@@ -87,9 +88,10 @@ def filter_resource_queryset(
             resource=Resource(type=resource_type, project_id=team_id),
             action=Action.VIEW,
             subject=subject,
+            creator_exempt=True,
         )
         if result.complete:
-            allowed |= Q(team_id=team_id, pk__in=result.ids)
+            allowed |= Q(team_id=team_id) & filter_q(result, id_field="pk", subject_user_id=user.pk)
     return queryset.filter(allowed)
 
 
@@ -113,7 +115,7 @@ def check_resource_category_access(
     if require_category:
         return False
     result = api.list_resources(resource=resource, action=action, subject=subject)
-    return result.complete and bool(result.ids)
+    return result.complete and bool(result.ids or result.excluded)
 
 
 def check_dashboard_category_access(user: User, team: Team, action: Action, *, require_category: bool) -> bool:

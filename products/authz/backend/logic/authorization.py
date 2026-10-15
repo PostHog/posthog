@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import UUID
 
 from openfga_sdk.client.models import ClientCheckRequest, ClientListObjectsRequest
+from openfga_sdk.sync import OpenFgaClient
 
 from posthog.models import Team
 
@@ -12,7 +13,6 @@ from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_RESOURCES,
     RESOURCE_INHERITANCE_MAP,
 )
-from products.dashboards.backend.facade.authorization import active_authorization_dashboard_ids
 
 from ..client import Consistency, pooled_openfga_client
 from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
@@ -187,6 +187,13 @@ def check(
         ]
 
 
+# Listing and querying rows gate on the same permission as viewing one row.
+READ_ACTIONS = {Action.LIST: Action.VIEW, Action.QUERY: Action.VIEW}
+
+# Above this many ids the result is not worth inlining into a query, so the subject fails closed.
+MAX_IDS = 1000
+
+
 def list_resources(
     resource: Resource,
     action: Action,
@@ -196,59 +203,101 @@ def list_resources(
     *,
     consistency: Consistency = "HIGHER_CONSISTENCY",
 ) -> ResourceIds:
+    """The resources that differ from the project default for this subject.
+
+    The lists stay small because the model marks the objects a user has a rule on (`has_rule`). With
+    access at the category, only those objects can be denied, so they are listed and checked, and the
+    result excludes the denied ones. Without it, only explicit grants and the user's own objects are
+    visible, so the permission lists just those.
+    """
     validate_context(context)
-    if resource.id is not None or resource.type not in (ResourceType.DASHBOARD, ResourceType.INSIGHT):
-        raise ValueError("List resources requires a supported resource type")
-    if resource.project_id is None:
-        raise ValueError("List resources requires a project")
+    if resource.id is not None or resource.project_id is None:
+        raise ValueError("List resources requires a resource category scoped to a project")
     if limit is not None and limit < 1:
         raise ValueError("Resource limit must be positive")
+    cap = limit if limit is not None else MAX_IDS
     org_id = organization_id(resource)
-    prefix = f"{resource.type}:{org_id}/{resource.project_id}/"
-    relation = action_relation(f"{prefix}0", action)
+    type_name = resource.type.value
+    prefix = f"{type_name}:{org_id}/{resource.project_id}/"
+    relation = action_relation(f"{prefix}0", READ_ACTIONS.get(action, action))
+    category_key = object_key(resource, org_id=org_id)
     user = actor_key(subject)
+    capped = ResourceIds(ids=frozenset(), complete=False)
+
+    def build(ids: frozenset[str], *, excluded: bool) -> ResourceIds:
+        # OpenFGA already includes creators after applying project membership and action-specific gates.
+        return ResourceIds(ids=ids, complete=True, excluded=excluded)
+
     revision = ready_state(org_id)
     if revision is None:
-        return ResourceIds(ids=frozenset(), complete=False)
+        return capped
     with pooled_openfga_client() as client:
         if client.get_store_id() is None:
             raise RuntimeError("Bootstrap the OpenFGA store before listing authorized resources")
+        reader = _Reader(client, user, type_name, prefix, cap, consistency)
+        if action in (Action.VIEW, Action.LIST, Action.QUERY) and reader.allowed(category_key, "can_view"):
+            with_rule = reader.list_ids("has_rule")
+            if with_rule is None:
+                return capped
+            result = build(reader.denied_among(with_rule, relation), excluded=True)
+        else:
+            granted = reader.list_ids(relation)
+            if granted is None:
+                return capped
+            result = build(granted, excluded=False)
+    if ready_state(org_id) != revision:
+        # A sync landed while we read, so the answer may mix two generations of tuples.
+        return capped
+    return result
+
+
+class _Reader:
+    """The three OpenFGA calls a resource list is made of, for one user and one object type."""
+
+    def __init__(
+        self, client: OpenFgaClient, user: str, type_name: str, prefix: str, cap: int, consistency: Consistency
+    ) -> None:
+        self.client = client
+        self.user = user
+        self.type_name = type_name
+        self.prefix = prefix
+        self.cap = cap
+        self.options: dict[str, int | str | dict[str, int | str]] = {"consistency": consistency}
+
+    def allowed(self, object_key: str, relation: str) -> bool:
+        request = ClientCheckRequest(user=self.user, relation=relation, object=object_key)
+        return self.client.check(request, self.options).allowed is True
+
+    def denied_among(self, ids: frozenset[str], relation: str) -> frozenset[str]:
+        if not ids:
+            return frozenset()
+        ordered = sorted(ids)
+        requests = [
+            ClientCheckRequest(user=self.user, relation=relation, object=f"{self.prefix}{id}") for id in ordered
+        ]
+        results = self.client.client_batch_check(requests, self.options)
+        denied: set[str] = set()
+        for id, result in zip(ordered, results, strict=True):
+            if result.error is not None:
+                raise result.error
+            if result.allowed is not True:
+                denied.add(id)
+        return frozenset(denied)
+
+    def list_ids(self, relation: str) -> frozenset[str] | None:
+        """Ids of this project's objects that hold `relation` for the user, or None past the cap."""
         ids: set[str] = set()
-        stream = client.streamed_list_objects(
-            ClientListObjectsRequest(user=user, type=str(resource.type), relation=relation),
-            {"consistency": consistency},
-        )
+        request = ClientListObjectsRequest(user=self.user, relation=relation, type=self.type_name)
+        stream = self.client.streamed_list_objects(request, self.options)
         try:
             for result in stream:
-                if result.object.startswith(prefix):
-                    ids.add(result.object.removeprefix(prefix))
-                    if limit is not None and len(ids) > limit:
-                        if resource.type == ResourceType.DASHBOARD:
-                            active_ids = active_authorization_dashboard_ids(resource.project_id, ids)
-                        else:
-                            from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- keep product analytics models off the authorization import path
-                                active_authorization_insight_ids,
-                            )
-
-                            active_ids = active_authorization_insight_ids(resource.project_id, ids)
-                        ids = set(active_ids)
-                        if len(ids) > limit:
-                            return ResourceIds(ids=frozenset(), complete=False)
+                if result.object.startswith(self.prefix):
+                    ids.add(result.object.removeprefix(self.prefix))
+                    if len(ids) > self.cap:
+                        return None
         finally:
             stream.close()
-        if resource.type == ResourceType.DASHBOARD:
-            active_ids = active_authorization_dashboard_ids(resource.project_id, ids)
-        else:
-            from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- keep product analytics models off the authorization import path
-                active_authorization_insight_ids,
-            )
-
-            active_ids = active_authorization_insight_ids(resource.project_id, ids)
-        if limit is not None and len(active_ids) > limit:
-            return ResourceIds(ids=frozenset(), complete=False)
-        if ready_state(org_id) != revision:
-            return ResourceIds(ids=frozenset(), complete=False)
-        return ResourceIds(ids=active_ids, complete=True)
+        return frozenset(ids)
 
 
 def query_relation(

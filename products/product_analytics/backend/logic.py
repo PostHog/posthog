@@ -94,15 +94,11 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return list(Insight.objects_including_soft_deleted.filter(team_id=team_id, id__in=insight_ids))
 
 
-def active_authorization_insight_ids(team_id: int, ids: Collection[str]) -> frozenset[str]:
-    return frozenset(str(id) for id in Insight.objects.filter(team_id=team_id, id__in=ids).values_list("id", flat=True))
-
-
 def authorization_insights(team_id: int, insight_ids: Collection[int] | None = None) -> list[AuthorizationInsight]:
     insights = Insight.objects_including_soft_deleted.filter(team_id=team_id)
     if insight_ids is not None:
         insights = insights.filter(id__in=insight_ids)
-    insights = insights.values_list("id", "created_by_id", "deleted")
+    rows = insights.values_list("id", "created_by_id", "deleted")
     dashboards_by_insight = insight_dashboard_ids(team_id, insight_ids)
     return [
         AuthorizationInsight(
@@ -111,7 +107,7 @@ def authorization_insights(team_id: int, insight_ids: Collection[int] | None = N
             deleted=deleted,
             dashboard_ids=tuple(dashboards_by_insight.get(insight_id, ())),
         )
-        for insight_id, created_by_id, deleted in insights
+        for insight_id, created_by_id, deleted in rows
     ]
 
 

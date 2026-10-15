@@ -10,12 +10,15 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from contextlib import AbstractContextManager
-from typing import overload
+from typing import TYPE_CHECKING, overload
 from uuid import UUID
 
 from ..logic import authorization, openfga_status, request_context, rollout, synchronization
 from . import contracts
 from .enums import Action, Level, SubjectType
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def authorization_session() -> AbstractContextManager[None]:
@@ -91,13 +94,21 @@ def list_resources(
     subject: contracts.Subject | None = None,
     context: contracts.Context | None = None,
     limit: int | None = None,
+    creator_exempt: bool = False,
+    user_access_control: UserAccessControl | None = None,
 ) -> contracts.ResourceIds:
-    """Return the ids of `resource.type` resources in its project or organization that the subject may take the action on.
+    """Return the `resource.type` resources in its project that the subject may take the action on.
 
-    Apply the ids to your own query, for example `qs.filter(pk__in=result.ids)`. When `complete` is False the set
-    was capped, so fail closed and return nothing.
+    The result names the few resources that differ from the rest: the allowed ones, or with `excluded`
+    the denied ones. Translate it into the caller's query language, or use `result.allows(id)`
+    for one object. Set `creator_exempt` when the rows have a creator
+    column and the subject keeps its own rows. When `complete` is False the list was capped, so fail
+    closed and return nothing.
+
+    Pass the request's `user_access_control` when you hold one outside an `authorization_session`, so
+    the legacy rules are not loaded again. It goes away once every caller runs inside a session.
     """
-    return rollout.list_resources(resource, action, subject, context, limit)
+    return rollout.list_resources(resource, action, subject, context, limit, creator_exempt, user_access_control)
 
 
 def list_subjects(
