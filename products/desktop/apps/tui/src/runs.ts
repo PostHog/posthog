@@ -85,6 +85,10 @@ export interface RunSubscription {
 }
 
 const OLDER_PAGE_SIZE = 500;
+// How long a run's stream stays open after its last subscriber leaves. Panes and the turn tracker stop and restart
+// their subscriptions within one render; a stream closed in that gap reopened at its latest entry and lost, or
+// replayed, what landed in between.
+const UNWATCH_GRACE_MS = 1_000;
 // A sandbox restored from a snapshot usually takes under a minute; past this, the reply gives up.
 const AGENT_RESTART_TIMEOUT_MS = 10 * 60_000;
 // The server's clock can run a little ahead of this machine's.
@@ -443,9 +447,31 @@ export function runNotice(
 
 const keyOf = (taskId: string, runId: string): string => `${taskId}:${runId}`;
 
-// Watches cloud runs through one shared engine and hands each subscriber only its own run.
+// A run as the store holds it: one view that every subscriber reads, and one engine watch while anyone does.
+interface RunEntry {
+  taskId: string;
+  runId: string;
+  view: RunView;
+  listeners: Set<(view: RunView) => void>;
+  // Subscribers plus holds; the engine watch closes a grace period after this reaches zero.
+  refs: number;
+  // This store asked the engine to watch the run and has not released it. The engine stops a run's watcher by
+  // itself once the run ends, so a finished run's entry opens a new watch for its next subscriber.
+  opened: boolean;
+  opening: boolean;
+  // The entry's engine listener is registered; it stays through the grace period after the last reference goes.
+  listening: boolean;
+  release: NodeJS.Timeout | null;
+  onUpdate: (update: CloudTaskUpdatePayload) => void;
+  // Entries paged in from earlier runs, and how many each earlier run still holds above them.
+  earlierEntries: StoredLogEntry[];
+  earlier: { runId: string; remaining: number }[];
+  earlierProbed: boolean;
+}
+
+// Watches cloud runs through one shared engine, keeping one view per run that every pane and the turn tracker read.
 export class CloudRuns {
-  private readonly previews = new Map<string, RunView>();
+  private readonly runs = new Map<string, RunEntry>();
 
   constructor(
     private readonly engine: CloudTaskEngine,
@@ -461,6 +487,7 @@ export class CloudRuns {
       taskId: string,
       runId: string,
     ) => Promise<string[]>,
+    private readonly unwatchGraceMs = UNWATCH_GRACE_MS,
   ) {}
 
   // What a cloud run waits on the user for, by task: a Claude Code or Codex permission request, or the engine's
@@ -562,8 +589,115 @@ export class CloudRuns {
       throw new Error(result.error ?? "The run did not take the answer");
   }
 
+  private entryFor(taskId: string, runId: string): RunEntry {
+    const key = keyOf(taskId, runId);
+    const existing = this.runs.get(key);
+    if (existing) return existing;
+    const entry: RunEntry = {
+      taskId,
+      runId,
+      view: emptyRunView,
+      listeners: new Set(),
+      refs: 0,
+      opened: false,
+      opening: false,
+      listening: false,
+      release: null,
+      onUpdate: (update) => {
+        if (update.taskId !== taskId || update.runId !== runId) return;
+        this.publish(entry, applyUpdate(entry.view, update));
+        // The engine drops its watcher once the run ends; the next subscriber opens a new one.
+        if (
+          (update.kind === "snapshot" || update.kind === "status") &&
+          update.status &&
+          FINISHED.includes(update.status)
+        )
+          entry.opened = false;
+      },
+      earlierEntries: [],
+      earlier: [],
+      earlierProbed: false,
+    };
+    this.runs.set(key, entry);
+    return entry;
+  }
+
+  private compose(entry: RunEntry): RunView {
+    return {
+      ...entry.view,
+      entries: [...entry.earlierEntries, ...entry.view.entries],
+      windowStart:
+        entry.view.windowStart +
+        entry.earlier.reduce((sum, run) => sum + run.remaining, 0),
+    };
+  }
+
+  private publish(entry: RunEntry, view: RunView): void {
+    entry.view = view;
+    const composed = this.compose(entry);
+    for (const listener of entry.listeners) listener(composed);
+  }
+
+  // Takes a reference on the run's stream, opening it if nobody holds it.
+  private acquire(taskId: string, runId: string): RunEntry {
+    const entry = this.entryFor(taskId, runId);
+    if (entry.release) {
+      clearTimeout(entry.release);
+      entry.release = null;
+    }
+    if (!entry.listening) {
+      entry.listening = true;
+      this.engine.on(CloudTaskEvent.Update, entry.onUpdate);
+    }
+    entry.refs++;
+    this.ensureWatching(entry);
+    return entry;
+  }
+
+  // Drops a reference; the stream closes once none is left for the grace period.
+  private release(entry: RunEntry): void {
+    entry.refs--;
+    if (entry.refs > 0) return;
+    entry.release = setTimeout(() => {
+      entry.release = null;
+      if (entry.refs > 0) return;
+      this.engine.off(CloudTaskEvent.Update, entry.onUpdate);
+      entry.listening = false;
+      if (entry.opened) this.engine.unwatch(entry.taskId, entry.runId);
+      entry.opened = false;
+    }, this.unwatchGraceMs);
+    entry.release.unref?.();
+  }
+
+  private ensureWatching(entry: RunEntry): void {
+    if (entry.opened || entry.opening) return;
+    entry.opening = true;
+    this.context().then(
+      ({ apiHost, teamId }) => {
+        entry.opening = false;
+        if (entry.refs === 0 || entry.opened) return;
+        entry.opened = true;
+        this.engine.watch({
+          taskId: entry.taskId,
+          runId: entry.runId,
+          apiHost,
+          teamId,
+        });
+      },
+      (error: unknown) => {
+        entry.opening = false;
+        this.publish(entry, {
+          ...entry.view,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
+  }
+
   // Resolves once a run brought back with `resume_in_cloud` has its agent running again, after `since` (epoch ms).
-  // The engine stops watching a run once it ends, so the run is watched again to see it come back.
+  // The hold keeps the run's stream open meanwhile, so the sandbox's one request for its plan's token is answered
+  // even if every pane leaves the chat. A stream still reading the run's previous life starts over, so it reads
+  // the resumed run; one the engine already closed when that life ended opens anew.
   agentRestarted(
     taskId: string,
     runId: string,
@@ -572,15 +706,14 @@ export class CloudRuns {
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       let settled = false;
-      // Set when this wait opened the watch, rather than restarting the panes' one.
-      let opened = false;
+      const entry = this.acquire(taskId, runId);
+      if (entry.opened) void this.engine.retry(taskId, runId);
       const finish = (error?: Error): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         this.engine.off(CloudTaskEvent.Update, listener);
-        // The engine counts watches, so this one closes only its own; a pane's keeps the stream open.
-        if (opened) this.engine.unwatch(taskId, runId);
+        this.release(entry);
         if (error) reject(error);
         else resolve();
       };
@@ -612,28 +745,6 @@ export class CloudRuns {
         timeoutMs,
       );
       this.engine.on(CloudTaskEvent.Update, listener);
-      this.context().then(
-        ({ apiHost, teamId }) => {
-          if (settled) return;
-          // The wait holds a reference of its own, so a pane leaving the chat cannot close the stream under it.
-          // A fresh watch reads from the stream's start, not its latest entry: the sandbox asks for its plan's
-          // token once, as a live frame, and a stream opened after that frame never sees it. The engine dedupes
-          // the replayed entries. An open watcher still streams the run's previous life, and stops when that
-          // stream ends, so it starts over from the resumed run.
-          const open = this.engine.isWatching(taskId, runId);
-          opened = true;
-          this.engine.watch({
-            taskId,
-            runId,
-            apiHost,
-            teamId,
-            resumeFromEntryCount: 0,
-          });
-          if (open) void this.engine.retry(taskId, runId);
-        },
-        (error: unknown) =>
-          finish(error instanceof Error ? error : new Error(String(error))),
-      );
     });
   }
 
@@ -650,16 +761,17 @@ export class CloudRuns {
       limit: total - windowStart,
       offset: windowStart,
     });
-    this.previews.set(keyOf(taskId, runId), {
+    const entry = this.entryFor(taskId, runId);
+    // A run already on screen has a view of its own that the stream keeps current.
+    if (entry.view.loaded) return;
+    entry.view = {
       ...emptyRunView,
       loaded: true,
       entries: page.entries,
       windowStart,
-    });
+    };
   }
 
-  // A pi task's runs share one pi session, so with `withEarlierRuns` the earlier runs' logs page in above this
-  // run's, oldest last, and a restart that started a new sandbox still shows the whole chat.
   watch(
     taskId: string,
     runId: string,
@@ -669,59 +781,12 @@ export class CloudRuns {
       withEarlierRuns = false,
     }: { olderPageSize?: number; withEarlierRuns?: boolean } = {},
   ): RunSubscription {
-    let own = this.previews.get(keyOf(taskId, runId)) ?? emptyRunView;
-    let stopped = false;
-    // Whether this subscription reached the engine; a stop before then has nothing of its own to close, and an
-    // unmatched unwatch once took away a reply's hold on the run and lost its sandbox's token request.
-    let opened = false;
-    // Entries paged in from earlier runs, and how many each earlier run still holds above them.
-    let earlierEntries: StoredLogEntry[] = [];
-    const earlier: { runId: string; remaining: number }[] = [];
-    const compose = (): RunView => ({
-      ...own,
-      entries: [...earlierEntries, ...own.entries],
-      windowStart:
-        own.windowStart + earlier.reduce((sum, run) => sum + run.remaining, 0),
-    });
-    const publish = (next: RunView): void => {
-      own = next;
-      if (!stopped) onView(compose());
-    };
-    if (own.loaded) onView(compose());
-
-    const listener = (update: CloudTaskUpdatePayload): void => {
-      if (update.taskId !== taskId || update.runId !== runId) return;
-      publish(applyUpdate(own, update));
-      // The view is kept on every entry, so the next watch of this run knows how far it has read.
-      if (update.kind === "snapshot" || update.kind === "logs") {
-        this.previews.set(keyOf(taskId, runId), own);
-      }
-    };
-    this.engine.on(CloudTaskEvent.Update, listener);
-    // The engine closes the stream when its last watcher stops, and a new one opens at the stream's latest entry,
-    // past anything that landed in between (a reply sent right as a pane re-rendered once went unseen until the
-    // next visit). A watch that already holds entries resumes from their count, so the gap is replayed.
-    const known = own.loaded ? own.windowStart + own.entries.length : null;
-    this.context().then(
-      ({ apiHost, teamId }) => {
-        if (stopped) return;
-        opened = true;
-        this.engine.watch({
-          taskId,
-          runId,
-          apiHost,
-          teamId,
-          ...(known !== null && { resumeFromEntryCount: known }),
-        });
-      },
-      (error: unknown) =>
-        publish({
-          ...own,
-          error: error instanceof Error ? error.message : String(error),
-        }),
-    );
+    const entry = this.acquire(taskId, runId);
+    entry.listeners.add(onView);
+    if (entry.view.loaded) onView(this.compose(entry));
     // Only each earlier run's size is read up front; its entries load as the reader scrolls up to them.
-    if (withEarlierRuns && this.earlierRuns) {
+    if (withEarlierRuns && this.earlierRuns && !entry.earlierProbed) {
+      entry.earlierProbed = true;
       this.earlierRuns(taskId, runId)
         .then((runIds) =>
           Promise.all(
@@ -738,8 +803,8 @@ export class CloudRuns {
         )
         .then(
           (sizes) => {
-            earlier.push(...sizes.filter((run) => run.remaining > 0));
-            if (earlier.length > 0) publish(own);
+            entry.earlier.push(...sizes.filter((run) => run.remaining > 0));
+            if (entry.earlier.length > 0) this.publish(entry, entry.view);
           },
           // Without the earlier runs, the chat still shows this run's own log.
           () => {},
@@ -751,28 +816,30 @@ export class CloudRuns {
       read: () => Promise<StoredLogEntry[]>,
       place: (entries: StoredLogEntry[]) => void,
     ): Promise<void> => {
-      publish({ ...own, loadingOlder: true });
+      this.publish(entry, { ...entry.view, loadingOlder: true });
       try {
         place(await read());
-        publish({ ...own, loadingOlder: false });
+        this.publish(entry, { ...entry.view, loadingOlder: false });
       } catch (error) {
-        publish({
-          ...own,
+        this.publish(entry, {
+          ...entry.view,
           loadingOlder: false,
           error: error instanceof Error ? error.message : String(error),
         });
       }
     };
 
+    let stopped = false;
     return {
       stop: () => {
+        if (stopped) return;
         stopped = true;
-        this.engine.off(CloudTaskEvent.Update, listener);
-        if (opened) this.engine.unwatch(taskId, runId);
+        entry.listeners.delete(onView);
+        this.release(entry);
       },
       loadOlder: async () => {
-        if (own.loadingOlder) return;
-        const windowStart = own.windowStart;
+        if (entry.view.loadingOlder) return;
+        const windowStart = entry.view.windowStart;
         if (windowStart > 0) {
           const offset = Math.max(0, windowStart - olderPageSize);
           await pageIn(
@@ -785,17 +852,17 @@ export class CloudRuns {
               ).entries,
             (entries) => {
               // A new snapshot may have replaced the window while this page loaded.
-              if (own.windowStart !== windowStart) return;
-              own = {
-                ...own,
-                entries: [...entries, ...own.entries],
+              if (entry.view.windowStart !== windowStart) return;
+              entry.view = {
+                ...entry.view,
+                entries: [...entries, ...entry.view.entries],
                 windowStart: offset,
               };
             },
           );
           return;
         }
-        const next = earlier.find((run) => run.remaining > 0);
+        const next = entry.earlier.find((run) => run.remaining > 0);
         if (!next) return;
         const end = next.remaining;
         const offset = Math.max(0, end - olderPageSize);
@@ -808,7 +875,7 @@ export class CloudRuns {
               })
             ).entries,
           (entries) => {
-            earlierEntries = [...entries, ...earlierEntries];
+            entry.earlierEntries = [...entries, ...entry.earlierEntries];
             next.remaining = offset;
           },
         );

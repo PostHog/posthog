@@ -45,18 +45,24 @@ function logOf(total: number): SessionLogs {
   });
 }
 
+const GRACE_MS = 20;
+const pastGrace = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, GRACE_MS * 2));
+
 function setup(sessionLogs: SessionLogs = logOf(0)) {
   const engine = Object.assign(new EventEmitter(), {
     watch: vi.fn(),
     unwatch: vi.fn(),
     retry: vi.fn(async () => {}),
-    isWatching: vi.fn(() => false),
     sendCommand: vi.fn(async () => ({ success: true })),
   });
   const runs = new CloudRuns(
     engine as unknown as CloudTaskEngine,
     async () => ({ apiHost: "https://us.posthog.com", teamId: 2 }),
     sessionLogs,
+    undefined,
+    undefined,
+    GRACE_MS,
   );
   return { engine, runs };
 }
@@ -87,11 +93,9 @@ describe("CloudRuns.agentRestarted", () => {
       const restarted = runs.agentRestarted("t1", "r1", since).then(() => {
         done = true;
       });
-      // The sandbox asks for its plan's token once, as a live frame, so this watch reads the stream from its
-      // start rather than from its latest entry, or a request sent before the stream connected is lost.
       await vi.waitFor(() =>
         expect(engine.watch).toHaveBeenCalledWith(
-          expect.objectContaining({ ...base, resumeFromEntryCount: 0 }),
+          expect.objectContaining(base),
         ),
       );
 
@@ -112,21 +116,22 @@ describe("CloudRuns.agentRestarted", () => {
       });
 
       await restarted;
-      expect(engine.unwatch).toHaveBeenCalledWith("t1", "r1");
+      await vi.waitFor(() =>
+        expect(engine.unwatch).toHaveBeenCalledWith("t1", "r1"),
+      );
     },
   );
 
-  it("restarts a watcher still streaming the run's previous life, holding it with a reference of its own until the agent is back", async () => {
+  it("restarts a stream still reading the run's previous life, and keeps it open after the pane that opened it leaves", async () => {
     const { engine, runs } = setup();
-    engine.isWatching.mockReturnValue(true);
+    const pane = runs.watch("t1", "r1", () => {});
+    await vi.waitFor(() => expect(engine.watch).toHaveBeenCalledTimes(1));
     const restarted = runs.agentRestarted("t1", "r1", since);
-    await vi.waitFor(() =>
-      expect(engine.retry).toHaveBeenCalledWith("t1", "r1"),
-    );
-    // The pane that opened the watcher may leave before the sandbox asks for its token; the hold keeps the stream.
-    expect(engine.watch).toHaveBeenCalledWith(
-      expect.objectContaining({ ...base, resumeFromEntryCount: 0 }),
-    );
+    expect(engine.retry).toHaveBeenCalledWith("t1", "r1");
+    // The pane may leave before the sandbox asks for its token; the hold keeps the stream.
+    pane.stop();
+    await pastGrace();
+    expect(engine.watch).toHaveBeenCalledTimes(1);
     expect(engine.unwatch).not.toHaveBeenCalled();
 
     engine.emit(CloudTaskEvent.Update, {
@@ -137,7 +142,21 @@ describe("CloudRuns.agentRestarted", () => {
     });
 
     await restarted;
-    expect(engine.unwatch).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(engine.unwatch).toHaveBeenCalledTimes(1));
+  });
+
+  it("opens a new stream for a run the engine stopped watching when its previous life ended", async () => {
+    const { engine, runs } = setup();
+    runs.watch("t1", "r1", () => {});
+    await vi.waitFor(() => expect(engine.watch).toHaveBeenCalledTimes(1));
+    engine.emit(CloudTaskEvent.Update, {
+      ...base,
+      kind: "status",
+      status: "completed",
+    });
+    void runs.agentRestarted("t1", "r1", since).catch(() => {});
+    await vi.waitFor(() => expect(engine.watch).toHaveBeenCalledTimes(2));
+    expect(engine.retry).not.toHaveBeenCalled();
   });
 
   it("gives up when the run fails to come back", async () => {
@@ -387,7 +406,9 @@ describe("CloudRuns", () => {
     run.stop();
 
     expect(seen.map(ids)).toEqual([["a"]]);
-    expect(engine.unwatch).toHaveBeenCalledWith("t1", "r1");
+    await vi.waitFor(() =>
+      expect(engine.unwatch).toHaveBeenCalledWith("t1", "r1"),
+    );
   });
 
   it("leaves the engine's watch alone when a pane stops before its own watch opened, so a reply's hold on the run survives a re-render", async () => {
@@ -489,7 +510,7 @@ describe("CloudRuns", () => {
     run.stop();
   });
 
-  it("re-watches a run from the entries it already holds, so a reply that landed while no pane watched is replayed", async () => {
+  it("keeps one stream and one view across a stop and a new watch in the same render, so nothing is lost or replayed", async () => {
     const { engine, runs } = setup();
     const first = runs.watch("t1", "r1", () => {});
     await vi.waitFor(() => expect(engine.watch).toHaveBeenCalledTimes(1));
@@ -501,16 +522,26 @@ describe("CloudRuns", () => {
       status: "in_progress",
     });
     first.stop();
-    // The next watch resumes from the two entries it knows, never from the stream's latest entry.
-    runs.watch("t1", "r1", () => {});
-    await vi.waitFor(() => expect(engine.watch).toHaveBeenCalledTimes(2));
-    expect(engine.watch).toHaveBeenLastCalledWith(
-      expect.objectContaining({ ...base, resumeFromEntryCount: 2 }),
-    );
-    // A first watch of a run has nothing to resume from.
-    expect(engine.watch.mock.calls[0][0]).not.toHaveProperty(
-      "resumeFromEntryCount",
-    );
+    const seen: RunView[] = [];
+    const second = runs.watch("t1", "r1", (view) => seen.push(view));
+    // A reply that lands between the two reaches the new watch through the stream that never closed.
+    engine.emit(CloudTaskEvent.Update, {
+      ...base,
+      kind: "logs",
+      newEntries: [entry("c")],
+      totalEntryCount: 3,
+    });
+    await pastGrace();
+    expect(engine.watch).toHaveBeenCalledTimes(1);
+    expect(engine.unwatch).not.toHaveBeenCalled();
+    expect(seen.map(ids)).toEqual([
+      ["a", "b"],
+      ["a", "b", "c"],
+    ]);
+    // The stream closes once the last watch has been gone for the grace period.
+    second.stop();
+    await pastGrace();
+    expect(engine.unwatch).toHaveBeenCalledTimes(1);
   });
 
   it("shows a prefetched tail as soon as a run is opened", async () => {
