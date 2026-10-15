@@ -44,7 +44,6 @@ def mirror_slack_message_event(
     send_region_proxy_request(method="POST", target_url=target_url, headers=headers, body=body.encode("utf-8"))
 
 
-# A full listing of a large install takes several seconds, so it stays off the default queue.
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 # UserIntegration belongs to a user, not a team, so there is no team scope to apply.
 @skip_team_scope_audit

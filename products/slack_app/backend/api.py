@@ -199,14 +199,10 @@ UNTAGGED_FOLLOWUP_ACTION_DISMISS = "posthog_code_untagged_followup_dismiss"
 UNTAGGED_FOLLOWUP_CONTEXT_KIND = "untagged_followup"
 
 _MAX_GITHUB_REPOS = 500
-# Every save of the user's GitHub row clears this key early, and the background snapshot refresh is
-# such a save. The installation webhook marks snapshots stale with a bulk update that saves no row,
-# so this TTL is the longest time a repo access change can take to reach Slack.
+# The installation webhook marks snapshots stale without saving rows, so it does not clear this key.
+# This TTL is the longest time a repo access change can take to reach Slack.
 REPO_LIST_CACHE_TTL_SECONDS = 60 * 60
-# A mention serves an older snapshot as it is and refreshes it in the background, so this interval
-# sets how often GitHub is listed, not how long a mention waits. The installation webhook already
-# marks a snapshot stale when repo access changes, so the interval only bounds renames and missed
-# webhooks.
+# Mentions do not wait for this refresh, so the interval only sets how often Slack lists GitHub.
 REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS = 6 * 60 * 60
 PENDING_REPO_PICKER_TTL_SECONDS = PICKER_TOKEN_MAX_AGE_SECONDS
 
@@ -1105,7 +1101,7 @@ def _extract_explicit_repo_from_thread(thread_messages: list[SlackThreadMessage]
 
 
 def _schedule_user_repo_cache_refresh(user_integration_id: str) -> None:
-    # noqa reason: the task module imports this module, so a module-level import here would be circular.
+    # The task module imports this module, so a module-level import here would be circular.
     from products.slack_app.backend.tasks import refresh_user_github_repository_cache  # noqa: PLC0415
 
     try:
@@ -1143,11 +1139,8 @@ def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> li
 
     for record in user_records:
         github = UserGitHubIntegration(record, source="slack_app_repo_selection", priority=Priority.NORMAL)
-        # A live listing of a large install takes seconds, and a person waits on this in Slack.
-        # A snapshot that holds repos is served as it is, and an old one is refreshed in the
-        # background for the next mention. An empty snapshot has nothing to serve, so the
-        # mention lists GitHub now, unless GitHub returned that empty list within the shared
-        # repository cache TTL.
+        # A live listing of a large install takes seconds while the person waits in Slack, so a
+        # snapshot with repos is served as it is and refreshed in the background.
         has_cached_repos = bool(record.repository_cache)
         if has_cached_repos and _repo_snapshot_needs_refresh(record):
             _schedule_user_repo_cache_refresh(str(record.id))
