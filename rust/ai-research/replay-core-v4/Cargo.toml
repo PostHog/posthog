@@ -11,7 +11,7 @@ workspace = true
 [features]
 default = ["store"]
 # The key table and KMS clients. A reader that only opens frames turns default features off and skips the AWS SDK.
-store = ["dep:async-trait", "dep:aws-sdk-dynamodb", "dep:aws-sdk-kms", "dep:chrono", "dep:governor", "dep:moka", "dep:tokio"]
+store = ["dep:async-trait", "dep:aws-sdk-dynamodb", "dep:aws-sdk-kms", "dep:chrono", "dep:governor", "dep:moka", "dep:rand", "dep:tokio"]
 
 [dependencies]
 aes-gcm = "0.10"
@@ -25,6 +25,7 @@ hkdf = "0.12"
 hmac = { workspace = true }
 md5 = "0.8"
 moka = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
