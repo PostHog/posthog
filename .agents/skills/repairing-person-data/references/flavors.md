@@ -1,0 +1,59 @@
+# Flavors and verbs
+
+Each row compares one key's Postgres state with its ClickHouse state.
+"Visible" ClickHouse rows exclude lightweight-deleted ones. A tie at the top version counts as visible, because ClickHouse may return either row.
+
+## Persons
+
+| Flavor                  | Meaning                                                                        | Verb                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `ghost` / `after_purge` | Live in ClickHouse, absent from Postgres, last written before a known purge    | `restore`, or `fold` when its distinct ids now live on one other person |
+| `ghost` / `historical`  | Same, but not dated to a purge                                                 | none (report only)                                                      |
+| `ghost` / `team_gone`   | Same, for a deleted team                                                       | none                                                                    |
+| `deleted_visible`       | Tombstoned in Postgres at or below a live ClickHouse row                       | `bury`                                                                  |
+| `hidden`                | Live in Postgres, the ClickHouse winner is a tombstone                         | `republish`                                                             |
+| `swept`                 | Live in Postgres, every ClickHouse row lightweight-deleted                     | `republish`                                                             |
+| `stale`                 | Live in Postgres below the ClickHouse version                                  | `merge_stale`                                                           |
+| `behind`                | Postgres above ClickHouse                                                      | `republish`                                                             |
+| `missing_in_ch`         | Live in Postgres, no ClickHouse row                                            | `republish`                                                             |
+| `tie`                   | Several ClickHouse rows at the Postgres version with different content         | `republish`                                                             |
+| `blanked`               | The ClickHouse winner is empty and unidentified, an earlier row had properties | `republish`                                                             |
+| `no_live_mappings`      | Live in Postgres with no live distinct id                                      | none; also appears in another row's `also`                              |
+
+## Distinct ids (mappings)
+
+| Flavor                    | Meaning                                                                    | Verb                                          |
+| ------------------------- | -------------------------------------------------------------------------- | --------------------------------------------- |
+| `ghost` / `owner_ghost`   | Live in ClickHouse on a person Postgres lacks, no Postgres row             | follows its owner: `restore`, `fold`, or none |
+| `ghost` / `owner_live`    | Live in ClickHouse on a live person, no Postgres row                       | `restore`                                     |
+| `ghost` / `owner_deleted` | Same, on a tombstoned person                                               | none                                          |
+| `deleted_visible`         | Tombstoned in Postgres at or below a live ClickHouse row                   | `bury`                                        |
+| `diverged` / `a_absent`   | Postgres names person B, ClickHouse names A, and A is absent from Postgres | `fold`                                        |
+| `diverged` / `a_live`     | Same, and A is live in Postgres                                            | `merge`                                       |
+| `diverged` / `a_deleted`  | Same, and A is tombstoned                                                  | `republish`                                   |
+| `diverged` / `ambiguous`  | B holds ids of several old persons, or A's ids went to several persons     | none                                          |
+| `stale`                   | Same owner, ClickHouse above Postgres                                      | `republish`                                   |
+| `hidden`                  | Live in Postgres, the ClickHouse winner is a tombstone                     | `republish`                                   |
+| `missing_in_ch`           | Live in Postgres, no ClickHouse row                                        | `republish`                                   |
+| `stray`                   | Live in Postgres on a tombstoned person                                    | `detach_stray`                                |
+
+## Groups
+
+A group ties rows that must be repaired together:
+
+- `restore:A`: lost person A and its lost distinct ids.
+- `fold:A>B`: lost person A, whose ids live on B in Postgres. It holds A's person row, its diverged ids and its ghost ids.
+- `merge:A>B`: live A and live B share ids. B survives.
+- `ambiguous:X`: X takes part in more than one pair. Report it and leave it.
+
+A pair is a group only when neither person takes part in another pair, so a group is always safe to repair as a unit.
+
+## Outcomes
+
+- `would_repair`: a dry run found the key still broken.
+- `repaired`, `restored`, `moved`, `folded`, `buried`, `detached`, `tombstoned`, `republished`: the key was written.
+- `already_*`: an earlier run wrote it, and this run published it again.
+- `merge_queued`: `merge_stale` sent properties to ingestion. Run the verb again later.
+- `merge_sent`: `merge` sent `$merge_dangerously`. Rescan after ingestion processes it.
+- `skipped_changed` and `skipped_not_divergent`: the state moved since the scan. Rescan.
+- Any other `skipped_*`: the verb refused on purpose. The name says why.
