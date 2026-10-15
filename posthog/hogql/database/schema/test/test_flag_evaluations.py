@@ -477,6 +477,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 pretty=False,
             )
 
+        assert response.clickhouse is not None
         assert ("in(key," in response.clickhouse) == key_bound
         assert response.results == [("software",)]
 
