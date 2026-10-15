@@ -178,8 +178,9 @@ HEADS: tuple[Head, ...] = (
     ),
     # Which reports flagged a real problem that then got fixed, by anyone and on any surface? Reads
     # only the status stream: a tracked PR merge, a hand-marked fix, or a dismissal as already
-    # fixed all count. Fixes marked by hand arrive about two weeks after birth and many land later,
-    # so 30 days labels fewer late fixes as negatives than 21 did.
+    # fixed all count. A one-click resolve counts after its grace window (`STATUS_SQL`). Fixes marked
+    # by hand arrive about two weeks after birth and many land later, so 30 days labels fewer late
+    # fixes as negatives than 21 did.
     Head(
         name="fixed",
         cohort=everyone,

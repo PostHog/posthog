@@ -2865,25 +2865,36 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
 
     # --- untrusted (session) callers: read-only, never build ---
 
-    def test_session_read_returns_404_when_no_profile_exists(self) -> None:
+    @patch("products.signals.backend.tasks.build_signal_project_profile.delay")
+    def test_session_read_returns_404_and_queues_one_build_when_no_profile_exists(self, mock_delay: MagicMock) -> None:
         # A session GET bypasses CSRF, so it must not trigger an inline build. With no
-        # cached row the read-only caller gets a 404 rather than a freshly-built profile.
+        # cached row the read-only caller gets a 404 and a deduped background build.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
-        response = self.client.get(self._list_url())
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        first = self.client.get(self._list_url())
+        second = self.client.get(self._list_url())
+        assert first.status_code == second.status_code == status.HTTP_404_NOT_FOUND
+        assert "retry" in first.json()["detail"]
+        mock_delay.assert_called_once_with(self.team.id)
         # No row written as a side effect of the GET.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
 
-    def test_session_read_returns_cached_profile(self) -> None:
+    @parameterized.expand([("fresh", timedelta(minutes=30), False), ("a_day_old", -timedelta(days=1), True)])
+    @patch("products.signals.backend.tasks.build_signal_project_profile.delay")
+    def test_session_read_returns_stored_profile(
+        self, _name: str, expires_in: timedelta, stale: bool, mock_delay: MagicMock
+    ) -> None:
         seeded_id = self._seed_profile()
+        SignalProjectProfile.objects.filter(id=seeded_id).update(expires_at=timezone.now() + expires_in)
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["profile_id"] == seeded_id
+        assert body["stale"] is stale
         assert {"summary", "profile_id", "computed_at", "expires_at", "source_version"} <= set(body.keys())
         assert "inventory" in body["payload"]
-        # Read-only: no new row written.
+        # Read-only: no new row written, no build queued.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
+        mock_delay.assert_not_called()
 
     def test_session_read_ignores_force_refresh(self) -> None:
         # `force_refresh` is honored only for the internal scout token. A session caller
