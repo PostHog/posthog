@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 class SourceKind(StrEnum):
     LOGS = "logs"
     INSIGHT = "insight"
+    BILLING = "billing"
 
 
 @frozen
