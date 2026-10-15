@@ -25,6 +25,18 @@ export interface RecentWorkItem {
   channelId: string | undefined;
 }
 
+// Pins always stay. The cap counts only the rest, so pins with newer activity cannot take the
+// places of the recent work they sit beside.
+function keepPinsAndCapRecent(
+  items: readonly ChannelItemModel[],
+): ChannelItemModel[] {
+  let recent = 0;
+  return items.filter(
+    (item) =>
+      (item.kind === "task" && item.pinned) || recent++ < RECENT_WORK_CAP,
+  );
+}
+
 export function selectRecentWorkItems({
   dashboards,
   tasks,
@@ -54,7 +66,7 @@ export function selectRecentWorkItems({
   // The order is the items' own activity time. Opening an item is not activity,
   // so the local "viewed" time stays out of it and only says which canvases
   // belong to this list.
-  return buildChannelItems({
+  const items = buildChannelItems({
     dashboards: mine,
     feedTasks: [
       ...tasks,
@@ -64,16 +76,11 @@ export function selectRecentWorkItems({
     pinnedTaskIds,
     ownedBy: null,
     sessionFacts,
-  })
-    .sort((a, b) => b.ts - a.ts)
-    .filter(
-      (item, index) =>
-        index < RECENT_WORK_CAP || (item.kind === "task" && item.pinned),
-    )
-    .map((item) => ({
-      item,
-      channelId: item.task?.channel ?? canvasChannelId.get(item.id),
-    }));
+  }).sort((a, b) => b.ts - a.ts);
+  return keepPinsAndCapRecent(items).map((item) => ({
+    item,
+    channelId: item.task?.channel ?? canvasChannelId.get(item.id),
+  }));
 }
 
 export function useRecentWorkItems({
@@ -84,10 +91,13 @@ export function useRecentWorkItems({
   items: RecentWorkItem[];
   isLoading: boolean;
 } {
-  // Nothing past the cap shows, so the page asks for no more than that.
+  // Nothing past the cap shows, so the page asks for no more than that. The server cuts the page
+  // from the newest activity: by creation date, a session started last week and still in use is
+  // already off the page when scheduled runs create many tasks.
   const { data: tasks = [], isLoading: tasksLoading } = useTasks({
     sources,
     limit: RECENT_WORK_CAP,
+    ordering: "-last_activity_at",
   });
   const { data: pinnedTasks = [], isLoading: pinnedLoading } =
     usePinnedTaskRecords();

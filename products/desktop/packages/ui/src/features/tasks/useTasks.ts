@@ -26,6 +26,7 @@ export function useTasks(
     showInternal?: boolean;
     sources?: readonly string[];
     limit?: number;
+    ordering?: "-last_activity_at" | "-created_at";
   },
   options?: { enabled?: boolean; subscribed?: boolean },
 ) {
@@ -43,6 +44,7 @@ export function useTasks(
       internal,
       sources,
       limit: filters?.limit,
+      ordering: filters?.ordering,
     }),
     (client) =>
       client.getTasks({
@@ -51,9 +53,7 @@ export function useTasks(
         internal,
         sources,
         limit: filters?.limit,
-        // The server cuts the list at a fixed length. By creation date, a session started last
-        // week and still in use is already off the list when scheduled runs create many tasks.
-        ordering: "-last_activity_at",
+        ordering: filters?.ordering,
         // The sidebar and every other full-list consumer narrow the task before use
         // and never read its description, so ask for the basic payload without it.
         basic: true,

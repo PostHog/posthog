@@ -2,7 +2,7 @@ import type { ChannelSessionFacts } from "@posthog/core/canvas/channelItems";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
-import { selectRecentWorkItems } from "./useRecentWorkItems";
+import { RECENT_WORK_CAP, selectRecentWorkItems } from "./useRecentWorkItems";
 
 const ME = "me-uuid";
 const OLD = 1_000;
@@ -120,6 +120,27 @@ describe("selectRecentWorkItems", () => {
     },
   ])("$case", ({ over, expected }) => {
     expect(keys(over)).toEqual(expected);
+  });
+
+  it("caps only the unpinned work, so newer pins cannot empty Recent", () => {
+    const pins = Array.from({ length: RECENT_WORK_CAP }, (_, index) =>
+      task({
+        id: `pin-${index}`,
+        last_activity_at: new Date(NEW + index).toISOString(),
+      }),
+    );
+    const recent = task({
+      id: "recent",
+      last_activity_at: new Date(OLD).toISOString(),
+    });
+
+    expect(
+      keys({
+        tasks: [recent],
+        pinnedTasks: pins,
+        pinnedTaskIds: new Set(pins.map((pin) => pin.id)),
+      }),
+    ).toContain("task:recent");
   });
 
   it("carries each item's own channel", () => {
