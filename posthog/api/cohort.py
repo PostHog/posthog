@@ -132,7 +132,16 @@ from products.workflows.backend.facade.contracts import CohortDependentWorkflow,
 
 
 def _workflows_relying_on_cohort(cohort: Cohort) -> list[CohortDependentWorkflow]:
-    return get_active_workflows_using_realtime_cohort(project_id=cohort.team.project_id, cohort_id=cohort.id)
+    # A cohort that includes this one as a criterion reads its membership, so a workflow on that cohort
+    # also relies on this one. Walk the references in the project, like the feature flag lock does.
+    cohort_ids = {cohort.id}
+    pending = [cohort]
+    while pending:
+        for dependent in get_cohorts_using_cohort(pending.pop()):
+            if dependent.id not in cohort_ids:
+                cohort_ids.add(dependent.id)
+                pending.append(dependent)
+    return get_active_workflows_using_realtime_cohort(project_id=cohort.team.project_id, cohort_ids=cohort_ids)
 
 
 def _workflow_names_suffix(

@@ -7162,6 +7162,39 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert "stops the cohort updating in real time" in response.json()["detail"]
         assert Cohort.objects.get(id=cohort_id).cohort_type == CohortType.REALTIME
 
+    def test_edit_that_stops_realtime_is_blocked_by_workflows_on_a_cohort_that_includes_it(self):
+        included_id = self._create_realtime_cohort()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "Includes realtime",
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"type": "cohort", "key": "id", "value": included_id}],
+                    }
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == 201, response.json()
+        assert response.json()["cohort_type"] == CohortType.REALTIME
+        self._create_workflow_using_cohort(response.json()["id"], "trigger", "active")
+        filters = {
+            "properties": {
+                "type": "AND",
+                "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+            },
+            "filterTestAccounts": True,
+        }
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{included_id}", {"filters": filters}, format="json"
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "1 active workflow(s) rely on that: Workflow trigger." in response.json()["detail"]
+
     def test_cohort_type_not_set_when_not_provided(self):
         """cohort_type should remain None when not provided"""
 
