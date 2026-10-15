@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-PUSH_TITLE = "posthog"
+PUSH_TITLE = "PostHog"
 FEATURE_FLAG_KEY = "posthog-code-mobile-push"
 
 # Cooldown windows per push kind. Terminal pushes get a longer window because

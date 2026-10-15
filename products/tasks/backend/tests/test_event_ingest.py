@@ -667,7 +667,7 @@ class TestTaskRunEventIngest(TestCase):
             return
         send_push.assert_called_once()
         user_id, title, push_body, data, _suppressed = send_push.call_args.args
-        self.assertEqual((user_id, title, push_body), (creator.id, "posthog", '"Test Task" needs your input'))
+        self.assertEqual((user_id, title, push_body), (creator.id, "PostHog", '"Test Task" needs your input'))
         self.assertEqual(
             data,
             {
