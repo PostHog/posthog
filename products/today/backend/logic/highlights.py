@@ -142,7 +142,12 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
     found = {result.source_name: _FOUND.validate_json(result.found) for result in inputs.results if result.found}
     highlights = build_highlights(load_sources(), found, Team.objects.get(id=inputs.team_id), row.local_day)
     failed = [result for result in inputs.results if result.failed]
-    row.status = HighlightsStatus.FAILED if failed and len(failed) == len(inputs.results) else HighlightsStatus.READY
+    usable = bool(highlights.items or highlights.pulse)
+    row.status = (
+        HighlightsStatus.FAILED
+        if failed and len(failed) == len(inputs.results) and not usable
+        else HighlightsStatus.READY
+    )
     row.content = _HIGHLIGHTS.dump_python(highlights, mode="json")
     row.failed_sources = bool(failed)
     row.ready_at = timezone.now()

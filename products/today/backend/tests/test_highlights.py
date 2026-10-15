@@ -67,6 +67,7 @@ ALERT_RESULT = HighlightSourceResult(
     failed=False,
 )
 FAILED_RESULT = HighlightSourceResult(source_name="errors", found=None, failed=True)
+PARTIAL_RESULT = HighlightSourceResult(source_name="alerts", found=ALERT_RESULT.found, failed=True)
 READY_CONTENT = HIGHLIGHTS.dump_python(
     contracts.Highlights(
         status=HighlightsStatus.READY,
@@ -251,6 +252,7 @@ class TestFinalizeHighlights(BaseTest):
         [
             ("one source failed", [ALERT_RESULT, FAILED_RESULT], HighlightsStatus.READY, ["alert"], False),
             ("every source failed", [FAILED_RESULT], HighlightsStatus.FAILED, [], True),
+            ("every source failed but one kept an item", [PARTIAL_RESULT], HighlightsStatus.READY, ["alert"], False),
         ]
     )
     def test_a_ready_computation_replaces_the_older_rows(
