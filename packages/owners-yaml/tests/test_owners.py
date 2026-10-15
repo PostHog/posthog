@@ -126,7 +126,7 @@ def registry_repo(tmp_path: Path) -> Path:
         tmp_path,
         "owners.yaml",
         "version: 1\nowners: []\nproducers: [review-bot]\nteams:\n"
-        "  team-registry:\n    slack: '#registry-chan'\n"
+        "  team-registry:\n    slack: '#registry-chan'\n    pr_label: feature/registry\n    review_every_change: true\n"
         "  team-silent:\n    slack: false\n"
         "  team-split:\n    slack: '#split-people'\n    notifications: '#split-bots'\n"
         "  team-mapped:\n    slack: '#mapped-people'\n    notifications:\n      review-bot: '#mapped-reviews'\n",
@@ -144,7 +144,7 @@ def test_teams_registry_and_settings_are_root_only(tmp_path: Path) -> None:
     text = (
         "version: 1\nowners: [team-a]\ngithub_org: acme\nproducers: [bot]\n"
         "reserved_dirs: ['gen/**']\nalias_files: [package.yaml]\ncodeowners:\n  jest_root: web\n"
-        "teams:\n  team-a:\n    slack: '#a'\n"
+        "teams:\n  team-a:\n    slack: '#a'\n    pr_label: feature/a\n    review_every_change: true\n"
     )
     _, sub_errors = parse_owners_file(text, path=tmp_path / "sub/owners.yaml", directory="sub")
     assert sorted(e.split("'")[1] for e in sub_errors if "only allowed in the repo-root" in e) == [
@@ -157,7 +157,9 @@ def test_teams_registry_and_settings_are_root_only(tmp_path: Path) -> None:
     ]
     root, root_errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
     assert root_errors == []
-    assert root is not None and root.teams == {"team-a": TeamEntry(slack="#a")}
+    assert root is not None and root.teams == {
+        "team-a": TeamEntry(slack="#a", pr_label="feature/a", review_every_change=True)
+    }
     assert root.settings.github_org == "acme"
     assert root.settings.producers == frozenset({"bot"})
     assert root.settings.reserved_dirs == ("gen/**",)
@@ -244,6 +246,8 @@ def test_invalid_repo_settings_are_schema_errors(tmp_path: Path, settings_yaml: 
         ("teams:\n  team-a:\n    notifications:\n      stamphog: 'no-hash'\n", "'stamphog' must be a string"),
         ("teams:\n  team-a:\n    notifications:\n      visual_review: 'no-hash'\n", "'visual_review' must be a string"),
         ("teams:\n  team-a:\n    notifications: {}\n", "mapping names no producer"),
+        ("teams:\n  team-a:\n    pr_label: ''\n", "'pr_label' must be a non-empty string"),
+        ("teams:\n  team-a:\n    review_every_change: 'yes'\n", "'review_every_change' must be true or false"),
     ],
 )
 def test_teams_registry_invalid_shapes(tmp_path: Path, teams_yaml: str, needle: str) -> None:
@@ -898,6 +902,18 @@ def test_json_entrypoint_repo_root_reads_stdin_paths_and_honors_purpose(registry
     wire = json.loads(result.stdout)
     assert wire["split/x.py"]["slack"] == "#split-bots"
     assert wire["derive/x.py"]["slack"] == "#team-nonreg"
+
+
+def test_json_entrypoint_writes_the_teams_registry(registry_repo: Path) -> None:
+    result = _run_entrypoint(registry_repo, "--repo-root", str(registry_repo), "--teams")
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["team-registry"] == {
+        "slack": "#registry-chan",
+        "notifications": None,
+        "pr_label": "feature/registry",
+        "review_every_change": True,
+    }
 
 
 def _resolve_json(front_door: str, repo: Path, args: list[str]) -> tuple[int, str]:

@@ -242,7 +242,7 @@ An author MUST NOT put these fields in a file other than the root file. A linter
 
 | Field           | Type             | Meaning                                                                                              |
 | --------------- | ---------------- | ---------------------------------------------------------------------------------------------------- |
-| `teams`         | mapping          | The team channel registry (section 5.2).                                                             |
+| `teams`         | mapping          | The team registry (section 5.2).                                                                     |
 | `github_org`    | string           | The GitHub organization of the team slugs.                                                           |
 | `producers`     | list of strings  | The automation names a team can address in `notifications`.                                          |
 | `reserved_dirs` | list of patterns | Extra reserved locations (section 2, rule 4). The patterns are relative to the repository root.      |
@@ -255,20 +255,24 @@ An author MUST NOT put these fields in a file other than the root file. A linter
 2. The value MUST NOT contain `/`.
 3. A tool MAY accept an override on its command line.
 
-### 5.2 Team channels
+### 5.2 Team registry
 
 `teams` maps a team slug to a mapping with these OPTIONAL fields:
 
-| Field           | Type                                                             | Meaning                        |
-| --------------- | ---------------------------------------------------------------- | ------------------------------ |
-| `slack`         | channel or `false`                                               | Where people on the team talk. |
-| `notifications` | channel, `false`, or a mapping of producer to channel or `false` | Where automation posts.        |
+| Field                 | Type                                                             | Meaning                                                                                            |
+| --------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `slack`               | channel or `false`                                               | Where people on the team talk.                                                                     |
+| `notifications`       | channel, `false`, or a mapping of producer to channel or `false` | Where automation posts.                                                                            |
+| `pr_label`            | string                                                           | A label for pull requests that change a path the team owns.                                        |
+| `review_every_change` | boolean                                                          | Whether a review assigner requests the team for every change to a path it owns, whatever its size. |
 
 1. A channel is a string that starts with `#`.
 2. `false` means the team has no channel for that purpose.
 3. A key of `teams` MUST be a team slug. It MUST NOT be a person handle.
 4. When the root file declares `producers`, each key of a `notifications` mapping MUST name a producer from that list. A mapping MAY leave out any producer. When the root file does not declare `producers`, any non-empty name is valid.
 5. A tool that cannot read a `notifications` mapping SHOULD treat it as `false`. A typo then silences automation. Automation does not post to an unwanted channel. One rejected entry makes the whole mapping unreadable. A tool that keeps the other entries sends the rejected producer to the `slack` channel.
+6. `pr_label` and `review_every_change` apply to every path the team owns, whatever its position in `owners`.
+7. `review_every_change` does not make a review required, as for `sensitive` (section 3.7).
 
 To find the channel for a team slug `T`, a purpose, and an optional producer:
 
@@ -359,6 +363,7 @@ This section describes the reference implementation. It is not part of the forma
 - It reads the alias files the root `owners.yaml` declares. PostHog's own repository declares `product.yaml`.
 - It removes the placeholder owner `team-CHANGEME` from every `owners` and `additions` list. Section 4 allows this removal.
 - Its linter reports schema errors, unknown fields as warnings, sensitive paths that are unowned as warnings, reserved locations, directories with both an `owners.yaml` and an alias file, rules that name a tracked directory without the trailing `/`, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
+- `python -m owners_yaml --teams` writes the `teams` registry as JSON, team slug to its declared fields, for a consumer that cannot read YAML.
 - It reports `added` when its source can tell whether the repository holds a path, as its disk source does (`TreeSource`). A source that reads only the ownership files reports none. It treats a symbolic link as a file, as git does.
 - Its CODEOWNERS export covers test files only: `test_*.py` and `*_test.py` for pytest, and `*.test.*` or `*.spec.*` with a `.js`, `.jsx`, `.ts`, or `.tsx` extension for Jest. The `codeowners` setting accepts these keys:
 

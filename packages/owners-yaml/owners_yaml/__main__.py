@@ -31,6 +31,7 @@ from __future__ import annotations
 import sys
 import json
 import argparse
+from dataclasses import asdict
 from pathlib import Path
 from typing import cast
 
@@ -63,6 +64,11 @@ def main() -> None:
         default=None,
         help="GitHub organization for --codeowners; default: github_org in the root owners.yaml",
     )
+    parser.add_argument(
+        "--teams",
+        action="store_true",
+        help="Write the root teams registry as JSON, team slug to its declared fields, and exit",
+    )
     parser.add_argument("paths", nargs="*")
     ns = parser.parse_args()
     # A root that is not a directory reads as a repo with no ownership files, so every path
@@ -78,6 +84,10 @@ def main() -> None:
     producer_error = resolver.producer_error()
     if producer_error is not None:
         parser.error(producer_error)
+
+    if ns.teams:
+        json.dump({slug: asdict(entry) for slug, entry in resolver.teams().items()}, sys.stdout)
+        return
 
     if ns.codeowners:
         org = ns.org or resolver.settings().github_org

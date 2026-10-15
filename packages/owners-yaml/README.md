@@ -141,7 +141,12 @@ teams:
     slack: '#billing'
     notifications:
       review-bot: '#billing-reviews'
+    pr_label: feature/billing
+    review_every_change: true
 ```
+
+`pr_label` and `review_every_change` are for a review assigner.
+It labels pull requests that change a path the team owns, and requests the team for every such change, whatever its size.
 
 `alias_files` names the other files that count as ownership files, such as a package manifest that already lists owners.
 Only the `owners` and `sensitive` fields of such a file are read, and an `owners.yaml` next to it wins.

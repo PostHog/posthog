@@ -23,7 +23,7 @@
         "sensitive": { "$ref": "#/$defs/sensitive" },
         "teams": {
             "type": "object",
-            "description": "Repository settings: team slug to its channels.",
+            "description": "Repository settings: team slug to its channels and pull request settings.",
             "propertyNames": { "not": { "pattern": "^@" } },
             "additionalProperties": { "$ref": "#/$defs/teamEntry" }
         },
@@ -128,6 +128,15 @@
                             "additionalProperties": { "$ref": "#/$defs/channel" }
                         }
                     ]
+                },
+                "pr_label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "A label for pull requests that change a path the team owns."
+                },
+                "review_every_change": {
+                    "type": "boolean",
+                    "description": "Whether a review assigner requests the team for every change to a path it owns, whatever its size."
                 }
             }
         }
