@@ -28,9 +28,9 @@ from posthog.models import PersonalAPIKey, PropertyDefinition, Team
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.mcp_event_delivery import MCPCallbackError, signing_key, verify_callback
+from products.cdp.backend.mcp_event_envelope import MCPEventEnvelopeSerializer
 from products.cdp.backend.mcp_event_properties import MCPEventPropertyAccess
 from products.cdp.backend.mcp_events import MCPEventSubscriptions
-from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.mcp_event_subscription import MCPEventSubscription
 from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
@@ -117,6 +117,31 @@ class TestMCPEventPropertyMasking(SimpleTestCase):
         self.assertEqual(properties, original)
 
 
+class TestMCPEventEnvelope(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("event_id", {"eventId": 123}),
+            ("event_name", {"name": "other.event"}),
+            ("cursor", {"cursor": "replay"}),
+            ("timestamp", {"timestamp": "2026-01-01T00:00:00"}),
+            ("properties", {"data": {"event": "example_event", "distinct_id": "sample-user", "properties": []}}),
+            ("data_type", {"data": {"event": 123, "distinct_id": "sample-user", "properties": {}}}),
+            ("extra", {"extra": True}),
+        ]
+    )
+    def test_rejects_invalid_envelopes(self, _name: str, overrides: dict[str, JsonValue]) -> None:
+        envelope: dict[str, JsonValue] = {
+            "eventId": "sample-event",
+            "name": "posthog.event_captured",
+            "timestamp": timezone.now().isoformat(),
+            "data": {"event": "example_event", "distinct_id": "sample-user", "properties": {}},
+            "cursor": None,
+            **overrides,
+        }
+        with self.assertRaises(ValidationError):
+            MCPEventEnvelopeSerializer.parse(json.dumps(envelope))
+
+
 class MCPEventSubscriptionTestCase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -143,22 +168,6 @@ class MCPEventSubscriptionTestCase(APIBaseTest):
             },
             "delivery": {"mode": "webhook", "url": "https://example.com/callback", "secret": self.secret},
         }
-        HogFunctionTemplate.objects.create(
-            template_id="template-webhook",
-            sha="mcp-test",
-            name="Webhook",
-            code="fetch(inputs.url, {'headers': inputs.headers, 'body': inputs.body, 'method': inputs.method, 'standard_webhooks': {'secret_input': 'signing_secret'}});",
-            type="destination",
-            status="stable",
-            inputs_schema=[
-                {"key": "url", "type": "string", "required": True, "label": "URL"},
-                {"key": "method", "type": "string", "required": True, "label": "Method"},
-                {"key": "headers", "type": "dictionary", "label": "Headers"},
-                {"key": "body", "type": "json", "label": "Body"},
-                {"key": "debug", "type": "boolean", "default": False, "label": "Debug"},
-                {"key": "signing_secret", "type": "string", "secret": True, "required": True, "label": "Secret"},
-            ],
-        )
 
     def subscribe(self) -> MCPEventSubscription:
         response = self.client.post(
@@ -221,6 +230,9 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         subscription.save(update_fields=["verified_at"])
         self.assertNotIn(self.key, json.dumps(subscription.hog_function.inputs))
         self.assertEqual(subscription.hog_function.encrypted_inputs["mcp_credential"]["value"], self.key)
+        self.assertNotIn("signing_secret", subscription.hog_function.encrypted_inputs)
+        self.assertNotIn(self.secret, json.dumps(subscription.hog_function.inputs))
+        self.assertNotIn(self.secret, json.dumps(subscription.hog_function.encrypted_inputs))
         refreshed = self.subscribe()
         self.assertEqual(refreshed.pk, subscription.pk)
         self.assertEqual(refreshed.hog_function_id, first_function_id)

@@ -64511,12 +64511,12 @@ export namespace Schemas {
     export type MCPEventDataProperties = {[key: string]: string | number | boolean | { [key: string]: unknown } | unknown[] | null};
 
     export interface MCPEventData {
+      /** Event properties the subscriber is allowed to read. */
+      properties: MCPEventDataProperties;
       /** Original captured event name. */
       event: string;
       /** Distinct ID attached to the captured event. */
       distinct_id: string;
-      /** Event properties the subscriber is allowed to read. */
-      properties: MCPEventDataProperties;
     }
 
     export interface MCPEventDeliveryRequest {
@@ -64550,20 +64550,33 @@ export namespace Schemas {
       headers: MCPEventDeliveryResponseHeaders;
     }
 
+    /**
+     * * `posthog.event_captured` - posthog.event_captured
+     */
+    export type MCPEventEnvelopeNameEnum = typeof MCPEventEnvelopeNameEnum[keyof typeof MCPEventEnvelopeNameEnum];
+
+
+    export const MCPEventEnvelopeNameEnum = {
+      PosthogeventCaptured: 'posthog.event_captured',
+    } as const;
+
     export interface MCPEventEnvelope {
-      /** Stable source event ID used to deduplicate deliveries. */
-      eventId: string;
-      /** Subscribed MCP event type. */
-      name: string;
-      /** Event occurrence time. */
+      /** Event occurrence time, including its timezone. */
       timestamp: string;
-      /**
-         * Null because replay is unavailable.
-         * @nullable
-         */
-      cursor: string | null;
       /** Captured event data. */
       data: MCPEventData;
+      /** Null because replay is unavailable. */
+      cursor: unknown;
+      /**
+         * Stable source event ID used to deduplicate deliveries.
+         * @minLength 1
+         * @maxLength 255
+         */
+      eventId: string;
+      /** Subscribed MCP event type.
+       *
+       * * `posthog.event_captured` - posthog.event_captured */
+      name: MCPEventEnvelopeNameEnum;
     }
 
     export interface MCPEventIdentityArguments {

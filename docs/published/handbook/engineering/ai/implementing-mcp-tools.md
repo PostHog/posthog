@@ -637,6 +637,8 @@ Delivery uses the source event UUID for both `eventId` and `webhook-id`, sends o
 
 Delivery authorization uses a separate rate-limit budget from client API requests. Queued deliveries carry the compiled filter that matched; authorization checks its recorded property dependencies against the subscriber’s current permissions. Action and test-account filter refreshes update the compiled filter and its permission dependencies together. Newly queued events use the refreshed filter without renewal; queued work from an older filter is rejected. Nested restricted properties and feature-flag aliases are removed before signing. Deleting a subscriber disables the managed destination.
 
+Managed destinations use a fixed MCP-only Hog program. A dedicated worker job combines authorization and callback delivery under one retry policy. Signing keys stay in encrypted subscription configuration.
+
 The backend implementation lives under `products/cdp/backend/`. The wire contract follows the [OpenAI MCP Events integration](https://developers.openai.com/plugins/build/mcp-events).
 
 Preview queries must set product and feature query tags for ClickHouse accounting. Test-mode defaults can hide missing tags, so verify previews against a running backend.
