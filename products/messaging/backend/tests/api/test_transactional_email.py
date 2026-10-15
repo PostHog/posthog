@@ -73,10 +73,10 @@ class TestTransactionalEmailSend(APIBaseTest):
         assert payload["template_id"] == str(self.template.id)
         assert payload["distinct_id"] == "user-1"
         assert payload["variables"] == {"link": "https://example.com/reset", "nickname": None}
-        assert payload["email"]["to"] == {"email": "user@example.com", "name": ""}
-        assert payload["email"]["from"] == {"integrationId": self.sender.id}
-        assert payload["email"]["subject"] == "Reset your password"
-        assert payload["email"]["html"] == "<a href='{{ variables.link }}'>Reset</a>"
+        assert payload["to"] == "user@example.com"
+        assert payload["from_integration_id"] == self.sender.id
+        # The template content stays out of the queued job; the email worker loads it by id.
+        assert "email" not in payload
 
     @parameterized.expand(
         [

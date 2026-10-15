@@ -324,8 +324,9 @@ class TestMessageTemplatesAPI(APIBaseTest):
         response = getattr(self.client, method)(url, data=data, format="json")
         assert response.status_code == expected_status, response.json()
 
+    @patch("products.messaging.backend.presentation.views.message_templates.publish_message")
     @patch("products.messaging.backend.presentation.views.message_templates.publish_resource_edited")
-    def test_update_replaces_content_wholesale(self, mock_emit):
+    def test_update_replaces_content_wholesale(self, mock_emit, mock_publish_message):
         """The content JSONField is replaced as a unit on update, never deep-merged —
         a payload without design makes the submitted html canonical."""
         self.message_template.content = {
@@ -347,6 +348,9 @@ class TestMessageTemplatesAPI(APIBaseTest):
         # The stored design is a wrap of the new html, not a merge of the old design
         assert email["design"]["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["html"] == "<p>New</p>"
         self._assert_resource_edited_emitted(mock_emit)
+        mock_publish_message.assert_called_once_with(
+            "reload-message-templates", {"templateIds": [str(self.message_template.id)]}
+        )
 
     def _assert_resource_edited_emitted(self, mock_emit):
         assert mock_emit.call_count == 1

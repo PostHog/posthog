@@ -28,6 +28,7 @@ from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import groups, report_user_action
 from posthog.models import User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.plugins.plugin_server_api import publish_message
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
@@ -446,6 +447,11 @@ class MessageTemplatesViewSet(
             )
         except Exception as e:
             logger.warning("Failed to publish message template edited event", error=str(e))
+        # The email workers cache templates for transactional sends, so the next send must not use the old one.
+        try:
+            publish_message("reload-message-templates", {"templateIds": [str(instance.id)]})
+        except Exception as e:
+            logger.warning("Failed to reload message template on workers", error=str(e))
 
     @extend_schema(
         request=DesignPatchSerializer, responses={200: MessageTemplateSerializer}, parameters=[TEMPLATE_ID_PARAMETER]

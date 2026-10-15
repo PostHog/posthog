@@ -60,21 +60,6 @@ def _sender_integration_id(team: Team, from_integration_id: int | None) -> int:
     return integration.id
 
 
-def _email_input(template: MessageTemplate, to: str, integration_id: int) -> dict[str, Any]:
-    email = template.content["email"]
-    return {
-        "to": {"email": to, "name": ""},
-        "from": {"integrationId": integration_id},
-        "replyTo": "",
-        "cc": "",
-        "bcc": "",
-        "subject": email["subject"],
-        "preheader": email.get("preheader") or "",
-        "text": email.get("text") or "",
-        "html": email.get("html") or "",
-    }
-
-
 def _idempotency_redis_key(team_id: int, idempotency_key: str) -> str:
     digest = hashlib.sha256(idempotency_key.encode()).hexdigest()
     return f"messaging:transactional_email:idempotency:{team_id}:{digest}"
@@ -105,10 +90,10 @@ def send_transactional_email(
             raise SendInProgress("A request with this idempotency key is still in progress.")
         return QueuedEmail(message_id=existing.decode(), replayed=True)
 
+    # Only ids and data cross to cdp-api. The email worker loads the template content itself.
     payload = {
-        "template_name": template.name,
-        "message_category_id": str(template.message_category_id) if template.message_category_id else None,
-        "email": _email_input(template, to, integration_id),
+        "to": to,
+        "from_integration_id": integration_id,
         "distinct_id": distinct_id,
         "variables": message_data,
     }
