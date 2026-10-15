@@ -11024,6 +11024,7 @@ dependencies = [
  "aws-sdk-kms",
  "base64 0.22.1",
  "chrono",
+ "futures",
  "governor",
  "hkdf",
  "hmac 0.12.1",
