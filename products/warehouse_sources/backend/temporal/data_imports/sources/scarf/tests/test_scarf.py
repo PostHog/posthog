@@ -63,7 +63,7 @@ def test_incremental_events_export_one_day_per_request_and_hand_over_whole_days(
             {
                 "2026-10-13": [
                     "e1,binary-download,cli,1.2,2026-10-13T08:00:00Z,52.37,Zürich Software GmbH,false,0.9",
-                    "e2,binary-download,cli,1.2,2026-10-13T09:00:00Z,,,true,",
+                    "e2,binary-download,cli,NA,2026-10-13 09:00:00,,,true,",
                 ],
                 "2026-10-14": [],
                 "2026-10-15": ["e3,binary-download,cli,1.3,2026-10-15T01:00:00Z,,,,"],
@@ -83,13 +83,15 @@ def test_incremental_events_export_one_day_per_request_and_hand_over_whole_days(
         "type": "binary-download",
         "package": "cli",
         "version": "1.2",
-        "time": "2026-10-13T08:00:00Z",
+        "time": datetime(2026, 10, 13, 8, tzinfo=UTC),
         "origin_latitude": 52.37,
         "origin_company": "Zürich Software GmbH",
         "dnt": False,
         "confidence": 0.9,
     }
     assert [row["dnt"] for row in rows_of(result)] == [False, True, None]
+    assert rows_of(result)[1]["version"] == "NA"
+    assert rows_of(result)[1]["time"] == datetime(2026, 10, 13, 9, tzinfo=UTC)
     assert result.committed_states[0] == ScarfResumeConfig(day="2026-10-14")
     assert manager.staged == ScarfExportCursor(next_day="2026-10-15")
     assert result.requests[0].headers["authorization"] == "Bearer scarf-token"
@@ -108,6 +110,19 @@ def test_the_export_cursor_wins_over_the_watermark_so_idle_days_are_not_exported
     assert result.params("start_date") == ["2026-10-14", "2026-10-15"]
     assert result.paths[0] == "/v2/tracking-pixels/my-org/events"
     assert manager.staged == ScarfExportCursor(next_day="2026-10-15")
+
+
+def test_a_configured_lookback_moves_the_export_day_back() -> None:
+    result = _driver().run(
+        "package_events",
+        events_by_day({"2026-10-12": [], "2026-10-13": [], "2026-10-14": [], "2026-10-15": []}),
+        incremental_field="time",
+        db_incremental_field_last_value=datetime(2026, 10, 12, tzinfo=UTC),
+        db_incremental_field_last_value_before_lookback=datetime(2026, 10, 14, tzinfo=UTC),
+        source_cursor=cursor(ScarfExportCursor(next_day="2026-10-14")),
+    )
+
+    assert result.params("start_date")[0] == "2026-10-12"
 
 
 @pytest.mark.parametrize(("backfill_days", "first_day"), [(2, "2026-10-13"), (0, "2026-10-15")])

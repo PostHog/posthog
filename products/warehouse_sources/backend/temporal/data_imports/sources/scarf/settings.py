@@ -78,6 +78,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 
 BOOLEAN_COLUMNS = frozenset({"dnt", "mtc_quota_exceeded"})
 FLOAT_COLUMNS = frozenset({"origin_latitude", "origin_longitude", "confidence"})
+TIMESTAMP_COLUMNS = frozenset({"time"})
 INTEGER_COLUMNS = frozenset(
     {
         "total_events",

@@ -1,7 +1,7 @@
-import io
+import tempfile
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, ClassVar
+from typing import Any, BinaryIO, ClassVar
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.scarf.sett
     LIST_PAGE_SIZE,
     MAX_BACKFILL_DAYS,
     REQUEST_TIMEOUT,
+    TIMESTAMP_COLUMNS,
     ScarfEndpointConfig,
 )
 
@@ -75,20 +76,34 @@ def _session(api_token: str) -> Session:
     )
 
 
-def csv_to_table(content: bytes) -> pa.Table:
+def _to_utc_timestamp(column: Any) -> Any:
+    # Scarf writes times in UTC, some with a zone suffix and some without, so the suffix is dropped
+    # value by value before the column is read as UTC.
+    naive = pc.replace_substring_regex(column, pattern=r"(Z|[+-]00(:?00)?)$", replacement="")
+    return pc.assume_timezone(pc.cast(naive, pa.timestamp("us")), "UTC")
+
+
+def csv_to_table(source: BinaryIO) -> pa.Table:
     """Read a Scarf CSV export into typed columns: empty cells are null, flags are booleans, measures are numbers.
 
     Every column is read as text first. Letting Arrow infer types would type a column differently
     from one day to the next, for example a `version` of 1.2 as a float.
     """
-    header, _, body = content.strip().partition(b"\n")
-    if not body.strip():
+    header = source.readline().strip()
+    has_rows = bool(source.readline().strip())
+    if not header or not has_rows:
         # A day with no events is the header alone, which Arrow refuses to parse.
         return pa.table({})
-    names = header.decode("utf-8").strip().split(",")
+    source.seek(0)
+    names = header.decode("utf-8").split(",")
     table = pa_csv.read_csv(
-        io.BytesIO(content),
-        convert_options=pa_csv.ConvertOptions(column_types=dict.fromkeys(names, pa.string()), strings_can_be_null=True),
+        source,
+        convert_options=pa_csv.ConvertOptions(
+            column_types=dict.fromkeys(names, pa.string()),
+            # Only an empty cell is null; Arrow's default markers would also null a version named "NA".
+            null_values=[""],
+            strings_can_be_null=True,
+        ),
     )
     columns: dict[str, Any] = {}
     for name in table.column_names:
@@ -99,14 +114,21 @@ def csv_to_table(content: bytes) -> pa.Table:
             column = pc.cast(column, pa.float64())
         elif name in INTEGER_COLUMNS:
             column = pc.cast(column, pa.int64())
+        elif name in TIMESTAMP_COLUMNS:
+            column = _to_utc_timestamp(column)
         columns[name] = column
     return pa.table(columns)
 
 
 def _read_export(session: Session, url: str, params: dict[str, str]) -> pa.Table:
-    response = session.get(url, params=params, timeout=REQUEST_TIMEOUT)
-    response.raise_for_status()
-    return csv_to_table(response.content)
+    # The export is spooled to disk, so the day is held in memory once, as the Arrow table.
+    with session.get(url, params=params, timeout=REQUEST_TIMEOUT, stream=True) as response:
+        response.raise_for_status()
+        with tempfile.TemporaryFile() as spool:
+            for chunk in response.iter_content(chunk_size=1 << 20):
+                spool.write(chunk)
+            spool.seek(0)
+            return csv_to_table(spool)
 
 
 def _watermark_day(value: Any) -> date | None:
@@ -117,6 +139,11 @@ def _watermark_day(value: Any) -> date | None:
     if isinstance(value, date):
         return value
     return datetime.fromisoformat(str(value).replace("Z", "+00:00")).date()
+
+
+def _lookback_applied(inputs: SourceInputs) -> bool:
+    before = inputs.db_incremental_field_last_value_before_lookback
+    return before is not None and before != inputs.db_incremental_field_last_value
 
 
 def iter_daily_events(
@@ -212,6 +239,9 @@ def scarf_source(
             watermark = _watermark_day(inputs.db_incremental_field_last_value) if incremental else None
             if cursor is not None:
                 first_day = date.fromisoformat(cursor.next_day)
+                # A configured lookback moves the watermark back; the export day follows it.
+                if watermark is not None and _lookback_applied(inputs):
+                    first_day = min(first_day, watermark)
             elif watermark is not None:
                 first_day = watermark
             else:
