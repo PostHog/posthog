@@ -9,6 +9,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import DatabaseError
 
 import structlog
 
@@ -158,7 +159,14 @@ def run_data_suggestions(*, team_id: int, user_id: int, lock_token: str) -> None
         if _lost_lock(lock_key, lock_token):
             return
         # Each card is kept as an idea, so a dismissal or a draft made from it outlasts the cache.
-        _store_ideas(team.id, result.suggestions)
+        try:
+            _store_ideas(team.id, result.suggestions)
+        except DatabaseError:
+            logger.exception("workflows.data_suggestions.store_ideas_failed", team_id=team.id)
+            # Cached as a failure, so the next visit waits out the backoff instead of running the models again.
+            if previous is None or previous.status != "ready":
+                cache.set(_cache_key(team), _to_cache(_UNAVAILABLE), FAILURE_CACHE_TTL_SECONDS)
+            return
         # Written before the lock is released, so the next visit reads it instead of starting another run.
         cache.set(_cache_key(team), _to_cache(result), ttl)
     finally:

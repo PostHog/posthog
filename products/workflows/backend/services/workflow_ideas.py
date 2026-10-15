@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
     NewWorkflowIdea,
     WorkflowIdeaAlreadyResolved,
@@ -94,7 +95,9 @@ def _lock_open(team_id: int, idea_id: str) -> WorkflowIdea:
     return row
 
 
-def accept_idea(*, team_id: int, idea_id: str, hog_flow_id: str, user_id: int) -> WorkflowIdeaRecord:
+def accept_idea(
+    *, team_id: int, idea_id: str, hog_flow_id: str, user_id: int, access: UserAccessControl
+) -> WorkflowIdeaRecord:
     """Records the draft a person created from the idea. The draft itself goes through the workflow API."""
     with transaction.atomic():
         row = _lock_open(team_id, idea_id)
@@ -104,7 +107,11 @@ def accept_idea(*, team_id: int, idea_id: str, hog_flow_id: str, user_id: int) -
             .filter(team_id=team_id, id=hog_flow_id, status=HogFlow.State.DRAFT)
             .first()
         )
-        if hog_flow is None or WorkflowIdea.objects.for_team(team_id).filter(hog_flow=hog_flow).exists():
+        if (
+            hog_flow is None
+            or not access.check_access_level_for_object(hog_flow, required_level="editor")
+            or WorkflowIdea.objects.for_team(team_id).filter(hog_flow=hog_flow).exists()
+        ):
             raise WorkflowIdeaWorkflowMismatch()
         row.status = WorkflowIdea.Status.ACCEPTED
         row.hog_flow = hog_flow

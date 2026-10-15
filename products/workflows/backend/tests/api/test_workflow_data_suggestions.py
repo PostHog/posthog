@@ -9,15 +9,18 @@ from django.utils import timezone
 from clickhouse_driver.errors import NetworkError
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.facade.contracts import DataSuggestionsResult
@@ -375,6 +378,17 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
         assert execute.call_count == 1
 
+    @patch(f"{SERVICE}.create_ideas", side_effect=OperationalError("server closed the connection"))
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_failure_to_store_the_cards_is_not_retried_on_every_visit(
+        self, suggest_ideas: MagicMock, _create_ideas: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+
+        assert self._list()["status"] == "unavailable"
+        assert self._list()["status"] == "unavailable"
+        assert suggest_ideas.call_count == 1
+
     @parameterized.expand(
         [
             ("read", "current", {}, "cached", 200),
@@ -500,17 +514,19 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("an unclaimed draft", "draft", False, 204, "accepted"),
-            ("a live workflow", "active", False, 400, "suggested"),
-            ("a draft another suggestion already claimed", "draft", True, 400, "suggested"),
+            ("an unclaimed draft", "draft", False, False, 204, "accepted"),
+            ("a live workflow", "active", False, False, 400, "suggested"),
+            ("a draft another suggestion already claimed", "draft", True, False, 400, "suggested"),
+            ("a draft this member may only view", "draft", False, True, 400, "suggested"),
         ]
     )
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_accept_links_only_an_unclaimed_draft(
+    def test_accept_links_only_an_unclaimed_draft_the_member_can_edit(
         self,
         _name: str,
         flow_status: str,
         claimed: bool,
+        view_only: bool,
         status_code: int,
         idea_status: str,
         suggest_ideas: MagicMock,
@@ -519,6 +535,20 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         suggest_ideas.return_value = [_idea("trial_started")]
         [suggestion] = self._list()["suggestions"]
         flow = HogFlow.objects.create(team=self.team, name="Draft", status=flow_status)
+        if view_only:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            AccessControl.objects.create(
+                team=self.team,
+                resource="hog_flow",
+                resource_id=str(flow.id),
+                access_level="viewer",
+                organization_member=self.organization_membership,
+            )
         if claimed:
             StoredIdea.objects.for_team(self.team.id).create(
                 team_id=self.team.id,

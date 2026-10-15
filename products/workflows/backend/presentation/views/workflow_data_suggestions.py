@@ -311,6 +311,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 idea_id=payload.validated_data["suggestion_id"],
                 hog_flow_id=str(payload.validated_data["hog_flow_id"]),
                 user_id=user.id,
+                access=self.user_access_control,
             )
         except WorkflowIdeaNotFound:
             raise NotFound("This suggestion no longer exists.")
