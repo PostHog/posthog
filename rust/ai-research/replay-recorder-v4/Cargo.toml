@@ -19,7 +19,6 @@ axum = { workspace = true }
 envconfig = { workspace = true }
 metrics = { workspace = true }
 rdkafka = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
