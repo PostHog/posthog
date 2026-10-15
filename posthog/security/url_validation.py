@@ -11,7 +11,7 @@ import structlog
 import dns.resolver
 import dns.exception
 
-from posthog.cloud_utils import is_dev_mode
+from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
@@ -284,6 +284,14 @@ def _blocked_host_name(host: str) -> BlockedName | None:
             return BlockedName(reason=f"Internal domain pattern blocked: {pattern}", pattern=pattern)
     if _is_internal_ip_literal(host):
         return BlockedName(reason="Private IP address not allowed")
+
+    if is_cloud():
+        # Detection only: these names resolve to ordinary public IPs, so every IP check passes
+        # them, and the lookup alone confirms the path to whoever runs the collaborator.
+        from posthog.security.oob_domains import matched_oob_domain  # noqa: PLC0415 — breaks an import cycle
+
+        if (oob_domain := matched_oob_domain(host)) is not None:
+            logger.info("security.oob_domain_seen", host=host, domain=oob_domain, guard="url_validation")
     return None
 
 
