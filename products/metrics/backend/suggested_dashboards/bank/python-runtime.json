@@ -18,6 +18,10 @@
                     "type": "stat",
                     "unit": "cores",
                     "reduce": "last"
+                },
+                "interval": "second_15",
+                "dateRange": {
+                    "date_from": "-1h"
                 }
             },
             "layout": {
@@ -43,6 +47,10 @@
                     "type": "stat",
                     "unit": "By",
                     "reduce": "last"
+                },
+                "interval": "second_15",
+                "dateRange": {
+                    "date_from": "-1h"
                 }
             },
             "layout": {
@@ -67,6 +75,10 @@
                 "display": {
                     "type": "stat",
                     "reduce": "last"
+                },
+                "interval": "second_15",
+                "dateRange": {
+                    "date_from": "-1h"
                 }
             },
             "layout": {
@@ -102,6 +114,10 @@
                             "value": 1
                         }
                     ]
+                },
+                "interval": "second_15",
+                "dateRange": {
+                    "date_from": "-1h"
                 }
             },
             "layout": {
@@ -136,6 +152,10 @@
                     "type": "area",
                     "unit": "cores",
                     "legendCalcs": ["mean", "max"]
+                },
+                "interval": "second_15",
+                "dateRange": {
+                    "date_from": "-1h"
                 }
             },
             "layout": {
@@ -171,6 +191,10 @@
                     "type": "area",
                     "unit": "%",
                     "legendCalcs": ["mean", "max"]
+                },
+                "interval": "second_15",
+                "dateRange": {
+                    "date_from": "-1h"
                 }
             },
             "layout": {
@@ -205,6 +229,10 @@
                     "type": "line",
                     "unit": "%",
                     "legendCalcs": ["mean", "max"]
+                },
+                "interval": "second_15",
+                "dateRange": {
+                    "date_from": "-1h"
                 }
             },
             "layout": {
@@ -238,6 +266,10 @@
                     "type": "line",
                     "unit": "By",
                     "legendCalcs": ["last", "max"]
+                },
+                "interval": "second_15",
+                "dateRange": {
+                    "date_from": "-1h"
                 }
             },
             "layout": {
@@ -270,6 +302,10 @@
                     "type": "line",
                     "unit": "%",
                     "legendCalcs": ["last", "max"]
+                },
+                "interval": "second_15",
+                "dateRange": {
+                    "date_from": "-1h"
                 }
             },
             "layout": {
@@ -303,6 +339,10 @@
                 "display": {
                     "type": "line",
                     "legendCalcs": ["last", "max"]
+                },
+                "interval": "second_15",
+                "dateRange": {
+                    "date_from": "-1h"
                 }
             },
             "layout": {
@@ -336,6 +376,10 @@
                 "display": {
                     "type": "line",
                     "legendCalcs": ["mean", "max"]
+                },
+                "interval": "second_15",
+                "dateRange": {
+                    "date_from": "-1h"
                 }
             },
             "layout": {
@@ -366,6 +410,10 @@
                 "display": {
                     "type": "line",
                     "legendCalcs": ["mean", "max"]
+                },
+                "interval": "second_15",
+                "dateRange": {
+                    "date_from": "-1h"
                 }
             },
             "layout": {
@@ -396,6 +444,10 @@
                 "display": {
                     "type": "line",
                     "legendCalcs": ["mean", "max"]
+                },
+                "interval": "second_15",
+                "dateRange": {
+                    "date_from": "-1h"
                 }
             },
             "layout": {
@@ -425,6 +477,10 @@
                 "display": {
                     "type": "line",
                     "legendCalcs": ["last", "max"]
+                },
+                "interval": "second_15",
+                "dateRange": {
+                    "date_from": "-1h"
                 }
             },
             "layout": {
