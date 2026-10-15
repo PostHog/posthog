@@ -18,6 +18,7 @@ class RewardfulEndpointConfig:
     incremental_fields: tuple[IncrementalField, ...] = ()
     partition_key: str | None = "created_at"
     params: tuple[tuple[str, str], ...] = ()
+    paginated: bool = True
 
 
 _UPDATED_AT: IncrementalField = {
@@ -41,7 +42,8 @@ REWARDFUL_ENDPOINTS: dict[str, RewardfulEndpointConfig] = {
         params=(("expand[]", "sale"),),
     ),
     "payouts": RewardfulEndpointConfig(name="payouts", path="/payouts"),
-    "campaigns": RewardfulEndpointConfig(name="campaigns", path="/campaigns"),
+    # Rewardful documents no paging for campaigns and describes the response as a bare array.
+    "campaigns": RewardfulEndpointConfig(name="campaigns", path="/campaigns", paginated=False),
     "affiliate_links": RewardfulEndpointConfig(name="affiliate_links", path="/affiliate_links", partition_key=None),
     "affiliate_coupons": RewardfulEndpointConfig(
         name="affiliate_coupons", path="/affiliate_coupons", partition_key=None

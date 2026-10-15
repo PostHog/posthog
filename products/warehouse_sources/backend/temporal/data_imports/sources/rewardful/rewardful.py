@@ -41,6 +41,18 @@ def format_updated_since(value: Any) -> str:
     return str(value)
 
 
+def unwrap_envelope(item: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    """Return the rows of a `{"pagination", "data"}` envelope, or the item itself when it is a row.
+
+    An unpaged endpoint is read without a selector, so a bare array arrives as rows and an envelope
+    arrives as one item holding them.
+    """
+    data = item.get("data")
+    if "pagination" in item and isinstance(data, list):
+        return data
+    return item
+
+
 def rewardful_source(
     api_secret: str,
     endpoint: str,
@@ -62,12 +74,12 @@ def rewardful_source(
             "convert": format_updated_since,
         }
 
-    endpoint_config: Endpoint = {
-        "path": config.path,
-        "params": params,
-        "data_selector": "data",
-        "data_selector_required": True,
-    }
+    endpoint_config: Endpoint = {"path": config.path, "params": params}
+    if config.paginated:
+        endpoint_config["data_selector"] = "data"
+        endpoint_config["data_selector_required"] = True
+    else:
+        endpoint_config["paginator"] = "single_page"
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -86,6 +98,7 @@ def rewardful_source(
                 "write_disposition": {"disposition": "merge", "strategy": "upsert"} if is_incremental else "replace",
                 "endpoint": endpoint_config,
                 "table_format": "delta",
+                **({} if config.paginated else {"data_map": unwrap_envelope}),
             }
         ],
     }

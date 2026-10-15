@@ -72,12 +72,27 @@ class TestPagination:
         assert result.params("page") == ["3"]
         assert result.params("expand[]") == ["sale"]
 
-    def test_a_bare_array_body_fails_loud_instead_of_syncing_zero_rows(self) -> None:
-        result = _driver().run("campaigns", [ScriptedResponse(json=[{"id": "camp_1"}])])
+    def test_a_bare_array_body_on_a_paged_table_fails_loud_instead_of_syncing_zero_rows(self) -> None:
+        result = _driver().run("affiliates", [ScriptedResponse(json=[{"id": "a1"}])])
 
         assert result.rows == []
         assert isinstance(result.raised, ValueError)
         assert "data" in str(result.raised)
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            [{"id": "camp_1"}, {"id": "camp_2"}],
+            {"pagination": {"next_page": None}, "data": [{"id": "camp_1"}, {"id": "camp_2"}]},
+        ],
+    )
+    def test_campaigns_read_one_page_in_either_documented_shape(self, body: Any) -> None:
+        result = _driver().run("campaigns", [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.paths == ["/v1/campaigns"]
+        assert result.params("page") == [None]
+        assert [row["id"] for row in result.rows] == ["camp_1", "camp_2"]
 
 
 class TestIncrementalRequestShaping:
