@@ -1,7 +1,13 @@
 import clsx from 'clsx'
 import { useMemo } from 'react'
 
-import { ScatterChart } from '@posthog/quill-charts'
+import {
+    ScatterChart,
+    ScatterChartConfig,
+    ScatterAreaSelection,
+    ScatterPointDatum,
+    ChartLegendConfig,
+} from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 
@@ -10,7 +16,7 @@ import { ChartSettings } from '~/queries/schema/schema-general'
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
-import { buildScatterConfig, buildScatterSeries } from './sqlScatterGraphAdapter'
+import { buildScatterConfig, buildScatterSeries, SqlScatterSeries, SqlScatterPointMeta } from './sqlScatterGraphAdapter'
 
 const handleChartError = makeChartErrorHandler('sql-scatter-chart')
 
@@ -21,6 +27,11 @@ export interface SqlScatterGraphProps {
     chartSettings: ChartSettings
     presetChartHeight?: boolean
     className?: string
+    series?: SqlScatterSeries[]
+    legendVisibility?: Pick<ChartLegendConfig, 'hiddenKeys' | 'onToggleSeries' | 'onSetHiddenSeries'>
+    viewport?: ScatterAreaSelection | null
+    onPointClick?: (point: ScatterPointDatum<SqlScatterPointMeta>) => void
+    onAreaSelect?: (selection: ScatterAreaSelection) => void
 }
 
 /** SQL scatter plot on @posthog/quill-charts' {@link ScatterChart} — one series per selected Y
@@ -31,14 +42,25 @@ export const SqlScatterGraph = ({
     chartSettings,
     presetChartHeight,
     className,
+    series: suppliedSeries,
+    viewport,
+    legendVisibility,
+    onPointClick,
+    onAreaSelect,
 }: SqlScatterGraphProps): JSX.Element => {
     const theme = useChartTheme()
 
-    const series = useMemo(() => buildScatterSeries(xData, yData), [xData, yData])
-    const config = useChartConfig(
-        () => (xData ? buildScatterConfig({ xData, yData, chartSettings }) : undefined),
-        [xData, yData, chartSettings]
-    )
+    const series = useMemo(() => suppliedSeries ?? buildScatterSeries(xData, yData), [suppliedSeries, xData, yData])
+    const config = useChartConfig((): ScatterChartConfig<SqlScatterPointMeta> | undefined => {
+        if (!xData) {
+            return undefined
+        }
+        const base = buildScatterConfig({ xData, yData, chartSettings })
+        base.legend = { ...base.legend, ...legendVisibility }
+        return viewport
+            ? { ...base, xAxis: { ...base.xAxis, domain: viewport.x }, yAxis: { ...base.yAxis, domain: viewport.y } }
+            : base
+    }, [xData, yData, chartSettings, viewport, legendVisibility])
 
     const hasPoints = series.some((s) => s.points.length > 0)
 
@@ -67,6 +89,8 @@ export const SqlScatterGraph = ({
                 config={config}
                 dataAttr="sql-scatter-chart"
                 onError={handleChartError}
+                onPointClick={onPointClick}
+                onAreaSelect={onAreaSelect}
             />
         </div>
     )
