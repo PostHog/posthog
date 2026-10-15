@@ -24,7 +24,10 @@ Parity with v2 is intentional, with two deliberate deviations:
 
 from datetime import datetime
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 
 from posthog.models.team import Team
@@ -310,7 +313,21 @@ DIMENSIONAL_INSERT_SETTINGS: dict[str, int | str] = {
     "max_bytes_before_external_group_by": 70 * 1024**3,
     "distributed_aggregation_memory_efficient": 1,
     "max_execution_time": 2200,
+    # Spread the sessions-table reads over every replica, like the legacy job. `in_order` sends every
+    # one of these heavy reads to the first replica.
+    "load_balancing": "random",
 }
+
+# These inserts keep only sessions that start inside the job window, so HogQL's default 3-day
+# session-start padding only adds sessions that the HAVING discards. One hour covers a session id
+# created just before its first event.
+DIMENSIONAL_SESSION_BUFFER_MINUTES = 60
+
+
+def _insert_modifiers(team: Team) -> HogQLQueryModifiers:
+    return create_default_modifiers_for_team(
+        team, HogQLQueryModifiers(sessionTimestampBufferMinutes=DIMENSIONAL_SESSION_BUFFER_MINUTES)
+    )
 
 
 def ensure_web_stats_dimensional_precomputed(
@@ -329,6 +346,7 @@ def ensure_web_stats_dimensional_precomputed(
         query_type="web_stats_dimensional_insert",
         read_after_write=False,
         insert_settings=DIMENSIONAL_INSERT_SETTINGS,
+        modifiers=_insert_modifiers(team),
     )
 
 
@@ -348,4 +366,5 @@ def ensure_web_bounces_dimensional_precomputed(
         query_type="web_bounces_dimensional_insert",
         read_after_write=False,
         insert_settings=DIMENSIONAL_INSERT_SETTINGS,
+        modifiers=_insert_modifiers(team),
     )
