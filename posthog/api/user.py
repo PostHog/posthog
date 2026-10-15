@@ -1050,7 +1050,8 @@ class UserViewSet(
         "scene_personalisation",
         "product_intro_seen",
     ]
-    time_sensitive_allow_actions = ["hedgehog_config"]
+    # Skipping onboarding only hides the onboarding redirect, so an older session may do it.
+    time_sensitive_allow_actions = ["hedgehog_config", "onboarding_skip"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True).order_by("id")

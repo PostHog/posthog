@@ -4,8 +4,10 @@ import { expectLogic } from 'kea-test-utils'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
+import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { OnboardingStepKey } from '~/types'
@@ -691,6 +693,70 @@ describe('onboardingLogic — flow composition', () => {
                 completeProduct()
             }).toFinishAllListeners()
             expect(router.values.location.pathname).toMatch(/quickstart|insight/i)
+        })
+    })
+
+    describe('flow variants', () => {
+        const assignSimpleFlowArm = (variant: string): void => {
+            featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW], {
+                [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: variant,
+            })
+        }
+
+        const currentPath = (): string => removeProjectIdIfPresent(router.values.location.pathname)
+
+        it.each([
+            ['test', '/onboarding/simple', 'simple'],
+            ['control', '/onboarding', 'default'],
+        ])('the %s arm entering /onboarding lands on %s', async (variant, pathname, flowVariant) => {
+            assignSimpleFlowArm(variant)
+            router.actions.push('/onboarding')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(currentPath()).toBe(pathname)
+            expect(logic.values.flowVariant).toBe(flowVariant)
+        })
+
+        it('the simple flow is install then MCP, and advancing stays on its own URL', async () => {
+            router.actions.push(urls.simpleOnboarding())
+            await expectLogic(logic).toFinishAllListeners()
+            expect(flowIds()).toEqual(['install:product_analytics', 'mcp:product_analytics'])
+
+            logic.actions.goToNextStep()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(currentPath()).toBe(urls.simpleOnboarding())
+            expect(router.values.searchParams.step).toBe('mcp:product_analytics')
+            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe(urls.onboardingWelcome())
+        })
+
+        it('the embedded flow shows only the product steps and never changes the URL', async () => {
+            router.actions.push(urls.onboardingWelcome())
+            logic.actions.startEmbeddedFlow(ProductKey.SESSION_REPLAY)
+            expect(flowIds()).toEqual(['install:session_replay', 'configure:session_replay'])
+
+            logic.actions.goToNextStep()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.currentFlowStep?.id).toBe('configure:session_replay')
+            expect(currentPath()).toBe(urls.onboardingWelcome())
+        })
+
+        it('skipping the simple flow records the skip before landing on the welcome page', async () => {
+            const skipRequests: unknown[] = []
+            useMocks({
+                post: {
+                    '/api/users/@me/onboarding/skip/': async ({ request }) => {
+                        skipRequests.push(await request.json())
+                        return [200, {}]
+                    },
+                },
+            })
+            router.actions.push(urls.simpleOnboarding())
+            await expectLogic(logic, () => {
+                logic.actions.skipSimpleOnboarding()
+            }).toFinishAllListeners()
+
+            expect(skipRequests).toEqual([{ reason: 'later', step_at_skip: OnboardingStepKey.INSTALL }])
+            expect(currentPath()).toBe(urls.onboardingWelcome())
+            expect(logic.values.isSkippingOnboarding).toBe(false)
         })
     })
 
