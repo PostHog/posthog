@@ -142,7 +142,7 @@ def test_llm_analytics_queries_take_a_concurrency_slot(client_from_pool, llm_ana
 
 
 @pytest.mark.parametrize("rejected", [False, True])
-def test_llm_analytics_slot_metrics_carry_the_activity(client_from_pool, rejected):
+def test_llm_analytics_slot_metrics_carry_the_activity(client_from_pool: MagicMock, rejected: bool) -> None:
     labels = {"activity_type": "fetch_and_format_activity"}
 
     def sample_count(metric: str, **extra: str) -> float:

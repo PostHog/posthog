@@ -384,8 +384,10 @@ def _llm_analytics_concurrency_slot(
         return
 
     wait_start = perf_counter()
+    acquired = False
     try:
         with get_llm_analytics_rate_limiter().run(team_id=team_id):
+            acquired = True
             hold_start = perf_counter()
             LLM_ANALYTICS_SLOT_WAIT_HISTOGRAM.labels(activity_type=activity_type, outcome="acquired").observe(
                 hold_start - wait_start
@@ -397,9 +399,10 @@ def _llm_analytics_concurrency_slot(
                     perf_counter() - hold_start
                 )
     except ConcurrencyLimitExceeded:
-        LLM_ANALYTICS_SLOT_WAIT_HISTOGRAM.labels(activity_type=activity_type, outcome="rejected").observe(
-            perf_counter() - wait_start
-        )
+        if not acquired:
+            LLM_ANALYTICS_SLOT_WAIT_HISTOGRAM.labels(activity_type=activity_type, outcome="rejected").observe(
+                perf_counter() - wait_start
+            )
         raise
 
 
