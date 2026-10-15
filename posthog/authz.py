@@ -83,7 +83,7 @@ def filter_resource_queryset(
         return queryset.none()
     allowed = Q(pk__in=[])
     for team_id in queryset.order_by().values_list("team_id", flat=True).distinct():
-        result = api.list_resources(
+        result = api.list_objects(
             resource=Resource(type=resource_type, project_id=team_id),
             action=Action.VIEW,
             subject=subject,
@@ -112,7 +112,7 @@ def check_resource_category_access(
         return True
     if require_category:
         return False
-    result = api.list_resources(resource=resource, action=action, subject=subject)
+    result = api.list_objects(resource=resource, action=action, subject=subject)
     return result.complete and bool(result.ids)
 
 

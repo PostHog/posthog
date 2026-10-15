@@ -84,20 +84,20 @@ def permissions(
     return rollout.permissions(resource, subject, context)
 
 
-def list_resources(
+def list_objects(
     *,
     resource: contracts.Resource,
     action: Action,
     subject: contracts.Subject | None = None,
     context: contracts.Context | None = None,
     limit: int | None = None,
-) -> contracts.ResourceIds:
-    """Return the ids of `resource.type` resources in its project or organization that the subject may take the action on.
+) -> contracts.ObjectIds:
+    """Return the object IDs of `resource.type` in its project or organization that the subject may take the action on.
 
     Apply the ids to your own query, for example `qs.filter(pk__in=result.ids)`. When `complete` is False the set
     was capped, so fail closed and return nothing.
     """
-    return rollout.list_resources(resource, action, subject, context, limit)
+    return rollout.list_objects(resource, action, subject, context, limit)
 
 
 def list_subjects(

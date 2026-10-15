@@ -118,8 +118,8 @@ class DeleteRelationshipRequest:
 
 
 @dataclass(frozen=True, kw_only=True)
-class ResourceIds:
-    """Ids of the resources a subject may act on. `complete=False` means the set was capped."""
+class ObjectIds:
+    """IDs of the objects a subject may act on. `complete=False` means the set was capped."""
 
     ids: frozenset[str]
     complete: bool

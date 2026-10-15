@@ -15,7 +15,7 @@ from products.dashboards.backend.facade.authorization import LegacyDashboardAuth
 if TYPE_CHECKING:
     from products.product_analytics.backend.facade.contracts import AuthorizationInsight
 
-from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
+from ..facade.contracts import CheckRequest, Context, ObjectIds, Resource, Subject
 from ..facade.enums import Action, ResourceType
 from . import authorization, request_context
 
@@ -134,9 +134,7 @@ class LegacyAuthorization:
             return insight is not None and self.check_insight(access, action, insight)
         return self.dashboard_access(access).check(resource.id, level)
 
-    def list_resources(
-        self, resource: Resource, action: Action, subject: Subject | None, limit: int | None
-    ) -> ResourceIds:
+    def list_objects(self, resource: Resource, action: Action, subject: Subject | None, limit: int | None) -> ObjectIds:
         if resource.id is not None or resource.type not in (ResourceType.DASHBOARD, ResourceType.INSIGHT):
             raise ValueError("List resources requires a supported resource type")
         if resource.project_id is None:
@@ -147,13 +145,13 @@ class LegacyAuthorization:
         authorization.organization_id(resource)
         user = self.user(subject)
         if user is None:
-            return ResourceIds(ids=frozenset(), complete=True)
+            return ObjectIds(ids=frozenset(), complete=True)
         access = self.user_access(user, resource)
         if not access.has_project_access:
-            return ResourceIds(ids=frozenset(), complete=True)
+            return ObjectIds(ids=frozenset(), complete=True)
         if resource.type == ResourceType.DASHBOARD:
             dashboard_ids = self.dashboard_access(access).ids(dashboard_level(action), limit)
-            return ResourceIds(ids=dashboard_ids or frozenset(), complete=dashboard_ids is not None)
+            return ObjectIds(ids=dashboard_ids or frozenset(), complete=dashboard_ids is not None)
 
         assert access.team is not None
         ids: set[str] = set()
@@ -168,8 +166,8 @@ class LegacyAuthorization:
             if self.check_insight(access, action, insight):
                 ids.add(str(insight.id))
                 if limit is not None and len(ids) > limit:
-                    return ResourceIds(ids=frozenset(), complete=False)
-        return ResourceIds(ids=frozenset(ids), complete=True)
+                    return ObjectIds(ids=frozenset(), complete=False)
+        return ObjectIds(ids=frozenset(ids), complete=True)
 
 
 def evaluator() -> LegacyAuthorization:
@@ -187,8 +185,8 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
     return [access.check(request) for request in requests]
 
 
-def list_resources(
+def list_objects(
     resource: Resource, action: Action, subject: Subject | None, context: Context | None, limit: int | None
-) -> ResourceIds:
+) -> ObjectIds:
     authorization.validate_context(context)
-    return evaluator().list_resources(resource, action, subject, limit)
+    return evaluator().list_objects(resource, action, subject, limit)

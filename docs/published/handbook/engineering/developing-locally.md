@@ -288,7 +288,7 @@ Create the flag with these variant keys before testing a rollout.
 
 - `check` supports a single action or an ordered batch of requests.
 - `permissions` uses the same routed checks to return the supported actions the user can take.
-- `list_resources` returns authorized dashboard or insight IDs scoped to the requested project.
+- `list_objects` returns authorized dashboard or insight IDs scoped to the requested project.
   Legacy mode evaluates the existing object and collaborator checks; OpenFGA mode streams authorized IDs.
   A supplied limit returns an empty, incomplete result if exceeded.
 - `dangerous_query_relation` always checks OpenFGA directly for debugging, independently of the rollout flag.

@@ -7,7 +7,7 @@ import structlog
 
 from posthog.ph_client import get_feature_flag_or_none
 
-from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
+from ..facade.contracts import CheckRequest, Context, ObjectIds, Resource, Subject
 from ..facade.enums import Action, ResourceType
 from . import authorization, legacy_authorization
 
@@ -98,22 +98,22 @@ def permissions(resource: Resource, subject: Subject | None, context: Context | 
     return frozenset(action for action, allowed in zip(actions, results, strict=True) if allowed)
 
 
-def list_resources(
+def list_objects(
     resource: Resource, action: Action, subject: Subject | None, context: Context | None, limit: int | None
-) -> ResourceIds:
+) -> ObjectIds:
     authorization.validate_context(context)
     authorization.actor_key(subject)
     org_id = authorization.organization_id(resource)
     is_share_link = subject is not None and subject.share_link_id is not None
     rollout_mode = "v2" if is_share_link else mode(org_id, resource.type)
     primary = authorization if rollout_mode == "v2" else legacy_authorization
-    result = primary.list_resources(resource, action, subject, context, limit)
+    result = primary.list_objects(resource, action, subject, context, limit)
     if rollout_mode == "v1" or is_share_link:
         return result
     secondary = legacy_authorization if rollout_mode == "v2" else authorization
-    comparison: ResourceIds | None = None
+    comparison: ObjectIds | None = None
     try:
-        comparison = secondary.list_resources(resource, action, subject, context, limit)
+        comparison = secondary.list_objects(resource, action, subject, context, limit)
     except Exception as error:
         logger.warning(
             "authz_shadow_list_failed", mode=rollout_mode, organization_id=str(org_id), error_type=type(error).__name__
