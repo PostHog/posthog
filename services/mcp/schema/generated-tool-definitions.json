@@ -1771,7 +1771,7 @@
         "feature_flag": "product-business-knowledge"
     },
     "business-knowledge-documents-search": {
-        "description": "Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use for any question about the team's own product, policies, domain knowledge, or internal docs. Set rerank=true for a listwise LLM rerank pass when top-result precision matters.",
+        "description": "Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use for any question about the team's own product, policies, domain knowledge, or internal docs. Set rerank=true for a listwise LLM rerank pass when top-result precision matters. Pass library_id to search one library, and pass that same id to repository search and file read. Omit library_id to search every ready source.",
         "category": "Business knowledge",
         "feature": "business_knowledge",
         "summary": "Search business knowledge",
@@ -1785,8 +1785,83 @@
         },
         "feature_flag": "product-business-knowledge"
     },
+    "business-knowledge-libraries-create": {
+        "description": "Create a library. It does not copy sources. Add sources with business-knowledge-sources-partial-update library_ids, then pass the library id to document search, repository search, and file read.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Create a business knowledge library",
+        "title": "Create a business knowledge library",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-libraries-destroy": {
+        "description": "Delete a library and its links. Sources, documents, chunks, and selected repositories stay. Search without a library id still sees them.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Delete a business knowledge library",
+        "title": "Delete a business knowledge library",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-libraries-list": {
+        "description": "List libraries in this project. A library limits document search, repository search, and file read to its members. Pass the same library id to all three. The default library is first. Omit a library id on those tools to search everything.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "List business knowledge libraries",
+        "title": "List business knowledge libraries",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-libraries-partial-update": {
+        "description": "Rename a library, replace its sources, or replace this environment's repositories in it. Send only the fields to change. source_ids replaces every source. repos replaces repositories this environment allows and leaves repositories that only another environment allows.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Update a business knowledge library",
+        "title": "Update a business knowledge library",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-libraries-retrieve": {
+        "description": "Get one library by id, including how many sources it has and which selected repositories it includes for this environment.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Get a business knowledge library",
+        "title": "Get a business knowledge library",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
     "business-knowledge-repositories-file-retrieve": {
-        "description": "Read one file from a GitHub repository selected for business knowledge. The path must come from business-knowledge-repositories-search. Returns the file text and a permalink. Does not search file contents.",
+        "description": "Read one file from a GitHub repository selected for business knowledge. The path must come from business-knowledge-repositories-search. Returns the file text and a permalink. Does not search file contents. Pass library_id to read a repository in that library, using the same id as document search and repository search. Omit library_id to read any selected repository.",
         "category": "Business knowledge",
         "feature": "business_knowledge",
         "summary": "Read a file from a selected repository",
@@ -1801,7 +1876,7 @@
         "feature_flag": "business-knowledge-github-repos"
     },
     "business-knowledge-repositories-search": {
-        "description": "Search file paths and README text in the GitHub repositories selected for business knowledge. Call this when business knowledge document search returns nothing. Pass file names or identifiers, not a full sentence. Each repository in the response includes its GitHub description. When a description says the repository holds a handbook or docs, search that repository for those words and read the file. Does not search inside file contents and does not call GitHub code search.",
+        "description": "Search file paths and README text in the GitHub repositories selected for business knowledge. Call this when business knowledge document search returns nothing. Pass file names or identifiers, not a full sentence. Each repository in the response includes its GitHub description. When a description says the repository holds a handbook or docs, search that repository for those words and read the file. Does not search inside file contents and does not call GitHub code search. Pass library_id to search repositories in that library, using the same id as document search and file read. Omit library_id to search every selected repository.",
         "category": "Business knowledge",
         "feature": "business_knowledge",
         "summary": "Search selected repositories",
@@ -1831,7 +1906,7 @@
         "feature_flag": "product-business-knowledge"
     },
     "business-knowledge-sources-partial-update": {
-        "description": "Update an existing business knowledge source by ID. Change its name, replace the text content (text sources only — triggers a re-chunk), or toggle `always_include`. Set `always_include: true` to inject this source's content into every support reply as general guidance (tone, policies, company direction); set false to make it retrieval-only again. Only the fields you pass are changed.",
+        "description": "Update an existing business knowledge source by ID. Change its name, replace the text content (text sources only — triggers a re-chunk), or toggle `always_include`. Set `always_include: true` to inject this source's content into every support reply as general guidance (tone, policies, company direction); set false to make it retrieval-only again. Pass library_ids to replace the libraries this source belongs to. An empty list removes it from every library. Omit library_ids to leave membership unchanged. Only the fields you pass are changed.",
         "category": "Business knowledge",
         "feature": "business_knowledge",
         "summary": "Update business knowledge source",
