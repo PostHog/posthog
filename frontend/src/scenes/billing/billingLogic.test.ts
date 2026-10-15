@@ -17,7 +17,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BillingProductV2Type, BillingProvider, BillingType } from '~/types'
+import { BillingProductV2Type, BillingProvider, BillingType, StartupProgramLabel } from '~/types'
 
 const creditOverviewResponse = {
     eligible: false,
@@ -223,6 +223,65 @@ describe('billingLogic', () => {
         }).toFinishAllListeners()
 
         expect(billingLogic.values.isProductAtOrOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)).toBe(false)
+    })
+
+    it.each([
+        {
+            name: 'YC credits left that renew',
+            label: StartupProgramLabel.YC,
+            credits: '100.00',
+            renew: true,
+            expected: 'renewing',
+        },
+        {
+            name: 'YC credits used that renew',
+            label: StartupProgramLabel.YC,
+            credits: undefined,
+            renew: true,
+            expected: 'used_until_renewal',
+        },
+        {
+            name: 'YC credits left that do not renew',
+            label: StartupProgramLabel.YC,
+            credits: '100.00',
+            renew: false,
+            expected: 'ending',
+        },
+        {
+            name: 'YC credits used that do not renew',
+            label: StartupProgramLabel.YC,
+            credits: undefined,
+            renew: false,
+            expected: 'ended',
+        },
+        {
+            name: 'a YC response without the renewal field',
+            label: StartupProgramLabel.YC,
+            credits: undefined,
+            renew: undefined,
+            expected: 'used_until_renewal',
+        },
+        {
+            name: 'Startup credits used',
+            label: StartupProgramLabel.Startup,
+            credits: undefined,
+            renew: false,
+            expected: null,
+        },
+    ])('derives the YC credits state for $name', async ({ label, credits, renew, expected }) => {
+        billingState = {
+            ...billingWithProducts([productWithUsage(0.5)]),
+            startup_program_label: label,
+            discount_amount_usd: credits,
+            startup_program_credits_renew: renew,
+        }
+        billingLogic.mount()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.ycCreditsState).toBe(expected)
     })
 
     it.each([
