@@ -38,7 +38,7 @@ from .highlight_types import CACHE_SECONDS, Candidate, Context, Found, Source, p
 logger = structlog.get_logger(__name__)
 
 FAILED_CACHE_SECONDS = 60
-COMPUTING_SECONDS = 2 * 60
+COMPUTING_SECONDS = 5 * 60
 START_LOCK_SECONDS = 30
 MAX_ITEMS = 6
 MAX_PER_FAMILY = 2

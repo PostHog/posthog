@@ -301,8 +301,14 @@ class TestGetHighlights(BaseTest):
                 0,
                 ["k1"],
             ),
-            ("a recent computing row", {"created_at": timedelta(minutes=1)}, HighlightsStatus.COMPUTING, 0, []),
-            ("a lost computing row", {"created_at": timedelta(minutes=5)}, HighlightsStatus.COMPUTING, 1, []),
+            (
+                "a computing row inside the retry budget",
+                {"created_at": timedelta(minutes=3)},
+                HighlightsStatus.COMPUTING,
+                0,
+                [],
+            ),
+            ("a lost computing row", {"created_at": timedelta(minutes=6)}, HighlightsStatus.COMPUTING, 1, []),
             (
                 "a stale ready row",
                 {"status": HighlightsStatus.READY, "ready_at": timedelta(minutes=20)},
