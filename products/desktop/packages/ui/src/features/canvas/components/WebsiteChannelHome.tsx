@@ -1,5 +1,6 @@
 import {
   buildChannelItems,
+  channelItemSources,
   DEFAULT_CHANNEL_ITEM_FILTERS,
 } from "@posthog/core/canvas/channelItems";
 import { isPersonalChannel } from "@posthog/core/canvas/channelName";
@@ -176,13 +177,10 @@ export function WebsiteChannelHome({
     shownFilters !== activityFilters ||
     shownSort !== activitySort ||
     shownGrouping !== activityGrouping;
-  const activitySources = useMemo(() => {
-    const seen = new Set<string>();
-    for (const task of tasks) {
-      if (task.origin_product) seen.add(task.origin_product);
-    }
-    return [...seen].sort();
-  }, [tasks]);
+  const activitySources = useMemo(
+    () => channelItemSources(spaceItems),
+    [spaceItems],
+  );
 
   const composerRef = useRef<ChannelHomeComposerHandle>(null);
 

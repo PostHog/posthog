@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -11,13 +12,15 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { QuarantineAction } from '../components/QuarantineAction'
 import type { OnQuarantine } from '../components/QuarantineModal'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
+import { VisualReviewSceneTitle } from '../components/VisualReviewSceneTitle'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
+import { VisualReviewTrail } from '../components/VisualReviewTrail'
 import type { QuarantinedIdentifierEntryApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
+import { repoFullNameFromParams, runPath, splitRepoFullName } from '../lib/repoPaths'
 import {
     ThemePair,
     VisualReviewSnapshotHistorySceneLogicProps,
@@ -27,8 +30,10 @@ import {
 export const scene: SceneExport = {
     component: VisualReviewSnapshotHistoryScene,
     logic: visualReviewSnapshotHistorySceneLogic,
-    paramsToProps: ({ params: { repoId, runType, identifier } }): VisualReviewSnapshotHistorySceneLogicProps => ({
-        repoId: repoId || '',
+    paramsToProps: ({
+        params: { repoOwner, repoName, runType, identifier },
+    }): VisualReviewSnapshotHistorySceneLogicProps => ({
+        repoFullName: repoFullNameFromParams(repoOwner, repoName),
         runType: runType ? decodeURIComponent(runType) : '',
         identifier: identifier ? decodeURIComponent(identifier) : '',
     }),
@@ -93,8 +98,8 @@ function ThemePane({
 // Deep link into the run with the identifier's snapshot pre-selected. The run scene
 // reads `snapshot` from the URL hash (see `urlToAction` in visualReviewRunSceneLogic),
 // not from the query string — using `?` here would land on the run overview instead.
-function runUrl(entry: SnapshotHistoryEntryApi): string {
-    return `${urls.visualReviewRun(entry.run_id)}#snapshot=${encodeURIComponent(entry.snapshot_id)}`
+function runUrl(entry: SnapshotHistoryEntryApi, repoFullName: string): string {
+    return `${runPath(entry.run_id, repoFullName)}#snapshot=${encodeURIComponent(entry.snapshot_id)}`
 }
 
 function HistoryRow({
@@ -106,12 +111,12 @@ function HistoryRow({
     pair: ThemePair
     isCurrent: boolean
     isLast: boolean
-    repoFullName: string | null
+    repoFullName: string
 }): JSX.Element {
     const entry = pair.primary
     const reason = REASON_TAGS[entry.result] ?? { label: entry.result, type: 'default' as const }
-    const prUrl = entry.pr_number && repoFullName ? `https://github.com/${repoFullName}/pull/${entry.pr_number}` : null
-    const commitUrl = repoFullName ? `https://github.com/${repoFullName}/commit/${entry.commit_sha}` : null
+    const prUrl = entry.pr_number ? `https://github.com/${repoFullName}/pull/${entry.pr_number}` : null
+    const commitUrl = `https://github.com/${repoFullName}/commit/${entry.commit_sha}`
     const showPair = pair.primaryTheme !== null
 
     return (
@@ -136,7 +141,7 @@ function HistoryRow({
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap text-xs text-muted mb-2">
-                    <Link to={runUrl(entry)} className="font-mono text-default">
+                    <Link to={runUrl(entry, repoFullName)} className="font-mono text-default">
                         {entry.branch}
                     </Link>
                     {prUrl && (
@@ -148,13 +153,9 @@ function HistoryRow({
                         </>
                     )}
                     <span>·</span>
-                    {commitUrl ? (
-                        <Link to={commitUrl} target="_blank" className="font-mono">
-                            {entry.commit_sha.slice(0, 8)}
-                        </Link>
-                    ) : (
-                        <span className="font-mono">{entry.commit_sha.slice(0, 8)}</span>
-                    )}
+                    <Link to={commitUrl} target="_blank" className="font-mono">
+                        {entry.commit_sha.slice(0, 8)}
+                    </Link>
                     {hasSnapshotChangeBadge(entry) && (
                         <>
                             <span>·</span>
@@ -164,12 +165,12 @@ function HistoryRow({
                 </div>
 
                 <div className={`grid gap-2 ${showPair ? 'grid-cols-2' : 'grid-cols-1 w-1/2'}`}>
-                    <Link to={runUrl(pair.primary)} className="contents">
+                    <Link to={runUrl(pair.primary, repoFullName)} className="contents">
                         <ThemePane entry={pair.primary} theme={pair.primaryTheme} />
                     </Link>
                     {showPair &&
                         (pair.partner ? (
-                            <Link to={runUrl(pair.partner)} className="contents">
+                            <Link to={runUrl(pair.partner, repoFullName)} className="contents">
                                 <ThemePane entry={pair.partner} theme={pair.partnerTheme} />
                             </Link>
                         ) : (
@@ -189,9 +190,11 @@ function QuarantineSection({
     onQuarantine,
     onUnquarantine,
     runType,
+    repoFullName,
 }: {
     identifier: string
     runType: string
+    repoFullName: string
     label?: string | null
     quarantineEntry: QuarantinedIdentifierEntryApi | null
     isQuarantined: boolean
@@ -252,7 +255,7 @@ function QuarantineSection({
                         <div className="text-xs text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5">
                             <span>Originally failed on</span>
                             <Link
-                                to={urls.visualReviewRun(sourceRun.id)}
+                                to={runPath(sourceRun.id, repoFullName)}
                                 className="font-mono text-default"
                                 data-attr="visual-review-quarantine-source-run"
                             >
@@ -319,6 +322,7 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
     const {
         repo,
         repoLoading,
+        repoNotFound,
         history,
         historyLoading,
         identifier,
@@ -326,7 +330,7 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
         primaryTheme,
         siblingIdentifier,
         runType,
-        repoId,
+        repoFullName: pathRepoFullName,
         quarantineEntry,
         quarantineEntryLoading,
         siblingQuarantineEntry,
@@ -336,17 +340,30 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
         visualReviewSnapshotHistorySceneLogic
     ) as any
 
-    const repoFullName = repo?.repo_full_name ?? null
+    const repoFullName: string = repo?.repo_full_name ?? pathRepoFullName
     const firstSeen = history.length > 0 ? history[history.length - 1].created_at : null
     const baselineUpdates = Math.max(0, history.length - 1)
     const isQuarantined = !!quarantineEntry
     const isSiblingQuarantined = !!siblingQuarantineEntry
     const hasThemePair = primaryTheme !== null && siblingIdentifier !== null
 
+    if (repoNotFound) {
+        return <NotFound object="visual review repo" />
+    }
+
     return (
         <SceneContent>
-            <SceneTitleSection name={identifier} resourceType={{ type: 'visual_review' }} />
-            {repoId && <VisualReviewTabs activeKey="snapshots" repoId={repoId} />}
+            <VisualReviewSceneTitle repoFullName={pathRepoFullName} activeTab="snapshots" />
+            <VisualReviewTabs activeKey="snapshots" repoFullName={pathRepoFullName} />
+            <VisualReviewTrail
+                crumbs={[
+                    {
+                        label: 'Snapshots',
+                        to: urls.visualReviewSnapshotOverview(...splitRepoFullName(pathRepoFullName)),
+                    },
+                    { label: identifier },
+                ]}
+            />
 
             <div className="w-full max-w-4xl mx-auto flex flex-col gap-4">
                 <div className="border rounded bg-bg-light flex flex-wrap items-center gap-x-10 gap-y-3 px-4 py-3">
@@ -365,20 +382,18 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
                         label={baselineUpdates === 1 ? 'Baseline update' : 'Baseline updates'}
                     />
                     <Stat value={firstSeen ? dayjs(firstSeen).fromNow() : '–'} label="First captured" />
-                    {repoFullName && (
-                        <Stat
-                            value={
-                                <Link
-                                    to={`https://github.com/${repoFullName}`}
-                                    target="_blank"
-                                    className="font-mono text-default"
-                                >
-                                    {repoFullName}
-                                </Link>
-                            }
-                            label="Repo"
-                        />
-                    )}
+                    <Stat
+                        value={
+                            <Link
+                                to={`https://github.com/${repoFullName}`}
+                                target="_blank"
+                                className="font-mono text-default"
+                            >
+                                {repoFullName}
+                            </Link>
+                        }
+                        label="Repo"
+                    />
                 </div>
 
                 {hasThemePair ? (
@@ -387,6 +402,7 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
                             <QuarantineSection
                                 identifier={identifier}
                                 runType={runType}
+                                repoFullName={repoFullName}
                                 label={primaryTheme}
                                 quarantineEntry={quarantineEntry}
                                 isQuarantined={isQuarantined}
@@ -398,6 +414,7 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
                             <QuarantineSection
                                 identifier={siblingIdentifier}
                                 runType={runType}
+                                repoFullName={repoFullName}
                                 label={primaryTheme === 'light' ? 'dark' : 'light'}
                                 quarantineEntry={siblingQuarantineEntry}
                                 isQuarantined={isSiblingQuarantined}
@@ -411,6 +428,7 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
                         <QuarantineSection
                             identifier={identifier}
                             runType={runType}
+                            repoFullName={repoFullName}
                             quarantineEntry={quarantineEntry}
                             isQuarantined={isQuarantined}
                             onQuarantine={quarantineIdentifier}

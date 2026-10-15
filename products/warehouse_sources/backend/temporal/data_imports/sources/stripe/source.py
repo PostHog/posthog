@@ -1,9 +1,10 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import OauthIntegration
@@ -107,6 +108,116 @@ class StripeSource(
     WebhookSource[StripeSourceConfig],
     OAuthMixin,
 ):
+    codebase_detection = detect(
+        env=(
+            "^STRIPE_(SECRET|API)_KEY$",
+            "^STRIPE_PUBLISHABLE_KEY$",
+            "^STRIPE_WEBHOOK_SECRET$",
+            "^NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY$",
+            "^STRIPE_KEY$",
+            "^STRIPE_SECRET$",
+            "^STRIPE_(LIVE|TEST)_SECRET_KEY$",
+            "^STRIPE_DEVICE_NAME$",
+        ),
+        script_hosts=("js.stripe.com", "connect-js.stripe.com", "crypto-js.stripe.com", "checkout.stripe.com"),
+        npm=(
+            "stripe",
+            "@stripe/stripe-js",
+            "@stripe/react-stripe-js",
+            "@stripe/stripe-react-native",
+            "@stripe/connect-js",
+            "@stripe/react-connect-js",
+            "@stripe/terminal-js",
+            "@stripe/stripe-terminal-react-native",
+            "@stripe/stripe-identity-react-native",
+            "@stripe/crypto",
+            "@stripe/agent-toolkit",
+            "@stripe/ai-sdk",
+            "@stripe/token-meter",
+            "@stripe/mcp",
+            "@stripe/link-cli",
+            "@stripe/cli",
+            "@stripe/sync-engine",
+            "@stripe/sync-integration-supabase",
+            "@stripe/ui-extension-sdk",
+            "@stripe/extensibility-sdk",
+            "@stripe/scripts",
+            "@stripe/firestore-stripe-payments",
+            "react-stripe-elements",
+            "tipsi-stripe",
+            "ngx-stripe",
+            "@vue-stripe/vue-stripe",
+            "svelte-stripe",
+        ),
+        pypi=("stripe", "stripe-agent-toolkit", "dj-stripe"),
+        cargo=(
+            "async-stripe",
+            "async-stripe-billing",
+            "async-stripe-checkout",
+            "async-stripe-connect",
+            "async-stripe-core",
+            "async-stripe-fraud",
+            "async-stripe-issuing",
+            "async-stripe-misc",
+            "async-stripe-payment",
+            "async-stripe-product",
+            "async-stripe-terminal",
+            "async-stripe-treasury",
+            "async-stripe-webhook",
+            "async-stripe-client-core",
+            "stripe-rust",
+        ),
+        cocoapods=(
+            "Stripe",
+            "StripePaymentSheet",
+            "StripePayments",
+            "StripeApplePay",
+            "StripePaymentsUI",
+            "StripeIdentity",
+            "StripeFinancialConnections",
+            "StripeConnect",
+            "StripeCardScan",
+            "StripeCryptoOnramp",
+            "StripeIssuing",
+            "StripeTerminal",
+        ),
+        composer=("stripe/stripe-php", "laravel/cashier"),
+        go=("github.com/stripe/stripe-go",),
+        hex=("stripity_stripe",),
+        maven=(
+            "com.stripe:stripe-java",
+            "com.stripe:stripe-android",
+            "com.stripe:paymentsheet",
+            "com.stripe:payments-core",
+            "com.stripe:financial-connections",
+            "com.stripe:financial-connections-lite",
+            "com.stripe:identity",
+            "com.stripe:connect",
+            "com.stripe:crypto-onramp",
+            "com.stripe:link",
+            "com.stripe:stripecardscan",
+            "com.stripe:payment-method-messaging",
+            "com.stripe:stripe-wechatpay",
+            "com.stripe:stripe-android-issuing-push-provisioning",
+            "com.stripe:stripeterminal",
+            "com.stripe:stripeterminal-taptopay",
+            "com.stripe:stripeterminal-localmobile",
+            "com.stripe:stripeterminal-ktx",
+            "com.stripe:stripeterminal-appsondevices",
+        ),
+        pub=(
+            "flutter_stripe",
+            "flutter_stripe_web",
+            "stripe_js",
+            "stripe_checkout",
+            "stripe_platform_interface",
+            "stripe_android",
+            "stripe_ios",
+        ),
+        rubygems=("stripe", "stripe_event"),
+        swiftpm=("github.com/stripe/stripe-ios", "github.com/stripe/stripe-terminal-ios"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     has_managed_hogql_schema = True  # canonical Stripe schema in external_table_definitions
 

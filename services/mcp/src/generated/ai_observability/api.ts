@@ -1334,6 +1334,10 @@ export const EvaluationsCreateBody = () => zod
                         .string()
                         .min(1)
                         .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                    judge_method: zod
+                        .enum(['llm', 'decision'])
+                        .nullish()
+                        .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
                 }),
                 zod.object({
                     source: zod
@@ -1380,13 +1384,13 @@ export const EvaluationsCreateBody = () => zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
                     ),
                 max: zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
                     ),
                 step: zod
                     .number()
@@ -1799,6 +1803,10 @@ export const EvaluationsPartialUpdateBody = () => zod
                         .string()
                         .min(1)
                         .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                    judge_method: zod
+                        .enum(['llm', 'decision'])
+                        .nullish()
+                        .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
                 }),
                 zod.object({
                     source: zod
@@ -1846,13 +1854,13 @@ export const EvaluationsPartialUpdateBody = () => zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
                     ),
                 max: zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
                     ),
                 step: zod
                     .number()
@@ -2103,13 +2111,13 @@ export const EvaluationsTestHogCreateBody = () => zod.object({
                 .number()
                 .nullish()
                 .describe(
-                    'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                    'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
                 ),
             max: zod
                 .number()
                 .nullish()
                 .describe(
-                    'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                    'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
                 ),
             step: zod
                 .number()
@@ -3378,6 +3386,7 @@ export const LlmPromptsListParams = () => zod.object({
         ),
 })
 
+export const llmPromptsListQueryArchivedDefault = false
 export const llmPromptsListQueryContentDefault = `full`
 export const llmPromptsListQueryLabelMax = 128
 
@@ -3386,6 +3395,12 @@ export const llmPromptsListQueryOrderByDefault = `-created_at`
 export const llmPromptsListQueryResolveDefault = true
 
 export const LlmPromptsListQueryParams = () => zod.object({
+    archived: zod
+        .boolean()
+        .default(llmPromptsListQueryArchivedDefault)
+        .describe(
+            'Return archived prompts instead of active ones. Each archived prompt appears once, at its most recent version.'
+        ),
     content: zod
         .enum(['full', 'preview', 'none'])
         .default(llmPromptsListQueryContentDefault)

@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavingsPlansResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_SAVINGS_PLANS|AWSSAVINGSPLANS)_",),
+        npm=("@aws-sdk/client-savingsplans",),
+        cargo=("aws-sdk-savingsplans",),
+        go=("github.com/aws/aws-sdk-go-v2/service/savingsplans",),
+        maven=("software.amazon.awssdk:savingsplans", "com.amazonaws:aws-java-sdk-savingsplans"),
+        rubygems=("aws-sdk-savingsplans",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (SAVINGS_PLANS_API_VERSION,)
     default_version = SAVINGS_PLANS_API_VERSION

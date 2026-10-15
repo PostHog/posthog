@@ -59,6 +59,8 @@ class ItemState(StrEnum):
     DONE = "done"
     # Dismissed or deleted since the briefing was written.
     DISMISSED = "dismissed"
+    # The report no longer names the viewer as a reviewer, while it stays open for the team.
+    LEFT = "left"
 
 
 class KeyClauseRole(LabeledStrEnum):

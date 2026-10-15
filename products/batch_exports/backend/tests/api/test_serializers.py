@@ -4,7 +4,7 @@ from typing import cast
 from posthog.test.base import BaseTest, materialized
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import serializers
@@ -16,11 +16,37 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import Organization, PropertyDefinition, Team
 from posthog.models.integration import Integration
 
-from products.batch_exports.backend.presentation.views.batch_export import (
-    BatchExportDestinationSerializer,
+from products.batch_exports.backend.models.batch_export import BatchExport
+from products.batch_exports.backend.presentation.views.batch_export.destinations import BatchExportDestinationSerializer
+from products.batch_exports.backend.presentation.views.batch_export.exports import (
     BatchExportSerializer,
     parse_events_hogql_query,
 )
+
+
+class TestBatchExportModelValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("persons", "filters", []),
+            ("sessions", "filters", []),
+            ("hogql", "filters", []),
+            ("persons", "hogql_query", "SELECT uuid FROM events"),
+            ("sessions", "hogql_query", "SELECT uuid FROM events"),
+            ("events", "hogql_modifiers", {}),
+        ]
+    )
+    def test_rejects_unsupported_fields(self, model: str, field: str, value: object) -> None:
+        serializer = BatchExportSerializer(BatchExport(model=model), data={field: value}, partial=True)
+
+        assert not serializer.is_valid()
+        assert field in serializer.errors
+
+    @parameterized.expand([("events",), ("persons",), ("sessions",)])
+    def test_patch_without_model_specific_fields(self, model: str) -> None:
+        serializer = BatchExportSerializer(BatchExport(model=model), data={"name": "Renamed"}, partial=True)
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data == {"name": "Renamed"}
 
 
 def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
@@ -165,7 +191,7 @@ class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
         )
         with (
             patch(
-                "products.batch_exports.backend.presentation.views.batch_export."
+                "products.batch_exports.backend.presentation.views.batch_export.exports."
                 "get_restricted_properties_with_group_type_index_for_team",
                 return_value=restrictions,
             ),
@@ -187,7 +213,7 @@ class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     @patch(
-        "products.batch_exports.backend.presentation.views.batch_export.get_restricted_properties_with_group_type_index_for_team"
+        "products.batch_exports.backend.presentation.views.batch_export.exports.get_restricted_properties_with_group_type_index_for_team"
     )
     @patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=True)
     def test_restricted_property_query_is_not_recompiled_without_user(
@@ -219,7 +245,7 @@ class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
     )
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     @patch(
-        "products.batch_exports.backend.presentation.views.batch_export.get_restricted_properties_with_group_type_index_for_team"
+        "products.batch_exports.backend.presentation.views.batch_export.exports.get_restricted_properties_with_group_type_index_for_team"
     )
     @patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=True)
     def test_native_export_hides_a_restricted_flag(

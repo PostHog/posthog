@@ -478,9 +478,6 @@ tools:
             idempotent: true
         title: Query logs sparkline
         description_file: ./prompts/logs-sparkline.md
-        response:
-            include:
-                - results
     query-logs:
         operation: logs_query_create
         enabled: true

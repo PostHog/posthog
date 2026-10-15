@@ -19,7 +19,9 @@ DataShape = Literal["list", "dict", "object"]
 #   "single"           — the body is the whole response; never ask for a second page
 #   "page_number"      — ``page``/``pageSize`` query params, walked until a page comes back empty
 #   "ats_applications" — the ATS applications envelope (``paginationComplete`` + ``nextPageUrl``)
-PaginationStyle = Literal["links", "single", "page_number", "ats_applications"]
+#   "page_links"       — ``page`` query param, taken from the ``_links.next.href`` object the
+#                        newer ``/api/v1`` collection endpoints return
+PaginationStyle = Literal["links", "single", "page_number", "ats_applications", "page_links"]
 
 # The employee-table history endpoints group their rows under a map of employee id, and only that
 # map carries the employee id and the timestamp of their last change — see ``bamboohr.py``.
@@ -31,6 +33,10 @@ GOAL_ID = "goalId"
 
 # BambooHR's org locations endpoint is the only one that takes a page size.
 LOCATIONS_PAGE_SIZE = 500
+# The documented maximum page size of each newer collection endpoint.
+TIME_TRACKING_PAGE_SIZE = 200
+HOLIDAYS_PAGE_SIZE = 100
+CUSTOM_FIELDS_PAGE_SIZE = 1000
 
 
 @dataclass(frozen=True)
@@ -118,6 +124,19 @@ _APPLICATION_FANOUT = DependentEndpointConfig(
     # An application deleted between the listing and its detail fetch is not a sync failure.
     child_response_actions=[{"status_code": 404, "action": "ignore", "message": None}],
 )
+
+
+def _time_tracking_endpoint(name: str, resource: str, sort: str) -> BambooHREndpointConfig:
+    return BambooHREndpointConfig(
+        name=name,
+        path=f"v1/time-tracking/{resource}",
+        data_key="data",
+        primary_keys=["id"],
+        pagination="page_links",
+        # The default sort is newest first, so a row added during the walk would shift every
+        # later page by one and skip a row at each page boundary.
+        params={"sort": sort, "pageSize": TIME_TRACKING_PAGE_SIZE},
+    )
 
 
 def _employee_table_endpoint(name: str, table: str) -> BambooHREndpointConfig:
@@ -262,6 +281,35 @@ BAMBOOHR_ENDPOINTS: dict[str, BambooHREndpointConfig] = {
         data_key="comments",
         primary_keys=[EMPLOYEE_TABLE_EMPLOYEE_ID, GOAL_ID, "id"],
         custom_iterator="goal_comments",
+    ),
+    # The time-tracking, holiday and custom-field collections have no "changed since" filter
+    # (only work-date filters), so an edit to an older entry is only picked up by a full refresh.
+    "timesheets": _time_tracking_endpoint("timesheets", "timesheets", "startDate asc"),
+    "hour_entries": _time_tracking_endpoint("hour_entries", "hour-entries", "date asc"),
+    "clock_entries": _time_tracking_endpoint("clock_entries", "clock-entries", "start asc"),
+    "holidays": BambooHREndpointConfig(
+        name="holidays",
+        path="v1/holidays",
+        data_key="data",
+        primary_keys=["id"],
+        pagination="page_links",
+        params={"orderBy": "startDate asc", "pageSize": HOLIDAYS_PAGE_SIZE},
+    ),
+    "custom_fields": BambooHREndpointConfig(
+        name="custom_fields",
+        path="v1/hris/custom-fields",
+        data_key="data",
+        primary_keys=["id"],
+        pagination="page_links",
+        params={"pageSize": CUSTOM_FIELDS_PAGE_SIZE},
+    ),
+    "archived_custom_fields": BambooHREndpointConfig(
+        name="archived_custom_fields",
+        path="v1/hris/custom-fields/archived",
+        data_key="data",
+        primary_keys=["id"],
+        pagination="page_links",
+        params={"pageSize": CUSTOM_FIELDS_PAGE_SIZE},
     ),
 }
 

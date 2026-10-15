@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconDrag, IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonInput, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hogFunctionTemplateListLogic } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
@@ -91,6 +91,17 @@ const RUN_SCOUT_ACTION_NODE: CreateActionType = {
         inputs: { non_failure_status_codes: { value: [409] } },
     },
     output_variable: { key: 'scout_run', result_path: null, label: 'Scout run' },
+}
+
+const CLASSIFY_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Classify with AI',
+    description: 'Ask an AI model to pick one category for the context. Branch on the result with a condition step.',
+    config: { template_id: 'template-posthog-classify', inputs: {} },
+    output_variable: [
+        { key: 'category', result_path: 'category', label: 'Category' },
+        { key: 'confidence', result_path: 'confidence', label: 'Confidence' },
+    ],
 }
 
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
@@ -375,24 +386,14 @@ export function HogFlowEditorPanelBuild({
                         key="push-notifications"
                         action={PUSH_NOTIFICATION_ACTION_NODE}
                         onActionSelect={onActionSelect}
-                    >
-                        <span className="inline-flex items-center gap-1.5">
-                            {PUSH_NOTIFICATION_ACTION_NODE.name}
-                            <LemonTag type="completion">Beta</LemonTag>
-                        </span>
-                    </HogFlowEditorToolbarNode>
+                    />
                 )}
                 {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] && (
                     <HogFlowEditorToolbarNode
                         key="ai-task"
                         action={AI_TASK_ACTION_NODE}
                         onActionSelect={onActionSelect}
-                    >
-                        <span className="inline-flex items-center gap-1.5">
-                            {AI_TASK_ACTION_NODE.name}
-                            <LemonTag type="completion">Beta</LemonTag>
-                        </span>
-                    </HogFlowEditorToolbarNode>
+                    />
                 )}
                 {/* Scouts belong to the project's main environment, and the server refuses the step elsewhere.
                 Require currentTeam explicitly: while it's still loading, both sides of the id comparison are
@@ -404,13 +405,15 @@ export function HogFlowEditorPanelBuild({
                             key="run-scout"
                             action={RUN_SCOUT_ACTION_NODE}
                             onActionSelect={onActionSelect}
-                        >
-                            <span className="inline-flex items-center gap-1.5">
-                                {RUN_SCOUT_ACTION_NODE.name}
-                                <LemonTag type="completion">Beta</LemonTag>
-                            </span>
-                        </HogFlowEditorToolbarNode>
+                        />
                     )}
+                {featureFlags[FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION] && (
+                    <HogFlowEditorToolbarNode
+                        key="classify"
+                        action={CLASSIFY_ACTION_NODE}
+                        onActionSelect={onActionSelect}
+                    />
+                )}
                 <HogFunctionTemplatesChooser onActionSelect={onActionSelect} />
             </HogFlowEditorToolbarSection>
 

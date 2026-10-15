@@ -135,6 +135,18 @@ function environmentOf(
 }
 
 function sourceOf(task: Task): string | null {
+  if (task.origin_product === "posthog_ai") {
+    return WEB_SOURCE;
+  }
+  if (task.origin_product === "user_created") {
+    if (
+      task.client_provenance === MOBILE_SOURCE ||
+      task.client_provenance === WEB_SOURCE
+    ) {
+      return task.client_provenance;
+    }
+    return DESKTOP_SOURCE;
+  }
   return task.origin_product || null;
 }
 
@@ -230,7 +242,14 @@ export type ChannelItemSort = "recent" | "created" | "alpha";
 export type KindFilter = "any" | "task" | "canvas";
 
 export const ANY_SOURCE: SourceFilter = [];
-export const DESKTOP_SOURCE = "user_created";
+export const DESKTOP_SOURCE = "posthog_desktop";
+export const MOBILE_SOURCE = "posthog_mobile";
+export const WEB_SOURCE = "posthog_web";
+export const FIRST_PARTY_CLIENT_SOURCES = [
+  DESKTOP_SOURCE,
+  MOBILE_SOURCE,
+  WEB_SOURCE,
+] as const;
 
 export interface ChannelItemFilters {
   kind: KindFilter;
@@ -303,6 +322,18 @@ export function migrateSourceFilter({
 }): Partial<ChannelItemFilters> {
   if (typeof source !== "string" || rest.sources) return rest;
   return { ...rest, sources: source === "any" ? ANY_SOURCE : [source] };
+}
+
+export function migrateLegacySources(sources: SourceFilter): string[] {
+  return Array.from(
+    new Set(
+      sources.flatMap((source) => {
+        if (source === "user_created") return FIRST_PARTY_CLIENT_SOURCES;
+        if (source === "posthog_ai") return [WEB_SOURCE];
+        return [source];
+      }),
+    ),
+  );
 }
 
 /**

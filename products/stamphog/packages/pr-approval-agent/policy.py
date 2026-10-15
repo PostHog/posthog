@@ -25,7 +25,7 @@ Security posture (see .stamphog/README.md):
 import re
 import functools
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -101,6 +101,13 @@ class DenyCategory:
     exempt_author_teams: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, kw_only=True)
+class DenyException:
+    keyword: str | None
+    path_prefixes: tuple[str, ...]
+    extensions: tuple[str, ...]
+
+
 @dataclass(frozen=True)
 class SizeGate:
     max_lines: int
@@ -173,6 +180,7 @@ class Policy:
     overrides: dict[str, OverrideContract]
     familiarity: FamiliarityPolicy
     ownership: tuple[OwnershipSource, ...]
+    deny_exceptions: dict[str, tuple[DenyException, ...]] = field(default_factory=dict)
 
     def deny_pattern_defs(self) -> dict[str, dict[str, list[str]]]:
         """Reconstruct the raw scope→patterns mapping the compiler consumes."""
@@ -261,6 +269,7 @@ _TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "overrides"
 # a push may retain a standing approval (logic/approval_retention.py). A repo that could widen those
 # rules could keep an approval standing across arbitrary code pushes.
 _SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss"}
+_OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
@@ -289,6 +298,9 @@ def _compile_or_raise(pattern: str, context: str) -> None:
 
 
 _TEAM_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+_DENY_EXCEPTION_KEYS = {"keyword", "path_prefixes", "extensions"}
+_LITERAL_KEYWORD_RE = re.compile(r"[A-Za-z0-9_-]+")
+_DENY_EXCEPTION_METACHARS_RE = re.compile(r"[\\*?\[\]{}()+|^$\x00-\x1f\x7f-\x9f]")
 
 
 def _parse_exempt_author_teams(category: str, raw: Any) -> tuple[str, ...]:
@@ -351,6 +363,90 @@ def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCatego
             "deny: missing 'deps_toolchain' category (the code-derived lockfile patterns splice into it)",
         )
     return deny
+
+
+def _parse_deny_exception_prefixes(raw: object, context: str) -> tuple[str, ...]:
+    if not isinstance(raw, list) or not raw:
+        raise PolicyError(f"{context}: must be a non-empty list")
+    prefixes: list[str] = []
+    for prefix in raw:
+        if not isinstance(prefix, str):
+            raise PolicyError(f"{context}: prefixes must be strings")
+        _require(
+            prefix.endswith("/")
+            and all(segment not in {"", ".", ".."} for segment in prefix[:-1].split("/"))
+            and not any(character.isspace() for character in prefix)
+            and not _DENY_EXCEPTION_METACHARS_RE.search(prefix),
+            f"{context}: {prefix!r} must be a literal relative POSIX directory prefix with a trailing slash",
+        )
+        prefixes.append(prefix.lower())
+    return tuple(prefixes)
+
+
+def _parse_deny_exception_extensions(raw: object, context: str) -> tuple[str, ...]:
+    if not isinstance(raw, list) or not raw:
+        raise PolicyError(f"{context}: must be a non-empty list")
+    extensions: list[str] = []
+    for extension in raw:
+        if not isinstance(extension, str):
+            raise PolicyError(f"{context}: extensions must be strings")
+        _require(
+            extension.startswith(".")
+            and all(extension[1:].split("."))
+            and "/" not in extension
+            and not any(character.isspace() for character in extension)
+            and not _DENY_EXCEPTION_METACHARS_RE.search(extension),
+            f"{context}: {extension!r} must be a literal dot-prefixed suffix",
+        )
+        extensions.append(extension.lower())
+    return tuple(extensions)
+
+
+def _parse_deny_exceptions(raw: object, deny: dict[str, DenyCategory]) -> dict[str, tuple[DenyException, ...]]:
+    if not isinstance(raw, dict):
+        raise PolicyError("deny_exceptions: must be a mapping")
+    exceptions: dict[str, tuple[DenyException, ...]] = {}
+    for category, rules in raw.items():
+        context = f"deny_exceptions.{category}"
+        if not isinstance(category, str) or category not in deny:
+            raise PolicyError(f"{context}: unknown deny category")
+        _require(category != "stamphog_policy", f"{context}: the self-governance category exempts nobody")
+        if not isinstance(rules, list) or not rules:
+            raise PolicyError(f"{context}: must be a non-empty list")
+        parsed: list[DenyException] = []
+        for index, rule in enumerate(rules):
+            rule_context = f"{context}[{index}]"
+            if not isinstance(rule, dict):
+                raise PolicyError(f"{rule_context}: must be a mapping")
+            unknown = set(rule) - _DENY_EXCEPTION_KEYS
+            _require(not unknown, f"{rule_context}: unknown keys {sorted(unknown, key=str)}")
+            prefixes = _parse_deny_exception_prefixes(rule.get("path_prefixes"), f"{rule_context}.path_prefixes")
+            extensions = (
+                _parse_deny_exception_extensions(rule["extensions"], f"{rule_context}.extensions")
+                if "extensions" in rule
+                else ()
+            )
+            keyword = None
+            if "keyword" in rule:
+                requested = rule["keyword"]
+                if not isinstance(requested, str) or not _LITERAL_KEYWORD_RE.fullmatch(requested):
+                    raise PolicyError(f"{rule_context}.keyword: must be a non-empty literal ASCII token")
+                keyword = next(
+                    (
+                        pattern
+                        for scope in ("any", "paths")
+                        for pattern in deny[category].match.get(scope, ())
+                        if _LITERAL_KEYWORD_RE.fullmatch(pattern) and pattern.lower() == requested.lower()
+                    ),
+                    None,
+                )
+                _require(
+                    keyword is not None,
+                    f"{rule_context}.keyword: {requested!r} is not a path-capable literal pattern in this deny category",
+                )
+            parsed.append(DenyException(keyword=keyword, path_prefixes=prefixes, extensions=extensions))
+        exceptions[category] = tuple(parsed)
+    return exceptions
 
 
 def _assert_self_governance(deny: dict[str, DenyCategory]) -> None:
@@ -545,7 +641,7 @@ def load_policy(
         raise PolicyError(f"could not read/parse {path}: {exc}") from exc
 
     _require(isinstance(raw, dict), "policy root: must be a mapping")
-    unknown = set(raw) - _TOP_LEVEL_KEYS - _SERVER_ONLY_TOP_LEVEL_KEYS
+    unknown = set(raw) - _TOP_LEVEL_KEYS - _OPTIONAL_TOP_LEVEL_KEYS - _SERVER_ONLY_TOP_LEVEL_KEYS
     _require(not unknown, f"policy root: unknown top-level keys {sorted(unknown)}")
     for required in _TOP_LEVEL_KEYS:
         _require(required in raw, f"policy root: missing required section {required!r}")
@@ -555,9 +651,10 @@ def load_policy(
     size_gate = _parse_size_gate(raw["size_gate"])
     overrides = _parse_overrides(raw["overrides"])
     _require_ceilings_cover_globals(size_gate, overrides)
+    deny = _parse_deny(raw["deny"], lockfile_names)
     return Policy(
         version=1,
-        deny=_parse_deny(raw["deny"], lockfile_names),
+        deny=deny,
         allow_path_patterns=path_patterns,
         allow_extensions=extensions,
         size_gate=size_gate,
@@ -565,6 +662,7 @@ def load_policy(
         overrides=overrides,
         familiarity=_parse_familiarity(raw["familiarity"]),
         ownership=_parse_ownership(raw["ownership"], ownership_formats),
+        deny_exceptions=_parse_deny_exceptions(raw.get("deny_exceptions", {}), deny),
     )
 
 

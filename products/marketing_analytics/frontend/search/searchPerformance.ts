@@ -1,12 +1,18 @@
 import { dayjs } from 'lib/dayjs'
 
-import { MarketingAnalyticsSearchQuery, MarketingAnalyticsSearchSource } from '~/queries/schema/schema-general'
+import {
+    MarketingAnalyticsSearchQuery,
+    MarketingAnalyticsSearchSource,
+    MarketingAnalyticsSearchRow,
+} from '~/queries/schema/schema-general'
 import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 export type SearchPlatform = MarketingAnalyticsSearchSource['sourceType']
 export type SearchMetrics = 'traffic' | 'conversions'
 export type SearchBreakdown = NonNullable<MarketingAnalyticsSearchQuery['breakdown']>
 export type SearchChannel = 'all' | 'paid' | 'organic'
+
+export const SEARCH_PERFORMANCE_QUERY_KEY = 'marketing-search-performance'
 
 export const SEARCH_PLATFORM_LABELS: Record<SearchPlatform, string> = {
     GoogleAds: 'Google Ads',
@@ -58,7 +64,9 @@ function searchTableNames(source: ExternalDataSource, breakdown: SearchBreakdown
     if (source.source_type === 'GoogleAds') {
         return breakdown === 'page' ? ['landing_page_stats'] : ['keyword', 'keyword_stats']
     }
-    return source.source_type === 'BingAds' && breakdown === 'keyword' ? ['keyword_performance_report'] : []
+    return source.source_type === 'BingAds'
+        ? [breakdown === 'page' ? 'destination_url_performance_report' : 'keyword_performance_report']
+        : []
 }
 
 export function searchPerformanceSource(
@@ -84,7 +92,14 @@ export function searchPerformanceSource(
         ? {
               sourceType: 'GoogleAds',
               statsTable: tables[tables.length - 1]!,
-              ...(breakdown === 'keyword' ? { keywordTable: tables[0] } : {}),
+              ...(breakdown === 'keyword'
+                  ? {
+                        keywordTable: tables[0],
+                        ...(table('keyword_placement_stats')
+                            ? { placementTable: table('keyword_placement_stats') }
+                            : {}),
+                    }
+                  : {}),
           }
         : { sourceType: 'BingAds', statsTable: tables[0]! }
 }
@@ -97,6 +112,21 @@ export function searchPerformanceSourceNotice(
     const querySource = searchPerformanceSource(source, breakdown, detail)
     const fallback = querySource?.queryPageTable && !detail
     if (querySource && !fallback) {
+        if (source.source_type === 'GoogleAds' && breakdown === 'keyword' && !querySource.placementTable) {
+            const status = searchTableStatus(source.schemas.find((schema) => schema.name === 'keyword_placement_stats'))
+            const message = {
+                disabled: 'Enable keyword_placement_stats in the source settings to see Top and First percentages.',
+                pending: 'Position data will appear after the first sync of keyword_placement_stats finishes.',
+                failed: 'The sync of keyword_placement_stats failed. Retry it in the source settings to see position data.',
+                billing:
+                    'A billing limit is blocking keyword_placement_stats. Check the source settings to restore position data.',
+                paused: 'Syncing has stopped for keyword_placement_stats. Resume it in the source settings to restore position data.',
+                stale: 'Position data in keyword_placement_stats is out of date. Sync it again in the source settings.',
+                ready: '',
+            }[status]
+            const label = source.description || SEARCH_PLATFORM_LABELS.GoogleAds
+            return `${label}: ${message} Traffic data is available.`
+        }
         return null
     }
     const names = searchTableNames(source, breakdown, detail)
@@ -128,4 +158,14 @@ export function selectedSearchSources(sources: ExternalDataSource[], selectedIds
     const searchSources = sources.filter((source) => SEARCH_SOURCE_TYPES.includes(source.source_type))
     const selected = searchSources.filter((source) => selectedIds.includes(source.id))
     return selectedIds.length > 0 ? selected : searchSources
+}
+
+export function searchPerformanceRowKey(row: MarketingAnalyticsSearchRow): string {
+    return JSON.stringify([
+        row.keyword ?? null,
+        row.page ?? null,
+        row.platform,
+        row.matchType ?? null,
+        row.currency ?? null,
+    ])
 }

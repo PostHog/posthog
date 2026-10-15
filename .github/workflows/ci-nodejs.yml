@@ -131,7 +131,7 @@ jobs:
                         - 'posthog/plugins/**'
                         # Django reads this to decide which filter globals it accepts, and the only
                         # check that it still matches the runtime type is a jest test.
-                        - 'posthog/cdp/filter_globals.json'
+                        - 'products/cdp/backend/filter_globals.json'
                         # The tables that file is generated from. A standard-library change
                         # must run the parity test that shows the file went stale.
                         - 'common/hogvm/typescript/src/**'
@@ -157,7 +157,7 @@ jobs:
                       # the native addons every suite links, so no narrowed run can be trusted.
                       node_full:
                         # readFileSync, so jest cannot reach the parity test through --findRelatedTests.
-                        - 'posthog/cdp/filter_globals.json'
+                        - 'products/cdp/backend/filter_globals.json'
                         - 'common/hogvm/typescript/src/**'
                         - '.github/scripts/jest-retries.cjs'
                         - 'patches/jest-junit@16.0.0.patch'
@@ -322,7 +322,7 @@ jobs:
               uses: ./.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-nodejs'
                   workspaces: rust
@@ -388,7 +388,7 @@ jobs:
               uses: ./.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-nodejs'
                   workspaces: rust
@@ -512,7 +512,7 @@ jobs:
               uses: ./.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-nodejs'
                   workspaces: rust
@@ -830,7 +830,7 @@ jobs:
               uses: ./.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-nodejs'
                   workspaces: rust

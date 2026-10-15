@@ -31,6 +31,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 )
 from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    OPTIONAL_WORKFLOW_RUNS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -181,6 +182,8 @@ def _runs(attempts: str) -> str:
             concat('{{"id":{_REPOSITORY_ID},"full_name":"', any(repo), '"}}') AS repository,
             NULL AS head_commit,
             NULL AS actor,
+            {OPTIONAL_WORKFLOW_RUNS_COLUMNS["workflow_id"]} AS workflow_id,
+            {OPTIONAL_WORKFLOW_RUNS_COLUMNS["event"]} AS event,
             'depot_ci' AS ci_engine,
             any(native_run_id) AS native_run_id,
             any(native_workflow_run_id) AS native_workflow_run_id
@@ -291,8 +294,14 @@ def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
 
 # UNION ALL matches columns by position, so the GitHub selects name them in the contract order the
 # Depot side follows.
-def _github_runs(table: str, where: str = "1") -> str:
-    return f"""SELECT {", ".join(WORKFLOW_RUNS_COLUMNS)}, 'github_actions' AS ci_engine,
+def _github_runs(table: str, where: str = "1", optional_columns: frozenset[str] = frozenset()) -> str:
+    columns = [
+        column
+        if column not in OPTIONAL_WORKFLOW_RUNS_COLUMNS or column in optional_columns
+        else f"{OPTIONAL_WORKFLOW_RUNS_COLUMNS[column]} AS {column}"
+        for column in WORKFLOW_RUNS_COLUMNS
+    ]
+    return f"""SELECT {", ".join(columns)}, 'github_actions' AS ci_engine,
         toString(id) AS native_run_id, toString(id) AS native_workflow_run_id
         FROM {table} WHERE {where}"""
 
@@ -305,18 +314,25 @@ def _github_jobs(table: str, where: str = "1") -> str:
 
 
 def with_depot_runs(
-    runs_table: str, depot: DepotJobAttempts | None, pull_requests_table: str | None, jobs_table: str | None
+    runs_table: str,
+    depot: DepotJobAttempts | None,
+    pull_requests_table: str | None,
+    jobs_table: str | None,
+    *,
+    optional_columns: frozenset[str] = frozenset(),
 ) -> str:
     """The GitHub runs table, or a subquery that also holds the Depot CI runs when they are synced.
 
     Successful hand-off shells are left out. Without ``jobs_table`` the GitHub shells stay.
+    ``optional_columns`` names the ``OPTIONAL_WORKFLOW_RUNS_COLUMNS`` that ``runs_table`` has. The
+    others read as NULL.
     """
     if depot is None:
-        return f"({_github_runs(runs_table)})"
+        return f"({_github_runs(runs_table, optional_columns=optional_columns)})"
     handoffs = _handoff_workflows(depot)
     where = f"id NOT IN ({_github_shells(jobs_table, runs_table, handoffs)})" if jobs_table else "1"
     depot_runs = _runs(_executed_attempts(depot, handoffs, pull_requests_table))
-    return f"({_github_runs(runs_table, where)} UNION ALL {depot_runs})"
+    return f"({_github_runs(runs_table, where, optional_columns)} UNION ALL {depot_runs})"
 
 
 def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, runs_table: str) -> workflow_jobs.JobsTable:

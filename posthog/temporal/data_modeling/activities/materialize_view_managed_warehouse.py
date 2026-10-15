@@ -15,6 +15,13 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
+from products.data_modeling.backend.facade.api import (
+    TRINO_INCREMENTAL_SCOPE,
+    WritePlan,
+    clear_incremental_state,
+    resolve_write_plan,
+    set_incremental_state,
+)
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataModelingJobStatus,
@@ -31,7 +38,11 @@ from products.managed_warehouse.backend.facade.api import (
     is_data_modeling_shadow_ready,
     is_dev_mode,
 )
-from products.managed_warehouse.backend.facade.contracts import DuckLakeCompiledQuery, DuckLakeS3Secret
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeCompiledQuery,
+    DuckLakeS3Secret,
+    TrinoIncrementalWrite,
+)
 from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELING_SHADOW_FLAG
 
 from ..metrics import get_node_suspended_metric
@@ -117,15 +128,12 @@ def _is_managed_warehouse_shadow_flag_enabled(team: Team) -> bool:
         return False
 
 
-def _is_managed_warehouse_shadow_enabled(team: Team, saved_query: DataWarehouseSavedQuery) -> bool:
+def _is_managed_warehouse_shadow_enabled(team: Team) -> bool:
     if not _is_managed_warehouse_shadow_flag_enabled(team):
         return False
 
     return is_data_modeling_shadow_ready(
         organization_id=team.organization_id,
-        team_id=team.id,
-        saved_query_id=saved_query.id,
-        source_query=saved_query.query,
     )
 
 
@@ -166,7 +174,7 @@ def _get_shadow_input_objects(inputs: ManagedWarehouseShadowInputs) -> _ManagedW
 @database_sync_to_async_pool
 def _check_managed_warehouse_shadow_eligibility(inputs: ManagedWarehouseShadowEligibilityInputs) -> bool:
     objects = _load_shadow_objects(team_id=inputs.team_id, dag_id=inputs.dag_id, node_id=inputs.node_id)
-    return _is_managed_warehouse_shadow_enabled(objects.team, objects.saved_query)
+    return _is_managed_warehouse_shadow_enabled(objects.team)
 
 
 async def _check_managed_warehouse_shadow_enabled_activity(team_id: int) -> bool:
@@ -178,6 +186,17 @@ async def _check_managed_warehouse_shadow_enabled_activity(team_id: int) -> bool
 @activity.defn
 async def check_managed_warehouse_shadow_enabled_activity(team_id: int) -> bool:
     return await _check_managed_warehouse_shadow_enabled_activity(team_id)
+
+
+@database_sync_to_async_pool
+def _check_team_managed_warehouse_shadow_eligibility(team_id: int) -> bool:
+    return _is_managed_warehouse_shadow_enabled(Team.objects.get(id=team_id))
+
+
+@activity.defn
+async def check_team_managed_warehouse_shadow_eligibility_activity(team_id: int) -> bool:
+    """Check whether DAG runs of this team's organization should start a Trino shadow run."""
+    return await _check_team_managed_warehouse_shadow_eligibility(team_id)
 
 
 @activity.defn
@@ -212,9 +231,9 @@ async def _materialize_view_managed_warehouse(
 ) -> ManagedWarehouseShadowResult:
     """Shadow activity: execute a managed warehouse materialization and create a DuckLake table.
 
-    This is a fire-and-forget companion to the main ClickHouse-based materialize_view_activity.
+    It runs in a managed_warehouse_only MaterializeViewWorkflow, which the Trino shadow DAG run
+    starts separately from the ClickHouse run, so its failures never affect ClickHouse.
     The query result is materialized as a native DuckLake table (Parquet on S3 + Postgres catalog).
-    Failures here never affect the parent workflow.
     """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
@@ -231,6 +250,7 @@ async def _materialize_view_managed_warehouse(
     sql: str = ""
     values: dict[str, object] = {}
     s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
+    plan: WritePlan | None = None
     try:
         from products.managed_warehouse.backend.facade.client import execute_ducklake_create_table, execute_trino_model
 
@@ -243,12 +263,26 @@ async def _materialize_view_managed_warehouse(
             table_name=table_name,
         )
         if inputs.use_trino:
+            plan = await database_sync_to_async_pool(resolve_write_plan)(
+                team.pk, saved_query.id, scope=TRINO_INCREMENTAL_SCOPE
+            )
+            await logger.ainfo("Trino write plan", incremental=plan.incremental, reason=plan.reason)
             result = await execute_trino_model(
                 organization_id=str(team.organization_id),
                 team_id=team.pk,
                 saved_query_id=saved_query.id,
                 source_query=saved_query.query,
+                incremental=_trino_incremental_write(plan),
             )
+            if plan.config is not None:
+                # A quiet window writes nothing, so it records the run without moving the watermark.
+                await database_sync_to_async_pool(set_incremental_state)(
+                    saved_query,
+                    watermark=result.watermark,
+                    fingerprint=plan.fingerprint,
+                    mode="incremental" if result.merged else "full_refresh",
+                    scope=TRINO_INCREMENTAL_SCOPE,
+                )
             from products.managed_warehouse.backend.facade.client import request_model_alias_reconciliation
 
             try:
@@ -315,6 +349,13 @@ async def _materialize_view_managed_warehouse(
             table_name=table_name,
             error=str(e),
         )
+        if plan is not None and plan.incremental:
+            # The merge may have stopped partway or failed on a schema change. Rebuilding next run
+            # is the only state that is certainly correct.
+            try:
+                await database_sync_to_async_pool(clear_incremental_state)(saved_query, scope=TRINO_INCREMENTAL_SCOPE)
+            except Exception as clear_error:
+                capture_exception(clear_error)
         job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
         suspended = await maybe_suspend_node_for_engine(
             node_id=inputs.node_id,
@@ -331,6 +372,16 @@ async def _materialize_view_managed_warehouse(
                 f"Suspended node {inputs.node_id} ({job_engine}) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
             )
         return shadow_result
+
+
+def _trino_incremental_write(plan: WritePlan) -> TrinoIncrementalWrite | None:
+    if plan.config is None:
+        return None
+    return TrinoIncrementalWrite(
+        incremental_key=plan.config.incremental_key,
+        unique_key=tuple(plan.config.unique_key),
+        since=plan.since if plan.incremental else None,
+    )
 
 
 @activity.defn

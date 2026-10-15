@@ -29,6 +29,7 @@ use ingestion_consumer::discovery::{
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::routing::RoutingStrategy;
+use ingestion_consumer::scheduler::SchedulerKind;
 use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
 
 common_alloc::used!();
@@ -143,12 +144,32 @@ async fn async_main(config: Config) -> Result<()> {
             )
             .expect("consumer_batch_size_kb buckets")
             .set_buckets_for_metric(
-                Matcher::Full("ingestion_consumer_key_table_queue_wait_seconds".into()),
+                Matcher::Full("ingestion_consumer_request_queue_wait_seconds".into()),
                 &[
                     0.005, 0.025, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0,
                 ],
             )
-            .expect("key_table_queue_wait buckets");
+            .expect("request_queue_wait buckets")
+            .set_buckets_for_metric(
+                Matcher::Full("ingestion_consumer_request_events".into()),
+                &[
+                    1.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1_000.0, 2_500.0, 5_000.0,
+                ],
+            )
+            .expect("request_events buckets")
+            .set_buckets_for_metric(
+                Matcher::Full("ingestion_consumer_request_bytes".into()),
+                &[
+                    1_024.0,
+                    16_384.0,
+                    65_536.0,
+                    262_144.0,
+                    1_048_576.0,
+                    4_194_304.0,
+                    16_777_216.0,
+                ],
+            )
+            .expect("request_bytes buckets");
 
         // Global default labels (match the Node.js `initializePrometheusLabels`
         // defaults): every metric carries ingestion_pipeline / ingestion_lane so
@@ -227,11 +248,7 @@ async fn async_main(config: Config) -> Result<()> {
             None
         };
 
-    let mut dispatcher = Dispatcher::with_scheduler(
-        Arc::clone(&registry),
-        config.routing_strategy,
-        config.scheduler,
-    );
+    let mut dispatcher = Dispatcher::with_strategy(Arc::clone(&registry), config.routing_strategy);
     if let Some(recorder) = &debug_recorder {
         dispatcher.set_debug_recorder(Arc::clone(recorder));
     }
@@ -287,36 +304,6 @@ async fn async_main(config: Config) -> Result<()> {
         }
     };
     let _discovery_handle = discovery.start(Arc::clone(&registry), discovery_token.clone());
-
-    // Reap drained workers: once a departed worker has finished its in-flight
-    // batches (or hit the drain timeout), remove it from the registry and prune
-    // its transport semaphore. No-op in static mode (workers never drain).
-    {
-        let registry = Arc::clone(&registry);
-        let transport = Arc::clone(&transport);
-        let dispatcher = Arc::clone(&dispatcher);
-        let token = probe_token.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = token.cancelled() => break,
-                    _ = tokio::time::sleep(Duration::from_secs(1)) => {}
-                }
-                // A worker that left the pool while idle has no in-flight to
-                // resolve, so `on_sub_batch_resolved` never completes its drain.
-                // Complete it here so it's reaped now rather than at the timeout.
-                for worker in registry.draining_workers() {
-                    if !dispatcher.has_in_flight(&worker) {
-                        registry.complete_drain(&worker);
-                    }
-                }
-                for worker in registry.reapable_workers() {
-                    registry.remove_worker(&worker);
-                    transport.remove_worker(&worker);
-                }
-            }
-        });
-    }
 
     // Build and serve the health/metrics HTTP server BEFORE gating on worker
     // discovery. Otherwise /_readiness and /_liveness stay unbound while we wait
@@ -502,13 +489,54 @@ async fn async_main(config: Config) -> Result<()> {
 
     // The batcher owns the dispatch orchestration; the consumer loop only
     // submits polls to it and reads group completions back.
-    let (batcher, batcher_outputs) = Batcher::new(
-        Arc::clone(&dispatcher),
-        Arc::clone(&transport),
-        consumer_handle.clone(),
-        Duration::from_millis(config.consumer_deferred_flush_timeout_ms),
-        Duration::from_millis(config.parked_retry_interval_ms),
-    );
+    let (batcher, batcher_outputs) = match config.scheduler {
+        SchedulerKind::PinStash => Batcher::new(
+            Arc::clone(&dispatcher),
+            Arc::clone(&transport),
+            consumer_handle.clone(),
+            Duration::from_millis(config.consumer_deferred_flush_timeout_ms),
+        ),
+        SchedulerKind::KeyTable => {
+            let state_machine = config
+                .batcher_state_machine()
+                .map_err(|err| anyhow::anyhow!("invalid key-table configuration: {err}"))?;
+            Batcher::with_state_machine(
+                state_machine,
+                dispatcher.worker_pool_source(),
+                Arc::clone(&transport),
+            )
+        }
+    };
+
+    // Reap drained workers: once a departed worker has finished its in-flight
+    // batches (or hit the drain timeout), remove it from the registry and prune
+    // its transport semaphore. No-op in static mode (workers never drain).
+    {
+        let registry = Arc::clone(&registry);
+        let transport = Arc::clone(&transport);
+        let observer = batcher.observer();
+        let token = probe_token.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = token.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                }
+                // A worker that left the pool while idle has no in-flight to
+                // resolve, so `on_sub_batch_resolved` never completes its drain.
+                // Complete it here so it's reaped now rather than at the timeout.
+                for worker in registry.draining_workers() {
+                    if !observer.has_in_flight(&worker) {
+                        registry.complete_drain(&worker);
+                    }
+                }
+                for worker in registry.reapable_workers() {
+                    registry.remove_worker(&worker);
+                    transport.remove_worker(&worker);
+                }
+            }
+        });
+    }
 
     let consumer = IngestionConsumer::new(
         &config,

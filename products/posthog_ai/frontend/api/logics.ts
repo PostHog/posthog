@@ -18,7 +18,13 @@ export { messageRatingsLogic } from '../logics/messageRatingsLogic'
 export type { RunInteractionLogicProps, QueuedMessage } from '../logics/runInteractionLogic'
 
 // --- Thinking-message helpers ---
-export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESSAGES } from '../utils/thinkingMessages'
+export {
+    getThinkingMessageFromResponse,
+    getRandomThinkingMessage,
+    getWebSearchResultsByToolUseId,
+    THINKING_MESSAGES,
+} from '../utils/thinkingMessages'
+export type { WebSearchResultsByToolUseId } from '../utils/thinkingMessages'
 
 // --- Composer model/effort helpers (pure — no component imports) ---
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'

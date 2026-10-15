@@ -1,28 +1,25 @@
 import { z } from 'zod'
 
-import type { Schemas } from '@/api/generated'
 import type { Context, ToolBase } from '@/tools/types'
 
+import { wrapRunResultAsInformational } from './cellRuns'
 import {
-    awaitRun,
-    buildResultProp,
-    dispatchRun,
-    shapeRunForModel,
-    wrapRunResultAsInformational,
-    type ShapedRunResult,
-} from './cellRuns'
-import {
-    collectRunRefs,
-    directDependents,
     findCellTag,
-    parseCellTags,
+    materializeLegacySqlProps,
     replaceCellTag,
     normalizeForTagScan,
     startsComponentTag,
     upsertProp,
 } from './cellTags'
-import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor, saveMarkdown } from './markdownDoc'
+import {
+    applyVisualization,
+    CellVisualizationSchema,
+    storedVisualizationWarnings,
+    VISUALIZATION_PARAM_DESCRIPTION,
+} from './cellVisualization'
+import { applyMarkdownEdit, fetchMarkdownNotebook, replaceMarkdownCell } from './markdownDoc'
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
+import { runExistingCell, type RunCellResult } from './runCell'
 
 /**
  * The two id shapes a markdown block can carry: derived from its text by
@@ -41,22 +38,31 @@ const UpdateCellInputSchema = z
         code: z
             .string()
             .optional()
-            .describe('New SQL or Python source. Omit to re-run the cell as-is (e.g. a stale cell).'),
+            .describe(
+                'New SQL or Python source. Omitting code and visualization still re-runs the cell as-is, but prefer notebooks-run-cell for that.'
+            ),
         markdown: z
             .string()
             .optional()
             .describe(
                 'New markdown for a markdown cell: prose, a heading, a table, or a fenced block. Use this instead of `code` when notebooks-get reports the cell as cell_type "markdown". Pass the replacement only; the surrounding cells are untouched.'
             ),
+        visualization: CellVisualizationSchema.nullable()
+            .optional()
+            .describe(
+                `${VISUALIZATION_PARAM_DESCRIPTION} Pass null to show the results table again. Without code, the chart changes and the cell does not re-run.`
+            ),
     })
     .strict()
 
 export const NotebooksUpdateCellSchema = z.preprocess(notebookIdAliases('notebook_id'), UpdateCellInputSchema)
 
-export interface UpdateCellResult {
+export type UpdateCellResult = RunCellResult
+
+export interface UpdateVisualizationResult {
     node_id: string
-    run: ShapedRunResult
-    stale_dependents: { node_id: string; dataframe_name?: string }[]
+    updated: true
+    visualization_warnings?: string[]
 }
 
 export interface UpdateProseCellResult {
@@ -98,6 +104,9 @@ async function updateProseCell(
     context: Context,
     params: z.infer<typeof NotebooksUpdateCellSchema>
 ): Promise<UpdateProseCellResult> {
+    if (params.visualization !== undefined) {
+        throw new Error(`Cell ${params.node_id} is a markdown cell. visualization applies to sql cells only.`)
+    }
     if (params.code !== undefined) {
         throw new Error(
             `Cell ${params.node_id} is a markdown cell. Pass its replacement as \`markdown\`, not \`code\`.`
@@ -109,56 +118,17 @@ async function updateProseCell(
     }
     assertNoComponentTag(next)
 
-    const projectId = await context.stateManager.getProjectId()
-    const state = await context.api.request<{ version: number | null; cells: Schemas.NotebookCellState[] }>({
-        method: 'GET',
-        path: `${notebookPathFor(projectId, params.notebook_id)}sql_v2/state/`,
-    })
-    const block = state.cells.find((cell) => cell.node_id === params.node_id)
-    if (!block) {
-        throw new Error(
-            `No cell with node_id ${params.node_id} in notebook ${params.notebook_id}. Read the current ids with notebooks-get.`
-        )
-    }
-    if (block.cell_type !== 'markdown') {
-        throw new Error(`Cell ${params.node_id} is a ${block.cell_type} cell. Pass its replacement as \`code\`.`)
-    }
-    // A prose id counts occurrences of identical text, so a block that duplicates another one's
-    // text is only pinned by the position it held when the caller read it. A write arrives after
-    // that read, and an identical block inserted above in between shifts every later occurrence
-    // by one. The id would still resolve, and the fresh offsets would still validate, so the edit
-    // would land on a block the caller never saw.
-    const sameId = state.cells.filter((cell) => cell.node_id === params.node_id)
-    if (sameId.length > 1) {
-        throw new Error(
-            `Cell ${params.node_id} names ${sameId.length} blocks in notebook ${params.notebook_id}, so it cannot name one of them. Re-read the notebook with notebooks-get.`
-        )
-    }
-    // The edit is bound to the document the caller read, rather than hunted for again in a newer
-    // one. Re-resolving needs the backend's block grammar, and this side does not have it: a tag
-    // `parseCellTags` cannot see is prose here and a live cell there, so a miss rewrites a cell.
-    // A changed document is therefore reported, and the caller reads again.
-    const notebook = await fetchMarkdownNotebook(context, params.notebook_id)
-    if (notebook.version !== state.version) {
-        throw new Error(
-            `Notebook ${params.notebook_id} changed since cell ${params.node_id} was read. Read it again with notebooks-get and retry with the id it returns.`
-        )
-    }
-    if (notebook.markdown.slice(block.start, block.end) !== block.code) {
-        throw new Error(
-            `Cell ${params.node_id} is not where the read placed it in notebook ${params.notebook_id}. Read it again with notebooks-get and retry with the id it returns.`
-        )
-    }
-
-    const nextMarkdown = notebook.markdown.slice(0, block.start) + next.trim() + notebook.markdown.slice(block.end)
-    await saveMarkdown(context, notebook, nextMarkdown)
+    await replaceMarkdownCell(context, params.notebook_id, params.node_id, next.trim())
     return { node_id: params.node_id, updated: true }
 }
 
 export const updateCellHandler: ToolBase<
     typeof NotebooksUpdateCellSchema,
-    UpdateCellResult | UpdateProseCellResult
+    UpdateCellResult | UpdateProseCellResult | UpdateVisualizationResult
 >['handler'] = async (context: Context, params: z.infer<typeof NotebooksUpdateCellSchema>) => {
+    if (params.visualization !== undefined && params.markdown !== undefined) {
+        throw new Error('visualization applies to sql cells only. A markdown cell has no chart.')
+    }
     if (params.code !== undefined && params.markdown !== undefined) {
         throw new Error(
             'Pass either code (a SQL or Python cell) or markdown (a markdown cell), not both. The cell type follows from node_id; read it from notebooks-get.'
@@ -167,7 +137,7 @@ export const updateCellHandler: ToolBase<
     // A prefix only hints at the cell type. A tag holds its id in a prop, and nothing stops that
     // prop from reading like a markdown block id, so the document decides when the two disagree.
     const looksLikeProse = PROSE_NODE_ID_PREFIXES.some((prefix) => params.node_id.startsWith(prefix))
-    if (looksLikeProse && params.code !== undefined) {
+    if (looksLikeProse && (params.code !== undefined || params.visualization !== undefined)) {
         const { markdown } = await fetchMarkdownNotebook(context, params.notebook_id)
         if (!findCellTag(markdown, params.node_id)) {
             return await updateProseCell(context, params)
@@ -189,17 +159,39 @@ export const updateCellHandler: ToolBase<
             `Cell ${params.node_id} is a ${existing.tagName} cell and cannot be updated with this tool — delete and re-add it instead.`
         )
     }
+    if (params.visualization !== undefined && existing.tagName !== 'SQLV2') {
+        throw new Error(
+            `visualization applies to sql cells only, and ${params.node_id} is a python cell. A python cell plots with matplotlib.`
+        )
+    }
 
     let markdown = initial.markdown
     let notebook = initial.notebook
-    if (params.code !== undefined && params.code !== existing.code) {
+    const codeChanged = params.code !== undefined && params.code !== existing.code
+    if (codeChanged || params.visualization !== undefined) {
         const applied = await applyMarkdownEdit(context, params.notebook_id, (current) => {
             const block = findCellTag(current, params.node_id)
             if (!block) {
                 throw new Error(`No cell with node_id ${params.node_id} in notebook ${params.notebook_id}.`)
             }
-            return replaceCellTag(current, block, upsertProp(block.source, 'code', params.code))
+            let source = block.tagName === 'SQLV2' ? materializeLegacySqlProps(block.source) : block.source
+            if (codeChanged) {
+                source = upsertProp(source, 'code', params.code)
+            }
+            if (params.visualization !== undefined) {
+                source = applyVisualization(source, params.visualization)
+            }
+            return replaceCellTag(current, block, source)
         })
+        if (params.code === undefined) {
+            const updated = findCellTag(applied.markdown, params.node_id)
+            const warnings = updated ? storedVisualizationWarnings(updated.source) : []
+            return wrapRunResultAsInformational({
+                node_id: params.node_id,
+                updated: true as const,
+                ...(warnings.length ? { visualization_warnings: warnings } : {}),
+            })
+        }
         markdown = applied.markdown
         // The save response carries the notebook as it stood when the save committed, so it holds a
         // variable edit that landed after the read above.
@@ -211,39 +203,19 @@ export const updateCellHandler: ToolBase<
         throw new Error(`Cell ${params.node_id} has no code to run.`)
     }
 
-    const projectId = await context.stateManager.getProjectId()
-    const notebookPath = notebookPathFor(projectId, params.notebook_id)
-    const cells = parseCellTags(markdown)
-    const runId = await dispatchRun(context, notebookPath, {
-        node_id: params.node_id,
-        node_type: existing.tagName === 'SQLV2' ? 'hogql' : 'python',
-        code,
-        output_name: existing.returnVariable,
-        refs: collectRunRefs(cells, params.node_id),
-        variables: notebook.variables,
-    })
-    const outcome = await awaitRun(context, notebookPath, runId)
-    await applyMarkdownEdit(context, params.notebook_id, (current) => {
-        const block = findCellTag(current, params.node_id)
-        if (!block) {
-            return current
-        }
-        let source = upsertProp(block.source, 'runId', runId)
-        if (outcome.envelope && (outcome.status === 'done' || outcome.status === 'interrupted')) {
-            source = upsertProp(source, 'result', buildResultProp(outcome.envelope))
-        }
-        return replaceCellTag(current, block, source)
-    })
-
-    return wrapRunResultAsInformational({
-        node_id: params.node_id,
-        run: shapeRunForModel(outcome),
-        stale_dependents:
-            outcome.status === 'done' ? directDependents(cells, existing.returnVariable, params.node_id) : [],
-    })
+    return await runExistingCell(
+        context,
+        params.notebook_id,
+        { nodeId: params.node_id, tagName: existing.tagName, code, returnVariable: existing.returnVariable },
+        markdown,
+        notebook.variables
+    )
 }
 
-const tool = (): ToolBase<typeof NotebooksUpdateCellSchema, UpdateCellResult | UpdateProseCellResult> => ({
+const tool = (): ToolBase<
+    typeof NotebooksUpdateCellSchema,
+    UpdateCellResult | UpdateProseCellResult | UpdateVisualizationResult
+> => ({
     name: 'notebooks-update-cell',
     schema: NotebooksUpdateCellSchema,
     handler: updateCellHandler,

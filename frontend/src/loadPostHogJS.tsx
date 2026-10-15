@@ -101,6 +101,7 @@ export function loadPostHogJS(): void {
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,
             disable_product_tours: true,
+            capture_webmcp: true,
             opt_out_capturing_by_default: window.IMPERSONATED_SESSION,
             __preview_deferred_init_extensions: isInDeferredInitSample(posthog.get_session_id()),
             error_tracking: {
@@ -215,6 +216,7 @@ export function loadPostHogJS(): void {
             // allowlist rejects those headers — so disable the feature then.
             tracing_headers: isOAuthMode() ? [] : ['eu.posthog.com', 'us.posthog.com'],
             __preview_disable_xhr_credentials: true,
+            __preview_replay_sync_fetch: true,
             capture_performance: {
                 //disabling to investigate if this is associated with memory leak in the posthog app
                 web_vitals_attribution: false,

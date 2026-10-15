@@ -274,7 +274,6 @@ describe('sqlEditorLogic', () => {
                     }
                     return [404]
                 },
-                '/api/environments/:team_id/data_modeling_dags/': { results: [] },
                 '/api/environments/:team_id/data_modeling_nodes/': { results: [] },
                 '/api/environments/:team_id/data_modeling_edges/': { results: [] },
                 '/api/environments/:team_id/data_modeling_jobs/recent/': [],
@@ -327,6 +326,41 @@ describe('sqlEditorLogic', () => {
         editorRootLogic = undefined
         logic?.unmount()
         databaseLogic?.unmount()
+    })
+
+    it('restores a notebook SQL result on remount but still executes an explicit run', async () => {
+        const response = { results: [[42]], columns: ['value'], types: [['value', 'UInt8']] }
+        const querySpy = jest.spyOn(queryRunner, 'performQuery').mockResolvedValue(response as never)
+        const props = { tabId: 'notebook-navigation', mode: SQLEditorMode.Embedded }
+        try {
+            logic = sqlEditorLogic(props)
+            logic.mount()
+            await expectLogic(databaseLogic).toFinishAllListeners()
+            querySpy.mockClear()
+            logic.actions.runQuery('SELECT 42', undefined, true)
+            let dataLogic = dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })!
+            await expectLogic(dataLogic).toDispatchActions(['loadDataSuccess']).toMatchValues({ response })
+            expect(querySpy).toHaveBeenCalledTimes(1)
+            expect(querySpy.mock.calls[0][2]).toBe('blocking')
+            logic.unmount()
+
+            logic = sqlEditorLogic(props)
+            logic.mount()
+            await expectLogic(databaseLogic).toFinishAllListeners()
+            querySpy.mockClear()
+            logic.actions.runQuery('SELECT 42', undefined, true)
+            dataLogic = dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })!
+            await expectLogic(dataLogic).toFinishAllListeners().toMatchValues({ response })
+            expect(querySpy).not.toHaveBeenCalled()
+
+            await expectLogic(dataLogic, () => logic.actions.runQuery('SELECT 42')).toDispatchActions([
+                'loadDataSuccess',
+            ])
+            expect(querySpy).toHaveBeenCalledTimes(1)
+            expect(querySpy.mock.calls[0][2]).toBe('force_blocking')
+        } finally {
+            querySpy.mockRestore()
+        }
     })
 
     describe('local draft recovery', () => {
@@ -1285,6 +1319,33 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('open_insight URL parameter', () => {
+        it.each([
+            [undefined, 'managed_trino', 'managed_trino'],
+            ['managed_trino', 'posthog', undefined],
+            ['managed_trino', undefined, 'managed_trino'],
+        ] as const)('restores saved target %s with URL override %s', async (savedTarget, urlTarget, expectedTarget) => {
+            const savedQuery = MOCK_INSIGHT_QUERY
+            const query: DataVisualizationNode = {
+                ...savedQuery,
+                source: { ...savedQuery.source, executionTarget: savedTarget },
+            }
+            const getInsight = jest.spyOn(insightsApi, 'getByShortId').mockResolvedValueOnce({ ...MOCK_INSIGHT, query })
+            try {
+                logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                logic.mount()
+                router.actions.push(
+                    urls.sqlEditor(),
+                    { open_insight: MOCK_INSIGHT_SHORT_ID },
+                    { q: savedQuery.source.query, ...(urlTarget ? { engine: urlTarget } : {}) }
+                )
+                await expectLogic(logic).toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                expect(logic.values.sourceQuery.source.executionTarget).toEqual(expectedTarget)
+                expect(router.values.hashParams.engine).toEqual(urlTarget ?? expectedTarget)
+            } finally {
+                getInsight.mockRestore()
+            }
+        })
+
         it.each([MOCK_INSIGHT_SHORT_ID, MOCK_DATA_TABLE_INSIGHT_SHORT_ID])(
             'sets the editing insight and file tree reference when opening %s',
             async (shortId) => {
@@ -2609,6 +2670,39 @@ describe('sqlEditorLogic', () => {
             expect(router.values.hashParams.c).toEqual('conn-123')
         })
 
+        it('switches hosted execution without rewriting the query and persists the target in the URL', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT event FROM events', c: 'conn-123', raw: '1' })
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            const query = logic.values.queryInput
+            logic.actions.setLastRunQuery({
+                ...logic.values.sourceQuery,
+                source: { ...logic.values.sourceQuery.source, query: query ?? '' },
+            })
+            expect(logic.values.isSourceQueryLastRun).toEqual(true)
+            logic.actions.setExecutionTarget('managed_trino')
+            expect(logic.values.isSourceQueryLastRun).toEqual(false)
+            expect(logic.values.sourceQuery.source).toMatchObject({ query, executionTarget: 'managed_trino' })
+            expect(logic.values.sourceQuery.source.connectionId).toBeUndefined()
+            expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
+            expect(router.values.hashParams.engine).toEqual('managed_trino')
+            expect(router.values.hashParams.c).toBeUndefined()
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT count() FROM events'))
+            expect(router.values.hashParams.engine).toEqual('managed_trino')
+            logic.actions.setExecutionTarget(undefined)
+            expect(logic.values.sourceQuery.source.query).toEqual('SELECT count() FROM events')
+            expect(router.values.hashParams.engine).toBeUndefined()
+        })
+
+        it('restores the hosted target from the URL', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', engine: 'managed_trino' })
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            expect(logic.values.sourceQuery.source.executionTarget).toEqual('managed_trino')
+        })
+
         it('reads send raw query from hash and keeps it in URL sync', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
@@ -3563,6 +3657,81 @@ describe('sqlEditorLogic', () => {
             ])
             expect(logic.values.upstream).toBeNull()
             expect(logic.values.upstreamLoadFailed).toBe(true)
+        })
+    })
+
+    // Hosts that embed the editor (batch exports) pass preview values, query modifiers and the single-statement
+    // option. They must reach the query that runs, and must stay out of `sourceQuery`, which hosts read back and save.
+    describe('embedded host options', () => {
+        let performQuerySpy: jest.SpyInstance
+
+        const mountEmbedded = (singleStatement?: boolean): void => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                mode: SQLEditorMode.Embedded,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+                singleStatement,
+            })
+            logic.mount()
+        }
+
+        const executedHogQLQueries = (): HogQLQuery[] =>
+            performQuerySpy.mock.calls
+                .map(([query]) => query)
+                .filter((query): query is HogQLQuery => query?.kind === NodeKind.HogQLQuery)
+
+        const runAndSettle = async (): Promise<void> => {
+            logic.actions.runQuery()
+            await expectLogic(logic).toFinishAllListeners()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        }
+
+        beforeEach(() => {
+            performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ results: [], columns: [], types: [] } as never)
+        })
+
+        afterEach(() => {
+            performQuerySpy.mockRestore()
+        })
+
+        it('runs with the host preview values and modifiers without saving them in the source query', async () => {
+            mountEmbedded()
+            logic.actions.setQueryInput('SELECT event FROM events WHERE timestamp >= {data_interval_start}')
+            logic.actions.setPlaceholders([
+                { name: 'data_interval_start', description: 'Start', previewValue: '2024-01-14 23:00:00' },
+            ])
+            logic.actions.setQueryModifiers({ convertToProjectTimezone: false })
+
+            await runAndSettle()
+
+            expect(executedHogQLQueries().at(-1)).toMatchObject({
+                values: { data_interval_start: '2024-01-14 23:00:00' },
+                modifiers: { convertToProjectTimezone: false },
+            })
+            expect(logic.values.sourceQuery.source).not.toHaveProperty('values')
+            expect(logic.values.sourceQuery.source).not.toHaveProperty('modifiers')
+        })
+
+        it.each([
+            ['runs a single statement', true, 'SELECT 1', ['SELECT 1']],
+            ['does not run more than one statement', true, 'SELECT 1; SELECT 2', []],
+            [
+                'still runs several statements without the option',
+                undefined,
+                'SELECT 1; SELECT 2',
+                ['SELECT 1; SELECT 2'],
+            ],
+        ])('singleStatement %s', async (_, singleStatement, queryInput, expectedQueries) => {
+            mountEmbedded(singleStatement)
+            logic.actions.setQueryInput(queryInput)
+
+            await runAndSettle()
+
+            // The data layer can call performQuery more than once per run, so compare the distinct queries
+            expect([...new Set(executedHogQLQueries().map((query) => query.query))]).toEqual(expectedQueries)
         })
     })
 })

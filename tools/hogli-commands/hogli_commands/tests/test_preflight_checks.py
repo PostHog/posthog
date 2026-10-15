@@ -10,10 +10,12 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from hogli.telemetry import _CI_ENV_VARS
+from hogli_commands import preflight_checks
 from hogli_commands.preflight_checks import (
     Finding,
     Scope,
     SemgrepUnavailable,
+    check_cross_lane,
     check_merge_queue_lane,
     check_semgrep_devex,
     check_snapshot_baselines,
@@ -307,6 +309,11 @@ def _node_output(payload: object) -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(args=[], returncode=0, stdout=json.dumps(payload), stderr="")
 
 
+@pytest.fixture(autouse=True)
+def fresh_lane_cache() -> None:
+    preflight_checks._lane_for.cache_clear()
+
+
 def _widened(listed: int, total: int) -> dict[str, object]:
     files = [WORKFLOW, *(f".github/workflows/{n}.yml" for n in range(listed - 1))]
     return {"is_all": True, "tripwire_files": files, "tripwire_domains": {"universal": total}}
@@ -341,3 +348,45 @@ class TestMergeQueueLane:
         assert status == expected_status
         if expected_status == "warning":
             assert WORKFLOW in detail
+
+
+MIXED = {"cross_lane": True, "cross_lane_heavy_files": [PRODUCT_FILE], "cross_lane_light_files": ["nodejs/a.ts"]}
+
+
+class TestCrossLane:
+    @pytest.mark.parametrize(
+        "summary,expected_status",
+        [
+            ({"cross_lane": False}, "pass"),
+            ({"cross_lane": None}, "skipped"),
+            (MIXED, "warning"),
+        ],
+    )
+    @patch("hogli_commands.preflight_checks._renamed_from", return_value={})
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/node")
+    def test_warns_on_a_mixed_diff(
+        self,
+        mock_which: MagicMock,
+        mock_renames: MagicMock,
+        summary: dict[str, object],
+        expected_status: str,
+    ) -> None:
+        runs = [_node_output(EVERY_LANE), _node_output(summary)]
+        with patch("hogli_commands.preflight_checks.subprocess.run", side_effect=runs):
+            status, detail = check_cross_lane(_scope([PRODUCT_FILE, "nodejs/a.ts"]))
+
+        assert status == expected_status
+        if expected_status == "warning":
+            assert PRODUCT_FILE in detail and "nodejs/a.ts" in detail
+
+    @patch("hogli_commands.preflight_checks._renamed_from", return_value={})
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/node")
+    def test_shares_one_lane_computation_with_the_lane_check(
+        self, mock_which: MagicMock, mock_renames: MagicMock
+    ) -> None:
+        runs = [_node_output(["py:core"]), _node_output({**MIXED, "is_all": False})]
+        with patch("hogli_commands.preflight_checks.subprocess.run", side_effect=runs) as run:
+            check_cross_lane(_scope([PRODUCT_FILE, "nodejs/a.ts"]))
+            check_merge_queue_lane(_scope([PRODUCT_FILE, "nodejs/a.ts"]))
+
+        assert run.call_count == 2

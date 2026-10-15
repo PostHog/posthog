@@ -544,6 +544,7 @@ const mediaImagesList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
                 purpose: params.purpose,
+                search: params.search,
             },
         })
         return withInformationalResponse(
@@ -857,6 +858,9 @@ const projectSettingsUpdate = (): ToolBase<
         }
         if (params.primary_dashboard !== undefined) {
             body['primary_dashboard'] = params.primary_dashboard
+        }
+        if (params.home_tab_dashboard !== undefined) {
+            body['home_tab_dashboard'] = params.home_tab_dashboard
         }
         if (params.live_events_columns !== undefined) {
             body['live_events_columns'] = params.live_events_columns

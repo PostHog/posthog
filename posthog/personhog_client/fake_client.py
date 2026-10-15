@@ -22,6 +22,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from unittest.mock import patch
 
@@ -744,15 +745,25 @@ class FakePersonHogClient:
         # Mirrors the server, in person id order: a tombstoned person whose distinct ids fit the
         # leftover budget goes whole unless one is live (blocked); the first that does not fit
         # gives up as many as the leftover allows and stays pending; the rest stay pending untouched.
-        response = person_pb2.DeleteTombstonedPersonsResponse()
+        if request.person_uuids and request.bounded_persons:
+            raise ValueError("Set either person_uuids or bounded_persons, not both")
+        response = person_pb2.DeleteTombstonedPersonsResponse(version_guard_applied=bool(request.bounded_persons))
         budget = max(1, min(request.max_rows or DELETE_TOMBSTONED_DEFAULT_ROWS, self.tombstoned_delete_max_rows))
+        bounds: dict[str, int] = {}
+        for bounded in request.bounded_persons:
+            if bounded.max_version < 0:
+                raise ValueError("max_version must not be negative")
+            bounds[bounded.person_uuid] = min(bounds.get(bounded.person_uuid, bounded.max_version), bounded.max_version)
         candidates: list[tuple[str, person_pb2.Person]] = []
-        for uuid in dict.fromkeys(request.person_uuids):
+        for uuid in dict.fromkeys([*request.person_uuids, *bounds]):
             person = self._persons_by_uuid.get((request.team_id, uuid))
             if person is None:
                 continue
             if not person.is_deleted:
                 response.skipped_live_count += 1
+                continue
+            if request.bounded_persons and person.version > bounds[uuid]:
+                response.skipped_version_count += 1
                 continue
             candidates.append((uuid, person))
         candidates.sort(key=lambda candidate: candidate[1].id)
@@ -812,9 +823,10 @@ class FakePersonHogClient:
         self, request: person_pb2.SplitPersonRequest, timeout: float | None = None
     ) -> person_pb2.SplitPersonResponse:
         """Stateful mirror of the real RPC: validates ownership, creates new
-        persons with deterministic UUIDv5s (preserving created_at for
-        pre-existing ones), moves the distinct_ids, and bumps versions by 101.
-        Results are returned in request order, like the real service.
+        persons with deterministic UUIDv5s (a random UUID when a live person
+        holds it; a tombstone there is revived with its created_at), moves the
+        distinct_ids, and bumps versions by 101. Results are returned in
+        request order, like the real service.
         """
         self.calls.append(_Call("split_person", request))
 
@@ -837,8 +849,12 @@ class FakePersonHogClient:
             new_uuid = str(uuidFromDistinctId(request.team_id, did))
 
             existing = self._persons_by_uuid.get((request.team_id, new_uuid))
+            if existing is not None and not existing.is_deleted:
+                new_uuid = str(uuid4())
+                existing = None
             if existing is not None:
-                existing.version = new_person_version
+                existing.is_deleted = False
+                existing.version = max(existing.version + 1, new_person_version)
                 new_person = existing
             else:
                 self._next_split_person_id += 1
@@ -861,7 +877,7 @@ class FakePersonHogClient:
                 person_pb2.SplitResult(
                     distinct_id=did,
                     new_person_uuid=new_uuid,
-                    new_person_version=new_person_version,
+                    new_person_version=new_person.version,
                     pdi_version=pdi_version,
                     new_person_created_at_ms=new_person.created_at,
                 )

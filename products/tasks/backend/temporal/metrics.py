@@ -16,6 +16,7 @@ TASKS_LATENCY_HISTOGRAM_METRICS = (
     "tasks_process_sandbox_step_latency",
     "tasks_process_snapshot_create_latency",
     "tasks_boot_total_latency",
+    "tasks_agent_boot_milestone_latency",
 )
 TASKS_LATENCY_HISTOGRAM_BUCKETS = [
     100.0,
@@ -582,6 +583,37 @@ def record_boot_total_ms(
             "Wall-clock latency from workflow start to agent-server ready",
             unit="ms",
         ).record(dt.timedelta(milliseconds=boot_total_ms))
+    except Exception:
+        pass
+
+
+def record_agent_boot_milestone_ms(
+    since_agent_ready_ms: int,
+    *,
+    milestone: str,
+    origin_product: str | None,
+    boot_path: str | None,
+    runtime: str,
+    sandbox_backend: str | None,
+    runtime_adapter: str | None,
+    prewarmed: bool,
+) -> None:
+    """Prometheus twin of the boot milestone analytics events, plotted next to `tasks_boot_total_latency`."""
+    try:
+        attributes: Attributes = {
+            "milestone": milestone,
+            "origin_product": origin_product or "unknown",
+            "boot_path": boot_path or "unknown",
+            "runtime": runtime,
+            "sandbox_backend": sandbox_backend or "unknown",
+            "runtime_adapter": _runtime_adapter_label(runtime_adapter),
+            "prewarmed": _bool_label(prewarmed),
+        }
+        workflow.metric_meter().with_additional_attributes(attributes).create_histogram_timedelta(
+            "tasks_agent_boot_milestone_latency",
+            "Latency from agent-server ready to the first agent boot milestone",
+            unit="ms",
+        ).record(dt.timedelta(milliseconds=since_agent_ready_ms))
     except Exception:
         pass
 

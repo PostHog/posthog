@@ -328,6 +328,9 @@ def _start_event_export(
     else:
         # Staged only: committing now would move the cursor past rows not yet written.
         resumable_source_manager.save_state(checkpoint)
+        # The source holds no rows here. Without the safe point, an export that fails after this
+        # loses the operation id, and each retry starts a new export.
+        resumable_source_manager.safe_point()
     return operation_id
 
 

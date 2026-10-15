@@ -68,6 +68,11 @@ For lookup tools, return an explicit normal result when absence is an expected a
 checking whether an event's session has a recording). Keep invalid inputs, permission failures, and
 server failures as tool errors so MCP Analytics measures genuine failures rather than routine misses.
 
+Preserve API errors with `throw result.error` or `wrapError(message, result.error)` from `@/lib/errors`.
+Copying only the message loses the HTTP status and retry guidance.
+For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
+It does not retry these requests automatically.
+
 ## SQL-first data retrieval
 
 The MCP server instructs the agent to read data through a unified HogQL interface
@@ -100,6 +105,16 @@ Do not trim endpoint serializers or generated tool schemas to meet the budget; t
 
 The eval runner's `--skill-delivery exec` mode removes bundled skills and defaults cases without an explicit interaction origin to the `eval` MCP consumer, which supports skill `learn`. Explicit case origins take precedence in both delivery modes. Bundled mode leaves unspecified origins unchanged.
 The runner applies the selected delivery mode to both Python's sandbox-provisioning flag override and MCP's flag override. Bundled mode preserves native skills unless a case explicitly disables them; exec mode removes them. Compare the `expected_skill_loaded` and `skill_loaded_before_tool` scores: a completed eval run can report `PASS` despite zero scores unless `--fail-under` sets a score threshold.
+The runner reports `FAIL` and exits with status 1 if a suite crashes or a case has an infrastructure error.
+This rule applies even without a score threshold.
+Infrastructure errors do not contribute to score averages.
+Case timeouts and low scores affect the exit status only through `--fail-under`.
+Temporary case setup failures and support-service readiness timeouts receive two retries by default, with delays of 1 second and 2 seconds.
+Use `--infra-retries 0` to disable these retries.
+Each case setup retry creates fresh test data before the agent starts.
+The runner stops the previous service process before a readiness retry.
+Retry messages show the next attempt and delay; only the final case result affects the error count.
+Authentication errors, setup code errors, agent work, and low scores do not trigger these retries.
 Bundled-mode evals explicitly disable `mcp-exec-skills` through the dev/test process override, which skips skill-catalog warmup and polling. Exec-mode evals allow 120 seconds for MCP startup, covering the 60-second warmup budget plus an in-flight download and development build; bundled mode keeps the 30-second startup limit. Production feature-flag evaluation does not control this process lifecycle.
 
 ## Rolling out MCP skill discovery
@@ -352,6 +367,13 @@ Product teams own their definitions and control which operations are exposed as 
    The MCP tool then requires the field, even when the generated PATCH body marks it optional.
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
+
+   For list tools with a UI app, set `response.text_include` to the dot-path fields an agent
+   needs from each result row. This adds a compact text response for clients that cannot read
+   `structuredContent`, while preserving the full structured payload for the app and explicit
+   JSON output. For example, the error issue list includes issue IDs, status, severity, timestamps,
+   impact counts, and links, but leaves volume buckets to the app. Pagination metadata stays in
+   the text response, and `results[0]` explicitly identifies an empty page.
 
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument
