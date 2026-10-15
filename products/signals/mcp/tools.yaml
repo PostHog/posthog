@@ -89,8 +89,8 @@ tools:
         title: Get a single artefact
         description: >
             Get one artefact by id. Content is parsed (and suggested_reviewers enriched with PostHog user info) the same
-            way as inbox-report-artefacts-list. A `ranking_score` keeps its full model metadata, including training
-            and evaluation data.
+            way as inbox-report-artefacts-list. A `ranking_score` keeps its full model metadata, including training and
+            evaluation data.
     inbox-report-artefacts-update:
         operation: signals_report_artefacts_partial_update
         enabled: true
