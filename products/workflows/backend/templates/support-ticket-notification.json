@@ -93,40 +93,32 @@
                         "templating": "hog"
                     },
                     "icon_emoji": {
-                        "value": ":hedgehog:",
+                        "value": ":ticket:",
                         "templating": "hog"
                     },
                     "username": {
-                        "value": "PostHog",
+                        "value": "Support",
                         "templating": "hog"
                     },
                     "blocks": {
                         "value": [
                             {
+                                "type": "section",
                                 "text": {
-                                    "text": "🎫 *New support ticket created*\n\n*User:* {person.name}\n*Email:* {person.email}\n\nA user has submitted a new support request.",
-                                    "type": "mrkdwn"
-                                },
-                                "type": "section"
+                                    "type": "mrkdwn",
+                                    "text": ":ticket: New ticket *#{event.properties.ticket_number}*\nFrom: {replaceAll(replaceAll(replaceAll(toString(event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}"
+                                }
                             },
                             {
                                 "type": "actions",
                                 "elements": [
                                     {
-                                        "url": "{person.url}",
+                                        "type": "button",
                                         "text": {
-                                            "text": "View user in PostHog",
-                                            "type": "plain_text"
+                                            "type": "plain_text",
+                                            "text": "View ticket"
                                         },
-                                        "type": "button"
-                                    },
-                                    {
-                                        "url": "{source.url}",
-                                        "text": {
-                                            "text": "Open ticket",
-                                            "type": "plain_text"
-                                        },
-                                        "type": "button"
+                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{event.properties.ticket_number}"
                                     }
                                 ]
                             }
@@ -134,7 +126,7 @@
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "*{person.name}* created a ticket: '{event.event}'",
+                        "value": "New ticket #{event.properties.ticket_number}",
                         "templating": "hog"
                     }
                 },
