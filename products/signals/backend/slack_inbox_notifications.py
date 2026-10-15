@@ -168,7 +168,7 @@ def _latest_actionability(report: SignalReport) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
+def resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
     """Resolve the report's suggested reviewers to PostHog user IDs.
 
     Uses the same enrichment path the API uses, so a reviewer stored by user uuid resolves whether
@@ -614,7 +614,7 @@ def _build_reviewer_routes(
     team-default channel (if configured) with no mentions, so a team is notified even when none of
     its members are linked to a resolvable GitHub identity.
     """
-    reviewer_user_ids = _resolve_suggested_reviewer_user_ids(report)
+    reviewer_user_ids = resolve_suggested_reviewer_user_ids(report)
     reviewer_users = {user.id: user for user in User.objects.filter(id__in=reviewer_user_ids)}
     own_configs = _own_target_configs_by_user(report.team_id, reviewer_user_ids)
 

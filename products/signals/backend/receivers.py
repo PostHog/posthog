@@ -109,6 +109,30 @@ def schedule_handover_for_report_change(sender: type, instance: SignalReport, **
     transaction.on_commit(lambda: schedule_report_replacements(team_id, report_id), robust=True)
 
 
+@receiver(post_save, sender=SignalReport)
+def push_report_to_reviewers_when_first_visible(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Send the "new report" mobile push once, on the save that stamps `first_visible_at`.
+
+    A pipeline report gets the stamp from `transition_to`, which always names it in `update_fields`.
+    A report born visible (scout, custom agent, plan layer) carries it from creation.
+    """
+    if instance.first_visible_at is None:
+        return
+    if not created and (update_fields is None or "first_visible_at" not in update_fields):
+        return
+    # Function-local to keep the push module's imports (Slack notifications, the Celery sender) off
+    # the django.setup() path.
+    from products.signals.backend.inbox_push_notifications import schedule_report_visible_push  # noqa: PLC0415
+
+    schedule_report_visible_push(team_id=instance.team_id, report_id=str(instance.id))
+
+
 def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
     """Copy a PR reported by a PR-bearing task run onto its signal report assignments."""
     try:
