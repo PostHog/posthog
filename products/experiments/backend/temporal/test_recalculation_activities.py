@@ -1,7 +1,10 @@
 import asyncio
+import threading
 import dataclasses
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 import time_machine
@@ -1516,6 +1519,30 @@ class TestCalculateActivityCancellation:
 
         assert observed["cancel_calls"] == 2
         assert observed["body_finished"] is True
+
+    async def test_query_kill_runs_while_calculations_fill_the_default_executor(self) -> None:
+        calculations_running = threading.Event()
+        killed: list[str] = []
+        busy_default_executor = ThreadPoolExecutor(max_workers=1)
+        asyncio.get_running_loop().set_default_executor(busy_default_executor)
+        busy_default_executor.submit(calculations_running.wait)
+        try:
+            with (
+                patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"),
+                patch(
+                    "products.experiments.backend.temporal.recalculation_logic._get_recalc_state",
+                    return_value=SimpleNamespace(team_id=1),
+                ),
+                patch(
+                    "products.experiments.backend.temporal.recalculation_logic.cancel_query_on_cluster",
+                    lambda team_id, query_id: killed.append(query_id),
+                ),
+            ):
+                await asyncio.wait_for(_cancel_metric_query_sync("r1", "m1", 1), timeout=5)
+        finally:
+            calculations_running.set()
+
+        assert killed == ["experiment_metric_recalc_r1_m1_attempt01"]
 
     async def test_heartbeats_while_the_body_runs_and_stops_after(self) -> None:
         # Temporal delivers a cancellation only in a heartbeat response, so without heartbeats the drain above

@@ -7,6 +7,7 @@ module holds the DB-touching ``_*_sync`` implementations plus the pure helpers t
 import time
 import random
 import dataclasses
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -67,6 +68,9 @@ logger = structlog.get_logger(__name__)
 _MAX_ERROR_MESSAGE_LENGTH = 2000
 
 _OUT_OF_TIME_MESSAGE = "The calculation ran out of time."
+
+# Calculations can fill the event loop's default executor, so a query kill there waits behind the query it kills.
+_CANCELLATION_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="experiment-recalc-cancel")
 
 # ---------------------------------------------------------------------------
 # Discovery
@@ -593,7 +597,7 @@ def _client_query_id(recalculation_id: str, metric_uuid: str, attempt: int) -> s
     return f"experiment_metric_recalc_{recalculation_id}_{metric_uuid}_attempt{attempt:02d}"
 
 
-@database_sync_to_async_pool
+@database_sync_to_async_pool(executor=_CANCELLATION_EXECUTOR)
 def _cancel_metric_query_sync(recalculation_id: str, metric_uuid: str, attempt: int) -> None:
     """Kill the ClickHouse query the metric's calc left running, so the abandoned attempt stops reading."""
     close_old_connections()

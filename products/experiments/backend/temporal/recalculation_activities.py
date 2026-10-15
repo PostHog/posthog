@@ -52,7 +52,9 @@ async def _drain_cancelled_body(
     loop = asyncio.get_running_loop()
     while not task.done():
         try:
-            await _cancel_metric_query_sync(recalculation_id, metric_uuid, attempt)
+            # A kill that hangs must not hold the drain past its deadline. The floor keeps the one kill after it.
+            kill_timeout = max(deadline - loop.time(), _CANCEL_KILL_RETRY_INTERVAL_SECONDS)
+            await asyncio.wait_for(_cancel_metric_query_sync(recalculation_id, metric_uuid, attempt), kill_timeout)
         except Exception:
             logger.warning(
                 "experiment_metric_recalculation_query_cancel_failed",
