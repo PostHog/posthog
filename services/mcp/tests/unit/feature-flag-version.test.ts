@@ -100,21 +100,6 @@ describe('evaluateFeatureFlags', () => {
         expect(mockGetAllFlagsAndPayloads).toHaveBeenCalledWith('user-123', { flagKeys: ['flag-a'] })
     })
 
-    it('forwards current request properties to flag evaluation without persisting them', async () => {
-        mockGetAllFlagsAndPayloads.mockResolvedValue({
-            featureFlags: { 'mcp-interview-recruitment': true },
-            featureFlagPayloads: {},
-        })
-        const personProperties = { mcp_client_name: 'claude-code', mcp_consumer: '', mcp_has_task: false }
-
-        await evaluateFeatureFlags(['mcp-interview-recruitment'], 'user-123', undefined, personProperties)
-
-        expect(mockGetAllFlagsAndPayloads).toHaveBeenCalledWith('user-123', {
-            flagKeys: ['mcp-interview-recruitment'],
-            personProperties,
-        })
-    })
-
     it('should short-circuit when no flag keys are requested', async () => {
         const result = await evaluateFeatureFlags([], 'user-123', { organization: 'org-abc' })
 

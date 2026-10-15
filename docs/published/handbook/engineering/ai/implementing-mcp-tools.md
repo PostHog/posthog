@@ -136,23 +136,14 @@ The counter expires after 24 hours without eligible activity, caps at 1,000 comp
 identical RPC IDs and tool arguments. A retried call with a new RPC ID is a new request. Continuations
 of an invitation do not increment it.
 
-Flag evaluation includes these properties from the current request, without updating the person's
-stored profile. Empty values explicitly replace any stored value for that property.
-
-| Property                                       | Use                                                                                      |
-| ---------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `mcp_client_name`, `mcp_client_version`        | Select particular MCP clients and versions.                                              |
-| `mcp_vendor_client`                            | Distinguish pooled clients, such as `ClaudeCode` and `ClaudeAI`.                         |
-| `mcp_consumer`                                 | Select or exclude a wrapping application.                                                |
-| `mcp_oauth_client_id`, `mcp_oauth_client_name` | Select the OAuth application identified by token introspection.                          |
-| `mcp_source`                                   | Select a surface using the existing source classifier, including `mcp` and `posthog_ai`. |
-| `mcp_task_origin`, `mcp_has_task`              | Identify task-bound requests.                                                            |
+Flag evaluation uses the authenticated user's distinct ID and the existing organization/project groups.
+Use existing person or group properties and cohorts for additional audience filters. The server does
+not inject client metadata as person-property overrides during flag evaluation.
 
 No client-name or task conditions are required in the flag. The server requires native URL
 elicitation support and enforces its surface and task exclusions independently of the flag.
-Use the flag for rollout and any additional audience filters. Optional property conditions use
-request overrides, not event-property filters or a last-used-client cohort. Alternative condition
-groups are OR conditions.
+Use the flag for rollout and any additional audience filters. Alternative condition groups are OR
+conditions.
 
 Only requests classified as `mcp` can recruit. Other surfaces, including PostHog AI and recognized
 self-driving OAuth applications, always skip recruitment. Task-bound requests and credentials with

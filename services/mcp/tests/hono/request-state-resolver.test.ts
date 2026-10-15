@@ -494,48 +494,10 @@ describe('RequestStateResolver MCP client contexts', () => {
 
             const result = await makeResolver().resolve(makeProps())
 
-            expect(evaluateFeatureFlags).toHaveBeenCalledWith(
-                expect.arrayContaining([flag]),
-                'distinct-id',
-                undefined,
-                expect.objectContaining({ mcp_source: 'mcp', mcp_has_task: false })
-            )
+            expect(evaluateFeatureFlags).toHaveBeenCalledWith(expect.arrayContaining([flag]), 'distinct-id', undefined)
             expect(result.toolFeatureFlags?.[flag]).toBe(true)
         }
     )
-
-    it('targets the current client instead of the session or a previously used surface', async () => {
-        mockSessionStore.set('mcpClientName', 'old-client')
-        mockSessionStore.set('mcpConsumer', 'posthog-code')
-        mockTokenStore.set('oauthClientId', 'test-oauth-app')
-        mockTokenStore.set('clientName', 'Test OAuth app')
-        await makeResolver().resolve(
-            makeProps({ mcpClientName: 'claude-code', mcpVendorClient: 'ClaudeCode', mcpConsumer: 'direct' })
-        )
-        expect(evaluateFeatureFlags).toHaveBeenLastCalledWith(
-            expect.any(Array),
-            'distinct-id',
-            undefined,
-            expect.objectContaining({
-                mcp_client_name: 'claude-code',
-                mcp_vendor_client: 'ClaudeCode',
-                mcp_consumer: 'direct',
-                mcp_oauth_client_id: 'test-oauth-app',
-                mcp_oauth_client_name: 'Test OAuth app',
-                mcp_task_origin: '',
-                mcp_has_task: false,
-            })
-        )
-        await makeResolver().resolve(
-            makeProps({ mcpClientName: 'another-client', mcpConsumer: '', mcpVendorClient: '' })
-        )
-        expect(evaluateFeatureFlags).toHaveBeenLastCalledWith(
-            expect.any(Array),
-            'distinct-id',
-            undefined,
-            expect.objectContaining({ mcp_client_name: 'another-client', mcp_consumer: '', mcp_vendor_client: '' })
-        )
-    })
 
     it.each([
         { taskId: 'test-task' },

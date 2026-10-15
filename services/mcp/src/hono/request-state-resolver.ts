@@ -8,7 +8,6 @@ import {
     evaluateFeatureFlags,
     type FlagEvaluation,
     type FlagGroups,
-    type FlagPersonProperties,
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
@@ -176,7 +175,8 @@ export class RequestStateResolver {
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
-        const [_apiKey, distinctId, oauthClientName, oauthClientId] = await Promise.all([
+        const [{ flags: allFlags, payloads }, _apiKey, distinctId, oauthClientName, oauthClientId] = await Promise.all([
+            this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
             reqCtx.tokenCache.get('clientName'),
@@ -190,24 +190,6 @@ export class RequestStateResolver {
             apiKeyScopes: _apiKey?.scopes,
             oauthClientId: oauthClientId || undefined,
         })
-        // Request overrides keep targeting on the current surface instead of a person's last-used client.
-        const flagPersonProperties: FlagPersonProperties = {
-            mcp_client_name: liveClient.mcpClientName ?? '',
-            mcp_client_version: liveClient.mcpClientVersion ?? '',
-            mcp_vendor_client: liveClient.mcpVendorClient ?? '',
-            mcp_consumer: liveClient.mcpConsumer ?? '',
-            mcp_oauth_client_id: oauthClientId ?? '',
-            mcp_oauth_client_name: oauthClientName ?? '',
-            mcp_source: source,
-            mcp_task_origin: props.taskOriginProduct ?? '',
-            mcp_has_task: Boolean(props.taskId || props.taskOriginProduct),
-        }
-        const { flags: allFlags, payloads } = await this.resolveAllFlags(
-            reqCtx,
-            allFlagKeys,
-            flagGroups,
-            flagPersonProperties
-        )
         const interviewConfig = interviewRecruitmentConfigSchema.safeParse(
             payloads[MCP_INTERVIEW_RECRUITMENT_FLAG] ?? {}
         )
@@ -429,8 +411,7 @@ export class RequestStateResolver {
     private async resolveAllFlags(
         reqCtx: RequestContext,
         flagKeys: string[],
-        groups?: FlagGroups,
-        personProperties?: FlagPersonProperties
+        groups?: FlagGroups
     ): Promise<FlagEvaluation> {
         if (flagKeys.length === 0) {
             return { flags: {}, payloads: {} }
@@ -445,7 +426,7 @@ export class RequestStateResolver {
         }
         try {
             const distinctId = await reqCtx.getDistinctId()
-            return await evaluateFeatureFlags(flagKeys, distinctId, groups, personProperties)
+            return await evaluateFeatureFlags(flagKeys, distinctId, groups)
         } catch {
             return { flags: {}, payloads: {} }
         }

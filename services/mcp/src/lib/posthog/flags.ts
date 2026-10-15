@@ -4,7 +4,6 @@ import { getPostHogClient } from './client'
 
 // Group type → group key, matching the `$groups` shape from `buildMCPAnalyticsGroups`.
 export type FlagGroups = Record<string, string>
-export type FlagPersonProperties = Record<string, string | boolean>
 
 export async function isFeatureFlagEnabled(flagKey: string, distinctId: string, groups?: FlagGroups): Promise<boolean> {
     try {
@@ -27,8 +26,7 @@ export type FlagEvaluation = { flags: EvaluatedFlags; payloads: Record<string, u
 export async function evaluateFeatureFlags(
     flagKeys: string[],
     distinctId: string,
-    groups?: FlagGroups,
-    personProperties?: FlagPersonProperties
+    groups?: FlagGroups
 ): Promise<FlagEvaluation> {
     if (flagKeys.length === 0) {
         return { flags: {}, payloads: {} }
@@ -39,7 +37,6 @@ export async function evaluateFeatureFlags(
     const evaluation = await client.getAllFlagsAndPayloads(distinctId, {
         flagKeys,
         ...(hasGroups ? { groups } : {}),
-        ...(personProperties ? { personProperties } : {}),
     })
     const result: EvaluatedFlags = {}
     for (const key of flagKeys) {

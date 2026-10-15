@@ -132,6 +132,7 @@ function stateForToolCall(state: ResolvedState, intent: string | undefined): Res
     return scoped
 }
 
+// Hooks run after SDK preparation to share its conversation handle and preserve per-call privacy suppression.
 export interface ToolCallHooks {
     beforeExecute(state: ResolvedState): Promise<Record<string, unknown> | undefined>
     afterExecute(state: ResolvedState, result: unknown): Promise<void>
