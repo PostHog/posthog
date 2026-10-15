@@ -20,7 +20,7 @@ import posthog.personhog_client.client as personhog_client
 from posthog.models.utils import RootTeamMixin
 from posthog.personhog_client import ReadConsistency, consistency_to_read_options
 from posthog.personhog_client.client import personhog_call, require_personhog_client
-from posthog.personhog_client.proto import GetGroupTypeMappingsByTeamIdRequest
+from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
 from posthog.rbac.decorators import field_access_control
 from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.utils import capture_exception_throttled, get_safe_cache, safe_cache_delete, safe_cache_set
@@ -726,15 +726,15 @@ def delete_group_type_mapping(instance: GroupTypeMapping, *, caller_tag: str | N
     )
 
 
-def get_group_type_mapping_dashboard_ids(team_id: int) -> set[int] | None:
+def get_group_type_mapping_dashboard_ids(project_id: int) -> set[int] | None:
     client = personhog_client.get_personhog_client()
     if client is None:
         return None
 
     def _fetch() -> set[int]:
-        response = client.get_group_type_mappings_by_team_id(
-            GetGroupTypeMappingsByTeamIdRequest(
-                team_id=team_id,
+        response = client.get_group_type_mappings_by_project_id(
+            GetGroupTypeMappingsByProjectIdRequest(
+                project_id=project_id,
                 read_options=consistency_to_read_options("strong"),
             )
         )

@@ -3000,7 +3000,9 @@ class DashboardsViewSet(
         deleted: list[int] = []
         skipped: list[dict[str, int | str]] = []
         serializer_context = self.get_serializer_context()
-        serializer_context["group_type_mapping_dashboard_ids"] = get_group_type_mapping_dashboard_ids(self.team.id)
+        serializer_context["group_type_mapping_dashboard_ids"] = get_group_type_mapping_dashboard_ids(
+            self.team.project_id
+        )
         for dashboard_id in ids:
             dashboard = dashboards.get(dashboard_id)
             if dashboard is None:
