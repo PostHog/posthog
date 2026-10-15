@@ -198,16 +198,13 @@ def restore(rows: list[dict[str, Any]], context: VerbContext) -> None:
     mapping_rows = [r for r in rows if r["kind"] == "mapping"]
     person_rows = [r for r in rows if r["kind"] == "person"]
     outcome = _restore_persons(person_rows, mapping_rows, context)
-    # Mappings of persons that already existed go through the ordinary mapping write.
     rest = [r for r in mapping_rows if r["key"] not in outcome.handled_ids]
     _write_mappings(context, rest, {r["key"]: r["evidence"]["ch"]["winner_person_uuid"] for r in rest}, "restored")
 
 
 @frozen
 class _RestoreOutcome:
-    # Person uuid to the distinct ids restored with it.
     restored: dict[str, list[str]]
-    # Mapping rows this call reported, restored with their person or skipped with it.
     handled_ids: frozenset[str]
 
 
