@@ -44,8 +44,12 @@ fun githubErrorMessage(response) {
   return response.body.message ?? response.body
 }
 
+fun githubTrimWhitespace(value) {
+  return trim(replaceAll(replaceAll(replaceAll(toString(value ?? ''), '\\n', ' '), '\\r', ' '), '\\t', ' '))
+}
+
 fun githubSplitList(value) {
-  return arrayFilter(item -> notEmpty(item), arrayMap(item -> trim(item), splitByString(',', toString(value ?? ''))))
+  return arrayFilter(item -> notEmpty(item), arrayMap(item -> githubTrimWhitespace(item), splitByString(',', toString(value ?? ''))))
 }`
 
 export const githubIssueInputs: HogFunctionInputSchemaType[] = [

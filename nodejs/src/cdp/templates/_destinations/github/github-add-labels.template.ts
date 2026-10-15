@@ -33,7 +33,19 @@ if (res.status < 200 or res.status >= 300) {
   throw Error(f'Failed to add GitHub labels ({res.status}): {githubErrorMessage(res)}')
 }
 
-return {'labels': arrayMap(label -> label.name, res.body)}
+if (typeof(res.body) != 'array') {
+  throw Error(f'Failed to add GitHub labels ({res.status}): GitHub returned no label list')
+}
+
+let names := []
+for (let item in res.body) {
+  if (typeof(item.name) != 'string') {
+    throw Error(f'Failed to add GitHub labels ({res.status}): GitHub returned a label without a name')
+  }
+  names := arrayPushBack(names, item.name)
+}
+
+return {'labels': names}
 `,
     inputs_schema: [
         ...githubIssueInputs,

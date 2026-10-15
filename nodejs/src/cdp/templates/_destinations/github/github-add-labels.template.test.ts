@@ -5,7 +5,7 @@ const defaultInputs = {
     github_installation: { access_token: 'installation-token', account: { name: 'posthog' } },
     repository: 'posthog/posthog-js',
     number: '42',
-    labels: 'bug, needs review,,',
+    labels: 'bug,\n\tneeds review,,',
 }
 
 describe('github add labels template', () => {
@@ -51,7 +51,7 @@ describe('github add labels template', () => {
         expect(result.execResult).toEqual({ labels: ['triage', 'bug', 'needs review'] })
     })
 
-    it.each([[''], [',, ,'], ['   ']])(
+    it.each([[''], [',, ,'], ['   '], ['\t,\n']])(
         'rejects labels %j that hold no label name before any request',
         async (labels) => {
             const response = await tester.invoke({ ...defaultInputs, labels })
@@ -60,6 +60,18 @@ describe('github add labels template', () => {
             expect(response.invocation.queueParameters).toBeUndefined()
         }
     )
+
+    it.each([
+        [null, 'Failed to add GitHub labels (200): GitHub returned no label list'],
+        ['<html>Unicorn!</html>', 'Failed to add GitHub labels (200): GitHub returned no label list'],
+        [[{ id: 1 }], 'Failed to add GitHub labels (200): GitHub returned a label without a name'],
+    ])('fails when GitHub answers with %j instead of a label list', async (body, error) => {
+        const response = await tester.invoke(defaultInputs)
+        const result = await tester.invokeFetchResponse(response.invocation, { status: 200, body })
+
+        expect(result.execResult).toBeUndefined()
+        expect(result.error).toEqual(error)
+    })
 
     it('fails with the status and GitHub message when GitHub rejects the labels', async () => {
         const response = await tester.invoke(defaultInputs)

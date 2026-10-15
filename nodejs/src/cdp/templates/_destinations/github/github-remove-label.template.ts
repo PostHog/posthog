@@ -17,10 +17,13 @@ ${githubHogHelpers}
 
 let repoPath := githubRepoPath(inputs.github_installation, inputs.repository)
 let issueNumber := githubIssueNumber(inputs.number)
-let label := trim(toString(inputs.label ?? ''))
+let label := githubTrimWhitespace(inputs.label)
 
 if (empty(label)) {
   throw Error('Enter a label name')
+}
+if (label == '.' or label == '..') {
+  throw Error('A label name cannot be . or ..')
 }
 
 let res := fetch(f'https://api.github.com/repos/{repoPath}/issues/{issueNumber}/labels/{encodeURLComponent(label)}', {

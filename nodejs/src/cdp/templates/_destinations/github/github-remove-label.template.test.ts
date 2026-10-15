@@ -53,10 +53,16 @@ describe('github remove label template', () => {
         })
     })
 
-    it.each([[''], ['   ']])('rejects the label %j before any request', async (label) => {
+    it.each([
+        ['', 'Enter a label name'],
+        ['   ', 'Enter a label name'],
+        ['\n\t', 'Enter a label name'],
+        ['.', 'A label name cannot be . or ..'],
+        ['..', 'A label name cannot be . or ..'],
+    ])('rejects the label %j before any request', async (label, error) => {
         const response = await tester.invoke({ ...defaultInputs, label })
 
-        expect(response.error).toEqual('Enter a label name')
+        expect(response.error).toEqual(error)
         expect(response.invocation.queueParameters).toBeUndefined()
     })
 
