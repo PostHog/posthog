@@ -220,34 +220,6 @@ Store one member/default level per scope and replace the old level when it chang
 OpenFGA does not enforce relationship cardinality or compare organization IDs across tuple paths.
 Application checks still enforce request-specific rules such as API scopes, reauthentication, verified domains, and the last-owner invariant.
 
-#### Resource fallback in the OpenFGA model
-
-`policy_chain` represents ordered fallback between scopes. Each node points to one `access_policy` and optionally one fallback node.
-The first applicable policy decides, including an explicit `none` or a lower access level.
-Each policy resolves member overrides before matching roles before its default.
-The chain exposes `has_rule` across all its nodes, so a denial in a later scope still blocks the object's resource fallback.
-
-For a warehouse table with an external source, point its `policy` relation at this chain:
-
-```text
-Table object policy → source object policy → warehouse_objects resource policy → external_data_source resource policy
-```
-
-A self-managed table uses only its object policy and the `warehouse_objects` resource policy.
-It has no source, so neither source-specific nor source-wide rules apply.
-Views do not acquire a single source parent from the tables they reference; query enforcement must still authorize the underlying tables.
-
-Chain nodes reference policies rather than the parent's final permissions, so parent creator exceptions and implicit defaults cannot bypass scope ordering.
-The table keeps its project and `warehouse_objects` resource links for membership checks and the built-in default when the chain has no rule.
-Tuple writers must maintain one policy and at most one fallback per node, an acyclic chain, and matching project and organization scopes.
-Use distinct chain nodes when the same source policy needs different downstream resource policies.
-OpenFGA does not enforce these relationship cardinalities.
-
-`warehouse_table.can_query` uses the table's resolved viewing access.
-The executable example is `products/authz/model/resources/warehouse_table.fga.yaml`.
-This is model support only: warehouse tuple synchronization, SDK object routing, and FGA-backed HogQL enforcement are not enabled by this model change.
-Existing direct `access_policy` links on other objects remain valid.
-
 #### Dashboard authorization mirror
 
 Set `OPENFGA_SYNC_ENABLED=1` in `.env.local` for the web and Celery processes to mirror dashboard authorization.
