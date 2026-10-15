@@ -75,16 +75,15 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                         dataAttr="analytics-sidebar-browse"
                     />
                     {starredSpaces.map((space) => (
-                        <div key={space.path} className="pl-4">
-                            <TodayPaneRow
-                                value={`space:${space.path}`}
-                                label={space.name}
-                                icon={<AnalyticsSpaceGlyph name={space.name} />}
-                                to={urls.analyticsList({ folder: space.path })}
-                                active={openFolder === space.path}
-                                dataAttr="analytics-sidebar-starred-space"
-                            />
-                        </div>
+                        <TodayPaneRow
+                            key={space.path}
+                            value={`space:${space.path}`}
+                            label={space.name}
+                            icon={<AnalyticsSpaceGlyph name={space.name} />}
+                            to={urls.analyticsList({ folder: space.path })}
+                            active={openFolder === space.path}
+                            dataAttr="analytics-sidebar-starred-space"
+                        />
                     ))}
                 </TodayPaneSection>
                 <TodayPaneSection
