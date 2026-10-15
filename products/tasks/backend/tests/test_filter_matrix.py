@@ -303,6 +303,25 @@ class TestTaskListFilterMatrix(TestCase):
 
     @parameterized.expand(
         [
+            ("own_tasks_without_archived", "me", ["posthog_mobile"]),
+            ("posthog_ai_counts_as_web", "adam", ["posthog_desktop", "posthog_web", "signals_scout"]),
+        ]
+    )
+    def test_sources_endpoint_lists_the_users_task_sources(self, _name: str, user: str, expected: list[str]) -> None:
+        Task.objects.filter(id=self.tasks["mine_peter_commented"].id).update(client_provenance="posthog_mobile")
+        Task.objects.filter(id=self.tasks["adam_mention_peter"].id).update(origin_product=Task.OriginProduct.POSTHOG_AI)
+        requester = getattr(self, user)
+        self.client.force_login(requester)
+
+        response = self.client.get("/api/projects/@current/tasks/sources/")
+
+        assert response.status_code == http_status.HTTP_200_OK, response.content
+        assert response.json() == {"sources": expected}
+        for source in expected:
+            assert self._list(sources=source, created_by=requester.id), source
+
+    @parameterized.expand(
+        [
             ("failed", ["peter_mention_me"]),
             ("in_progress", ["peter_slack_mention_me", "adam_mention_peter", "mine_peter_commented"]),
             ("queued", ["scout_in_channel"]),
