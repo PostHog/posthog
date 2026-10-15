@@ -32,8 +32,8 @@ The references hold the detail and the evidence.
 ## The picture in five lines (refreshed 2026-10-15)
 
 - Most engaged legacy opens end in a selection (~85%), and most never touch a category tab (~96%).
-- The Suggested view carries roughly three quarters of legacy selections.
-  About half of those come from recents.
+- The Suggested view carries about 70% of legacy selections.
+  Just over half of those come from recents.
 - Position matters: ~52% of legacy picks are row 0, ~85% are in the top three.
 - The biggest failure is a category picked first, then a search that finds nothing.
   Most empty searches are the right word in the wrong tab.

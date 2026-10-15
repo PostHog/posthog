@@ -39,7 +39,8 @@ Most empty searches are real words that exist somewhere else.
 
 ## 4. Failures that look like something else
 
-- **Signal:** `taxonomic filter fetch failed` on ~2% of timed searches (health dashboard).
+- **Signal:** `taxonomic filter fetch failed` on ~0.2 per 100 typed legacy searches (query 10).
+  The health dashboard shows ~2%, but it divides every failure, first loads included, by timed searches, so it overstates the rate.
   Events, cohorts, person properties and flags fail most.
   Some pseudo-category groups fail more often than they are picked.
   First-load failures have only been captured since 2026-09-13, so compare from then on.

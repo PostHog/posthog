@@ -21,8 +21,8 @@ Re-run with [refreshing-product-reality](refreshing-product-reality.md) when thi
   About 85% of picks are in the top three rows.
   These are legacy figures: the rebuild's `all` scope counts recents and pinned rows in its positions, so its numbers do not compare.
 - **~96% of engaged opens never select a real category** (7-day sample, legacy picker, sessions split at each `taxonomic filter closed`).
-- **Suggested carries about three quarters of selections** (legacy picker).
-  Roughly half of those are recents.
+- **Suggested carries about 70% of selections** (legacy picker).
+  Just over half of those are recents.
 
 ## Selection paths
 
@@ -92,8 +92,8 @@ Detail in [failure-modes](failure-modes.md).
 - Opens with a category pick end in a selection ~56% of the time, vs ~85% without one.
 - Most empty searches are ordinary words in the wrong scope.
 - Recovery within 30s of an empty result fell from ~46% to ~39% (Jul to Oct 2026, health dashboard session tile) while the empty-result rate stayed flat.
-- About 2% of timed searches end in a fetch failure (health dashboard).
-  Per typed legacy search the overall rate is well under 1%.
+- About 0.2 fetch failures per 100 typed legacy searches (query 10).
+  The health dashboard shows ~2%, but it divides every failure, first loads included, by timed searches, so it overstates the rate.
   Cohorts, events, person properties and flags make up most of the failures.
 - Person properties is the weakest big tab: ~70% of engaged opens on it end in a selection.
 

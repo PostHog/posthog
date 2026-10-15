@@ -19,7 +19,8 @@ Refresh with query 9 in [refreshing-product-reality](refreshing-product-reality.
 
 ## A failed request must show as an error
 
-`taxonomic filter fetch failed` fires on ~2% of timed searches.
+`taxonomic filter fetch failed` fires on ~0.2 per 100 typed legacy searches (query 10).
+The health dashboard shows ~2%, but it divides every failure, first loads included, by timed searches, so it overstates the rate.
 Cohorts, events, person properties and flags make up most of the failures.
 Legacy ends loading and shows `InfiniteListErrorState` with a retry.
 The rebuild ends loading too, but `hooks/useGroupList.ts` drops `remote.error`, so a failure shows as an empty list with no retry.

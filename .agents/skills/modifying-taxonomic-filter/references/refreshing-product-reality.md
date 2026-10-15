@@ -102,6 +102,7 @@ The buckets overlap.
 Write back relative shares only.
 `from_recents_pct` counts recents from any tab.
 `from_recents_in_suggested_pct` counts only the Suggested tab, which backs the "Recents inside Suggested" row in [feature-inventory](feature-inventory.md).
+`suggested_share_pct` backs the Suggested share, and `recents_share_of_suggested_pct` backs "about half of Suggested picks are recents".
 The rebuild's `all`, `recent` and `pinned` scopes have no `groupType`, so the query is legacy only and every column shares one base.
 
 ```sql
@@ -110,7 +111,10 @@ SELECT
   round(100 * countIf(NOT toBool(properties.hadSearchInput) AND NOT toBool(properties.wasFromRecents) AND NOT toBool(properties.wasFromPinnedList)) / count(), 1) AS browsed_no_search_pct,
   round(100 * countIf(toBool(properties.wasFromRecents)) / count(), 1) AS from_recents_pct,
   round(100 * countIf(toBool(properties.wasFromRecents) AND properties.groupType = 'suggested_filters') / count(), 1) AS from_recents_in_suggested_pct,
-  round(100 * countIf(toBool(properties.wasFromPinnedList)) / count(), 1) AS from_pinned_pct
+  round(100 * countIf(toBool(properties.wasFromPinnedList)) / count(), 1) AS from_pinned_pct,
+  round(100 * countIf(properties.groupType = 'suggested_filters') / count(), 1) AS suggested_share_pct,
+  round(100 * countIf(toBool(properties.wasFromRecents) AND properties.groupType = 'suggested_filters')
+    / countIf(properties.groupType = 'suggested_filters'), 1) AS recents_share_of_suggested_pct
 FROM events
 WHERE event = 'taxonomic filter item selected'
   AND coalesce(toString(properties.surface), '') != 'rebuild-menu'
@@ -291,9 +295,10 @@ Intent banner: banner shown, then switched.
 Write back the step ratios.
 
 - `event match suggested` carries no query or request ID, so no key counts suggestions exactly.
-  The raw count is too high: a tab switch that reuses a cached answer sends it again.
-  The distinct count per person, session and suggestion list is too low: two queries with the same list count once.
-  The query returns both, and the true rate lies between them.
+  The raw count runs high: a tab switch that reuses a cached answer sends it again.
+  The distinct count per person, session and suggestion list can run high or low: two queries with the same list count once, but pickers with different exclusions turn one answer into several lists.
+  Neither is a bound.
+  Report both as rough estimates, and trust the order of magnitude, not the exact value.
 - The backend sends `event match answered` for every call, even when the model never answered.
   The query leaves out `outcome` values `unavailable`, `wrong_length` and `only_values`, so the base is real model answers.
 - Selections have no exposure ID to pair with a suggestion, so the selection step compares person-sessions on both sides.
@@ -322,21 +327,22 @@ WHERE event IN ('taxonomic filter event match answered', 'taxonomic filter event
 
 ### 12. Recovery after an empty result
 
-Share of empty results followed by a searched selection in the same person and session within 30 seconds.
+Share of empty results followed by a searched selection in the same person, session and surface within 30 seconds, per surface.
+The surfaces cover different empty states (legacy sends none from Suggested, the rebuild sends them from its meta-scopes), so never pool them.
 Two pickers open at once in one session can still match each other; exact matching would need a picker instance ID.
 This counts every empty result, including repeats while typing, so it reads lower than the health dashboard's recovery tile.
 Compare each against its own history, not each other.
 
 ```sql
 WITH empties AS (
-  SELECT person_id, $session_id AS sid, timestamp AS t
+  SELECT person_id, $session_id AS sid, coalesce(toString(properties.surface), '') AS surface, timestamp AS t
   FROM events
   WHERE event = 'taxonomic filter empty result'
     AND timestamp >= now() - INTERVAL 7 DAY
     AND $session_id IS NOT NULL
 ),
 picks AS (
-  SELECT person_id, $session_id AS sid, timestamp AS t
+  SELECT person_id, $session_id AS sid, coalesce(toString(properties.surface), '') AS surface, timestamp AS t
   FROM events
   WHERE event = 'taxonomic filter item selected'
     AND toBool(properties.hadSearchInput)
@@ -344,9 +350,13 @@ picks AS (
     AND $session_id IS NOT NULL
 )
 -- ASOF matches only the next pick per empty result, so the join does not grow as empties x picks
-SELECT round(100 * countIf(p.t > e.t AND p.t <= e.t + INTERVAL 30 SECOND) / count(), 1) AS recovered_within_30s_pct
+SELECT
+  e.surface AS surface,
+  round(100 * countIf(p.t > e.t AND p.t <= e.t + INTERVAL 30 SECOND) / count(), 1) AS recovered_within_30s_pct
 FROM empties e
-ASOF LEFT JOIN picks p ON e.person_id = p.person_id AND e.sid = p.sid AND p.t > e.t
+ASOF LEFT JOIN picks p ON e.person_id = p.person_id AND e.sid = p.sid AND e.surface = p.surface AND p.t > e.t
+GROUP BY surface
+ORDER BY surface
 ```
 
 ## Updating the doc
