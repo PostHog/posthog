@@ -1,7 +1,7 @@
 {
     "id": "01a1352a-0c41-0000-9f14-b6c03e7a2d58",
     "name": "Ticket SLA: set follow-up time after the team replies",
-    "description": "When your team replies but leaves the ticket open, set a deadline for the next update, so open tickets don't go quiet. Tickets set to pending, on hold or resolved are skipped.",
+    "description": "When your team replies but leaves the ticket open, set a deadline for the next update, so open tickets don't go quiet. This also replaces the first response deadline once your team has replied. Tickets set to pending, on hold or resolved are skipped. Working hours are Monday to Friday, 9:00-17:00 UTC: change them in each Set SLA step. Works with the Ticket SLA first response template, which adds the tier tag, and the next response and pause templates.",
     "scope": "global",
     "tags": ["support", "support SLAs"],
     "version": 1,
@@ -120,7 +120,7 @@
         {
             "id": "wait_settle",
             "name": "Wait 1 minute",
-            "description": "Gives a status change made with the same reply time to land.",
+            "description": "Gives any changes made alongside the reply, like a status change, time to land, so the ticket is checked in its final state.",
             "type": "delay",
             "on_error": null,
             "filters": null,
@@ -191,7 +191,7 @@
         {
             "id": "tier",
             "name": "Which tier is the ticket?",
-            "description": "Uses the tier tag that 'Ticket SLA: set first response time' adds. On a team reply or a status change, the person on the event is your teammate, not the customer, so the customer's plan can't be read here. Tickets without a tier tag get the default SLA.",
+            "description": "Uses the tier tag that 'Ticket SLA: set first response time' adds. Tickets without one get the default SLA.",
             "type": "conditional_branch",
             "on_error": null,
             "filters": null,

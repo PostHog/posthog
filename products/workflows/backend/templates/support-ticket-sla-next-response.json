@@ -1,7 +1,7 @@
 {
     "id": "01a1352a-0c41-0000-c7a0-1d5e93b8f4e2",
     "name": "Ticket SLA: set next response time when the customer replies",
-    "description": "When a customer replies on a ticket, set how soon your team should reply next. The deadline depends on the customer's plan. If the ticket already has a sooner deadline, or one that has passed, that one is kept, so more messages from the customer never push a deadline back.",
+    "description": "When a customer replies on a ticket, set how soon your team should reply next. The deadline depends on the customer's plan. If the ticket already has a sooner deadline, or one that has passed, that one is kept, so more messages from the customer never push a deadline back. Working hours are Monday to Friday, 9:00-17:00 UTC: change them in each Set SLA step. Works with the Ticket SLA first response, follow-up, pause and reopened templates.",
     "scope": "global",
     "tags": ["support", "support SLAs"],
     "version": 1,
@@ -383,7 +383,7 @@
         {
             "id": "was_sooner",
             "name": "Was the earlier deadline sooner?",
-            "description": "Comparing the real deadlines works in and out of working hours. A follow-up deadline is always replaced, because a reply deadline is shorter.",
+            "description": "Keeps whichever deadline is sooner, so a follow-up deadline is only replaced if the new reply deadline is sooner.",
             "type": "conditional_branch",
             "on_error": null,
             "filters": null,

@@ -1,7 +1,7 @@
 {
     "id": "01a1352a-0c41-0000-7c25-a91e4b6f8d30",
     "name": "Ticket SLA: escalate overdue tickets",
-    "description": "If a ticket is still open a day after its SLA deadline, reassign it to a lead or team and post to Slack. If the reassignment fails, Slack is told instead. Each deadline is only escalated once.",
+    "description": "If a ticket is still open a day after its SLA deadline, reassign it to a lead or team and post to Slack. If the reassignment fails, Slack is told instead. Each deadline is only escalated once. Works with any template that sets an SLA, such as Ticket SLA: set first response time.",
     "scope": "global",
     "tags": ["support", "support SLAs", "slack"],
     "version": 1,
@@ -179,7 +179,7 @@
         {
             "id": "wait_settle",
             "name": "Wait 15 minutes",
-            "description": "Gives your SLA workflows time to set the new deadline, including after activity this workflow skipped in the last 10 minutes.",
+            "description": "Gives your other SLA workflows time to update the deadline.",
             "type": "delay",
             "on_error": null,
             "filters": null,

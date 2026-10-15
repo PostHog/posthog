@@ -1,7 +1,7 @@
 {
     "id": "01a1352a-0c41-0000-e3b7-5f9a28c4d1e6",
     "name": "Ticket SLA: warn before a breach",
-    "description": "Posts to Slack 1 hour before a ticket's SLA deadline, if the ticket is still open and the deadline hasn't moved. Each deadline is only warned about once.",
+    "description": "Posts to Slack 1 hour before a ticket's SLA deadline, if the ticket is still open and the deadline hasn't moved. Each deadline is only warned about once. Works with any template that sets an SLA, such as Ticket SLA: set first response time.",
     "scope": "global",
     "tags": ["support", "support SLAs", "slack"],
     "version": 1,
@@ -153,7 +153,7 @@
         {
             "id": "wait_settle",
             "name": "Wait 15 minutes",
-            "description": "Gives your SLA workflows time to set the new deadline, including after activity this workflow skipped in the last 10 minutes.",
+            "description": "Gives your other SLA workflows time to update the deadline.",
             "type": "delay",
             "on_error": null,
             "filters": null,

@@ -33,7 +33,7 @@ TEMPLATE_FILES = [
     "support-ticket-sla-escalate.json",
     "support-ticket-out-of-office.json",
     "support-ticket-notify-account-owner.json",
-    "support-ticket-prioritise-important.json",
+    "support-ticket-prioritize-important.json",
     "support-ticket-notify-assignee.json",
 ]
 

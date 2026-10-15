@@ -1,7 +1,7 @@
 {
     "id": "01a1352a-0c41-0000-5b93-e08a4c1f7d26",
     "name": "Ticket SLA: set first response time",
-    "description": "When a customer opens a ticket, set how soon your team should send the first reply. The deadline depends on the customer's plan, and tickets that match no plan get a default. The ticket is also tagged with its tier, which the other SLA templates use.",
+    "description": "When a customer opens a ticket, set how soon your team should send the first reply. The deadline depends on the customer's plan, and tickets that match no plan get a default. The ticket is also tagged with its tier, which the other SLA templates use. Working hours are Monday to Friday, 9:00-17:00 UTC: change them in each Set SLA step. Works with the Ticket SLA follow-up, next response, pause and reopened templates. Use at least follow-up and pause, or the deadline stays in place after your team replies.",
     "scope": "global",
     "tags": ["support", "support SLAs"],
     "version": 1,

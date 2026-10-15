@@ -1,6 +1,6 @@
 {
     "id": "01a1352a-0c41-0000-f15b-82c6d9a3e047",
-    "name": "Ticket routing: prioritise important customers",
+    "name": "Ticket routing: prioritize important customers",
     "description": "When an important customer opens a ticket, set it to high priority, assign it to your lead or on-call person, and post to Slack.",
     "scope": "global",
     "tags": ["support", "support routing", "slack"],
@@ -34,7 +34,7 @@
         },
         {
             "from": "is_important",
-            "to": "prioritise",
+            "to": "prioritize",
             "type": "branch",
             "index": 0
         },
@@ -44,7 +44,7 @@
             "type": "continue"
         },
         {
-            "from": "prioritise",
+            "from": "prioritize",
             "to": "slack_vip",
             "type": "continue"
         },
@@ -107,7 +107,7 @@
             "output_variable": null
         },
         {
-            "id": "prioritise",
+            "id": "prioritize",
             "name": "Set high priority and assign",
             "description": "Pick the lead, on-call person or team who should take these tickets.",
             "type": "function",

@@ -1,7 +1,7 @@
 {
     "id": "01a1352a-0c41-0000-4a8c-d27f15e6b093",
     "name": "Ticket SLA: pause while pending, on hold or resolved",
-    "description": "Clears a ticket's SLA when it's set to pending, on hold or resolved, so the clock doesn't run while you're waiting on the customer or the ticket is closed.",
+    "description": "Clears a ticket's SLA when it's set to pending, on hold or resolved, so the clock doesn't run while you're waiting on the customer or the ticket is closed. Works with the Ticket SLA first response, next response, follow-up and reopened templates, which set a new deadline when the ticket is open again.",
     "scope": "global",
     "tags": ["support", "support SLAs"],
     "version": 1,

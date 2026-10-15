@@ -30,7 +30,7 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     {
         title: 'New ticket → AI triage and investigation',
         description:
-            'An AI agent investigates each new ticket, tags and prioritises it, and saves its findings and a suggested reply as a private note.',
+            'An AI agent investigates each new ticket, tags and prioritizes it, and saves its findings and a suggested reply as a private note.',
         trigger: '$conversation_ticket_created',
         templateId: '01a12fb6-3cfe-0000-5d45-25a5b3a944e0',
     },

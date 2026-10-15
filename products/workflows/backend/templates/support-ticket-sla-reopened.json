@@ -1,7 +1,7 @@
 {
     "id": "01a1352a-0c41-0000-2e6f-8a4d1c9b5f73",
     "name": "Ticket SLA: set next response time when a ticket is reopened",
-    "description": "When someone on your team reopens a pending, on hold or resolved ticket, set a new response deadline. Without this, a ticket reopened by hand has no SLA, because the SLA was cleared when it left open.",
+    "description": "When someone on your team reopens a pending, on hold or resolved ticket, set a new response deadline. Without this, a ticket reopened by hand has no SLA, because the SLA was cleared when it left open. Working hours are Monday to Friday, 9:00-17:00 UTC: change them in each Set SLA step. Works with the Ticket SLA first response template, which adds the tier tag, and the pause template.",
     "scope": "global",
     "tags": ["support", "support SLAs"],
     "version": 1,
@@ -146,7 +146,7 @@
         {
             "id": "tier",
             "name": "Which tier is the ticket?",
-            "description": "Uses the tier tag that 'Ticket SLA: set first response time' adds. On a team reply or a status change, the person on the event is your teammate, not the customer, so the customer's plan can't be read here. Tickets without a tier tag get the default SLA.",
+            "description": "Uses the tier tag that 'Ticket SLA: set first response time' adds. Tickets without one get the default SLA.",
             "type": "conditional_branch",
             "on_error": null,
             "filters": null,
