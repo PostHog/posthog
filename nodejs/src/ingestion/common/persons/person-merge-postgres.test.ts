@@ -305,6 +305,125 @@ describe('PostgresPersonMerge merge events', () => {
         expect(result.survivor).toBe(existingPerson)
     })
 
+    // The outcomes that leave the target row untouched follow the one-exists rule: the committed row decides,
+    // and the flag commits at the call rather than riding the flush where another pod would read it late.
+    it.each([
+        { outcome: 'noop_same_person', locked: true, row: false, writes: true },
+        { outcome: 'noop_same_person', locked: true, row: true, writes: false },
+        { outcome: 'noop_same_person', locked: false, row: false, writes: false },
+        { outcome: 'skipped_already_identified', locked: true, row: false, writes: true },
+        { outcome: 'skipped_already_identified', locked: true, row: true, writes: false },
+        { outcome: 'skipped_already_identified', locked: false, row: false, writes: false },
+    ])(
+        'a $outcome identify (locked $locked, row identified $row) writes the flag at the call: $writes',
+        async ({ outcome, locked, row, writes }) => {
+            const order: string[] = []
+            mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
+            const target = {
+                id: 'p1',
+                uuid: targetPerson.uuid,
+                team_id: 2,
+                is_identified: false,
+            } as unknown as InternalPerson
+            const source =
+                outcome === 'noop_same_person'
+                    ? target
+                    : ({
+                          id: 'p0',
+                          uuid: sourcePerson.uuid,
+                          team_id: 2,
+                          is_identified: true,
+                      } as unknown as InternalPerson)
+            const committedRow = { ...target, is_identified: row, version: 1 } as InternalPerson
+            const writtenRow = { ...committedRow, is_identified: true, version: 2 } as InternalPerson
+            const cachedRow = { ...writtenRow, properties: { pending: true } } as InternalPerson
+            const flagMessage = { output: PERSON_DISTINCT_IDS_OUTPUT, value: Buffer.from('{"flag":true}') }
+            const tx = {
+                readMergeRows: jest.fn().mockImplementation(() => {
+                    order.push('readMergeRows')
+                    return Promise.resolve([committedRow])
+                }),
+                updatePersonForMerge: jest.fn().mockImplementation(() => {
+                    order.push('updatePersonForMerge')
+                    return Promise.resolve([writtenRow, [flagMessage], true])
+                }),
+            }
+            const store = {
+                fetchForUpdate: jest
+                    .fn()
+                    .mockImplementation((_teamId: number, distinctId: string) =>
+                        Promise.resolve(distinctId === 'd' ? target : source)
+                    ),
+                inTransaction: jest
+                    .fn()
+                    .mockImplementation(async (_description: string, body: (tx: unknown) => Promise<unknown>) => {
+                        const result = await body(tx)
+                        order.push('commit')
+                        return result
+                    }),
+                takeMergedRow: jest.fn().mockImplementation(() => {
+                    order.push('takeMergedRow')
+                    return cachedRow
+                }),
+            }
+            const merge = buildSingleSourceMerge(store, new UUIDT().toString(), {
+                isLockedOutcomeTeam: () => locked,
+            })
+
+            const result = await merge.execute()
+
+            expect(result.results).toEqual([{ sourceDistinctId: 'anon', outcome, sourcePersonUuid: source.uuid }])
+            if (writes) {
+                expect(order).toEqual(['readMergeRows', 'updatePersonForMerge', 'commit', 'takeMergedRow'])
+                expect(tx.updatePersonForMerge).toHaveBeenCalledWith(committedRow, { is_identified: true }, 'd')
+                expect(store.takeMergedRow).toHaveBeenCalledWith(writtenRow, 'd', { is_identified: true }, null, 0)
+                expect(mockOutputs.produce).toHaveBeenCalledWith(
+                    PERSON_DISTINCT_IDS_OUTPUT,
+                    expect.objectContaining({ value: flagMessage.value })
+                )
+                expect(result.survivor).toBe(cachedRow)
+            } else {
+                expect(tx.readMergeRows).toHaveBeenCalledTimes(locked ? 1 : 0)
+                expect(tx.updatePersonForMerge).not.toHaveBeenCalled()
+                expect(store.takeMergedRow).not.toHaveBeenCalled()
+                expect(result.survivor).toBe(target)
+            }
+            await expect(result.kafkaAck).resolves.toBeUndefined()
+        }
+    )
+
+    it('a same-person identify on a row over the size limit leaves the flag to the flush', async () => {
+        mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
+        const target = {
+            id: 'p1',
+            uuid: targetPerson.uuid,
+            team_id: 2,
+            is_identified: false,
+        } as unknown as InternalPerson
+        const tx = {
+            readMergeRows: jest.fn().mockResolvedValue([target]),
+            updatePersonForMerge: jest.fn().mockRejectedValue(new MergeOutcomeOversizedError('over the limit')),
+        }
+        const store = {
+            fetchForUpdate: jest.fn().mockResolvedValue(target),
+            inTransaction: jest
+                .fn()
+                .mockImplementation((_description: string, body: (tx: unknown) => Promise<unknown>) => body(tx)),
+            takeMergedRow: jest.fn(),
+        }
+        const merge = buildSingleSourceMerge(store, new UUIDT().toString())
+
+        const result = await merge.execute()
+
+        expect(tx.updatePersonForMerge).toHaveBeenCalledTimes(1)
+        expect(store.takeMergedRow).not.toHaveBeenCalled()
+        expect(mockOutputs.produce).not.toHaveBeenCalled()
+        expect(result.results).toEqual([
+            { sourceDistinctId: 'anon', outcome: 'noop_same_person', sourcePersonUuid: target.uuid },
+        ])
+        expect(result.survivor).toBe(target)
+    })
+
     // Same contract as the one-exists case: createPerson returns its messages and the
     // branch produces after commit, so the creation transaction never spans Kafka.
     it('a neither-exists merge produces the creation messages after the transaction', async () => {
@@ -360,9 +479,13 @@ describe('PostgresPersonMerge merge events', () => {
             distinctId: 'anon',
             message: { output: PERSON_DISTINCT_IDS_OUTPUT, value: Buffer.from('{"version":1}') },
         }
+        const tx = { readMergeRows: jest.fn().mockResolvedValue([{ ...person, is_identified: true }]) }
         const store = {
             fetchForUpdate: jest.fn().mockResolvedValue(person),
             fetchPersonDistinctIdMappings: jest.fn().mockResolvedValue([mapping]),
+            inTransaction: jest
+                .fn()
+                .mockImplementation((_description: string, body: (tx: unknown) => Promise<unknown>) => body(tx)),
         }
         const debounce = new MergeMappingDebounce(100, 60_000)
 
@@ -396,6 +519,7 @@ describe('PostgresPersonMerge merge events', () => {
             distinctId: 'd',
             message: { output: PERSON_DISTINCT_IDS_OUTPUT, value: Buffer.from('{"version":0}') },
         }
+        const tx = { readMergeRows: jest.fn().mockResolvedValue([{ ...target, is_identified: true }]) }
         const store = {
             fetchForUpdate: jest
                 .fn()
@@ -403,6 +527,9 @@ describe('PostgresPersonMerge merge events', () => {
                     Promise.resolve(distinctId === 'd' ? target : source)
                 ),
             fetchPersonDistinctIdMappings: jest.fn().mockResolvedValue([mapping]),
+            inTransaction: jest
+                .fn()
+                .mockImplementation((_description: string, body: (tx: unknown) => Promise<unknown>) => body(tx)),
         }
 
         const replay = await buildSingleSourceMerge(store, new UUIDT().toString(), {
