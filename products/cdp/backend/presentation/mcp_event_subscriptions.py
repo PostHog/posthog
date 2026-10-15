@@ -14,7 +14,12 @@ from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import (
+    DelegatedOAuthAccessTokenAuthentication,
+    DelegatedPersonalAPIKeyAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+)
 from posthog.models import User
 
 from products.cdp.backend.facade.mcp_event_types import (
@@ -243,6 +248,10 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     def _principal(self, request: Request) -> str:
         authenticator = request.successful_authenticator
+        if isinstance(authenticator, (DelegatedOAuthAccessTokenAuthentication, DelegatedPersonalAPIKeyAuthentication)):
+            raise PermissionDenied(
+                "Use the original OAuth access token or personal API key directly to manage subscriptions."
+            )
         if isinstance(authenticator, OAuthAccessTokenAuthentication):
             return f"oauth:{request.user.pk}:{authenticator.access_token.application_id}"
         if isinstance(authenticator, PersonalAPIKeyAuthentication):

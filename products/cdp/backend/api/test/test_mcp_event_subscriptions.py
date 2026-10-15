@@ -21,6 +21,7 @@ from parameterized import parameterized
 from pydantic import JsonValue
 from rest_framework.exceptions import ValidationError
 
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.security.pinned_httpx import pinned_client
@@ -709,6 +710,36 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
                 assert subscription.hog_function is not None
                 reload.assert_not_called()
             reload.assert_called_once_with(team_id=self.team.pk, hog_function_ids=[str(subscription.hog_function_id)])
+
+    @parameterized.expand(["personal_api_key", "oauth"])
+    def test_delegated_credentials_cannot_create_long_lived_subscriptions(self, source: str) -> None:
+        claims: dict[str, str | int] = {"id": self.user.pk}
+        if source == "personal_api_key":
+            claims["personal_api_key_id"] = PersonalAPIKey.objects.get(user=self.user).pk
+        else:
+            application = OAuthApplication.objects.create(
+                name="MCP delegated credential test",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token="pha_mcp_delegated_test",
+                scope="mcp_event_subscription:write query:read",
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=[self.team.pk],
+            )
+            claims["oauth_access_token_id"] = str(token.pk)
+        credential = encode_jwt(claims, timedelta(minutes=5), PosthogJwtAudience.DELEGATED_USER)
+        response = self.client.post(self.url + "subscribe/", self.payload, HTTP_AUTHORIZATION=f"Bearer {credential}")
+        self.assertEqual(response.status_code, 403, response.json())
+        self.assertFalse(MCPEventSubscription.objects.for_team(self.team.pk).exists())
+        self.assertFalse(HogFunction.objects.filter(team=self.team).exists())
 
     def test_oauth_refresh_keeps_identity_and_bounds_lifetime_by_token_expiry(self) -> None:
         application = OAuthApplication.objects.create(

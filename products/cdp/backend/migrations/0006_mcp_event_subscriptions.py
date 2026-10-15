@@ -72,6 +72,11 @@ class Migration(migrations.Migration):
                 "abstract": False,
                 "indexes": [
                     models.Index(
+                        fields=["team", "expires_at"],
+                        name="cdp_mcp_active_team_expiry_idx",
+                        condition=models.Q(active=True),
+                    ),
+                    models.Index(
                         fields=["expires_at"], name="cdp_mcp_active_expiry_idx", condition=models.Q(active=True)
                     ),
                     models.Index(fields=["team", "created_by", "-created_at", "-id"], name="cdp_mcp_owner_created_idx"),

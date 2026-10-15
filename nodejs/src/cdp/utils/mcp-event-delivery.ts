@@ -6,6 +6,7 @@ import { logger } from '~/common/utils/logger'
 import { internalFetch } from '~/common/utils/request'
 
 import type { CyclotronJobInvocationHogFunction } from '../types'
+import { isFetchResponseRetriable } from './cdp-fetch'
 import { resolveHogFunctionInputValue } from './hog-function-inputs'
 
 const DeliveryResponse = z.object({
@@ -108,7 +109,7 @@ export async function prepareMcpEventDelivery({
             return {
                 ok: false,
                 ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
-                retryable: response.status >= 500 || response.status === 429,
+                retryable: isFetchResponseRetriable(response, null),
             }
         }
         const parsed = DeliveryResponse.safeParse(parseJSON(await response.text()))
