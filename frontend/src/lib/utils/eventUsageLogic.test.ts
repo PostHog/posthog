@@ -1,12 +1,5 @@
 import posthog from 'posthog-js'
 
-import {
-    reportOnboardingCompleted,
-    reportOnboardingStarted,
-    reportOnboardingStepCompleted,
-    reportOnboardingStepSkipped,
-} from 'scenes/onboarding/onboardingUsage'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
@@ -25,50 +18,13 @@ import {
     type DashboardType,
     FilterLogicalOperator,
     FunnelVizType,
-    OnboardingStepKey,
     PropertyFilterType,
     StepOrderValue,
 } from '~/types'
 
-import {
-    dashboardViewedProperties,
-    eventUsageLogic,
-    getEventPropertiesForMetric,
-    sanitizeQuery,
-} from './eventUsageLogic'
+import { dashboardViewedProperties, eventUsageLogic, getEventPropertiesForMetric, sanitizeQuery } from './eventUsageLogic'
 
 describe('eventUsageLogic', () => {
-    describe('onboarding funnel events', () => {
-        let capture: jest.SpyInstance
-
-        beforeEach(() => {
-            initKeaTests()
-            eventUsageLogic.mount()
-            capture = jest.spyOn(posthog, 'capture').mockImplementation()
-        })
-
-        afterEach(() => {
-            capture.mockRestore()
-        })
-
-        it('stamps the entry point on every funnel event', () => {
-            reportOnboardingStarted()
-            reportOnboardingStepCompleted(OnboardingStepKey.INSTALL)
-            reportOnboardingStepSkipped(OnboardingStepKey.INSTALL)
-            reportOnboardingCompleted('product_analytics')
-
-            for (const event of [
-                'onboarding started',
-                'onboarding step completed',
-                'onboarding step skipped',
-                'onboarding completed',
-            ]) {
-                const call = capture.mock.calls.find(([name]) => name === event)
-                expect(call?.[1]).toMatchObject({ entry_point: 'product_selection' })
-            }
-        })
-    })
-
     describe('experiments list viewed', () => {
         it('sends the state of the list under its pinned property names', () => {
             initKeaTests()

@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { OnboardingStepKey } from '~/types'
+import type { OnboardingStepKey } from '~/types'
 
 // pinned: event property values. Onboarding funnel insights filter and break down on these, so
 // they keep the values the flow sent while it was one of two experiment arms. `entry_point` rides
