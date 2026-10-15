@@ -278,6 +278,15 @@ describe('hogFlowEditorLogic', () => {
             expect(otherEditor.values.editorLayout).toEqual('simple')
         })
 
+        it('remembers a pick while another workflow editor stays open on the page', async () => {
+            hogFlowEditorLogic({ id: OTHER_WORKFLOW_ID }).mount()
+
+            logic.actions.pickEditorLayout('advanced')
+            const thirdEditor = await openWorkflowEditor('third-workflow')
+
+            expect(thirdEditor.values.editorLayout).toEqual('advanced')
+        })
+
         it('keeps the view the link asks for when a new workflow is saved for the first time', async () => {
             logic.actions.pickEditorLayout('advanced')
             const newWorkflowEditor = await openWorkflowEditor('new', { view: 'linear' })

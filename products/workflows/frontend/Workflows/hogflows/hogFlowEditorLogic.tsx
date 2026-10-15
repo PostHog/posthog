@@ -34,6 +34,7 @@ import { resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
+import { hogFlowEditorPreferencesLogic } from './hogFlowEditorPreferencesLogic'
 import { getFormattedNodes } from './react_flow_utils/autolayout'
 import {
     BOTTOM_HANDLE_POSITION,
@@ -217,6 +218,7 @@ export interface hogFlowEditorLogicValues {
     edgesByActionId: Record<string, HogFlowEdge[]> // workflowLogic
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType> // workflowLogic
     workflow: HogFlow // workflowLogic
+    preferredEditorLayout: HogFlowEditorLayout // hogFlowEditorPreferencesLogic
     actionMetricsById: Record<string, HogFlowEditorActionMetrics> | null
     actionMetricsByIdLoading: boolean
     animatingEdgePair: string | null
@@ -233,7 +235,6 @@ export interface hogFlowEditorLogicValues {
     nodes: HogFlowActionNode[]
     nodesById: Record<string, HogFlowActionNode>
     panelWidth: number | null
-    preferredEditorLayout: HogFlowEditorLayout
     reactFlowInstance: ReactFlowInstance<Node, Edge> | null
     reactFlowWrapper: RefObject<HTMLDivElement> | null
     selectedNode: HogFlowActionNode | null
@@ -248,6 +249,9 @@ export interface hogFlowEditorLogicActions {
     loadCategories: () => {
         value: true
     } // optOutCategoriesLogic
+    rememberEditorLayout: (editorLayout: HogFlowEditorLayout) => {
+        editorLayout: HogFlowEditorLayout
+    } // hogFlowEditorPreferencesLogic
     loadWorkflowSuccess: (
         originalWorkflow:
             | HogFlow
@@ -2205,12 +2209,16 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             ['integrations'],
             teamLogic,
             ['currentTeam'],
+            hogFlowEditorPreferencesLogic,
+            ['preferredEditorLayout'],
         ],
         actions: [
             workflowLogic,
             ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
             optOutCategoriesLogic(),
             ['loadCategories'],
+            hogFlowEditorPreferencesLogic,
+            ['rememberEditorLayout'],
         ],
     })),
     actions({
@@ -2278,13 +2286,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             'simple' as HogFlowEditorLayout,
             {
                 setEditorLayout: (_, { editorLayout }) => editorLayout,
-            },
-        ],
-        preferredEditorLayout: [
-            'simple' as HogFlowEditorLayout,
-            { persist: true, storageKey: 'hogFlowEditorPreferredLayout' },
-            {
-                pickEditorLayout: (_, { editorLayout }) => editorLayout,
             },
         ],
         mode: [
@@ -2521,6 +2522,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         let animationTimeout: ReturnType<typeof setTimeout> | null = null
         return {
             pickEditorLayout: ({ editorLayout }) => {
+                actions.rememberEditorLayout(editorLayout)
                 actions.setEditorLayout(editorLayout)
             },
             onEdgesChange: ({ edges }) => {
