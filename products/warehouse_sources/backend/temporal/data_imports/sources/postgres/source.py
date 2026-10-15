@@ -2122,13 +2122,13 @@ class PostgresSource(
         job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
 
         # A CDC reset must travel through snapshot mode, which re-seeds the table before the buffer
-        # replays over it; every reset writer does that. Merging the buffer into a wiped table
-        # instead would leave only the rows changed since.
+        # replays over it. Merging the buffer into a wiped table instead would leave only the rows
+        # changed since. A reset that reaches a streaming table anyway goes to capture, which puts the
+        # table back into snapshot mode. Refusing it would fail every run of the table until a manual reset.
         if inputs.reset_pipeline:
-            raise ValueError(
-                f"reset_pipeline is set on buffered CDC schema {schema.name} while cdc_mode is still "
-                "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
-            )
+            inputs.logger.warning("cdc_buffered_reset_handed_to_capture", schema_name=schema.name)
+            hand_reset_to_capture(schema, inputs.logger, start_capture=False)
+            return no_op_tick()
 
         if has_batches_in_flight(schema):
             # Reading now would stage rows alongside a delivery that is still landing: a previous
