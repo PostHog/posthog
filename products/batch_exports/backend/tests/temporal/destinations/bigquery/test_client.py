@@ -4,6 +4,7 @@ import random
 import string
 import asyncio
 import weakref
+import collections.abc
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -92,7 +93,7 @@ async def test_execute_query_pending_timeout(states_sequence: list[str], should_
 
 
 def _make_load_test_client(
-    reload_outcomes: list[str | Exception],
+    reload_outcomes: collections.abc.Sequence[str | Exception],
 ) -> tuple[BigQueryClient, BigQueryTable, list[int]]:
     mock_sync_client = MagicMock()
     mock_sync_client.project = "test-project"
@@ -109,7 +110,7 @@ def _make_load_test_client(
             raise outcome
         load_job._set_properties({**load_job._properties, "status": {"state": outcome}})
 
-    load_job.reload = reload  # type: ignore[method-assign]
+    load_job.reload = reload  # type: ignore
     uploads: list[int] = []
 
     # A plain function rather than a MagicMock, because a mock keeps the file alive in `call_args`.
