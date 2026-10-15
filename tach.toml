@@ -1749,9 +1749,16 @@ from = [
 
 [[modules]]
 path = "products.commands"
-# Facade-only (enforced by each product's [[interfaces]] block): pull request comment commands
-# dispatch into these products.
-depends_on = ["posthog", "products.review_hog", "products.security", "products.stamphog", "products.tasks"]
+# Facade-only (enforced by each product's [[interfaces]] block): commands dispatch into these
+# products.
+depends_on = [
+    "posthog",
+    "products.error_tracking",
+    "products.review_hog",
+    "products.security",
+    "products.stamphog",
+    "products.tasks",
+]
 layer = "modules"
 
 [[interfaces]]

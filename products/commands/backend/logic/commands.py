@@ -13,8 +13,11 @@ from posthog.dataclasses import frozen
 # The name goes into GitHub API paths, so it must be exactly `owner/name`.
 REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
 
-SubjectKind = Literal["pull_request"]
-SUBJECT_NAMES: dict[SubjectKind, str] = {"pull_request": "pull requests"}
+SubjectKind = Literal["pull_request", "error_tracking_issue"]
+SUBJECT_NAMES: dict[SubjectKind, str] = {
+    "pull_request": "pull requests",
+    "error_tracking_issue": "error tracking issues",
+}
 
 DispatchOutcome = Literal[
     "duplicate",
@@ -35,6 +38,7 @@ DispatchOutcome = Literal[
     "pull_request_unavailable",
     "pull_request_unsupported",
     "pull_request_closed",
+    "issue_not_found",
     "fork_refused",
     "access_denied",
     "accepted",
@@ -65,7 +69,20 @@ class PullRequestRef:
         return f"{self.repository}#{self.number}"
 
 
-SubjectRef = PullRequestRef
+@frozen
+class ErrorTrackingIssueRef:
+    """An error tracking issue as a PostHog URL names it, before anything about it is checked."""
+
+    kind: ClassVar[SubjectKind] = "error_tracking_issue"
+
+    team_id: int
+    issue_id: str
+
+    def describe(self) -> str:
+        return f"error tracking issue {self.issue_id}"
+
+
+SubjectRef = PullRequestRef | ErrorTrackingIssueRef
 
 
 @frozen
@@ -113,7 +130,21 @@ class PullRequestFacts:
     is_fork: bool
 
 
-SubjectFacts = PullRequestFacts
+@frozen
+class ErrorTrackingIssueFacts:
+    """The issue as error tracking reports it when the task read it.
+
+    The issue's name is not kept: it comes from captured exception text, which people outside the
+    organization can write, so no reply may repeat it.
+    """
+
+    team_id: int
+    issue_id: str
+    status: str
+    url: str
+
+
+SubjectFacts = PullRequestFacts | ErrorTrackingIssueFacts
 
 
 # Where a channel wants the result of work that finishes after the command answered. Only the
@@ -145,6 +176,15 @@ class CommandContext:
     @property
     def pull_request(self) -> PullRequestFacts:
         """The subject of a command that accepts only pull requests."""
+        if not isinstance(self.subject, PullRequestFacts):
+            raise TypeError(f"Expected a pull request, got {type(self.subject).__name__}")
+        return self.subject
+
+    @property
+    def issue(self) -> ErrorTrackingIssueFacts:
+        """The subject of a command that accepts only error tracking issues."""
+        if not isinstance(self.subject, ErrorTrackingIssueFacts):
+            raise TypeError(f"Expected an error tracking issue, got {type(self.subject).__name__}")
         return self.subject
 
 

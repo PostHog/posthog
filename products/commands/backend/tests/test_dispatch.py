@@ -10,6 +10,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
@@ -32,12 +33,20 @@ from products.commands.backend.channels.github.intake import CommentCommandReque
 from products.commands.backend.channels.slack.mentions import read_slack_command
 from products.commands.backend.facade.api import accept_slack_mention
 from products.commands.backend.facade.contracts import SlackMention
-from products.commands.backend.logic.commands import CommandContext, CommandRequest, ProjectMember, PullRequestFacts
+from products.commands.backend.logic.commands import (
+    CommandContext,
+    CommandRequest,
+    ProjectMember,
+    PullRequestFacts,
+    PullRequestRef,
+)
 from products.commands.backend.logic.github import InstallationGitHub, Reaction, UnsupportedPullRequest
 from products.commands.backend.logic.handlers import handle_loop, handle_qa
 from products.commands.backend.logic.schema import LoopArgs, QaArgs
 from products.commands.backend.receivers import on_review_finished
 from products.commands.backend.tasks.tasks import deliver_follow_up, run_slack_command
+from products.error_tracking.backend.facade.api import get_issue
+from products.error_tracking.backend.facade.testing import create_issue
 from products.review_hog.backend.facade.finished_review_hooks import FinishedReview
 from products.review_hog.backend.facade.reviews import (
     RUN_MODE_FLASH,
@@ -499,9 +508,15 @@ class TestDispatchCommentCommand(BaseTest):
             config={"account": {"name": account}}
         )
 
-    def _slack_mention(self, text: str, organization_ids: tuple[str, ...], integration_id: int = 0) -> SlackMention:
+    def _slack_mention(
+        self,
+        text: str,
+        organization_ids: tuple[str, ...],
+        integration_id: int = 0,
+        url: str = f"https://github.com/{REPOSITORY}/pull/7",
+    ) -> SlackMention:
         return SlackMention(
-            text=f"{text} https://github.com/{REPOSITORY}/pull/7",
+            text=f"{text} {url}",
             slack_team_id="T1",
             slack_user_id="U1",
             channel="C1",
@@ -535,7 +550,8 @@ class TestDispatchCommentCommand(BaseTest):
 
         assert (command.verb if command else None) == expected_verb
         if command is not None:
-            assert (command.subject.installation_id, command.team_ids) == (INSTALLATION_ID, (self.team.id,))
+            assert command.subject == PullRequestRef(installation_id=INSTALLATION_ID, repository=REPOSITORY, number=7)
+            assert command.team_ids == (self.team.id,)
         # Inside the Slack webhook, a flag that needs a remote call reads as off.
         assert all(call.kwargs["only_evaluate_locally"] for call in self.flag.call_args_list)
 
@@ -608,6 +624,36 @@ class TestDispatchCommentCommand(BaseTest):
             assert "found 2 issues" in follow_up_post.call_args.args[3]
         else:
             follow_up_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("resolve", "resolve", "Resolved [the issue]", "resolved", None),
+            ("assign", "assign", "Assigned [the issue]", "active", "user"),
+            # A pull request command answers instead of acting on an issue.
+            ("pull_request_command", "review", "`review` doesn't run on error tracking issues.", "active", None),
+        ]
+    )
+    def test_a_slack_command_acts_on_an_error_tracking_issue_url(
+        self, _name: str, verb: str, expected_answer: str, expected_status: str, expected_assignee: str | None
+    ) -> None:
+        issue_id = create_issue(team_id=self.team.id, name="TypeError: boom")
+        slack = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T1", config={}, sensitive_config={"access_token": "xoxb-x"}
+        )
+        url = f"{settings.SITE_URL}/project/{self.team.id}/error_tracking/{issue_id}"
+        mention = self._slack_mention(verb, (str(self.organization.id),), integration_id=slack.id, url=url)
+
+        with (
+            patch(RUN_SLACK_COMMAND, side_effect=lambda **kwargs: run_slack_command(**kwargs)),
+            patch(SLACK_POST) as post,
+        ):
+            accepted = accept_slack_mention(mention)
+
+        assert accepted == verb
+        assert post.call_args.args[3].startswith(expected_answer)
+        issue = get_issue(issue_id, self.team.id)
+        assert issue.status == expected_status
+        assert (issue.assignee.type if issue.assignee else None) == expected_assignee
 
     @patch("posthog.ingress.github.provider.get_instance_setting", return_value="test-webhook-secret")
     def test_a_signed_comment_with_a_command_is_queued(self, _secret: MagicMock) -> None:

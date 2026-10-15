@@ -16,7 +16,7 @@ This product owns the parsing, the checks and the replies, and owns no work of i
 
 A command comes in through a channel and acts on a subject.
 The channels are GitHub pull request comments and Slack mentions.
-Pull requests are the only kind of subject so far, and the core takes more kinds without changes to the channels.
+The subjects are pull requests and, from Slack, PostHog error tracking issues.
 
 [`COMMANDS.generated.md`](COMMANDS.generated.md) lists every command, and [`commands.generated.json`](commands.generated.json) is the same reference for tools.
 Both are generated from `backend/logic/schema.py`, like the `@posthog help` reply.
@@ -40,12 +40,15 @@ Both are generated from `backend/logic/schema.py`, like the `@posthog help` repl
 
 ## Commands from Slack
 
-The same commands run from a Slack message that mentions the PostHog app and names the pull request by its URL, before or after the command:
+The same commands run from a Slack message that mentions the PostHog app and names the subject by its URL, before or after the command.
+A pull request is named by its GitHub URL, and an error tracking issue by its URL in this PostHog instance:
 
 ```text
 @PostHog review --deep https://github.com/PostHog/posthog/pull/123
 @PostHog https://github.com/PostHog/posthog/pull/123 review --deep
 @PostHog qa https://github.com/PostHog/posthog/pull/123 check the signup form
+@PostHog resolve https://us.posthog.com/project/2/error_tracking/01890a5d-ac96-774b-b3f2-3e3c8a6d2b11
+@PostHog https://us.posthog.com/project/2/error_tracking/01890a5d-ac96-774b-b3f2-3e3c8a6d2b11 assign
 ```
 
 - Only a message that opens with the app's mention and reads exactly as a command runs one. Free text, such as "can you review this deeply", and a mistyped option go to the agent as before.
@@ -60,12 +63,15 @@ The same commands run from a Slack message that mentions the PostHog app and nam
 ## Subjects
 
 The subject is the thing a command acts on, such as a pull request.
-A channel names it with a reference: a comment names the pull request it sits on, and a Slack message names one by its URL.
+A channel names it with a reference: a comment names the pull request it sits on, and a Slack message names a pull request or an error tracking issue by its URL.
 `logic/subjects.py` owns everything that depends on the kind of subject:
 
 - The candidate projects a command may run in, before the rollout. For a pull request, the projects whose GitHub integration uses the installation.
 - How to reach the subject, such as a GitHub client for a pull request.
 - The facts a handler gets, and the refusals before it runs, such as a closed pull request or a fork.
+
+For an error tracking issue, the project is the one in its URL, and only a URL of this instance counts, because project ids repeat across regions.
+Its reply never repeats the issue's name, because the name comes from captured exception text that people outside the organization can write.
 
 The dispatcher, the identity step and the access step only use the subject through that module.
 Each command declares the kinds it accepts in `subject_kinds`, and dispatch answers when a request names another kind.

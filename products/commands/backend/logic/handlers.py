@@ -9,6 +9,7 @@ data.
 """
 
 from collections.abc import Collection
+from uuid import UUID
 
 import structlog
 
@@ -17,6 +18,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import absolute_uri
 
+from products.error_tracking.backend.facade import issues as error_tracking_issues
 from products.review_hog.backend.facade import (
     github as review_hog_github,
     reviews as review_hog_facade,
@@ -33,8 +35,8 @@ from products.tasks.backend.facade import (
 )
 
 from . import follow_ups
-from .commands import Answer, CommandContext, CommandOutcome, CommandTarget, PullRequestRef
-from .schema import LoopArgs, QaArgs, ReviewArgs, StampArgs
+from .commands import Answer, CommandContext, CommandOutcome, CommandTarget, PullRequestRef, SubjectRef
+from .schema import AssignArgs, LoopArgs, QaArgs, ResolveArgs, ReviewArgs, StampArgs
 
 logger = structlog.get_logger(__name__)
 
@@ -45,8 +47,16 @@ def _project_ids(team_ids: Collection[int]) -> dict[int, int]:
     return {team_id: parent_team_id or team_id for team_id, parent_team_id in rows}
 
 
-def review_target(ref: PullRequestRef, team_ids: tuple[int, ...]) -> CommandTarget | Answer:
+def _pull_request_ref(ref: SubjectRef) -> PullRequestRef:
+    # Dispatch runs a target hook only for a command that accepts the subject's kind.
+    if not isinstance(ref, PullRequestRef):
+        raise TypeError(f"Expected a pull request, got {type(ref).__name__}")
+    return ref
+
+
+def review_target(subject: SubjectRef, team_ids: tuple[int, ...]) -> CommandTarget | Answer:
     """The project that owns the repository in PostHog Review, and its environments."""
+    ref = _pull_request_ref(subject)
     owner_team_id = review_hog_github.owning_team_id(ref.installation_id, ref.repository)
     if owner_team_id is None:
         return Answer(outcome="refused", message="PostHog Review isn't set up for this repository.")
@@ -57,8 +67,9 @@ def review_target(ref: PullRequestRef, team_ids: tuple[int, ...]) -> CommandTarg
     )
 
 
-def stamp_target(ref: PullRequestRef, team_ids: tuple[int, ...]) -> CommandTarget | Answer:
+def stamp_target(subject: SubjectRef, team_ids: tuple[int, ...]) -> CommandTarget | Answer:
     """The projects where Stamphog reviews the repository, and their environments."""
+    ref = _pull_request_ref(subject)
     reviewing = stamphog_requests.reviewing_team_ids(ref.repository, team_ids)
     if not reviewing:
         return Answer(outcome="refused", message="Stamphog is not set up for this repository.")
@@ -194,6 +205,34 @@ def build_qa_instructions(context: CommandContext, focus: str) -> str:
         # The requester's own words, as their instruction. They run with their own access.
         lines.append(f"Focus requested by {context.request.requester}: {focus}")
     return "\n\n".join(lines)
+
+
+def handle_resolve(context: CommandContext, args: ResolveArgs) -> CommandOutcome:
+    """Resolve the error tracking issue as the requester, through the same write the issue API makes."""
+    issue = context.issue
+    if issue.status == "resolved":
+        return CommandOutcome(accepted=True, message=f"[The issue]({issue.url}) is already resolved.")
+    member = context.members[0]
+    user = User.objects.get(id=member.user_id)
+    error_tracking_issues.update_issue(
+        issue.team_id, UUID(issue.issue_id), fields={"status": "resolved"}, user=user, was_impersonated=False
+    )
+    return CommandOutcome(accepted=True, message=f"Resolved [the issue]({issue.url}).")
+
+
+def handle_assign(context: CommandContext, args: AssignArgs) -> CommandOutcome:
+    """Assign the error tracking issue to the requester's account that acts in its project."""
+    issue = context.issue
+    member = context.members[0]
+    user = User.objects.get(id=member.user_id)
+    error_tracking_issues.assign_issue(
+        issue.team_id,
+        UUID(issue.issue_id),
+        {"id": user.id, "type": "user"},
+        user=user,
+        was_impersonated=False,
+    )
+    return CommandOutcome(accepted=True, message=f"Assigned [the issue]({issue.url}) to you.")
 
 
 def handle_loop(context: CommandContext, args: LoopArgs) -> CommandOutcome:
