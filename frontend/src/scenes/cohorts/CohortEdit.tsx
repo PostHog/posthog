@@ -9,12 +9,22 @@ import {
     IconExpand,
     IconInfo,
     IconLetter,
+    IconPlus,
     IconRefresh,
     IconSend,
     IconTrash,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonDialog, LemonDivider, LemonSnack, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonDialog,
+    LemonDivider,
+    LemonMenu,
+    LemonSnack,
+    LemonTabs,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { cohortReadsFlagCalls } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
@@ -63,6 +73,7 @@ import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { COHORT_CSV_HELP, CohortCsvDropzone } from './CohortCsvDropzone'
+import { CohortCsvUploadModal } from './CohortCsvUploadModal'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
 import {
     cohortBroadcastDisabledReason,
@@ -217,6 +228,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         setActiveTab,
         setUsedInExpanded,
         submitCohort,
+        setCsvUploadModalOpen,
     } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
     const { showAddPersonToCohortModal } = useActions(modalLogic)
@@ -240,6 +252,9 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+    const isPeopleStaticCohort = cohort.is_static && staticCohortMode === 'people'
+    // Once the cohort has people, the add-users controls move into a compact menu next to Save.
+    const showAddUsersMenu = !isNewCohort && isPeopleStaticCohort && (cohort.count ?? 0) > 0
     const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort)
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
@@ -281,6 +296,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         <BindLogic logic={cohortEditLogic} props={logicProps}>
             <div className="cohort">
                 <AddPersonToCohortModal id={id} />
+                <CohortCsvUploadModal id={id} />
                 <CohortSceneMenuBar id={id} />
 
                 <ScenePanel>
@@ -455,6 +471,32 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                         >
                                             Save
                                         </LemonButton>
+                                        {showAddUsersMenu && (
+                                            <LemonMenu
+                                                items={[
+                                                    {
+                                                        label: 'Upload a CSV',
+                                                        onClick: () => setCsvUploadModalOpen(true),
+                                                        'data-attr': 'cohort-upload-csv-modal-open',
+                                                    },
+                                                    {
+                                                        label: 'Add users manually',
+                                                        onClick: showAddPersonToCohortModal,
+                                                        'data-attr': 'cohort-add-users-modal-open',
+                                                    },
+                                                ]}
+                                                placement="bottom-end"
+                                            >
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    icon={<IconPlus />}
+                                                    data-attr="cohort-add-users-menu"
+                                                >
+                                                    Add users
+                                                </LemonButton>
+                                            </LemonMenu>
+                                        )}
                                     </>
                                 }
                             />
@@ -692,7 +734,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                         </div>
                                     </SceneSection>
                                 </>
-                            ) : cohort.is_static ? (
+                            ) : cohort.is_static && !showAddUsersMenu ? (
                                 <>
                                     <SceneDivider />
                                     <SceneSection
@@ -787,7 +829,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                         </>
                                     )}
                                 </>
-                            ) : (
+                            ) : cohort.is_static ? null : (
                                 <>
                                     <SceneDivider />
                                     {!isNewCohort && (
