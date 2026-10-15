@@ -1798,7 +1798,8 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
         )
 
 
-@shared_task(ignore_result=True)
+# Registered under the previous name, so messages queued by the previous deploy still run.
+@shared_task(ignore_result=True, name="posthog.tasks.tasks.sync_user_product_lists_for_new_team")
 @skip_team_scope_audit
 def star_default_products_for_new_team(team_id: int) -> None:
     """
@@ -1812,6 +1813,12 @@ def star_default_products_for_new_team(team_id: int) -> None:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
         logger.info("star_default_products_for_new_team: Team not found, skipping", team_id=team_id)
+        return
+
+    # Environments of a project share its sidebar stars. Seeding a new environment would restore
+    # defaults that users of the project already removed.
+    if Team.objects.filter(project_id=team.project_id).exclude(id=team.id).exists():
+        logger.info("star_default_products_for_new_team: Team is a new environment, skipping", team_id=team_id)
         return
 
     users = list(team.all_users_with_access())
