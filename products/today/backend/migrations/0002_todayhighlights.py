@@ -26,7 +26,7 @@ class Migration(migrations.Migration):
                 (
                     "status",
                     models.CharField(
-                        choices=[("computing", "computing"), ("ready", "ready"), ("failed", "failed")],
+                        choices=[("computing", "Computing"), ("ready", "Ready"), ("failed", "Failed")],
                         default="computing",
                         max_length=16,
                     ),

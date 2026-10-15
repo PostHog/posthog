@@ -58,9 +58,7 @@ class TodayHighlights(ProductTeamModel):
     user_id = models.BigIntegerField()
     local_day = models.DateField()
     key = models.CharField(max_length=32)
-    status = models.CharField(
-        max_length=16, choices=[(s.value, s.value) for s in HighlightsStatus], default=HighlightsStatus.COMPUTING.value
-    )
+    status = models.CharField(max_length=16, choices=HighlightsStatus.choices, default=HighlightsStatus.COMPUTING.value)
     content = models.JSONField(default=dict)
     failed_sources = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
