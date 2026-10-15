@@ -73,15 +73,19 @@ export interface ViewRange {
     step: (direction: StepDirection, context: StepContext) => boolean
 }
 
-/** The session range of one view. `savedCompare` is the view's own compare setting, used until the user toggles it. */
+/**
+ * The session range of one view. `savedCompare` is the view's own compare setting, used until the user toggles it.
+ * `compareKey` keeps the compare toggle apart from a range that another view shares, such as a tile's insight.
+ */
 export function useViewRange(
     key: ViewRangeKey,
     viewType: ViewKind,
     saved: SavedRange,
-    savedCompare = false
+    savedCompare = false,
+    compareKey: ViewRangeKey = key
 ): ViewRange {
     const choice = useViewRangeStore((state) => state.ranges[key] ?? null)
-    const compareChoice = useViewRangeStore((state) => state.compare[key])
+    const compareChoice = useViewRangeStore((state) => state.compare[compareKey])
     const setRange = useViewRangeStore((state) => state.setRange)
     const setCompareFor = useViewRangeStore((state) => state.setCompare)
     const savedFrom = saved.dateFrom
@@ -119,7 +123,7 @@ export function useViewRange(
         reset: () => apply(null, 'reset'),
         setCompare: (on) => {
             trackDateRangeCompared({ viewType, enabled: on })
-            setCompareFor(key, on)
+            setCompareFor(compareKey, on)
         },
         canStep: (direction, context) => stepRange(choice, savedRange, direction, context) !== null,
         step: (direction, context) => {

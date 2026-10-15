@@ -332,11 +332,13 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
         (baseSaved?.query as { source?: { compareFilter?: { compare?: boolean } } } | undefined)?.source?.compareFilter
             ?.compare
     )
+    // From a tile the insight shares the dashboard's range, but compare stays its own: dashboards send no compare.
     const range = useViewRange(
         dashboardRef ? dashboardRangeKey(context.dataScope, dashboardRef) : insightRangeKey(context.dataScope, shortId),
         'insight',
         saved,
-        savedCompare
+        savedCompare,
+        insightRangeKey(context.dataScope, shortId)
     )
     const choiceOverride = rangeOverride(range.choice)
     // A SQL insight without `{filters}` ignores the range, so it keeps its own cache entry.
@@ -349,19 +351,32 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
         [shortId, options.insightId, dashboardRef, overrideId]
     )
     const base = useSnapshot<InsightSnapshot>(insightQueryKey(scope, target))
+    // Compare needs the insight's `query.source`, which every read of the insight carries, and `compareQuery` sets the
+    // range itself. So a range change with compare on sends only the compare query, without a retrieve first. The
+    // saved range takes the source of a saved-range read only, because `compareQuery` keeps that source's dates.
+    const lastBase = useRef<InsightSnapshot | undefined>(undefined)
+    if (base) {
+        lastBase.current = base
+    }
+    const compareSource = base ?? baseSaved ?? (range.choice ? lastBase.current : undefined)
+    // An insight saved with compare answers its saved range with both periods, so the retrieve shows them.
+    const savedCompareShown = savedCompare && range.compare && range.choice === null
     const compareBody =
-        range.compare && base && compareAllowed(range.choice ? rangeValues(range.choice).date_from : saved.dateFrom)
-            ? compareQuery(base.query, range.choice)
+        range.compare &&
+        !savedCompareShown &&
+        compareSource &&
+        compareAllowed(range.choice ? rangeValues(range.choice).date_from : saved.dateFrom)
+            ? compareQuery(compareSource.query, range.choice)
             : null
     const compareId = compareBody ? stableStringify(compareBody) : null
     const compareSnapshot = useSnapshot<InsightSnapshot>(compareId ? viewsKeys.compare(scope, compareId) : null)
     // biome-ignore lint/correctness/useExhaustiveDependencies: `compareId` stands for `compareBody`.
     const items = useMemo(() => {
-        if (compareBody && base) {
-            return [compareItem(context.item, base, compareBody)]
+        if (compareBody && compareSource) {
+            return [compareItem(context.item, compareSource, compareBody)]
         }
         return [insightItem(context.item, target)]
-    }, [context.item, target, compareId, base?.insightId])
+    }, [context.item, target, compareId, compareSource?.insightId])
     const refresh = useViewRefresh({
         screen: 'insight',
         dataScope: context.dataScope,
@@ -374,7 +389,7 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
     const itemKey = items[0]?.key ?? null
     const error = useItemError(itemKey)
 
-    const viewedId = base?.insightId
+    const viewedId = (base ?? compareSource)?.insightId
     const viewed = useRef(false)
     useEffect(() => {
         if (viewed.current || !viewedId || context.mode !== 'live' || !context.ready) {
@@ -384,12 +399,16 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
         void markInsightViewed(viewedId).catch(() => undefined)
     }, [viewedId, context.mode, context.ready])
 
-    useRecordRecentView(base ? { kind: 'insight', ref: shortId, name: base.name } : null)
+    useRecordRecentView(compareSource ? { kind: 'insight', ref: shortId, name: compareSource.name } : null)
     useViewOpenedEvent('insight', options, () => [base])
 
-    const comparing = Boolean(compareSnapshot && compareBody)
-    const current = comparing ? compareSnapshot : base
-    const currentKey = comparing && compareId ? viewsKeys.compare(scope, compareId) : insightQueryKey(scope, target)
+    const comparingQuery = Boolean(compareSnapshot && compareBody)
+    const comparing =
+        comparingQuery ||
+        (savedCompareShown && Boolean(base?.allSeries.some((series) => series.compare === 'previous')))
+    const current = comparingQuery ? compareSnapshot : base
+    const currentKey =
+        comparingQuery && compareId ? viewsKeys.compare(scope, compareId) : insightQueryKey(scope, target)
     // The key travels with the held snapshot, so full screen and the Point sheet open the entry that is on screen.
     const shown = useHeldWhileLoading(current ? { snapshot: current, queryKey: currentKey } : undefined, error)
     return {
