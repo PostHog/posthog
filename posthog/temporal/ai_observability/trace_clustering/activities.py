@@ -18,8 +18,10 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.team import Team
+from posthog.temporal.ai_observability.retries import is_last_attempt
 from posthog.temporal.ai_observability.team_discovery import get_min_traces_override
 from posthog.temporal.ai_observability.trace_clustering import constants
 from posthog.temporal.ai_observability.trace_clustering.clustering import (
@@ -308,9 +310,9 @@ async def perform_clustering_compute_activity(inputs: ClusteringActivityInputs) 
     async with Heartbeater():
         try:
             return await asyncio.to_thread(_perform_clustering_compute, inputs)
-        except ClickHouseAtCapacity as e:
-            # The shared ClickHouse pool is saturated. Retrying immediately would only add load,
-            # so back off with jitter to give the pool room to recover before the next attempt.
+        except (ClickHouseAtCapacity, ConcurrencyLimitExceeded) as e:
+            # ClickHouse is saturated, or our own limiter holds no free slot for the query. Retrying
+            # immediately would only add load, so back off with jitter to give the pool room to recover.
             backoff = random.uniform(
                 constants.CLICKHOUSE_AT_CAPACITY_BACKOFF_MIN.total_seconds(),
                 constants.CLICKHOUSE_AT_CAPACITY_BACKOFF_MAX.total_seconds(),
@@ -319,14 +321,18 @@ async def perform_clustering_compute_activity(inputs: ClusteringActivityInputs) 
                 "clustering_compute_clickhouse_at_capacity",
                 team_id=inputs.team_id,
                 analysis_level=inputs.analysis_level,
+                error_type=type(e).__name__,
                 backoff_seconds=round(backoff, 1),
             )
             # The retry usually gets through, so only a saturation that outlasts every attempt reaches error tracking.
-            is_last_attempt = activity.info().attempt >= (constants.COMPUTE_ACTIVITY_RETRY_POLICY.maximum_attempts or 0)
-            error_class = ApplicationError if is_last_attempt else NonReportableApplicationError
+            error_class = (
+                ApplicationError
+                if is_last_attempt(constants.COMPUTE_ACTIVITY_RETRY_POLICY)
+                else NonReportableApplicationError
+            )
             raise error_class(
                 "ClickHouse at capacity while fetching embeddings for clustering",
-                type="ClickHouseAtCapacity",
+                type=type(e).__name__,
                 next_retry_delay=timedelta(seconds=backoff),
             ) from e
 

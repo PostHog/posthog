@@ -12,6 +12,8 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.temporal.ai_observability.trace_clustering.clustering import perform_kmeans_with_optimal_k
 from posthog.temporal.ai_observability.trace_clustering.constants import DEFAULT_MAX_SAMPLES
 from posthog.temporal.ai_observability.trace_clustering.models import (
@@ -426,18 +428,20 @@ class TestEmptyComputeResultShortCircuit:
 class TestComputeActivityCapacityBackoff:
     """The compute activity must not let a ClickHouse capacity error retry immediately.
 
-    Guards the incident fix: on `ClickHouseAtCapacity` the activity backs off with jitter
-    (via ApplicationError.next_retry_delay) so a saturated pool gets breathing room instead
-    of more queries. A regression here would restore the immediate-retry load spiral.
+    Guards the incident fix: on `ClickHouseAtCapacity` or `ConcurrencyLimitExceeded` the activity
+    backs off with jitter (via ApplicationError.next_retry_delay) so a saturated pool gets
+    breathing room instead of more queries. A regression here would restore the immediate-retry load spiral.
     """
 
+    @pytest.mark.parametrize("capacity_error", [ClickHouseAtCapacity, ConcurrencyLimitExceeded])
     @pytest.mark.parametrize("attempt, reportable", [(1, False), (2, True)])
     @pytest.mark.asyncio
-    async def test_clickhouse_at_capacity_raises_jittered_backoff(self, attempt: int, reportable: bool):
+    async def test_clickhouse_at_capacity_raises_jittered_backoff(
+        self, capacity_error: type[Exception], attempt: int, reportable: bool
+    ):
         from temporalio.exceptions import ApplicationError
         from temporalio.testing import ActivityEnvironment
 
-        from posthog.exceptions import ClickHouseAtCapacity
         from posthog.temporal.ai_observability.trace_clustering import constants
         from posthog.temporal.ai_observability.trace_clustering.activities import perform_clustering_compute_activity
         from posthog.temporal.common.errors import NonReportableError
@@ -452,13 +456,13 @@ class TestComputeActivityCapacityBackoff:
 
         with patch(
             "posthog.temporal.ai_observability.trace_clustering.activities._perform_clustering_compute",
-            side_effect=ClickHouseAtCapacity(),
+            side_effect=capacity_error(),
         ):
             with pytest.raises(ApplicationError) as exc_info:
                 await env.run(perform_clustering_compute_activity, inputs)
 
         err = exc_info.value
-        assert err.type == "ClickHouseAtCapacity"
+        assert err.type == capacity_error.__name__
         assert err.non_retryable is False
         assert isinstance(err, NonReportableError) is not reportable
         assert err.next_retry_delay is not None
