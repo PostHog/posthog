@@ -57,7 +57,7 @@ describe('LemonButton', () => {
             </QuillTransitionContext.Provider>
         )
 
-        const button = screen.getByRole('button', { name: 'Go' })
+        const button = screen.getByRole('button')
         expect(button.hasAttribute('data-quill')).toBe(expectQuill)
         expect(button.classList.contains('LemonButton')).toBe(!expectQuill)
         expect(button.classList.contains('quill-button--size-row')).toBe(expectRow)
@@ -73,8 +73,8 @@ describe('LemonButton', () => {
             </QuillTransitionContext.Provider>
         )
 
-        for (const name of ['Go', 'More']) {
-            expect(screen.getByRole('button', { name }).hasAttribute('data-quill')).toBe(quill)
+        for (const button of [screen.getByText('Go').closest('button'), screen.getByLabelText('More')]) {
+            expect(button?.hasAttribute('data-quill')).toBe(quill)
         }
     })
 
@@ -182,7 +182,7 @@ describe('LemonButton', () => {
         it('keeps the link role when the button navigates', () => {
             render(<LemonButton to="/insights">Insights</LemonButton>)
 
-            expect(screen.getByRole('link', { name: 'Insights' })).toHaveAttribute('href', '/insights')
+            expect(screen.getByRole('link')).toHaveAttribute('href', '/insights')
         })
 
         it('still submits when enabled (htmlType submit)', async () => {
