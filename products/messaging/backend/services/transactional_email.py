@@ -31,7 +31,11 @@ from products.workflows.backend.facade.api import get_default_email_sender_id
 logger = structlog.get_logger(__name__)
 
 IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
+# Long enough to cover a request that cdp-api answers late, short enough that a lost answer does not block the send.
+IN_FLIGHT_TTL_SECONDS = 5 * 60
 _IN_FLIGHT = "in-flight"
+# A gateway can return these after cdp-api queued the job. cdp-api's own 5xx always means nothing was queued.
+_AMBIGUOUS_STATUS_CODES = {502, 504}
 
 
 def _sendable_template(team_id: int, template_id: UUID) -> MessageTemplate:
@@ -103,7 +107,7 @@ def send_transactional_email(
         {"to": to, "distinct_id": distinct_id, "message_data": message_data, "from": from_integration_id},
     )
     if redis_key and not redis.set(
-        redis_key, _idempotency_value(fingerprint, _IN_FLIGHT), nx=True, ex=IDEMPOTENCY_TTL_SECONDS
+        redis_key, _idempotency_value(fingerprint, _IN_FLIGHT), nx=True, ex=IN_FLIGHT_TTL_SECONDS
     ):
         stored = redis.get(redis_key)
         if stored is None:
@@ -131,14 +135,13 @@ def send_transactional_email(
         logger.exception("transactional_email_queue_failed", team_id=team.id, template_id=str(template.id))
         raise DeliveryUnavailable() from e
     except Exception as e:
-        # cdp-api can queue the email before the response times out. The reservation stays, so a retry
-        # with the same key gets a conflict instead of a second email.
+        # cdp-api can queue the email before the response times out. The reservation stays until it expires,
+        # so a quick retry with the same key gets a conflict instead of a second email.
         logger.exception("transactional_email_queue_outcome_unknown", team_id=team.id, template_id=str(template.id))
         raise DeliveryUnavailable() from e
 
     if response.status_code != 202:
-        # Only a 5xx can come after the job is queued, so only a 4xx rejection releases the reservation.
-        if redis_key and response.status_code < 500:
+        if redis_key and response.status_code not in _AMBIGUOUS_STATUS_CODES:
             redis.delete(redis_key)
         if response.status_code == 429:
             raise QuotaLimited("The project is over its email quota.")

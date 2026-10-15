@@ -12,9 +12,11 @@ from posthog.models import ProjectSecretAPIKey
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
+from posthog.redis import get_client
 
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.services.transactional_email import IN_FLIGHT_TTL_SECONDS, _idempotency_redis_key
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
@@ -175,16 +177,30 @@ class TestTransactionalEmailSend(APIBaseTest):
 
         assert mock_post.call_args.kwargs["json"]["from_integration_id"] == new_sender.id
 
-    def test_a_retry_after_an_unknown_outcome_does_not_send_twice(self, mock_post, _flag, _capture):
-        mock_post.side_effect = requests.ReadTimeout()
-        headers = {"Idempotency-Key": str(uuid4())}
+    @parameterized.expand(
+        [
+            ("timeout", requests.ReadTimeout(), status.HTTP_409_CONFLICT, 1),
+            ("gateway_timeout", MagicMock(status_code=504), status.HTTP_409_CONFLICT, 1),
+            ("cdp_api_error", MagicMock(status_code=500), status.HTTP_503_SERVICE_UNAVAILABLE, 2),
+        ]
+    )
+    def test_a_retry_after_a_failed_send_holds_only_while_the_outcome_is_unknown(
+        self, mock_post, _flag, _capture, _name, outcome, expected_retry_status, expected_calls
+    ):
+        if isinstance(outcome, Exception):
+            mock_post.side_effect = outcome
+        else:
+            mock_post.return_value = outcome
+        key = str(uuid4())
 
-        first = self.client.post(self.url, self.body, format="json", headers=headers)
-        second = self.client.post(self.url, self.body, format="json", headers=headers)
+        first = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": key})
+        second = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": key})
 
         assert first.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-        assert second.status_code == status.HTTP_409_CONFLICT
-        assert mock_post.call_count == 1
+        assert second.status_code == expected_retry_status
+        assert mock_post.call_count == expected_calls
+        # An unknown outcome holds the key only briefly, so the email can still go out after it expires.
+        assert get_client().ttl(_idempotency_redis_key(self.team.id, key)) <= IN_FLIGHT_TTL_SECONDS
 
     def test_reports_quota_limited_teams(self, mock_post, _flag, _capture):
         mock_post.return_value = MagicMock(status_code=429, json=lambda: {"error": "quota_limited"})
