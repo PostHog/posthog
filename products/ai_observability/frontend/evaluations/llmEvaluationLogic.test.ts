@@ -2103,6 +2103,105 @@ return result`,
         })
     })
 
+    describe('saveEvaluation updates', () => {
+        it.each([
+            { change: 'name', expected: { name: 'Renamed decision evaluation' }, rejected: false },
+            { change: 'disable', expected: { enabled: false }, rejected: false },
+            { change: 'enable', expected: { enabled: true }, rejected: true },
+            {
+                change: 'output_config',
+                expected: { output_config: { allows_na: true } },
+                rejected: true,
+            },
+            {
+                change: 'model_configuration',
+                expected: {
+                    model_configuration: { provider: 'openai', model: 'gpt-5-mini', provider_key_id: 'key-1' },
+                },
+                rejected: true,
+            },
+            {
+                change: 'sentiment',
+                expected: {
+                    evaluation_type: 'sentiment',
+                    evaluation_config: { source: 'user_messages' },
+                    output_type: 'sentiment',
+                    output_config: {},
+                    model_configuration: null,
+                },
+                rejected: false,
+            },
+        ] as const)(
+            'sends only $change changes when the decision flag is off',
+            async ({ change, expected, rejected }) => {
+                const evaluation: EvaluationConfig = {
+                    ...mockEvaluation,
+                    enabled: change !== 'enable',
+                    evaluation_type: 'llm_judge',
+                    evaluation_config: { prompt: 'Is this response helpful?', judge_method: 'decision' },
+                    output_type: 'boolean',
+                    output_config: { allows_na: false },
+                    model_configuration: { provider: 'openai', model: 'gpt-6-luna', provider_key_id: 'key-1' },
+                }
+                let savedPayload: unknown
+                const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+                useMocks({
+                    get: { '/api/projects/:teamId/evaluations/:id/': evaluation },
+                    patch: {
+                        '/api/projects/:teamId/evaluations/:id/': async ({ request }) => {
+                            savedPayload = await request.json()
+                            return rejected
+                                ? [
+                                      400,
+                                      {
+                                          model_configuration: [
+                                              'Decision evaluations are not available for this project.',
+                                          ],
+                                      },
+                                  ]
+                                : { ...evaluation, ...expected }
+                        },
+                    },
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+
+                try {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    logic.actions.setModelConfiguration({ ...evaluation.model_configuration! })
+                    logic.actions.setAllowsNA(true)
+                    logic.actions.setAllowsNA(false)
+                    switch (change) {
+                        case 'name':
+                            logic.actions.setEvaluationName(expected.name)
+                            break
+                        case 'disable':
+                        case 'enable':
+                            logic.actions.setEvaluationEnabled(expected.enabled)
+                            break
+                        case 'output_config':
+                            logic.actions.setAllowsNA(true)
+                            break
+                        case 'model_configuration':
+                            logic.actions.setModelConfiguration(expected.model_configuration)
+                            break
+                        case 'sentiment':
+                            logic.actions.setEvaluationType('sentiment')
+                            break
+                    }
+                    logic.actions.saveEvaluation()
+
+                    await expectLogic(logic)
+                        .toDispatchActions([rejected ? 'saveEvaluationFailure' : 'saveEvaluationSuccess'])
+                        .toMatchValues({ evaluationFormSubmitting: false })
+                    expect(savedPayload).toEqual(expected)
+                } finally {
+                    pushSpy.mockRestore()
+                }
+            }
+        )
+    })
+
     describe('saveEvaluation report persistence', () => {
         it('does not create an evaluation when the report threshold is invalid', async () => {
             let evaluationCreateCount = 0

@@ -261,6 +261,36 @@ class TestModelConfigurationSerializer(SimpleTestCase):
                     validated = serializer.validate(data)
                 self.assertEqual(validated["evaluation_config"], config)
 
+    @parameterized.expand(
+        [
+            ({"name": "Renamed decision evaluation"}, True),
+            ({"enabled": False}, True),
+            ({"enabled": True}, False),
+            ({"output_config": {"allows_na": True}}, False),
+        ]
+    )
+    def test_native_decision_flag_off_allows_rename_and_disable(self, data: dict[str, object], valid: bool) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Check the response.", "judge_method": "decision"},
+            enabled=data.get("enabled") is not True,
+            output_type="boolean",
+            output_config={},
+            model_configuration=LLMModelConfiguration(provider="openai", model="gpt-6-luna"),
+        )
+        serializer = EvaluationSerializer(
+            instance=evaluation, data=data, partial=True, context={"get_team": lambda: Mock(id=1)}
+        )
+        with patch(
+            "products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=False
+        ):
+            self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+        if valid:
+            for field, value in data.items():
+                self.assertEqual(serializer.validated_data[field], value)
+        else:
+            self.assertIn("model_configuration", serializer.errors)
+
     def test_judge_method_change_validates_the_stored_model(self) -> None:
         evaluation = Evaluation(
             evaluation_type="llm_judge",
