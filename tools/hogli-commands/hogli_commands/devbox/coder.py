@@ -1502,6 +1502,13 @@ def update_workspace(name: str, *, verbose: bool = False) -> None:
     result = _run_build(["coder", "update", name, "--use-parameter-defaults"], verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
+    # `coder update` only streams the build logs, so it exits 0 when the build fails.
+    workspace = get_workspace(name)
+    if workspace is not None and get_workspace_status(workspace) == "failed":
+        if not verbose:
+            click.echo(click.style("Build failed. Full output:", fg="red"))
+            click.echo(result.stdout, nl=False)
+        raise SystemExit(1)
 
 
 def delete_workspace(name: str, *, verbose: bool = False) -> None:

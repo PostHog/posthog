@@ -1104,6 +1104,21 @@ class TestWorkspaceCreation:
         assert "claude_oauth_token" not in params
         assert params == expected_params
 
+    @pytest.mark.parametrize("build_status, fails", [("running", False), ("failed", True)], ids=["built", "failed"])
+    def test_update_workspace_fails_when_its_build_fails(
+        self, monkeypatch: pytest.MonkeyPatch, build_status: str, fails: bool
+    ) -> None:
+        monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing({}))
+        monkeypatch.setattr(
+            coder, "get_workspace", lambda name: {"name": name, "latest_build": {"status": build_status}}
+        )
+
+        if fails:
+            with pytest.raises(SystemExit):
+                coder.update_workspace("devbox-test-user")
+        else:
+            coder.update_workspace("devbox-test-user")
+
     @pytest.mark.parametrize(
         "start_app, expected",
         [(True, "true"), (False, "false"), (None, None)],
