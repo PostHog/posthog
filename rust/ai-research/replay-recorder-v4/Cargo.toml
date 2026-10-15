@@ -18,6 +18,9 @@ posthog-replay-anonymizer = { path = "../../replay-anonymizer", default-features
 replay-core-v4 = { path = "../replay-core-v4" }
 
 arc-swap = { workspace = true }
+# The major version deltalite links, so the workspace builds one arrow.
+arrow-array = "58"
+arrow-schema = "58"
 async-trait = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
@@ -27,6 +30,7 @@ axum = { workspace = true }
 chrono = { workspace = true }
 envconfig = { workspace = true }
 metrics = { workspace = true }
+parquet = "58"
 rand = { workspace = true }
 rdkafka = { workspace = true }
 sqlx = { workspace = true }
@@ -37,5 +41,6 @@ tracing-subscriber = { workspace = true }
 zstd = { workspace = true }
 
 [dev-dependencies]
+bytes = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
