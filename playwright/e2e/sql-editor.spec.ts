@@ -149,22 +149,31 @@ test.describe('SQL Editor', () => {
                     () => (window as any).__monacoEditors?.at(-1)?.getModel()?.getValue().replace(/\r\n/g, '\n') ?? ''
                 )
 
-            await test.step('the toolbar button reflows the query', async () => {
-                await sqlInsight.writeQuery(oneLineQuery)
-                await page.getByTestId('sql-editor-format-query').click()
-                await expect.poll(readEditorText).toEqual(formattedQuery)
-            })
+            const editorArea = page.getByTestId('hogql-query-editor')
 
             await test.step('the keyboard shortcut reflows the query', async () => {
                 await sqlInsight.writeQuery(oneLineQuery)
-                await page.getByTestId('hogql-query-editor').click()
+                await editorArea.click()
                 await page.keyboard.press('Shift+Alt+F')
+                await expect.poll(readEditorText).toEqual(formattedQuery)
+            })
+
+            await test.step('the context menu command reflows the query', async () => {
+                await sqlInsight.writeQuery(oneLineQuery)
+                await editorArea.locator('.view-lines').click({ button: 'right' })
+                const menuItem = page.getByRole('menuitem', { name: 'Format Document' })
+                await expect(menuItem).toBeVisible()
+                // Monaco arms a menu item's pointer-release listener 100 ms after the menu opens, to
+                // swallow the release of the right click that opened it. An earlier click is ignored.
+                await page.waitForTimeout(250)
+                await menuItem.click()
                 await expect.poll(readEditorText).toEqual(formattedQuery)
             })
 
             await test.step('a query that does not parse keeps its text', async () => {
                 await sqlInsight.writeQuery('select ) from events')
-                await page.getByTestId('sql-editor-format-query').click()
+                await editorArea.click()
+                await page.keyboard.press('Shift+Alt+F')
                 await expect(page.getByText("Couldn't format this query.", { exact: false })).toBeVisible()
                 await expect.poll(readEditorText).toEqual('select ) from events')
             })

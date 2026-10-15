@@ -4,11 +4,10 @@ import type { editor as importedEditor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { memo, useCallback, useMemo, useRef } from 'react'
 
-import { IconBrackets, IconDatabase, IconGear, IconInfo, IconSidebarClose } from '@posthog/icons'
+import { IconDatabase, IconGear, IconInfo, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -117,7 +116,6 @@ export function QueryWindow({
         setSendRawQuery,
         openMaterializationModal,
         setSourceQuery,
-        formatQuery,
     } = useActions(logic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen, fixIndexUsageWithAI } = useActions(logic)
@@ -325,27 +323,6 @@ export function QueryWindow({
 
                     <div className="ml-auto flex items-center gap-2">
                         <FixErrorButton type="secondary" size="small" source="action-bar" />
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconBrackets />}
-                            onClick={() => formatQuery()}
-                            disabledReason={
-                                sendRawQueryEnabled
-                                    ? 'Formatting is only available for HogQL queries.'
-                                    : originalQueryInput
-                                      ? 'Accept or reject the suggested query first.'
-                                      : undefined
-                            }
-                            tooltip={
-                                <>
-                                    Format the query <KeyboardShortcut shift option f />
-                                </>
-                            }
-                            data-attr="sql-editor-format-query"
-                        >
-                            Format
-                        </LemonButton>
                         {editorSettingsItems.length > 0 ? (
                             <LemonMenu
                                 items={editorSettingsItems}
