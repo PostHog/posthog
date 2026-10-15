@@ -323,16 +323,24 @@ class TestDestinationEligibility(APIBaseTest):
         self._function("template-slack", SLACK_INPUTS, alert_id=other_alert)
         team_wide = self._function("template-slack", SLACK_INPUTS, alert_id=None)
         self._edited(team_wide, hog="fetch('https://hooks.example.com/hook')")
+        excluding_one_alert = self._function("template-slack", SLACK_INPUTS)
+        HogFunction.objects.filter(pk=excluding_one_alert.pk).update(
+            filters={
+                **(excluding_one_alert.filters or {}),
+                "properties": [{"key": "alert_id", "value": ALERT_ID, "operator": "is_not", "type": "event"}],
+            }
+        )
 
         report = list(
             bucketed_destinations([(self.team.id, ALERT_ID), (self.team.id, other_alert)], allowed_event_ids=[EVENT])
         )
 
-        assert [(d.alert_id, d.eligibility.hog_function_id, bucket_for(d.eligibility)) for d in report[:2]] == [
+        assert [(d.alert_id, d.eligibility.hog_function_id, bucket_for(d.eligibility)) for d in report[:3]] == [
             (None, team_wide.id, DestinationBucket.CODE),
+            (None, excluding_one_alert.id, DestinationBucket.STOCK),
             (ALERT_ID, bound.id, DestinationBucket.STOCK),
         ]
-        assert [d.alert_id for d in report] == [None, ALERT_ID, other_alert]
+        assert [d.alert_id for d in report] == [None, None, ALERT_ID, other_alert]
 
 
 class TestBucketFor(SimpleTestCase):

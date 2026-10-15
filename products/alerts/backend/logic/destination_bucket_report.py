@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Collection, Iterable, Iterator
+from uuid import UUID
 
 from products.alerts.backend.facade.contracts import BucketedDestination, DestinationEligibility
 from products.alerts.backend.logic.destination_eligibility import (
@@ -18,14 +19,13 @@ def bucketed_destinations(
     team_alerts: Iterable[tuple[int, str]], *, allowed_event_ids: Collection[str]
 ) -> Iterator[BucketedDestination]:
     """Each alert's destinations, and once per team the destinations bound to no single alert."""
-    reported_teams: set[int] = set()
+    unbound_ids_by_team: dict[int, set[UUID]] = {}
     for team_id, alert_id in team_alerts:
         groups: list[tuple[str | None, tuple[DestinationEligibility, ...]]] = []
-        if team_id not in reported_teams:
-            reported_teams.add(team_id)
-            groups.append(
-                (None, classify_unbound_alert_destinations(team_id=team_id, allowed_event_ids=allowed_event_ids))
-            )
+        if team_id not in unbound_ids_by_team:
+            unbound = classify_unbound_alert_destinations(team_id=team_id, allowed_event_ids=allowed_event_ids)
+            unbound_ids_by_team[team_id] = {eligibility.hog_function_id for eligibility in unbound}
+            groups.append((None, unbound))
         groups.append(
             (
                 alert_id,
@@ -34,6 +34,9 @@ def bucketed_destinations(
         )
         for group_alert_id, eligibilities in groups:
             for eligibility in eligibilities:
+                # A function that excludes this alert also matches its id, but it is unbound and reported once.
+                if group_alert_id is not None and eligibility.hog_function_id in unbound_ids_by_team[team_id]:
+                    continue
                 yield BucketedDestination(team_id=team_id, alert_id=group_alert_id, eligibility=eligibility)
 
 

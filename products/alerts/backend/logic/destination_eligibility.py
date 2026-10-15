@@ -92,7 +92,9 @@ def classify_unbound_alert_destinations(
     unbound_ids = unbound_alert_destinations(team_id=team_id, allowed_event_ids=allowed_event_ids)
     if not unbound_ids:
         return ()
-    return _classify(team_id, list(HogFunction.objects.filter(id__in=unbound_ids).order_by("created_at", "id")))
+    return _classify(
+        team_id, list(HogFunction.objects.filter(team_id=team_id, id__in=unbound_ids).order_by("created_at", "id"))
+    )
 
 
 def _classify(team_id: int, functions: list[HogFunction]) -> tuple[DestinationEligibility, ...]:
