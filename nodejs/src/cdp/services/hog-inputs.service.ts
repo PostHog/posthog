@@ -170,6 +170,13 @@ export class HogInputsService {
         return result
     }
 
+    // The fetch step swaps this value for the token wherever it appears in the request, so it must not be
+    // something a request can contain unless the function read it from these inputs.
+    private accessTokenPlaceholder(integrationId: number): string {
+        const placeholder = `${ACCESS_TOKEN_PLACEHOLDER}${integrationId}`
+        return `${placeholder}_${this.encryptedFields.sign(placeholder).slice(0, 32)}`
+    }
+
     public async loadIntegrationInputs(
         hogFunction: HogFunctionType,
         newGlobals?: HogFunctionInvocationGlobalsWithInputs,
@@ -233,7 +240,7 @@ export class HogInputsService {
                 ...integration.sensitive_config,
                 ...(integration.sensitive_config.access_token || integration.config.access_token
                     ? {
-                          access_token: ACCESS_TOKEN_PLACEHOLDER + integration.id,
+                          access_token: this.accessTokenPlaceholder(integration.id),
                           access_token_raw:
                               integration.sensitive_config.access_token ?? integration.config.access_token,
                       }

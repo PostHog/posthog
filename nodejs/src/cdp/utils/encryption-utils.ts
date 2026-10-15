@@ -1,11 +1,21 @@
 import { Fernet } from 'fernet-nodejs'
+import { createHmac } from 'node:crypto'
 
 export class EncryptedFields {
     private fernets: Fernet[] = []
+    private signingKey: string | undefined
 
     constructor(encryptionSaltKeys: string) {
         const saltKeys = encryptionSaltKeys.split(',').filter((key) => key)
         this.fernets = saltKeys.map((key) => new Fernet(Buffer.from(key, 'utf-8').toString('base64')))
+        this.signingKey = saltKeys[0]
+    }
+
+    sign(value: string): string {
+        if (!this.signingKey) {
+            throw new Error('Encryption keys are not set')
+        }
+        return createHmac('sha256', this.signingKey).update(value).digest('hex')
     }
 
     encrypt(value: string): string {

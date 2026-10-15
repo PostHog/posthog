@@ -10,10 +10,18 @@ describe('Encrypted fields', () => {
         encryptedFields = new EncryptedFields(encryptionSaltKeys)
     })
 
-    it('should construct with empty keys but throw on encrypt/decrypt', () => {
+    it('should construct with empty keys but throw on encrypt/decrypt/sign', () => {
         const empty = new EncryptedFields('')
         expect(() => empty.encrypt('test')).toThrow('Encryption keys are not set')
         expect(() => empty.decrypt('test')).toThrow('Encryption keys are not set')
+        expect(() => empty.sign('test')).toThrow('Encryption keys are not set')
+    })
+
+    it('signs a value the same way every time, and differently under another key', () => {
+        const signature = encryptedFields.sign('value')
+
+        expect(encryptedFields.sign('value')).toEqual(signature)
+        expect(new EncryptedFields('f'.repeat(32)).sign('value')).not.toEqual(signature)
     })
 
     describe('encryption and decryption', () => {

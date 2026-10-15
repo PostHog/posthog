@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -376,29 +375,26 @@ export class HogExecutorAsyncService {
         const integrationInputs = await this.deps.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
 
         if (Object.keys(integrationInputs).length > 0) {
-            for (const [key, value] of Object.entries(integrationInputs)) {
+            for (const value of Object.values(integrationInputs)) {
                 const inputValue = value.value
                 // integration_multi inputs resolve to an array of integrations (e.g. push channels)
                 // and don't participate in the single access-token placeholder substitution below.
                 if (Array.isArray(inputValue) || !inputValue) {
                     continue
                 }
-                const accessToken: string = inputValue.access_token_raw
-                if (!accessToken) {
+                const accessToken: string | undefined = inputValue.access_token_raw
+                const placeholder: string | undefined = inputValue.access_token
+                if (!accessToken || !placeholder) {
                     continue
                 }
 
-                const placeholder: string = ACCESS_TOKEN_PLACEHOLDER + invocation.hogFunction.inputs?.[key]?.value
+                const replace = (val: string) => val.replaceAll(placeholder, accessToken)
 
-                if (placeholder && accessToken) {
-                    const replace = (val: string) => val.replaceAll(placeholder, accessToken)
-
-                    params.body = params.body ? replace(params.body) : params.body
-                    headers = Object.fromEntries(
-                        Object.entries(params.headers ?? {}).map(([key, value]) => [key, replace(value)])
-                    )
-                    params.url = replace(params.url)
-                }
+                params.body = params.body ? replace(params.body) : params.body
+                headers = Object.fromEntries(
+                    Object.entries(params.headers ?? {}).map(([key, value]) => [key, replace(value)])
+                )
+                params.url = replace(params.url)
             }
         }
 

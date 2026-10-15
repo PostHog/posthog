@@ -278,14 +278,14 @@ describe('Hog Inputs', () => {
 
             expect(inputs.oauth).toEqual({
                 $integration_id: integrationId1,
-                access_token: `$$_access_token_placeholder_${integrationId1}`,
+                access_token: expect.stringMatching(/^\$\$_access_token_placeholder_/),
                 access_token_raw: 'token',
                 not_encrypted: 'not-encrypted',
                 team: 'foobar',
             })
             expect(inputs.auth).toEqual({
                 $integration_id: integrationId2,
-                access_token: `$$_access_token_placeholder_${integrationId2}`,
+                access_token: expect.stringMatching(/^\$\$_access_token_placeholder_/),
                 access_token_raw: 'token',
                 not_encrypted: 'not-encrypted',
                 team: 'foobar',

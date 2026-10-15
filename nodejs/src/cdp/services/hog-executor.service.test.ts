@@ -8,7 +8,9 @@ import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
 
 import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { logger } from '~/common/utils/logger'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
@@ -29,7 +31,12 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { promisifyCallback } from '~/common/utils/utils'
 import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
-import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
+import {
+    createExampleInvocation,
+    createHogExecutionGlobals,
+    createHogFunction,
+    insertIntegration,
+} from '../_tests/fixtures'
 import { isConnectionLevelError } from '../utils/cdp-fetch'
 import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
@@ -2024,7 +2031,7 @@ describe('Hog Executor', () => {
             `)
         })
 
-        it('replaces access token placeholders in body, headers, and url', async () => {
+        it('puts the integration token only where the template placed it', async () => {
             jest.mocked(fetch).mockImplementation(() => {
                 return Promise.resolve({
                     status: 200,
@@ -2036,50 +2043,39 @@ describe('Hog Executor', () => {
                 })
             })
 
-            const mockIntegrationInputs = {
-                oauth: {
-                    value: {
-                        access_token_raw: 'actual_secret_token_12345',
-                    },
-                },
-            }
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const integration = await insertIntegration(hub.postgres, team.id, {
+                kind: 'oauth',
+                sensitive_config: { access_token: hub.encryptedFields.encrypt('actual_secret_token_12345') },
+            })
 
-            jest.spyOn(executor['deps'].hogInputsService, 'loadIntegrationInputs').mockResolvedValue(
-                mockIntegrationInputs
+            const invocation = createExampleInvocation({ ...hogFunction, team_id: team.id })
+            invocation.hogFunction.inputs = { oauth: { value: integration.id } }
+            invocation.hogFunction.inputs_schema = [{ key: 'oauth', type: 'integration', required: true }]
+            const inputs = await executor.hogExecutor.buildInputsWithGlobals(
+                invocation.hogFunction,
+                invocation.state.globals
             )
+            const placeholder: string = inputs.inputs.oauth.access_token
+            const lookAlike = ACCESS_TOKEN_PLACEHOLDER + integration.id
 
-            const invocation = createExampleInvocation()
-            invocation.state.globals.inputs = mockIntegrationInputs
-            invocation.hogFunction.inputs = {
-                oauth: { value: 123 },
-            }
             invocation.state.vmState = { stack: [] } as any
             invocation.queueParameters = {
                 type: 'fetch',
-                url: 'https://example.com/test?q=$$_access_token_placeholder_123',
+                url: `https://example.com/test?q=${placeholder}`,
                 method: 'POST',
-                headers: {
-                    'X-Test': '$$_access_token_placeholder_123',
-                    Authorization: 'Bearer $$_access_token_placeholder_123',
-                },
-                body: '$$_access_token_placeholder_123',
+                headers: { Authorization: `Bearer ${placeholder}` },
+                body: JSON.stringify({ token: placeholder, title: lookAlike }),
             } as any
 
             await executor.executeFetch(invocation)
 
-            expect(jest.mocked(fetch).mock.calls[0] as any).toMatchInlineSnapshot(`
-                [
-                  "https://example.com/test?q=actual_secret_token_12345",
-                  {
-                    "body": "actual_secret_token_12345",
-                    "headers": {
-                      "Authorization": "Bearer actual_secret_token_12345",
-                      "X-Test": "actual_secret_token_12345",
-                    },
-                    "method": "POST",
-                  },
-                ]
-            `)
+            const [url, options] = jest.mocked(fetch).mock.calls[0] as any
+            expect([url, options.headers, parseJSON(options.body)]).toEqual([
+                'https://example.com/test?q=actual_secret_token_12345',
+                { Authorization: 'Bearer actual_secret_token_12345' },
+                { token: 'actual_secret_token_12345', title: lookAlike },
+            ])
         })
 
         describe('with non_failure_status_codes', () => {
