@@ -31,7 +31,7 @@ def get_active_hog_flows_using_realtime_cohort(team_id: int, cohort_ids: Collect
     # Postgres skips workflows whose actions never mention a cohort, so only those graphs reach Python.
     flows = (
         HogFlow.objects.filter(team_id=team_id, status=HogFlow.State.ACTIVE)
-        .annotate(actions_text=Cast("actions", output_field=TextField()))
+        .alias(actions_text=Cast("actions", output_field=TextField()))
         .filter(actions_text__contains="cohort")
         .only("id", "name", "status", "actions")
     )

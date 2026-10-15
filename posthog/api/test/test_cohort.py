@@ -7062,7 +7062,7 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert response.data["cohort_type"] == CohortType.REALTIME
         return response.data["id"]
 
-    def _create_workflow_using_cohort(self, cohort_id: int, usage: str, status: str) -> str:
+    def _create_workflow_using_cohort(self, cohort_id: int, usage: str, status: str, team_id: int | None = None) -> str:
         if usage == "trigger":
             action = {"id": "trigger_node", "type": "trigger", "config": {"type": "cohort", "cohort_id": cohort_id}}
         else:
@@ -7070,7 +7070,7 @@ class TestCohortTypeIntegration(APIBaseTest):
             condition = {"filters": {"properties": [{"key": "id", "type": filter_type, "value": cohort_id}]}}
             action = {"id": "branch", "type": "conditional_branch", "config": {"conditions": [condition]}}
         return create_workflow_for_test(
-            team_id=self.team.id, name=f"Workflow {usage}", status=status, actions=[action]
+            team_id=team_id or self.team.id, name=f"Workflow {usage}", status=status, actions=[action]
         ).id
 
     @parameterized.expand(
@@ -7165,6 +7165,27 @@ class TestCohortTypeIntegration(APIBaseTest):
             "hidden": 1,
             "has_more": True,
         }
+
+    def test_used_in_hides_workflows_denied_in_the_environment_that_owns_them(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project, name="Sibling")
+        cohort = Cohort.objects.create(team=sibling, name="Sibling cohort")
+        workflow_id = self._create_workflow_using_cohort(cohort.id, "trigger", "active", team_id=sibling.id)
+        AccessControl.objects.create(
+            team=sibling,
+            resource="hog_flow",
+            resource_id=workflow_id,
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/used_in/")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["workflows"] == {"results": [], "total": 1, "hidden": 1, "has_more": True}
 
     def test_edit_that_stops_realtime_is_blocked_by_active_workflows_using_it(self):
         cohort_id = self._create_realtime_cohort()

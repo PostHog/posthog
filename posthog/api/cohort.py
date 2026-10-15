@@ -165,13 +165,17 @@ def _visible_workflows(
         scopes is not None and not {"*", "hog_flow:read", "hog_flow:write"} & set(scopes)
     ):
         return []
+    # Access rules belong to the workflows' environment, which can differ from the one the request came through.
+    team_access_control = user_access_control.for_team_ids([team_id]).get(team_id)
+    if team_access_control is None:
+        return []
     references = [
         HogFlowReference(id=workflow.id, name=workflow.name, status=workflow.status) for workflow in workflows
     ]
     visible_ids = {
         reference.id
         for reference in filter_hog_flow_references_by_access_level(
-            team_id, {"blocking": references}, user_access_control
+            team_id, {"blocking": references}, team_access_control
         ).get("blocking", [])
     }
     return [workflow for workflow in workflows if workflow.id in visible_ids]
