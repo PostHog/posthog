@@ -117,7 +117,7 @@ def classify_destinations_by_alert(
             .filter(**_RECEIVES_ALERT_EVENTS)
             .order_by("created_at", "id")
         )
-        for function, eligibility in zip(functions, _classify(team_id, functions)):
+        for function, eligibility in zip(functions, _classify(team_id, functions, allowed_event_ids)):
             for alert_id in _named_alert_ids(function.filters) & batch:
                 by_alert[alert_id].append(eligibility)
     return {alert_id: tuple(eligibilities) for alert_id, eligibilities in by_alert.items()}
