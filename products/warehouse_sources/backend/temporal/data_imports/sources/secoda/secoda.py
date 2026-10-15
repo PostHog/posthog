@@ -70,6 +70,10 @@ def secoda_source(
             # logs and raised errors; only the non-secret Accept header is set here.
             "headers": {"Accept": "application/json"},
             "auth": {"type": "bearer", "token": api_key},
+            # The bearer key must not follow a server-supplied `links.next` (or persisted resume
+            # URL) or a 3xx to another host. `allowed_hosts=[]` pins requests to SECODA_BASE_URL's host.
+            "allowed_hosts": [],
+            "allow_redirects": False,
             "paginator": JSONResponsePaginator(next_url_path=NEXT_URL_PATH),
         },
         "resource_defaults": {},
