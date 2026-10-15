@@ -537,9 +537,9 @@ describe("App flows", () => {
     });
     try {
       await vi.waitFor(() => expect(app.plain()).toContain("Other chat"));
-      // Tab to the sidebar, down past the first chat to the other: each opens, and the arrows keep stepping through chats.
-      // Each step waits for its render: the next one reads the cursor the last one left.
-      for (const key of ["\t", "\x1b[B", "\x1b[B"]) {
+      // Tab to the sidebar, down past New chat and the first chat to the other: each opens, and the arrows keep
+      // stepping through chats. Each step waits for its render: the next one reads the cursor the last one left.
+      for (const key of ["\t", "\x1b[B", "\x1b[B", "\x1b[B"]) {
         app.press(key);
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
