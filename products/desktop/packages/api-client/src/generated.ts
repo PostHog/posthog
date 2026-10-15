@@ -11793,6 +11793,7 @@ export namespace Schemas {
      * * `Railway` - Railway
      * * `Argocd` - Argocd
      * * `PrefectCloud` - PrefectCloud
+     * * `Daisycon` - Daisycon
      * * `DagsterCloud` - DagsterCloud
      * * `Env0` - Env0
      * * `Kubecost` - Kubecost
@@ -13177,6 +13178,7 @@ export namespace Schemas {
         | "Railway"
         | "Argocd"
         | "PrefectCloud"
+        | "Daisycon"
         | "DagsterCloud"
         | "Env0"
         | "Kubecost"
@@ -14569,6 +14571,7 @@ export namespace Schemas {
          * * `Railway` - Railway
          * * `Argocd` - Argocd
          * * `PrefectCloud` - PrefectCloud
+         * * `Daisycon` - Daisycon
          * * `DagsterCloud` - DagsterCloud
          * * `Env0` - Env0
          * * `Kubecost` - Kubecost
@@ -16249,6 +16252,7 @@ export namespace Schemas {
      * * `customerio-app` - Customerio App
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
+     * * `daisycon` - Daisycon
      * * `databricks` - Databricks
      * * `email` - Email
      * * `firebase` - Firebase
@@ -16301,6 +16305,7 @@ export namespace Schemas {
         | "customerio-app"
         | "customerio-track"
         | "customerio-webhook"
+        | "daisycon"
         | "databricks"
         | "email"
         | "firebase"

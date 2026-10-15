@@ -383,6 +383,9 @@ class OauthIntegration:
         "daisycon",
         "youtube-analytics",
     ]
+    # Kinds whose single-use refresh token rotates on every refresh. Only the source sync path refreshes
+    # them, under a row lock, because two unlocked refreshes would spend the same token twice.
+    rotating_refresh_token_kinds = ("resend", "daisycon")
     integration: model.Integration
 
     def __str__(self) -> str:
@@ -1800,7 +1803,6 @@ class OauthIntegration:
 
             self.integration.config["expires_in"] = expires_in
             self.integration.config["refreshed_at"] = int(time.time())
-            reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             refresh_tracking.oauth_refresh_counter.labels(
                 kind=self.integration.kind,
                 result="success_fallback" if used_fallback else "success",
@@ -1809,3 +1811,10 @@ class OauthIntegration:
             ).inc()
 
         self.integration.save()
+
+        # Notify workers only after the save: a provider that rotates refresh tokens has already
+        # spent the old one, so a failed notification must not stop the new token from being stored.
+        try:
+            reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+        except Exception:
+            logger.exception("Failed to notify workers of a refreshed integration", integration_id=self.integration.id)

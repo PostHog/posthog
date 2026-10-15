@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.daisycon.d
     resolve_publisher_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.daisycon.oauth import (
+    DAISYCON_GRANT_REVOKED_ERROR,
     DaisyconIntegrationAuth,
     resolve_daisycon_oauth_token,
 )
@@ -68,6 +69,7 @@ class DaisyconSource(ResumableSource[DaisyconSourceConfig, DaisyconResumeConfig]
             "Missing integration ID": f"The Daisycon connection is missing. {_RECONNECT}",
             "Integration not found": f"The linked Daisycon connection no longer exists. {_RECONNECT}",
             "Daisycon access token not found": f"The Daisycon access token is missing. {_RECONNECT}",
+            DAISYCON_GRANT_REVOKED_ERROR: f"Daisycon no longer accepts the authorization. {_RECONNECT}",
             "The connected Daisycon login cannot read publisher": None,
             "The connected Daisycon login can read more than one publisher": None,
         }

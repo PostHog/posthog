@@ -19,9 +19,6 @@ from products.workflows.backend.facade.api import delete_ses_identity
 
 GITHUB_BRANCH_REFRESH_RETRY_SECONDS = 5 * 60
 
-# Kinds whose single-use refresh token rotates on every refresh. Only the sync path refreshes them.
-ROTATING_REFRESH_TOKEN_KINDS = ("resend", "daisycon")
-
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
 @skip_team_scope_audit
@@ -37,7 +34,7 @@ def refresh_integrations() -> int:
     # re-exchanged on use by `MetaGraphIntegration.refresh_access_token` rather than by this sweep.
     oauth_integrations = defer_repository_cache_fields(
         Integration.objects.filter(kind__in=OauthIntegration.supported_kinds)
-        .exclude(kind__in=["meta-ads", "instagram", *ROTATING_REFRESH_TOKEN_KINDS])
+        .exclude(kind__in=["meta-ads", "instagram", *OauthIntegration.rotating_refresh_token_kinds])
         .all()
     )
 
@@ -96,7 +93,7 @@ def refresh_integration(id: int) -> int:
     # Rotating-token kinds are deliberately not refreshed here (see refresh_integrations): their
     # single-use refresh token must only ever be spent under the sync path's row lock. Skip them even
     # if an in-flight task from before this guard was deployed still targets such a row.
-    if integration.kind in ROTATING_REFRESH_TOKEN_KINDS:
+    if integration.kind in OauthIntegration.rotating_refresh_token_kinds:
         return 0
 
     if integration.kind in OauthIntegration.supported_kinds:
