@@ -571,7 +571,7 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
     "InvalidClientTokenId": "AWS rejected the access key. Check the access key ID and secret access key, and that the key is still active.",
     "InvalidSignatureException": "AWS rejected the request signature. Re-enter the secret access key.",
     "ExpiredTokenException": "The AWS session token has expired. Reconnect with fresh credentials.",
-    "AccessDeniedException": "These AWS credentials cannot read the catalog or run queries. Grant glue:GetDatabase, glue:GetTables, glue:GetTable, athena:GetWorkGroup, athena:StartQueryExecution, athena:GetQueryExecution, athena:GetQueryResults and athena:StopQueryExecution, plus read access to the tables' S3 data and the query result location.",
+    "AccessDeniedException": "These AWS credentials cannot read the catalog or run queries. Grant glue:GetDatabase, glue:GetTables, glue:GetTable, athena:GetWorkGroup, athena:StartQueryExecution, athena:GetQueryExecution, athena:GetQueryResults and athena:StopQueryExecution, plus read access to the tables' S3 data and read and write access to the query result location.",
     "EntityNotFoundException": "The Glue database does not exist in this region. Check the database name and region.",
 }
 
