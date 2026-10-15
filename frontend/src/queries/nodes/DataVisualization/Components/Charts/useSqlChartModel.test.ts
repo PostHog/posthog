@@ -14,7 +14,12 @@ it('keeps off-scale reference lines when horizontal bars have a partial shared d
                 visualizationType: ChartDisplayType.ActionsBarValue,
                 chartSettings: {},
                 xData: {
-                    column: { name: 'category', type: { name: 'STRING' }, label: 'Category', dataIndex: 0 },
+                    column: {
+                        name: 'category',
+                        type: { name: 'STRING', isNumerical: false },
+                        label: 'Category',
+                        dataIndex: 0,
+                    },
                     data: ['A', 'B'],
                 },
                 yData: [
