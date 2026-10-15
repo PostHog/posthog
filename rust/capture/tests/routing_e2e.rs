@@ -232,9 +232,11 @@ async fn it_routes_limiter_overflowed_ai_events_to_ai_overflow() -> Result<()> {
     let main_topic = EphemeralTopic::new().await;
     let ai_topic = EphemeralTopic::new().await;
     let ai_overflow_topic = EphemeralTopic::new().await;
+    let analytics_overflow_topic = EphemeralTopic::new().await;
 
     let mut config = DEFAULT_CONFIG.clone();
     config.outputs.analytics_main_topic = main_topic.topic_name().to_string();
+    config.outputs.analytics_overflow_topic = analytics_overflow_topic.topic_name().to_string();
     config.outputs.ai_main_topic = ai_topic.topic_name().to_string();
     config.outputs.ai_overflow_topic = ai_overflow_topic.topic_name().to_string();
     config.ai_events_overflow_enabled = true;
@@ -252,8 +254,6 @@ async fn it_routes_limiter_overflowed_ai_events_to_ai_overflow() -> Result<()> {
     let res = server.capture_events(event.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
-    // A force-limited AI key overflows to the AI overflow topic — never the
-    // analytics overflow — with the key dropped and person processing off.
     let (key, event, headers) = ai_overflow_topic.next_message_full()?;
     assert_eq!(key, None, "force-limited overflow must drop the event key");
     assert_json_include!(
@@ -271,5 +271,6 @@ async fn it_routes_limiter_overflowed_ai_events_to_ai_overflow() -> Result<()> {
 
     ai_topic.assert_empty();
     main_topic.assert_empty();
+    analytics_overflow_topic.assert_empty();
     Ok(())
 }

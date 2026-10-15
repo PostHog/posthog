@@ -987,11 +987,13 @@ mod tests {
             "the error must name the AI byte knob, not the shared one, got: {err}"
         );
 
-        // The shared window is valid here, so the token+distinct_id limiter is
-        // unaffected by the AI byte knob being wrong.
+        let err = match GlobalRateLimiter::new_token_distinct_id(&config, vec![]) {
+            Ok(_) => panic!("an empty redis instance list must not build a limiter"),
+            Err(err) => err,
+        };
         assert!(
-            GlobalRateLimiter::new_token_distinct_id(&config, vec![]).is_err(),
-            "an empty redis instance list still fails, but not on the window"
+            !err.to_string().contains("WINDOW_INTERVAL_SECS"),
+            "the token+distinct_id limiter must not fail on a window, got: {err}"
         );
     }
 
