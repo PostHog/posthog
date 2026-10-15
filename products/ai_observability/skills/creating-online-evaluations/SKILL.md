@@ -157,7 +157,9 @@ Then choose what one run returns. `hog` and `llm_judge` support all three output
   a fractional score such as `3.7` with `step: 1`, and the score is stored as returned.
 - **Categorical:** define `options` as stable lowercase keys with display labels. Use `single` selection
   when exactly one outcome applies, and `multiple` when several problems can co-occur. For pass rates and
-  reports, set `passing_rule.categories` to the keys that count as a pass, usually the "no problem" key.
+  reports, set `passing_rule.categories` to the keys that count as a pass. In `single` mode that is usually
+  a "no problem" key. In `multiple` mode, define no "no problem" key and set `categories: []`, so only an
+  empty result passes. Any listed key makes an empty result fail.
 - Without a passing rule, numeric and categorical results are still recorded, but there are no pass rates
   or reports.
 
