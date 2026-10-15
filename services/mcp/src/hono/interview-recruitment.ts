@@ -14,21 +14,39 @@ import type { ResolvedState } from './request-state-resolver'
 // services/mcp/AGENTS.md requires human MCP owner approval before adding prompts or expanding their reach/frequency.
 export const MCP_INTERVIEW_RECRUITMENT_FLAG = 'mcp-interview-recruitment'
 
+const DEFAULT_CAMPAIGN_ID = 'mcp-research'
+const campaignIdSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/)
+const invitationMessageSchema = z.string().trim().min(1).max(1000)
+
 const bookingUrlSchema = z.url().refine((value) => value.startsWith('https://'))
 
-export const interviewRecruitmentConfigSchema = z.object({
+const interviewRecruitmentConfigSchema = z.object({
     min_completed_tool_calls: z.number().int().min(0).max(1000).default(3),
     min_session_age_seconds: z.number().int().min(0).max(86400).default(120),
-    message: z
-        .string()
-        .trim()
-        .min(1)
-        .max(1000)
-        .default("Squeal on our MCP. Book a 20-minute chat. We'll pay you in PostHog merch."),
+    message: invitationMessageSchema.default(
+        "Squeal on our MCP. Book a 20-minute chat. We'll pay you in PostHog merch."
+    ),
     booking_url: bookingUrlSchema.default('https://cal.com/adam-posthog/posthog-chat'),
 })
 
-export type InterviewRecruitmentConfig = z.infer<typeof interviewRecruitmentConfigSchema>
+const variantConfigSchema = interviewRecruitmentConfigSchema.extend({
+    message: invitationMessageSchema,
+    booking_url: bookingUrlSchema,
+})
+
+export type InterviewRecruitmentConfig = z.infer<typeof interviewRecruitmentConfigSchema> & { campaign_id: string }
+
+export function resolveInterviewRecruitmentConfig(
+    value: unknown,
+    payload: unknown
+): InterviewRecruitmentConfig | undefined {
+    const campaign = campaignIdSchema.safeParse(value === true ? DEFAULT_CAMPAIGN_ID : value)
+    if (!campaign.success) {
+        return undefined
+    }
+    const config = (value === true ? interviewRecruitmentConfigSchema : variantConfigSchema).safeParse(payload ?? {})
+    return config.success ? { ...config.data, campaign_id: campaign.data } : undefined
+}
 
 const INPUT_ID = 'mcp-interview'
 const STATE_PREFIX = 'mcp-interview:'
@@ -72,6 +90,12 @@ const bookingLinkSchema = z.object({
     distinct_id: z.string().min(1),
     invitation_id: z.uuid(),
     url: bookingUrlSchema,
+    campaign_id: campaignIdSchema.default(DEFAULT_CAMPAIGN_ID),
+})
+
+const pendingInvitationSchema = z.object({
+    fingerprint: z.string(),
+    campaign_id: campaignIdSchema,
 })
 
 const responseSchema = z.object({ action: z.enum(['accept', 'decline', 'cancel']) })
@@ -81,13 +105,20 @@ export class InterviewRequestError extends Error {}
 export class InterviewRecruitment {
     constructor(private readonly redis: RedisLike) {}
 
-    private track(event: string, distinctId: string, invitationId: string, response?: string): void {
+    private track(
+        event: string,
+        distinctId: string,
+        invitationId: string,
+        campaignId: string,
+        response?: string
+    ): void {
         try {
             getPostHogClient().capture({
                 distinctId,
                 event,
                 properties: {
                     invitation_id: invitationId,
+                    campaign_id: campaignId,
                     feature_flag: MCP_INTERVIEW_RECRUITMENT_FLAG,
                     ...(response ? { response } : {}),
                 },
@@ -117,7 +148,12 @@ export class InterviewRecruitment {
         try {
             const firstOpen = await this.redis.set(`${key}:opened`, '1', 'EX', COOLDOWN_SECONDS, 'NX')
             if (firstOpen === 'OK') {
-                this.track('mcp interview booking link opened', link.data.distinct_id, invitationId)
+                this.track(
+                    'mcp interview booking link opened',
+                    link.data.distinct_id,
+                    invitationId,
+                    link.data.campaign_id
+                )
             }
         } catch {
             // A failed analytics deduplication write must not prevent a known booking redirect.
@@ -151,11 +187,13 @@ export class InterviewRecruitment {
     }
 
     private canRecruit(params: Record<string, unknown>, state: ResolvedState): boolean {
+        const config = state.interviewRecruitmentConfig
+        const value = state.toolFeatureFlags?.[MCP_INTERVIEW_RECRUITMENT_FLAG]
         return (
-            state.toolFeatureFlags?.[MCP_INTERVIEW_RECRUITMENT_FLAG] === true &&
+            config !== undefined &&
+            (value === config.campaign_id || (value === true && config.campaign_id === DEFAULT_CAMPAIGN_ID)) &&
             !state.isImpersonated &&
             !state.suppressAnalytics &&
-            state.interviewRecruitmentConfig !== undefined &&
             this.supportsUrl(params)
         )
     }
@@ -241,13 +279,26 @@ export class InterviewRecruitment {
                   ? 'do_not_ask_again'
                   : 'not_now'
         const preferenceKey = this.preferenceKey(state)
+        const pendingKey = `${preferenceKey}:${requestState}`
+        const rawPending = (await this.redis.get(pendingKey)) ?? ''
+        const pending = pendingInvitationSchema.safeParse(rawPending ? JSON.parse(rawPending) : undefined)
+        if (!pending.success || pending.data.fingerprint !== this.requestFingerprint(params, userHash)) {
+            throw new InterviewRequestError(
+                'Interview invitation expired or does not match this request. Retry the original tool call without requestState or inputResponses.'
+            )
+        }
         const saved = await this.redis.eval(
             SAVE_RESPONSE,
             2,
             preferenceKey,
-            `${preferenceKey}:${requestState}`,
-            this.requestFingerprint(params, userHash),
-            JSON.stringify({ distinct_id: state.distinctId, response, responded_at: new Date().toISOString() }),
+            pendingKey,
+            rawPending,
+            JSON.stringify({
+                distinct_id: state.distinctId,
+                campaign_id: pending.data.campaign_id,
+                response,
+                responded_at: new Date().toISOString(),
+            }),
             response === 'not_now' ? COOLDOWN_SECONDS : 0
         )
         if (saved !== 1) {
@@ -260,6 +311,7 @@ export class InterviewRecruitment {
                 'mcp interview invitation responded',
                 state.distinctId,
                 requestState.slice(STATE_PREFIX.length),
+                pending.data.campaign_id,
                 parsed.data.action
             )
         }
@@ -308,7 +360,12 @@ export class InterviewRecruitment {
             }
             await this.redis.set(
                 linkKey,
-                JSON.stringify({ distinct_id: state.distinctId, invitation_id: invitationId, url: config.booking_url }),
+                JSON.stringify({
+                    distinct_id: state.distinctId,
+                    invitation_id: invitationId,
+                    url: config.booking_url,
+                    campaign_id: config.campaign_id,
+                }),
                 'EX',
                 COOLDOWN_SECONDS
             )
@@ -317,8 +374,15 @@ export class InterviewRecruitment {
                 2,
                 preferenceKey,
                 `${preferenceKey}:${requestState}`,
-                JSON.stringify({ response: 'pending', asked_at: new Date().toISOString() }),
-                this.requestFingerprint(params, userHash),
+                JSON.stringify({
+                    response: 'pending',
+                    campaign_id: config.campaign_id,
+                    asked_at: new Date().toISOString(),
+                }),
+                JSON.stringify({
+                    fingerprint: this.requestFingerprint(params, userHash),
+                    campaign_id: config.campaign_id,
+                }),
                 COOLDOWN_SECONDS,
                 PENDING_SECONDS
             )
@@ -331,7 +395,7 @@ export class InterviewRecruitment {
             return undefined
         }
 
-        this.track('mcp interview invitation sent', state.distinctId, invitationId)
+        this.track('mcp interview invitation sent', state.distinctId, invitationId, config.campaign_id)
         const bookingLink = new URL(`/interview/${invitationId}`, requestOrigin).toString()
         return {
             resultType: 'input_required',

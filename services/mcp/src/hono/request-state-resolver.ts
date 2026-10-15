@@ -28,7 +28,7 @@ import type { RedisLike } from './cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import {
     type InterviewRecruitmentConfig,
-    interviewRecruitmentConfigSchema,
+    resolveInterviewRecruitmentConfig,
     MCP_INTERVIEW_RECRUITMENT_FLAG,
 } from './interview-recruitment'
 import {
@@ -190,9 +190,6 @@ export class RequestStateResolver {
             apiKeyScopes: _apiKey?.scopes,
             oauthClientId: oauthClientId || undefined,
         })
-        const interviewConfig = interviewRecruitmentConfigSchema.safeParse(
-            payloads[MCP_INTERVIEW_RECRUITMENT_FLAG] ?? {}
-        )
 
         // Dev/test-only overrides win over evaluated values (no-op in production).
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
@@ -276,7 +273,10 @@ export class RequestStateResolver {
             context,
             useSingleExec,
             toolFeatureFlags,
-            interviewRecruitmentConfig: interviewConfig.success ? interviewConfig.data : undefined,
+            interviewRecruitmentConfig: resolveInterviewRecruitmentConfig(
+                mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG],
+                payloads[MCP_INTERVIEW_RECRUITMENT_FLAG]
+            ),
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,

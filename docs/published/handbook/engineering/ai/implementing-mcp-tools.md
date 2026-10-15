@@ -99,12 +99,14 @@ When the MCP server advertises Business Knowledge or documentation search tools,
 > Read the [MCP agent policy](../../../../../services/mcp/AGENTS.md#unsolicited-elicitation-high-risk) before adding unsolicited prompts or expanding this flow.
 > Reviewers should challenge the interruption's user value, audience, timing, frequency, opt-out behavior, and measurement.
 
-The `mcp-interview-recruitment` boolean flag enables an optional interview invitation before a tool call.
+The `mcp-interview-recruitment` multivariate flag selects one optional interview invitation before a tool call.
+Each variant key identifies a campaign and has its own invitation payload.
+To add an approved study, read [the integration guide](../../../../../services/mcp/INTERVIEW_RECRUITMENT.md).
 Create the flag in the MCP server's analytics project and manage its audience and rollout there.
 A missing or disabled flag skips recruitment. Local development also keeps it disabled unless a
 development flag override explicitly enables it.
 
-Set the enabled boolean flag's JSON payload to customize the invitation without deploying:
+Set each variant's JSON payload to customize its invitation without deploying:
 
 ```json
 {
@@ -115,10 +117,14 @@ Set the enabled boolean flag's JSON payload to customize the invitation without 
 }
 ```
 
-Omitted fields use the defaults above. A malformed payload, an empty message, a message over 1,000
+Each variant must explicitly supply `message` and `booking_url`; omitted timing fields use the defaults above.
+A boolean `true` remains compatible with the original `mcp-research` campaign and its defaults.
+A malformed payload, an empty message, a message over 1,000
 characters, or a non-HTTPS booking URL skips recruitment. Flag values and payloads come from the same
 evaluation, with the same audience properties. Payload edits apply to subsequent requests without
-restarting the server. A displayed invitation keeps the copy and URL it already received.
+restarting the server. A displayed invitation keeps its original campaign, copy, and URL even if targeting changes.
+Use release conditions to assign variants, with higher-priority conditions first. One evaluation selects
+one campaign; no invitation queue is created for overlapping audiences.
 
 By default, an eligible conversation must complete three successful product tool calls and have been
 observed for at least 120 seconds. The earliest invitation is before its fourth product call, once both
@@ -170,7 +176,7 @@ Responses are JSON records in the MCP server's shared Redis, under
 `mcp:interview:{<identity hash>}:response`. The identity hash is the SHA-256 hex digest of
 `JSON.stringify([publicPostHogBaseUrl, distinctId])`; it scopes the preference to the authenticated
 user and PostHog instance, across tokens, sessions, and projects. Submitted records contain
-`distinct_id`, `response`, and `responded_at`. Use `SCAN MATCH 'mcp:interview:*:response'` and `GET`
+`distinct_id`, `campaign_id`, `response`, and `responded_at`. Suppression is shared across campaigns. Use `SCAN MATCH 'mcp:interview:*:response'` and `GET`
 to inspect responses. This implementation records the invitation response; it does not send an email or track completed bookings.
 
 Accepted-link and opted-out records have no TTL. They remain suppressed until reset, provided Redis
@@ -187,8 +193,8 @@ Recruitment analytics use the existing PostHog SDK and the MCP server's analytic
 | `mcp interview booking link opened`  | The invitation's redirect URL receives its first GET request. Repeated opens do not add events.                       |
 | `mcp interview invitation responded` | A valid response is saved, with `response` equal to `accept`, `decline`, or `cancel`.                                 |
 
-Every event carries the authenticated user's distinct ID, an `invitation_id`, and the `feature_flag`
-key. Count distinct people for reach and invitation IDs for attempts. Invitations without a response
+Every event carries the authenticated user's distinct ID, `campaign_id`, `invitation_id`, and the `feature_flag`
+key. The campaign comes from the selected variant and is retained for link opens and responses. Count distinct people for reach and invitation IDs for attempts. Invitations without a response
 are unanswered, which can include abandonment, an open dialog, or a lost connection. An accepted
 response records permission to open the link; it does not establish that the booking page opened.
 

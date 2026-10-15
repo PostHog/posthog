@@ -521,7 +521,10 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     it.each([
-        { payload: {}, expected: { booking_url: 'https://cal.com/adam-posthog/posthog-chat' } },
+        {
+            payload: {},
+            expected: { campaign_id: 'mcp-research', booking_url: 'https://cal.com/adam-posthog/posthog-chat' },
+        },
         {
             payload: { message: 'A new invitation', booking_url: 'https://example.com/book' },
             expected: { message: 'A new invitation', booking_url: 'https://example.com/book' },
@@ -531,18 +534,37 @@ describe('RequestStateResolver MCP client contexts', () => {
         { payload: { booking_url: 'http://example.com/book' }, expected: undefined },
         { payload: { booking_url: 'not a URL' }, expected: undefined },
         { payload: 'invalid', expected: undefined },
-    ])('validates recruitment configuration from the flag payload: $payload', async ({ payload, expected }) => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
-            flags: { [MCP_INTERVIEW_RECRUITMENT_FLAG]: true },
-            payloads: { [MCP_INTERVIEW_RECRUITMENT_FLAG]: payload },
-        })
-        const state = await makeResolver().resolve(makeProps())
-        if (expected) {
-            expect(state.interviewRecruitmentConfig).toMatchObject(expected)
-        } else {
-            expect(state.interviewRecruitmentConfig).toBeUndefined()
+        {
+            value: 'other-study',
+            payload: { message: 'Another interview', booking_url: 'https://example.com/other' },
+            expected: {
+                campaign_id: 'other-study',
+                booking_url: 'https://example.com/other',
+                min_completed_tool_calls: 3,
+                min_session_age_seconds: 120,
+            },
+        },
+        { value: 'other-study', payload: undefined, expected: undefined },
+        { value: 'other-study', payload: {}, expected: undefined },
+        { value: 'other-study', payload: { message: 'Another interview' }, expected: undefined },
+        { value: 'other-study', payload: { booking_url: 'https://example.com/other' }, expected: undefined },
+        { value: '', payload: {}, expected: undefined },
+        { value: false, payload: {}, expected: undefined },
+    ])(
+        'validates recruitment configuration from the flag payload: $payload',
+        async ({ value = true, payload, expected }) => {
+            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
+                flags: { [MCP_INTERVIEW_RECRUITMENT_FLAG]: value },
+                payloads: { [MCP_INTERVIEW_RECRUITMENT_FLAG]: payload },
+            })
+            const state = await makeResolver().resolve(makeProps())
+            if (expected) {
+                expect(state.interviewRecruitmentConfig).toMatchObject(expected)
+            } else {
+                expect(state.interviewRecruitmentConfig).toBeUndefined()
+            }
         }
-    })
+    )
 
     it('honors a dev/test flag override even when evaluation returns nothing', async () => {
         // Evaluation stays empty (analytics client disabled, as in local dev/evals);
