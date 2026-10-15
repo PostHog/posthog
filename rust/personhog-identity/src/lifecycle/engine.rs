@@ -432,7 +432,7 @@ impl Engine {
         wait_for_lease: bool,
         deadline: tokio::time::Instant,
     ) -> Result<OpRow, SagaError> {
-        let drive_start = tokio::time::Instant::now();
+        let drive_start = deadline - self.config.execute_timeout;
         // The attempt number returned by our claim, used as a fencing token:
         // renew/release only touch the lease while `attempt` still matches,
         // so a driver whose lease was stolen (the stealer bumped `attempt`)
