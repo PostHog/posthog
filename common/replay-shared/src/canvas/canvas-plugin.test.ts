@@ -561,6 +561,35 @@ describe('CanvasReplayerPlugin', () => {
         })
     })
 
+    describe('mirror node that is not a canvas', () => {
+        it.each([
+            { name: 'an element', makeNode: () => document.createElement('div') },
+            { name: 'a text node', makeNode: () => document.createTextNode('text') },
+        ])('skips the mutation when the node is $name', async ({ makeNode }) => {
+            const node = makeNode()
+            const event = {
+                type: EventType.IncrementalSnapshot as const,
+                data: {
+                    source: IncrementalSource.CanvasMutation as const,
+                    id: 5,
+                    type: 0,
+                    commands: [{ property: 'clearRect', args: [0, 0, 10, 10] }],
+                },
+                timestamp: 1000,
+            }
+            const onError = jest.fn()
+            const plugin = CanvasReplayerPlugin([event], onError)
+            const replayer = { getMirror: () => ({ getNode: (id: number) => (id === 5 ? node : null) }) }
+            ;(canvasMutation as jest.Mock).mockClear()
+
+            plugin.handler!(event, false, { replayer } as any)
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
+            expect(canvasMutation).not.toHaveBeenCalled()
+            expect(onError).not.toHaveBeenCalled()
+        })
+    })
+
     describe('canvas mutation error reporting', () => {
         const reportCanvasMutationFailure = async (thrown: unknown): Promise<jest.Mock> => {
             const canvas = document.createElement('canvas')
