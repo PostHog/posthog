@@ -218,13 +218,13 @@ def stats_rows(
     resume_after = resume.after_id if resume is not None else None
 
     ids = entity_ids(client, endpoint.entity, manager.safe_point)
-    chunks = [ids[i : i + STATS_IDS_PER_REQUEST] for i in range(0, len(ids), STATS_IDS_PER_REQUEST)]
 
     day = max(start, resume_day) if resume_day is not None else start
-    while day <= end and chunks:
+    while day <= end and ids:
+        # Ids are compared one by one, because an entity removed since the last attempt shifts chunk boundaries.
+        day_ids = [i for i in ids if i > resume_after] if day == resume_day and resume_after is not None else ids
+        chunks = [day_ids[i : i + STATS_IDS_PER_REQUEST] for i in range(0, len(day_ids), STATS_IDS_PER_REQUEST)]
         for index, chunk in enumerate(chunks):
-            if day == resume_day and resume_after is not None and chunk[-1] <= resume_after:
-                continue
             rows = fetch_stats(client, chunk, day)
             last_of_day = index == len(chunks) - 1
             manager.save_state(

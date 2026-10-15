@@ -47,10 +47,12 @@ def ok(body: Any) -> ScriptedResponse:
     return ScriptedResponse(json=body)
 
 
-def stats_responder(requests_per_day: dict[str, list[list[str]]]) -> Any:
+def stats_responder(
+    requests_per_day: dict[str, list[list[str]]], campaign_ids: tuple[str, ...] = ("cmp-1", "cmp-2", "cmp-3")
+) -> Any:
     def respond(request: RecordedRequest) -> ScriptedResponse:
         if request.path == "/ncc/campaigns":
-            return ok([{"nccCampaignId": "cmp-1"}, {"nccCampaignId": "cmp-2"}, {"nccCampaignId": "cmp-3"}])
+            return ok([{"nccCampaignId": campaign_id} for campaign_id in campaign_ids])
         assert request.path == "/stats"
         day = json.loads(request.param("timeRange") or "{}")["since"]
         ids = (request.param("ids") or "").split(",")
@@ -187,26 +189,30 @@ def test_stats_windows_start_from_the_watermark_or_the_history_window(
     assert json.loads(stats_request.param("fields") or "[]")[:2] == ["impCnt", "clkCnt"]
 
 
-def test_stats_chunk_ids_and_resume_from_the_last_written_chunk(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stats_chunk_ids_and_resume_after_the_last_written_id(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(naver_ads_module, "STATS_IDS_PER_REQUEST", 2)
     requests_per_day: dict[str, list[list[str]]] = {}
 
+    # The last attempt wrote cmp-1 and cmp-2 for 2026-10-14. cmp-1 is gone since, which shifts the chunks.
     result = driver().run(
         "campaign_stats",
-        stats_responder(requests_per_day),
+        stats_responder(requests_per_day, campaign_ids=("cmp-2", "cmp-3", "cmp-4")),
         resume_state=NaverAdsResumeConfig(
             after_id="cmp-2", stat_date="2026-10-14", window_start="2026-10-13", window_end="2026-10-15"
         ),
     )
 
     assert result.raised is None
-    assert requests_per_day == {"2026-10-14": [["cmp-3"]], "2026-10-15": [["cmp-1", "cmp-2"], ["cmp-3"]]}
+    assert requests_per_day == {
+        "2026-10-14": [["cmp-3", "cmp-4"]],
+        "2026-10-15": [["cmp-2", "cmp-3"], ["cmp-4"]],
+    }
     window = {"window_start": "2026-10-13", "window_end": "2026-10-15"}
     # Each chunk's state persists with that chunk's rows, so a hand-off never re-reads a written chunk.
     assert result.committed_states == [
         NaverAdsResumeConfig(after_id="cmp-2", stat_date="2026-10-14", **window),
         NaverAdsResumeConfig(after_id=None, stat_date="2026-10-15", **window),
-        NaverAdsResumeConfig(after_id="cmp-2", stat_date="2026-10-15", **window),
+        NaverAdsResumeConfig(after_id="cmp-3", stat_date="2026-10-15", **window),
         NaverAdsResumeConfig(after_id=None, stat_date="2026-10-16", **window),
     ]
     assert result.completed_state is None
