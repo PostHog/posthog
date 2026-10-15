@@ -54,6 +54,22 @@ def get_open_idea(*, team_id: int, idea_id: str, source: str) -> WorkflowIdeaRec
     return _record(row) if row is not None else None
 
 
+def store_idea_workflow(*, team_id: int, idea_id: str, workflow: dict, uses_saved_template: bool) -> None:
+    """Keeps the built workflow on the idea, so a later click creates it without planning it again."""
+    with transaction.atomic():
+        row = (
+            WorkflowIdea.objects.for_team(team_id)
+            .select_for_update()
+            .filter(id=idea_id, status=WorkflowIdea.Status.SUGGESTED)
+            .first()
+        )
+        if row is None:
+            return
+        row.definition = workflow
+        row.evidence = {**row.evidence, "uses_saved_template": uses_saved_template}
+        row.save(update_fields=["definition", "evidence"])
+
+
 def create_ideas(
     *, team_id: int, items: Iterable[NewWorkflowIdea], source: str, source_ref: str | None = None
 ) -> list[WorkflowIdeaRecord]:

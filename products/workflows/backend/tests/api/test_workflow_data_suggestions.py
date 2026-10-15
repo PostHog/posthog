@@ -117,6 +117,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         # FLAG patches the shared feature_enabled, which the privacy mode check reads too.
         self.privacy_mode = patch(f"{SERVICE}.is_privacy_mode_enabled", return_value=False).start()
         patch(f"{SERVICE}.classify_event_stages", return_value={}).start()
+        self.prebuild = patch(f"{SERVICE}._prebuild_enabled", return_value=False).start()
         self.addCleanup(patch.stopall)
         sync_template_to_db(_email_function_template())
         sync_template_to_db(webhook_template)
@@ -910,6 +911,27 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert actions is not None
         assert actions[0]["config"]["inputs"]["token"] == {"value": "<set>"}
         assert "super-secret" not in str(actions)
+
+    @parameterized.expand([("built on click", False), ("built with the cards", True)])
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_built_workflow_is_kept_on_its_idea(
+        self, _name: str, prebuild: bool, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+    ) -> None:
+        self.prebuild.return_value = prebuild
+        suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+        suggestion_id = self._list()["suggestions"][0]["id"]
+        build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
+
+        first = self.client.post(build_url, {"suggestion_id": suggestion_id}, format="json").json()
+        cache.delete(_build_key(self.team.id, suggestion_id, "web"))
+        again = self.client.post(build_url, {"suggestion_id": suggestion_id}, format="json").json()
+
+        assert first["status"] == again["status"] == "ready"
+        assert again["workflow"] == first["workflow"]
+        assert StoredIdea.objects.for_team(self.team.id).get(id=suggestion_id).definition == first["workflow"]
+        assert plan_steps.call_count == 1
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
