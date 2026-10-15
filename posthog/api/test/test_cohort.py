@@ -7048,11 +7048,7 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)  # Should remain unchanged
         self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
 
-    def _roll_out_cohort_conditions(self, enabled: bool = True) -> None:
-        self.enterContext(patch("posthog.api.cohort.cohort_conditions_rolled_out", return_value=enabled))
-
     def _create_realtime_cohort(self) -> int:
-        self._roll_out_cohort_conditions()
         filters = {
             "properties": {
                 "type": "AND",
@@ -7066,7 +7062,7 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert response.data["cohort_type"] == CohortType.REALTIME
         return response.data["id"]
 
-    def _create_workflow_using_cohort(self, cohort_id: int, usage: str, status: str) -> str:
+    def _create_workflow_using_cohort(self, cohort_id: int, usage: str, status: str, team_id: int | None = None) -> str:
         if usage == "trigger":
             action = {"id": "trigger_node", "type": "trigger", "config": {"type": "cohort", "cohort_id": cohort_id}}
         else:
@@ -7074,7 +7070,7 @@ class TestCohortTypeIntegration(APIBaseTest):
             condition = {"filters": {"properties": [{"key": "id", "type": filter_type, "value": cohort_id}]}}
             action = {"id": "branch", "type": "conditional_branch", "config": {"conditions": [condition]}}
         return create_workflow_for_test(
-            team_id=self.team.id, name=f"Workflow {usage}", status=status, actions=[action]
+            team_id=team_id or self.team.id, name=f"Workflow {usage}", status=status, actions=[action]
         ).id
 
     @parameterized.expand(
@@ -7083,15 +7079,11 @@ class TestCohortTypeIntegration(APIBaseTest):
             ("active_branch", "branch", "active", 400),
             ("active_branch_precalculated", "branch_precalculated", "active", 400),
             ("draft_trigger", "trigger", "draft", 200),
-            ("active_trigger_flag_off", "trigger", "active", 200, False),
         ]
     )
-    def test_delete_cohort_is_blocked_by_active_workflows_using_it(
-        self, _name, usage, workflow_status, expected, rolled_out=True
-    ):
+    def test_delete_cohort_is_blocked_by_active_workflows_using_it(self, _name, usage, workflow_status, expected):
         cohort_id = self._create_realtime_cohort()
         self._create_workflow_using_cohort(cohort_id, usage, workflow_status)
-        self._roll_out_cohort_conditions(rolled_out)
 
         response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", {"deleted": True})
 
@@ -7140,6 +7132,16 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "used in 2 active workflow(s): Workflow branch and 1 more." in response.json()["detail"]
         assert "Workflow trigger" not in response.json()["detail"]
+
+    def test_blocked_delete_counts_workflows_in_other_environments_without_naming_them(self):
+        cohort_id = self._create_realtime_cohort()
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project, name="Sibling")
+        self._create_workflow_using_cohort(cohort_id, "trigger", "active", team_id=sibling.id)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", {"deleted": True})
+
+        assert response.status_code == 400, response.json()
+        assert "used in 1 active workflow(s). Please remove" in response.json()["detail"]
 
     def test_edit_that_stops_realtime_is_blocked_by_active_workflows_using_it(self):
         cohort_id = self._create_realtime_cohort()

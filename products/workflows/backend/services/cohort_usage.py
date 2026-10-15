@@ -20,10 +20,13 @@ def _action_uses_realtime_cohort(action: Any, cohort_id: int) -> bool:
     return False
 
 
-def get_active_hog_flows_using_realtime_cohort(team_id: int, cohort_id: int) -> Iterator[HogFlow]:
-    """Active workflows that read the cohort's realtime membership: cohort triggers and conditional branches."""
+def get_active_hog_flows_using_realtime_cohort(project_id: int, cohort_id: int) -> Iterator[HogFlow]:
+    """Active workflows in the cohort's project that read its realtime membership: cohort triggers and branches."""
+    # Cohorts are shared by every environment in a project, so a workflow in any of them can rely on one.
     # Only the fields the check reads, streamed: full rows carry encrypted inputs and the whole graph.
-    flows = HogFlow.objects.filter(team_id=team_id, status=HogFlow.State.ACTIVE).only("id", "name", "status", "actions")
+    flows = HogFlow.objects.filter(team__project_id=project_id, status=HogFlow.State.ACTIVE).only(
+        "id", "name", "status", "team_id", "actions"
+    )
     for flow in flows.iterator():
         if any(_action_uses_realtime_cohort(action, cohort_id) for action in (flow.actions or [])):
             yield flow
