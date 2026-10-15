@@ -333,7 +333,8 @@ async fn process_events_inner(
     let raw_events = events;
     let mut events: Vec<ProcessedEvent> = Vec::with_capacity(raw_events.len());
     for mut raw in raw_events {
-        if raw.event.starts_with("$ai_") {
+        let is_ai = raw.event.starts_with("$ai_");
+        if is_ai {
             raw.properties
                 .retain(|key, _| !key.starts_with(crate::gateway_provenance::GATEWAY_PREFIX));
         }
@@ -341,28 +342,36 @@ async fn process_events_inner(
             events.push(process_single_event(&raw, historical_cfg, context)?);
             continue;
         }
-        let mut redirect = match create_heatmap_redirect(&raw, historical_cfg, context) {
-            Ok(Some(redirect)) => redirect,
-            Ok(None) => {
-                events.push(process_single_event(&raw, historical_cfg, context)?);
-                continue;
-            }
-            Err(err) => {
-                error!("failed to create heatmap redirect: {err:#}");
-                events.push(process_single_event(&raw, historical_cfg, context)?);
-                continue;
+        // AI events never feed heatmaps, so their heatmap data is dropped
+        // instead of redirected.
+        let redirect = if is_ai {
+            None
+        } else {
+            match create_heatmap_redirect(&raw, historical_cfg, context) {
+                Ok(Some(redirect)) => Some(redirect),
+                Ok(None) => {
+                    events.push(process_single_event(&raw, historical_cfg, context)?);
+                    continue;
+                }
+                Err(err) => {
+                    error!("failed to create heatmap redirect: {err:#}");
+                    events.push(process_single_event(&raw, historical_cfg, context)?);
+                    continue;
+                }
             }
         };
         raw.properties.remove("$heatmap_data");
         let mut processed = process_single_event(&raw, historical_cfg, context)?;
         processed.metadata.skip_heatmap_processing = true;
         events.push(processed);
-        counter!("capture_heatmap_redirects_created").increment(1);
-        // The redirect is a synthetic copy of the original, which already
-        // carries the truncation; keeping it here would double-count the
-        // submitted event in the warning tally below.
-        redirect.metadata.distinct_id_truncated_from = None;
-        events.push(redirect);
+        if let Some(mut redirect) = redirect {
+            counter!("capture_heatmap_redirects_created").increment(1);
+            // The redirect is a synthetic copy of the original, which already
+            // carries the truncation; keeping it here would double-count the
+            // submitted event in the warning tally below.
+            redirect.metadata.distinct_id_truncated_from = None;
+            events.push(redirect);
+        }
     }
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "created ProcessedEvents batch");
@@ -3639,6 +3648,37 @@ mod tests {
         );
         assert_eq!(captured[0].metadata.data_type, DataType::HeatmapMain);
         assert!(!captured[0].metadata.skip_heatmap_processing);
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_process_events_drops_heatmap_data_from_ai_events(
+        #[values(HeatmapShape::HeatmapData, HeatmapShape::ScrollDepth)] shape: HeatmapShape,
+        #[values(crate::config::CaptureMode::Events, crate::config::CaptureMode::Ai)]
+        capture_mode: crate::config::CaptureMode,
+    ) {
+        let mut context = create_test_context(Utc::now(), None);
+        context.capture_mode = capture_mode;
+        let mut event = build_heatmap_carrier_event(shape);
+        event.event = "$ai_generation".to_string();
+
+        let sink = MockSink::new();
+        run_pipeline(
+            Arc::new(OutputRegistry::single(sink.clone())),
+            vec![event],
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1, "an AI event must not produce a redirect");
+        assert_eq!(captured[0].metadata.data_type, DataType::AiEvents);
+        assert!(captured[0].metadata.skip_heatmap_processing);
+        let data: RawEvent = serde_json::from_str(&captured[0].event.data).unwrap();
+        assert!(!data.properties.contains_key("$heatmap_data"));
+        assert!(data.properties.contains_key("$current_url"));
     }
 
     #[tokio::test]
