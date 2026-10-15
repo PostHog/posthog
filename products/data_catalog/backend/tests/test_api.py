@@ -215,6 +215,13 @@ class TestMetricAPI(APIBaseTest):
 
         assert names == ["allowed"]
         assert self.client.get(f"{self.url}hidden/").status_code == status.HTTP_404_NOT_FOUND
+        for overwrite in (False, True):
+            conflict = self.client.post(
+                self.url, {"name": "hidden", "description": "taken over", "overwrite": overwrite}, format="json"
+            )
+            assert conflict.status_code == status.HTTP_409_CONFLICT, conflict.json()
+            assert "extra" not in conflict.json()
+        assert Metric.objects.for_team(self.team.id).get(pk=hidden["id"]).description == "d"
 
 
 class TestMetricLifecycleAPI(APIBaseTest):
