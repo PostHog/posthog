@@ -26,7 +26,6 @@ from products.data_modeling.backend.facade.managed_viewset_hooks import get_expe
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.node import Node
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -219,11 +218,6 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                         reconcile=False,
                         database=dag_database,
                     )
-                    # Drop any stale node left in another DAG (e.g. a legacy Default-DAG placement),
-                    # unless something there still depends on it (don't orphan a dependent).
-                    for stale in Node.objects.filter(team=self.team, saved_query=saved_query).exclude(dag=managed_dag):
-                        if not stale.outgoing_edges.exists():
-                            stale.delete()
                 except Exception as e:
                     capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                     logger.warning(

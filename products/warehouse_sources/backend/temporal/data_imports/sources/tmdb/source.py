@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -19,9 +20,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tmdb import TMDbSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.tmdb import (
     TMDbResumeConfig,
+    endpoint_supports_resume,
     tmdb_source,
     validate_credentials as validate_tmdb_credentials,
 )
@@ -30,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TMDbSource(ResumableSource[TMDbSourceConfig, TMDbResumeConfig]):
+    codebase_detection = detect(env=("^(TM_DB|TMDB)_",))
+
     supported_versions = ("3",)
     default_version = "3"
     api_docs_url = "https://developer.themoviedb.org/reference/intro/getting-started"
@@ -37,6 +45,16 @@ class TMDbSource(ResumableSource[TMDbSourceConfig, TMDbResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TMDB
+
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        # An endpoint that cannot checkpoint restarts from the first title on every attempt, so the
+        # larger resumable retry budget would only repeat the whole fan-out.
+        return schema_name is None or schema_name not in ENDPOINTS or endpoint_supports_resume(schema_name)
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -84,7 +102,7 @@ Create a free API key (v3 auth) in your [TMDB account settings](https://www.them
     ) -> list[SourceSchema]:
         # TMDB v3 list endpoints expose no server-side updated-after filter, so every endpoint has
         # empty incremental fields and is full refresh only.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self, config: TMDbSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None

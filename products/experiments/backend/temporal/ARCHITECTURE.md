@@ -70,7 +70,7 @@ Every metric in a single recalc shares one `query_to` timestamp, stamped by the 
 
 ### Recalc fingerprint, not config fingerprint
 
-Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")` (`compute_recalc_fingerprint` in `metric_calculation/results.py`). The config part is the calculation key that the daily timeseries workflows use too: `MetricCalculationConfig.calculation_key()` in `metric_calculation/config.py`. The calculation config holds everything the calculation reads, but key version 1 hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants. The salt is a fixed string, so the recalc fingerprint is deterministic per config, not per run.
+Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")` (`_recalc_fingerprint` in `metric_calculation/results.py`). The config part is the calculation key that the daily timeseries workflows use too: `MetricCalculationConfig.calculation_key()` in `metric_calculation/config.py`. The calculation config holds everything the calculation reads, but key version 1 hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants. The salt is a fixed string, so the recalc fingerprint is deterministic per config, not per run.
 
 This matters because the recalc workflow shares the `ExperimentMetricResult` table with the timeseries workflows. If we used the config fingerprint, every recalc would overwrite the cached daily timeseries row, wrecking the timeseries reads. The constant salt keeps the recalc family distinct from the timeseries family on the same table, so they never collide.
 
@@ -100,9 +100,19 @@ The snapshot for such an experiment is the one row at `end_date` for the current
 
 The trade-off: reads have to recompute the fingerprint set to find a run's results (`MetricResultStore.for_run` walks each metric, recomputes its `config_fp`, applies the recalc salt, then `WHERE fingerprint IN (...) AND query_to = recalc.query_to`). If the experiment's `start_date` / `exposure_criteria` / stats config changes between the write and the read, the recomputed fingerprints don't match the on-disk ones, and results "disappear." Documented inline as the fingerprint-divergence hazard.
 
-Every read of `ExperimentMetricResult` goes through the named queries of `MetricResultStore` (`metric_calculation/results.py`), so the salt, the sync's copy window and the relaunch rule on `query_from` stay in one module.
+Every read and write of `ExperimentMetricResult` goes through `MetricResultStore` (`metric_calculation/results.py`), so the salt and the sync's copy window stay in one module.
+The current result of a metric (`current_outcome`) is the completed row whose data ends last under the metric's current calculation key, salted or bare.
+A row's data ends at the earlier of its `query_to` and its `completed_at`, because the backfill stamps the current day with the end of that day but holds data only up to the moment it ran.
+The experiment-completed event reads it for the first primary metric in display order, inline or saved, and the setup context reads it for its outcomes.
+A backfilled past window does not win over a newer window, a backfilled current day does not win over a later run of that day, and a row under an earlier configuration, for example from before a relaunch, does not count.
 When several rows share `(experiment, metric_uuid, query_to)`, each query returns the row with the newest `completed_at`, then the highest id.
 The unique constraint on that key allows only one row, so this order decides nothing until the constraint goes.
+Every writer (the calc activity, the daily activities, the backfill and the timeseries sync) looks the row up on `(experiment, metric_uuid, query_to)` and stores its fingerprint as an updated field.
+A row that holds the window under another fingerprint is therefore updated in place, so no write can fail on the unique constraint or create a second row for a window.
+A daily write and a recalculation share a window only when an experiment stops while its daily run is in flight, so both use `end_date`.
+A successful daily write then takes over the recalculation's row, and the next reload recomputes that metric.
+A failed daily write leaves a completed row under another fingerprint in place, because it has no result to replace it with.
+The calc activity's write keeps its lock order and its terminal-run guard (see [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md)).
 
 ### Counters are derived, not stored
 
