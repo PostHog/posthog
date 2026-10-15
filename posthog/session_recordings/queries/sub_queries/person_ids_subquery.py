@@ -44,12 +44,23 @@ class PersonsIdCompareOperation(SessionRecordingsListingBaseQuery):
         now = datetime.now(UTC).replace(tzinfo=None)
 
         if poe_is_active(self._team):
+            # The resolved person_id filter alone makes ClickHouse join every team event in the range
+            # to the overrides before it can drop a row, which runs out of memory on busy teams.
+            # The prewhere keeps only the person's stored events and the events of distinct IDs
+            # overridden to the person, so the join sees a small candidate set.
             return parse_select(
                 """
                 select
                     distinct properties.$session_id
                 from
                     events
+                prewhere
+                    event_person_id = {person_id}
+                    or distinct_id in (
+                        select distinct_id
+                        from raw_person_distinct_id_overrides
+                        where person_id = {person_id}
+                    )
                 where
                     person_id = {person_id}
                     and timestamp <= {now}
