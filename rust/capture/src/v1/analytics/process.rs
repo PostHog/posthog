@@ -4253,7 +4253,6 @@ mod tests {
 
     #[tokio::test]
     async fn import_mode_historical_batch_never_overflows() {
-        // In Events mode, ForceOverflow or burst=1 would overflow the $pageview.
         let restrictions = restriction_service(
             "phc_test_token",
             vec![Restriction {

@@ -446,8 +446,6 @@ impl Publishable for WrappedEvent {
         buf
     }
 
-    /// Computed at publish time, not stamped by a stage: overflow stamping can
-    /// change the destination after `apply_restrictions` disables person processing.
     fn ordering(&self) -> OrderingGuarantee {
         if !self.destination.absorbs_hot_keys() {
             return OrderingGuarantee::PerDistinctId;
