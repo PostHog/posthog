@@ -734,7 +734,7 @@ def give_back_ownership(
             return HandbackRefusal.CHECK_DUE
 
         handback = PlatformHandback(
-            state=PlatformAlertState(alert.state) if alert is not None else PlatformAlertState.NOT_FIRING,
+            state=PlatformAlertState(_composed(configuration, alert).state),
             last_notified_at=alert.last_notified_at if alert is not None else None,
             consecutive_failures=configuration.consecutive_failures,
             next_check_at=configuration.next_check_at,
