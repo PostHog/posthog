@@ -1,7 +1,7 @@
 import re
 import json
 import datetime as dt
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import requests
@@ -13,7 +13,10 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspector.settings import (
     AWS_INSPECTOR_ENDPOINTS,
+    CIS_SCAN_TARGETS_ENDPOINT,
+    CIS_SCANS_ENDPOINT,
     ERROR_MESSAGES,
+    INCREMENTAL_FIELDS,
     INSPECTOR_API_VERSION,
     AwsInspectorEndpoint,
 )
@@ -33,6 +36,10 @@ TRANSPORT_RETRY = BoundedRetry(
     raise_on_status=False,
 )
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+ECR_IMAGE_COVERAGE_FILTER = {
+    "resourceType": [{"comparison": "EQUALS", "value": "AWS_ECR_CONTAINER_IMAGE"}],
+    "scanType": [{"comparison": "EQUALS", "value": "PACKAGE"}],
+}
 
 
 @frozen
@@ -40,6 +47,16 @@ class AwsInspectorResumeConfig:
     next_token: str | None = None
     updated_after: float | None = None
     completed: bool = False
+    scan_arn: str | None = None
+    parent_token: str | None = None
+    parent_key: str | None = None
+
+
+@frozen
+class FanOutPosition:
+    parent_token: str | None = None
+    parent_key: str | None = None
+    next_token: str | None = None
 
 
 class AwsInspectorError(Exception):
@@ -128,7 +145,34 @@ def request_payload(endpoint: AwsInspectorEndpoint, updated_after: float | None 
         payload["groupBy"] = "RESOURCE_TYPE"
     if endpoint.operation == "ListFindings" and updated_after is not None:
         payload["filterCriteria"] = {"updatedAt": [{"startInclusive": updated_after}]}
+    if endpoint.operation == "ListMembers":
+        payload["onlyAssociated"] = False
+    if endpoint.operation == "ListCisScans":
+        payload["sortBy"] = "SCAN_START_DATE"
+        payload["sortOrder"] = "ASC"
+        if updated_after is not None:
+            payload["filterCriteria"] = {"scanAtFilters": [{"earliestScanStartTime": updated_after}]}
+    if endpoint.operation == "ListCisScanResultsAggregatedByTargetResource":
+        payload["sortBy"] = "RESOURCE_ID"
+        payload["sortOrder"] = "ASC"
+    if endpoint.operation == "GetCisScanResultDetails":
+        payload["sortBy"] = "CHECK_ID"
+        payload["sortOrder"] = "ASC"
     return payload
+
+
+def next_page_token(body: dict[str, Any], current: str | None) -> str | None:
+    token = body.get("nextToken") or None
+    if token is not None and (not isinstance(token, str) or token == current):
+        raise ValueError("AWS Inspector returned an invalid pagination token.")
+    return token
+
+
+def fetch_page(
+    client: AwsInspectorClient, endpoint: AwsInspectorEndpoint, payload: dict[str, Any], token: str | None
+) -> tuple[list[dict[str, Any]], str | None]:
+    body = client.request(endpoint, {**payload, "nextToken": token} if token else payload)
+    return list(body.get(endpoint.result_key) or []), next_page_token(body, token)
 
 
 def normalize_row(endpoint: AwsInspectorEndpoint, item: dict[str, Any], region: str) -> dict[str, Any]:
@@ -160,9 +204,7 @@ def get_rows(
                 request_body["nextToken"] = next_token
             body = client.request(endpoint, request_body)
             rows = [normalize_row(endpoint, item, config.region) for item in body.get(endpoint.result_key, [])]
-            token = body.get("nextToken") or None
-            if token is not None and (not isinstance(token, str) or token == next_token):
-                raise ValueError("AWS Inspector returned an invalid pagination token.")
+            token = next_page_token(body, next_token)
             manager.save_state(
                 AwsInspectorResumeConfig(
                     next_token=token,
@@ -180,6 +222,202 @@ def get_rows(
         client.close()
 
 
+def fan_out(
+    client: AwsInspectorClient,
+    endpoint: AwsInspectorEndpoint,
+    parent_payload: dict[str, Any],
+    key_of: Callable[[dict[str, Any]], str],
+    child_payload: Callable[[dict[str, Any]], dict[str, Any]],
+    parent_fields: Callable[[dict[str, Any]], dict[str, Any]],
+    region: str,
+    position: FanOutPosition,
+    stage: Callable[[FanOutPosition | None], None],
+    manager: ResumableSourceManager[AwsInspectorResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk the parent listing and call `endpoint` once for each parent, from `position` on.
+
+    `stage` receives the position after each child page, or `None` once the walk is complete.
+    """
+    if endpoint.parent is None:
+        raise ValueError(f"AWS Inspector table has no parent listing: {endpoint.operation}")
+    parent_token, resume_key, resume_token = position.parent_token, position.parent_key, position.next_token
+    while True:
+        parents, next_parent_token = fetch_page(client, endpoint.parent, parent_payload, parent_token)
+        manager.safe_point()
+        keys = [key_of(parent) for parent in parents]
+        start = keys.index(resume_key) if resume_key in keys else 0
+        if resume_key not in keys:
+            resume_token = None
+        resume_key = None
+        for index in range(start, len(parents)):
+            token, resume_token = resume_token, None
+            payload = {**request_payload(endpoint), **child_payload(parents[index])}
+            while True:
+                items, next_token = fetch_page(client, endpoint, payload, token)
+                if next_token is not None:
+                    stage(FanOutPosition(parent_token=parent_token, parent_key=keys[index], next_token=next_token))
+                elif index + 1 < len(parents):
+                    stage(FanOutPosition(parent_token=parent_token, parent_key=keys[index + 1]))
+                elif next_parent_token is not None:
+                    stage(FanOutPosition(parent_token=next_parent_token))
+                else:
+                    stage(None)
+                fields = parent_fields(parents[index])
+                rows = [normalize_row(endpoint, {**item, **fields}, region) for item in items]
+                if rows:
+                    yield rows
+                manager.safe_point()
+                if next_token is None:
+                    break
+                token = next_token
+        if next_parent_token is None:
+            return
+        parent_token = next_parent_token
+
+
+def list_cis_scans(
+    client: AwsInspectorClient,
+    manager: ResumableSourceManager[AwsInspectorResumeConfig],
+    scans_after: float | None,
+    incremental: bool,
+) -> list[dict[str, Any]]:
+    payload = request_payload(CIS_SCANS_ENDPOINT, scans_after)
+    scans: list[dict[str, Any]] = []
+    token: str | None = None
+    while True:
+        items, token = fetch_page(client, CIS_SCANS_ENDPOINT, payload, token)
+        scans.extend(item for item in items if item.get("scanArn") and item.get("scanDate") is not None)
+        manager.safe_point()
+        if token is None:
+            break
+    if incremental:
+        # The watermark is the latest scan date synced, so an unfinished scan would be skipped for good
+        # once a later scan finishes. Stop before the earliest unfinished scan until it finishes.
+        unfinished = [timestamp(scan["scanDate"]) for scan in scans if scan.get("status") == "IN_PROGRESS"]
+        if unfinished:
+            scans = [scan for scan in scans if timestamp(scan["scanDate"]) < min(unfinished)]
+    return sorted(scans, key=lambda scan: (timestamp(scan["scanDate"]), scan["scanArn"]))
+
+
+def get_cis_scan_result_details(
+    config: AwsInspectorSourceConfig,
+    endpoint: AwsInspectorEndpoint,
+    manager: ResumableSourceManager[AwsInspectorResumeConfig],
+    scans_after: float | None,
+    incremental: bool,
+    api_version: str,
+) -> Iterator[list[dict[str, Any]]]:
+    state = manager.load_state() if manager.can_resume() else None
+    if state is not None and state.completed:
+        return
+    scans_after = state.updated_after if state else scans_after
+    client = AwsInspectorClient(config, api_version)
+    try:
+        scans = list_cis_scans(client, manager, scans_after, incremental)
+        arns = [scan["scanArn"] for scan in scans]
+        resumed = state is not None and state.scan_arn in arns
+        start = arns.index(state.scan_arn) if state is not None and resumed else 0
+        for index in range(start, len(scans)):
+            scan = scans[index]
+            position = (
+                FanOutPosition(
+                    parent_token=state.parent_token, parent_key=state.parent_key, next_token=state.next_token
+                )
+                if state is not None and resumed and index == start
+                else FanOutPosition()
+            )
+
+            def stage(next_position: FanOutPosition | None, index: int = index) -> None:
+                if next_position is not None:
+                    resume = AwsInspectorResumeConfig(
+                        updated_after=scans_after,
+                        scan_arn=arns[index],
+                        parent_token=next_position.parent_token,
+                        parent_key=next_position.parent_key,
+                        next_token=next_position.next_token,
+                    )
+                elif index + 1 < len(arns):
+                    resume = AwsInspectorResumeConfig(updated_after=scans_after, scan_arn=arns[index + 1])
+                else:
+                    resume = AwsInspectorResumeConfig(updated_after=scans_after, completed=True)
+                manager.save_state(resume)
+
+            def child_payload(target: dict[str, Any], scan_arn: str = arns[index]) -> dict[str, Any]:
+                return {
+                    "scanArn": scan_arn,
+                    "targetResourceId": target.get("targetResourceId"),
+                    "accountId": target.get("accountId"),
+                }
+
+            def parent_fields(target: dict[str, Any], scan: dict[str, Any] = scan) -> dict[str, Any]:
+                return {
+                    "scanArn": scan["scanArn"],
+                    "scanDate": scan["scanDate"],
+                    "accountId": target.get("accountId"),
+                    "targetResourceId": target.get("targetResourceId"),
+                }
+
+            yield from fan_out(
+                client,
+                endpoint,
+                {**request_payload(CIS_SCAN_TARGETS_ENDPOINT), "scanArn": scan["scanArn"]},
+                key_of=lambda target: f"{target.get('accountId')}/{target.get('targetResourceId')}",
+                child_payload=child_payload,
+                parent_fields=parent_fields,
+                region=config.region,
+                position=position,
+                stage=stage,
+                manager=manager,
+            )
+    finally:
+        client.close()
+
+
+def get_clusters_for_image(
+    config: AwsInspectorSourceConfig,
+    endpoint: AwsInspectorEndpoint,
+    manager: ResumableSourceManager[AwsInspectorResumeConfig],
+    api_version: str,
+) -> Iterator[list[dict[str, Any]]]:
+    state = manager.load_state() if manager.can_resume() else None
+    if state is not None and state.completed:
+        return
+    position = (
+        FanOutPosition(parent_token=state.parent_token, parent_key=state.parent_key, next_token=state.next_token)
+        if state is not None
+        else FanOutPosition()
+    )
+
+    def stage(next_position: FanOutPosition | None) -> None:
+        manager.save_state(
+            AwsInspectorResumeConfig(
+                parent_token=next_position.parent_token,
+                parent_key=next_position.parent_key,
+                next_token=next_position.next_token,
+            )
+            if next_position is not None
+            else AwsInspectorResumeConfig(completed=True)
+        )
+
+    assert endpoint.parent is not None
+    client = AwsInspectorClient(config, api_version)
+    try:
+        yield from fan_out(
+            client,
+            endpoint,
+            {**request_payload(endpoint.parent), "filterCriteria": ECR_IMAGE_COVERAGE_FILTER},
+            key_of=lambda image: str(image.get("resourceId")),
+            child_payload=lambda image: {"filter": {"resourceId": image.get("resourceId")}},
+            parent_fields=lambda image: {"resourceId": image.get("resourceId")},
+            region=config.region,
+            position=position,
+            stage=stage,
+            manager=manager,
+        )
+    finally:
+        client.close()
+
+
 def validate_credentials(
     config: AwsInspectorSourceConfig,
     schema_name: str | None = None,
@@ -188,20 +426,23 @@ def validate_credentials(
     endpoint = AWS_INSPECTOR_ENDPOINTS.get(schema_name or "findings")
     if endpoint is None:
         return False, f"Unknown AWS Inspector table: {schema_name}"
+    probe = endpoint
+    while probe.parent is not None:
+        probe = probe.parent
     try:
         client = AwsInspectorClient(config, api_version)
     except ValueError as error:
         return False, str(error)
-    payload = request_payload(endpoint)
-    if endpoint.page_size is not None:
+    payload = request_payload(probe)
+    if probe.page_size is not None:
         payload["maxResults"] = 1
     try:
-        client.request(endpoint, payload)
+        client.request(probe, payload)
     except AwsInspectorError as error:
         if error.code.startswith("AccessDenied") or error.code == "HTTP 403":
             if schema_name is None:
                 return True, None
-            return False, f"Grant inspector2:{endpoint.operation} to read this table."
+            return False, f"Grant {', '.join(endpoint.iam_actions)} to read this table."
         message = error_message(error)
         if message:
             return False, message
@@ -224,12 +465,21 @@ def aws_inspector_source(
         raise ValueError(f"Unknown AWS Inspector table: {endpoint}")
     updated_after = (
         timestamp(last_value)
-        if endpoint == "findings" and should_use_incremental_field and last_value is not None
+        if endpoint in INCREMENTAL_FIELDS and should_use_incremental_field and last_value is not None
         else None
     )
+    items: Callable[[], Iterator[list[dict[str, Any]]]]
+    if endpoint_config.operation == "GetCisScanResultDetails":
+        items = lambda: get_cis_scan_result_details(
+            config, endpoint_config, manager, updated_after, should_use_incremental_field, api_version
+        )
+    elif endpoint_config.operation == "GetClustersForImage":
+        items = lambda: get_clusters_for_image(config, endpoint_config, manager, api_version)
+    else:
+        items = lambda: get_rows(config, endpoint_config, manager, updated_after, api_version)
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(config, endpoint_config, manager, updated_after, api_version),
+        items=items,
         primary_keys=list(endpoint_config.primary_keys),
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
         partition_mode="datetime" if endpoint_config.partition_key else None,
