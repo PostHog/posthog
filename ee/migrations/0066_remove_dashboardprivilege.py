@@ -5,7 +5,7 @@ from posthog.migration_helpers import DropForeignKey
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ee", "0064_split_identity_provider_config_scopes"),
+        ("ee", "0065_migrate_dashboard_collaborators"),
     ]
 
     operations = [
