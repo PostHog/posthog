@@ -139,7 +139,7 @@ export interface relationshipsLogicActions {
         pendingCount: number
         payload?: any
     }
-    loadProposals: () => any
+    loadProposals: (_: void) => void
     loadProposalsFailure: (
         error: string,
         errorObject?: any
@@ -149,10 +149,10 @@ export interface relationshipsLogicActions {
     }
     loadProposalsSuccess: (
         proposals: DataCatalogRelationshipProposalApi[],
-        payload?: any
+        payload?: void
     ) => {
         proposals: DataCatalogRelationshipProposalApi[]
-        payload?: any
+        payload?: void
     }
     openProposal: (table?: any) => {
         table: any
@@ -233,7 +233,7 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
         proposals: [
             [] as DataCatalogRelationshipProposalApi[],
             {
-                loadProposals: async (_, breakpoint) => {
+                loadProposals: async (_: void, breakpoint) => {
                     const table = router.values.searchParams.table
                     const response = await dataCatalogRelationshipProposalsList(
                         projectId(),
