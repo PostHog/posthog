@@ -8,7 +8,7 @@ export function WarehouseQuestions(): JSX.Element {
         <section
             id={WAREHOUSE_QUESTIONS_SECTION_ID}
             aria-labelledby="warehouse-questions-heading"
-            className="flex scroll-mt-4 flex-col gap-2"
+            className="flex scroll-mt-4 flex-col gap-3"
         >
             <div className="flex flex-col gap-1">
                 <Heading render={<h2 id="warehouse-questions-heading" />} size="base" className="m-0">

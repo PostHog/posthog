@@ -105,7 +105,7 @@ export function WarehouseStackMap(): JSX.Element {
     const stages = stackStages(dataQualityEnabled, selfDrivingEnabled)
 
     return (
-        <section aria-labelledby="warehouse-stack-map" className="flex flex-col gap-2">
+        <section aria-labelledby="warehouse-stack-map" className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
                 <Heading render={<h2 id="warehouse-stack-map" />} size="base" className="m-0">
                     How the data stack fits together

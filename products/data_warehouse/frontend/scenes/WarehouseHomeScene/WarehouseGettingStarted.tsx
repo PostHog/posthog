@@ -77,7 +77,7 @@ export function WarehouseGettingStarted(): JSX.Element {
     const { sourceStep, viewStep } = useValues(warehouseHomeLogic)
 
     return (
-        <section aria-labelledby="warehouse-getting-started" className="flex flex-col gap-2">
+        <section aria-labelledby="warehouse-getting-started" className="flex flex-col gap-3">
             <Heading render={<h2 id="warehouse-getting-started" />} size="base" className="m-0">
                 Getting started
             </Heading>
