@@ -1,14 +1,22 @@
+from datetime import timedelta
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest, BaseTest
 
+from django.utils import timezone
+
 from parameterized import parameterized
+from rest_framework.test import APIClient
 
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.canvas.backend.models import Canvas
-from products.tasks.backend.models import Channel
+from products.tasks.backend.models import Channel, ChannelMembership
 
 
 class TestCanvasFileSystem(BaseTest):
@@ -113,6 +121,43 @@ class TestCanvasFileSystemVisibility(APIBaseTest):
         self.public_canvas.refresh_from_db()
         self.assertTrue(self.public_canvas.deleted)
         self.assertFalse(FileSystem.objects.filter(id=entry.id).exists())
+
+    def test_a_sandbox_token_does_not_inherit_its_users_private_channels(self) -> None:
+        private_channel = Channel.objects.create(
+            team=self.team, name="team-private", channel_type=Channel.ChannelType.PRIVATE, created_by=self.other
+        )
+        ChannelMembership.objects.create(team=self.team, channel=private_channel, user=self.user)
+        private_canvas = Canvas.objects.create(
+            team=self.team, channel=private_channel, name="Private plan", created_by=self.other
+        )
+        self.assertIn(str(private_canvas.id), self._refs("?type=canvas"))
+
+        application = OAuthApplication.objects.create(
+            name="Canvas sandbox",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_canvas_{uuid4().hex}",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="file_system:read canvas:read",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=uuid4(),
+        )
+        sandbox = APIClient()
+        sandbox.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        response = sandbox.get(f"/api/projects/{self.team.id}/file_system/?type=canvas")
+        self.assertEqual(response.status_code, 200, response.content)
+        refs = {entry["ref"] for entry in response.json()["results"]}
+        self.assertIn(str(self.public_canvas.id), refs)
+        self.assertNotIn(str(private_canvas.id), refs)
 
     def test_another_member_cannot_delete_a_public_canvas_through_the_file_system(self) -> None:
         entry = FileSystem.objects.get(team=self.team, type="canvas", ref=str(self.public_canvas.id))

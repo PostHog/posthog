@@ -28,7 +28,6 @@ from posthog.models.activity_logging.activity_log import Change, Detail, Trigger
 from posthog.models.user import User
 from posthog.permissions import is_service_auth
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.canvas.backend.facade import api as canvas_api
@@ -61,6 +60,7 @@ from products.canvas.backend.facade.contracts import (
     CanvasViewer,
 )
 from products.canvas.backend.facade.enums import CANVAS_BUILD_STATUS_READY, CANVAS_KIND_GRID, CANVAS_KINDS, CanvasAccess
+from products.canvas.backend.logic import visibility
 from products.canvas.backend.presentation.serializers import (
     CanvasActionInvokeSerializer,
     CanvasActionResultSerializer,
@@ -319,23 +319,7 @@ class CanvasAccessMixin(TeamAndOrgViewSetMixin):
 
     @staticmethod
     def _is_sandbox_authenticated(request: Request) -> bool:
-        """True when the request bears an OAuth token minted for a task sandbox —
-        the credential a task sandbox (via the MCP server) calls this API with.
-
-        The sandbox apps also issue the desktop app's interactive grants, so the application
-        alone does not prove sandbox origin. Server-minted tokens carry either a task binding
-        or the internal provenance scope. An unbound server token must still fail closed rather
-        than inherit its user's Canvas visibility.
-        """
-        authenticator = request.successful_authenticator
-        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
-            return False
-        access_token = authenticator.access_token
-        scopes = set((access_token.scope or "").split())
-        if access_token.sandbox_task_id is None and "internal_run:read" not in scopes:
-            return False
-        application = access_token.application
-        return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
+        return visibility.request_is_sandboxed(request)
 
     def _validate_sandbox_channel(self, channel_id: UUID, task_id: UUID | None) -> None:
         if not self._is_sandbox_authenticated(self.request):

@@ -340,9 +340,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         about, so its product registers a filter. Evaluated on every read, so a channel's type or
         membership changing needs no resync.
         """
-        return apply_file_system_visibility_filters(
-            queryset, user_id=getattr(self.request.user, "id", None), project_id=self.team.project_id
-        )
+        return apply_file_system_visibility_filters(queryset, request=self.request, project_id=self.team.project_id)
 
     def _filter_by_access_control(self, queryset: QuerySet) -> QuerySet:
         queryset = self._filter_by_product_visibility(queryset)

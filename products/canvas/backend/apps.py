@@ -10,6 +10,8 @@ class CanvasConfig(AppConfig):
     def ready(self) -> None:
         # Registers the artifact-delivery configuration system checks and the
         # search-index signal receivers.
+        from typing import Any  # noqa: PLC0415
+
         from django.db.models import QuerySet  # noqa: PLC0415
 
         from rest_framework.exceptions import PermissionDenied, ValidationError  # noqa: PLC0415
@@ -36,12 +38,12 @@ class CanvasConfig(AppConfig):
             undo_message="Send POST /api/projects/@current/file_system/undo_delete/ with this type and ref.",
         )
 
-        def _filter_rows(rows: QuerySet, user_id: int | None, project_id: int) -> QuerySet:
+        def _filter_rows(rows: QuerySet, request: Any, project_id: int) -> QuerySet:
             # The visibility module reaches the tasks product and the LLM clients, so it loads on first use
             # rather than in every process at startup: keeps the heavy dep off django.setup().
             from products.canvas.backend.logic import visibility  # noqa: PLC0415
 
-            return visibility.filter_file_system_rows(rows, user_id, project_id)
+            return visibility.filter_file_system_rows(rows, request, project_id)
 
         def _authorize_delete(context: DeletionContext, canvas: Canvas) -> None:
             from products.canvas.backend.logic import visibility  # noqa: PLC0415

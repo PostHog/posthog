@@ -11,6 +11,12 @@ from django.core.exceptions import ValidationError
 from django.db.models import Case, Exists, Max, OuterRef, Q, QuerySet, UUIDField, When
 from django.db.models.functions import Cast
 
+from rest_framework.request import Request
+
+from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.models.user import User
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
+
 from products.canvas.backend.facade.contracts import CanvasOwnerActivity, CanvasSummary
 from products.canvas.backend.models import Canvas
 from products.tasks.backend.facade import api as tasks_facade
@@ -114,14 +120,39 @@ def visible_canvas_ids(team_id: int, user_id: int | None) -> set[str]:
 _UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 
 
-def filter_file_system_rows(rows: QuerySet, user_id: int | None, project_id: int) -> QuerySet:
-    """Keep every non-canvas row, and a canvas row only when its channel lets the person see the canvas.
+def request_is_sandboxed(request: Request) -> bool:
+    """True when the request bears an OAuth token minted for a task sandbox, the credential a task sandbox
+    (via the MCP server) calls the API with.
+
+    The sandbox apps also issue the desktop app's interactive grants, so the application alone does not
+    prove sandbox origin. Server-minted tokens carry either a task binding or the internal provenance
+    scope. An unbound server token must still fail closed rather than inherit its user's visibility.
+    """
+    authenticator = request.successful_authenticator
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return False
+    access_token = authenticator.access_token
+    scopes = set((access_token.scope or "").split())
+    if access_token.sandbox_task_id is None and "internal_run:read" not in scopes:
+        return False
+    application = access_token.application
+    return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
+
+
+def filter_file_system_rows(rows: QuerySet, request: Request, project_id: int) -> QuerySet:
+    """Keep every non-canvas row, and a canvas row only when its channel lets the caller see the canvas.
 
     The rows span the project's environments, hence `unscoped()` with the project bound. The cast sits
     on the row side under a CASE, so the lookup hits the canvas primary key and never casts a non-UUID.
+    A sandbox token sees public canvases and its user's own, as the canvas API allows it.
     """
+    user = request.user
+    user_id = user.id if isinstance(user, User) else None
+    channel_q = tasks_facade.visible_channels_q(user_id, relation="channel")
+    if request_is_sandboxed(request):
+        channel_q &= tasks_facade.visible_channels_q(None, relation="channel") | Q(created_by_id=user_id)
     visible = Canvas.objects.unscoped().filter(
-        tasks_facade.visible_channels_q(user_id, relation="channel"),
+        channel_q,
         team__project_id=project_id,
         team_id=OuterRef("team_id"),
         id=OuterRef("_canvas_uuid"),
