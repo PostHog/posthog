@@ -8,11 +8,12 @@ TypeScript and JavaScript, because the engine ships no parser for them.
 
 A comment can still change behavior when a tool reads it: `# noqa`, `# nosemgrep`, `# type:`,
 an encoding cookie, a PEP 723 script metadata block. Any change to such a directive, to its order,
-to whether it sits inline or on its own line, or to the statement it applies to, makes the file
-`logic`. So does a file mode change.
+to whether it sits inline or on its own line, to its indentation where the tool reads it, or to the
+statement it applies to, makes the file `logic`. So does a file mode change.
 
-Markdown and docstrings pass the size gate, but never waive the assurance rule, because both can
-ship: prompt templates, LLM tool descriptions and schema descriptions are read at runtime.
+Markdown, docstrings and tests pass the size gate, but never waive the assurance rule, because all
+three can ship: prompt templates, LLM tool descriptions and schema descriptions are read at runtime,
+and a `test_*.py` path can be a module that production code imports.
 """
 
 import io
@@ -51,7 +52,7 @@ _LAYOUT_TOKENS = frozenset(
 
 _DOCSTRING_OWNERS = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
-_SHAPES_THAT_MAY_SHIP: frozenset[FileShape] = frozenset({"docs", "docstring"})
+_SHAPES_THAT_MAY_SHIP: frozenset[FileShape] = frozenset({"docs", "docstring", "test"})
 
 BlobReader = Callable[[str], bytes | None]
 
@@ -102,7 +103,8 @@ class _DirectiveAnchor:
     comment: str
     inline: bool
     code_line_index: int | None
-    position: tuple[int, int] | None
+    physical_line: int | None
+    column: int | None
 
 
 def _directive_anchors(source: bytes) -> tuple[_DirectiveAnchor, ...]:
@@ -112,28 +114,31 @@ def _directive_anchors(source: bytes) -> tuple[_DirectiveAnchor, ...]:
     unchanged, so it identifies the statement even when two statements read the same.
     """
     code_lines: set[int] = set()
-    directives: list[tuple[tuple[int, int], str]] = []
+    directives: list[tuple[tuple[int, int], str, bool]] = []
     in_script_metadata = False
     for token in tokenize.tokenize(io.BytesIO(source).readline):
         if token.type == tokenize.COMMENT:
             text = token.string.strip()
             opens_or_closes_metadata = bool(_SCRIPT_METADATA_RE.match(text))
-            if opens_or_closes_metadata or in_script_metadata or _DIRECTIVE_COMMENT_RE.search(text):
-                directives.append((token.start, text))
+            is_script_metadata = opens_or_closes_metadata or in_script_metadata
+            if is_script_metadata or _DIRECTIVE_COMMENT_RE.search(text):
+                directives.append((token.start, text, is_script_metadata))
             if opens_or_closes_metadata:
                 in_script_metadata = not in_script_metadata
         elif token.type not in _LAYOUT_TOKENS:
             code_lines.add(token.start[0])
     ordered_code_lines = sorted(code_lines)
     anchors: list[_DirectiveAnchor] = []
-    for (line, column), comment in directives:
+    for (line, column), comment, is_script_metadata in directives:
         anchor_index = bisect.bisect_left(ordered_code_lines, line)
+        is_positional = bool(_POSITIONAL_DIRECTIVE_RE.search(comment))
         anchors.append(
             _DirectiveAnchor(
                 comment=comment,
                 inline=line in code_lines,
                 code_line_index=anchor_index if anchor_index < len(ordered_code_lines) else None,
-                position=(line, column) if _POSITIONAL_DIRECTIVE_RE.search(comment) else None,
+                physical_line=line if is_positional else None,
+                column=column if is_positional or is_script_metadata else None,
             )
         )
     return tuple(anchors)

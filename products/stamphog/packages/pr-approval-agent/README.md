@@ -326,20 +326,21 @@ Each file gets one shape:
 Only Python gets parser-based comment detection, because the engine ships no TypeScript or JavaScript parser.
 Comparing syntax trees rather than patch text means a string literal written to look like a comment still counts as code.
 A comment that a tool reads is code too: a changed `# noqa`, `# nosemgrep`, `# nosec`, `# type:`, `# pragma`, linter or formatter directive, shebang, encoding cookie or PEP 723 script metadata block makes the file `logic`.
-So does moving one: changing its order, moving it between its own line and a statement, or moving it to another statement, even one that reads the same.
+So does moving one: changing its order, moving it between its own line and a statement, moving it to another statement, even one that reads the same, or indenting a shebang, encoding cookie or script metadata line.
 A file whose mode changed, such as a script that became executable, is `logic` whatever its content.
 
 A PR has an approvable shape when every changed file is one of the first four shapes.
 With `diff_shape: {enabled: true}` in `policy.yml`, such a PR:
 
 - passes the size gate whatever its size;
-- approves risky territory without independent assurance in `verdict_rule.py`, unless a changed file is Markdown or has a docstring change;
+- approves risky territory without independent assurance in `verdict_rule.py`, only when every changed file is `comment`;
 - tells the reviewer its shape in the trusted prompt block when that waiver applies.
 
 It changes nothing else.
 The deny-list, prerequisites, refusal grounds and unresolved concerns still refuse.
 A PR whose deny-list match was lifted by an owner-only team or a `deny_exceptions` rule gets no shape.
 Markdown never waives assurance, because some of it ships: prompt templates and tool descriptions are read at runtime.
+Tests never waive it, because a `test_*.py` path is a filename match, not proof that nothing imports it: a production Temporal activity imports `posthog/temporal/ingestion_acceptance_test/test_cases_discovery.py`.
 Docstring changes never waive it either, because they reach runtime through `__doc__`: LLM tool descriptions, schema descriptions and generated API descriptions.
 
 The server's gate-only pre-check reads no file contents, so it never treats a size denial as final when the paths alone could have an approvable shape.
