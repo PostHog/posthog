@@ -3616,6 +3616,10 @@ snapshots:
         hash: v1.k794b7964.10a15792b243817d48e633c341785bb53c61190855cdaaedbf1d998b63e2eeae.mTmd_ahFm4OUQSDwoQZQYsO3FpPuFvIv4TvR1YqBMz0
     filters-taxonomic-filter--failed-fetch-offers-retry--light:
         hash: v1.k794b7964.bb9f77210fc46675e7920c1b21c7a158e4eb39c85a08d4b0cde7c286595f469d.y8Rs6NZrklaloeqgzT466bxafKhL6pW6tLDQxQjgd9o
+    filters-taxonomic-filter--forbidden-fetch-explains-access--dark:
+        hash: v1.k794b7964.fc8abf7ec927b8a20b70cc98847b42a319c5d0a0ee8dca3d5a5de579bd020f59.xGOVZVwX7RfOVGIRV6Hp99UlIQj7CAfKsnssx197U0E
+    filters-taxonomic-filter--forbidden-fetch-explains-access--light:
+        hash: v1.k794b7964.42f276a4dc8528c8a600268fb9297535a060bd540a6209c6f252f5d50afc3669.jMCHVqQmG06MgsRXhZaWL3p4RGPFtQXjs8xHDg290zo
     filters-taxonomic-filter--mcp-tool-call-context-leads-with-mcp-properties--dark:
         hash: v1.k794b7964.ff551492bfcfe81fa1d7c1101a3fd258808066e0088d7804e36f80b827d2937c.rXfu9_gG7W0hdSyTAvM6fftG8tkEk7ayHbQCk9RXseA
     filters-taxonomic-filter--mcp-tool-call-context-leads-with-mcp-properties--light:
