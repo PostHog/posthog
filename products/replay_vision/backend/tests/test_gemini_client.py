@@ -153,10 +153,14 @@ class TestReplayGatewayClient:
             (401, FailureKind.INFRA_TRANSIENT),
             (402, FailureKind.INFRA_TRANSIENT),
             (403, FailureKind.INFRA_TRANSIENT),
+            (408, FailureKind.INFRA_TRANSIENT),
+            (409, FailureKind.INFRA_TRANSIENT),
             (429, FailureKind.INFRA_TRANSIENT),
             (400, FailureKind.INTERNAL_ERROR),
             (404, FailureKind.INTERNAL_ERROR),
             (413, FailureKind.INTERNAL_ERROR),
+            # Only a 4xx is a refusal; a gateway 5xx stays a provider outage.
+            (502, FailureKind.PROVIDER_TRANSIENT),
         ],
     )
     def test_the_gateways_own_refusal_is_ours_and_retries_only_when_it_can_clear(
@@ -172,7 +176,7 @@ class TestReplayGatewayClient:
         }
         client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json=body))
 
-        with pytest.raises(genai_errors.ClientError) as exc_info:
+        with pytest.raises(genai_errors.APIError) as exc_info:
             asyncio.run(client.aio.models.generate_content(model="gemini-test", contents="hi"))
 
         assert classify_gemini_error(exc_info.value) == kind

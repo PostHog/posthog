@@ -550,7 +550,7 @@ async def test_a_provider_error_on_a_non_required_step_leaves_the_scan_standing(
     assert "media" not in out
 
 
-@pytest.mark.parametrize("code", [402, 429])
+@pytest.mark.parametrize("code", [402, 404, 429])
 @pytest.mark.asyncio
 async def test_a_gateway_refusal_on_a_non_required_step_fails_the_pass(code: int) -> None:
     steps = [
@@ -716,9 +716,10 @@ class TestRunPass:
             APIError(429, {"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}}),
             httpx.ConnectError("connection reset by peer"),
             APIError(402, {"error": {"code": 402, "details": [{"domain": "posthog.com", "reason": "cap_exceeded"}]}}),
+            APIError(413, {"error": {"code": 413, "details": [{"domain": "posthog.com", "reason": "too_large"}]}}),
         ],
     )
-    async def test_transient_provider_error_is_not_retried_inline(self, error: Exception) -> None:
+    async def test_transient_or_gateway_error_is_not_retried_inline(self, error: Exception) -> None:
         run, calls = self._cached_run_failing_with(error)
         with pytest.raises(type(error)):
             await _run_pass(run=run, cache=self._Cache(), model="m")

@@ -740,11 +740,11 @@ async def _run_pass(*, run: Any, cache: Any | None, model: str) -> dict[str, Bas
     except ScannerFailureError:
         raise  # a required step genuinely couldn't be satisfied, so re-running won't help.
     except Exception as exc:
-        # Retryable errors (provider or gateway) belong to the Temporal activity retry, which backs off across the quota
-        # window; an immediate inline re-run would just re-spend the video tokens against a provider that is
-        # still rate-limiting or down, and would multiply with the other retry layers.
+        # Retryable errors belong to the Temporal activity retry, which backs off across the quota window; an
+        # immediate inline re-run would re-spend the video tokens and multiply with the other retry layers.
+        # A gateway refusal would refuse the inline run too.
         kind = classify_gemini_error(exc)
-        if kind is not None and kind.is_retryable:
+        if (kind is not None and kind.is_retryable) or is_gateway_refusal(exc):
             raise
         # The cached request failed some other way (a stale cache reference, an unrecognized error), so retry
         # inline once. Capture the cause: this fallback fires often enough that we need to know whether it's
