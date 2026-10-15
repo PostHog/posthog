@@ -5297,14 +5297,17 @@ class TestExperimentService(APIBaseTest):
 
         assert "not been started" in str(ctx.exception)
 
-    def test_get_timeseries_results_pending_when_no_records(self):
-        self._create_flag(key="ts-pending")
+    @parameterized.expand([("metric_on_the_experiment", True), ("metric_not_on_the_experiment", False)])
+    def test_get_timeseries_results_pending_when_no_records(self, _name: str, metric_on_experiment: bool) -> None:
+        self._create_flag(key=f"ts-pending-{_name}")
         service = self._service()
         experiment = service.create_experiment(
             name="Pending",
-            feature_flag_key="ts-pending",
+            feature_flag_key=f"ts-pending-{_name}",
             start_date=timezone.now() - timedelta(days=2),
             end_date=timezone.now(),
+            metrics=[self._DEFAULT_METRIC] if metric_on_experiment else None,
+            allow_unknown_events=True,
         )
 
         result = service.get_timeseries_results(experiment, metric_uuid="m1")
