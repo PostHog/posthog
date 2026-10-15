@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
@@ -21,11 +22,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scarf import ScarfSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.scarf.scarf import (
+    BACKFILL_MESSAGE,
     INVALID_TOKEN_MESSAGE,
     OWNER_MESSAGE,
     PLAN_MESSAGE,
     RUNS_MESSAGE,
+    ScarfExportCursor,
     ScarfResumeConfig,
+    backfill_is_valid,
     probe_owner,
     scarf_source,
 )
@@ -37,7 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ScarfSource(ResumableSource[ScarfSourceConfig, ScarfResumeConfig]):
+class ScarfSource(ResumableSource[ScarfSourceConfig, ScarfResumeConfig], CursorSource[ScarfExportCursor]):
     codebase_detection = detect(
         env=("^SCARF_API_TOKEN$", "^SCARF_ANALYTICS$"),
         npm=("@scarf/scarf",),
@@ -52,6 +56,13 @@ class ScarfSource(ResumableSource[ScarfSourceConfig, ScarfResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SCARF
+
+    def cursor_class(self) -> type[ScarfExportCursor]:
+        return ScarfExportCursor
+
+    def merge_cursors(self, current: ScarfExportCursor, candidate: ScarfExportCursor) -> ScarfExportCursor:
+        # ISO dates order as text, so a run that read less never moves the export day back.
+        return max(current, candidate, key=lambda cursor: cursor.next_day)
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -138,6 +149,8 @@ Copy your API token from your [Scarf account settings](https://app.scarf.sh/acco
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        if not backfill_is_valid(config.backfill_days):
+            return False, BACKFILL_MESSAGE
         try:
             status = probe_owner(config.api_token, config.owner)
         except ValueError as error:
@@ -159,4 +172,7 @@ Copy your API token from your [Scarf account settings](https://app.scarf.sh/acco
         resumable_source_manager: ResumableSourceManager[ScarfResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        return scarf_source(config.api_token, config.owner, config.backfill_days, inputs, resumable_source_manager)
+        cursor_manager = self.get_cursor_manager(inputs) if ENDPOINTS[inputs.schema_name].daily else None
+        return scarf_source(
+            config.api_token, config.owner, config.backfill_days, inputs, resumable_source_manager, cursor_manager
+        )

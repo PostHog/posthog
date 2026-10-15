@@ -1,6 +1,9 @@
+from typing import Any
+
 import structlog
 from structlog.types import FilteringBoundLogger
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -20,6 +23,7 @@ def source_inputs(
     reset_pipeline: bool = False,
     api_version: str | None = None,
     logger: FilteringBoundLogger | None = None,
+    source_cursor: SourceCursorManager[Any] | None = None,
 ) -> SourceInputs:
     """The `SourceInputs` the pipeline hands a source, with the fields a test varies.
 
@@ -43,4 +47,5 @@ def source_inputs(
         logger=logger if logger is not None else structlog.get_logger(_LOGGER_NAME),
         reset_pipeline=reset_pipeline,
         api_version=api_version,
+        source_cursor=source_cursor,
     )

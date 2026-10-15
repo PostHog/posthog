@@ -7,7 +7,7 @@ LIST_PAGE_SIZE = 100
 # Scarf's own exporter backfills 31 days on a first run; a longer history costs one export run per day.
 DEFAULT_BACKFILL_DAYS = 31
 REQUEST_TIMEOUT = (10, 120)
-EVENT_BATCH_SIZE = 5000
+MAX_BACKFILL_DAYS = 3650
 
 
 @frozen
@@ -77,4 +77,14 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 }
 
 BOOLEAN_COLUMNS = frozenset({"dnt", "mtc_quota_exceeded"})
-NUMERIC_COLUMNS = frozenset({"origin_latitude", "origin_longitude", "confidence"})
+FLOAT_COLUMNS = frozenset({"origin_latitude", "origin_longitude", "confidence"})
+INTEGER_COLUMNS = frozenset(
+    {
+        "total_events",
+        "total_downloads",
+        "total_unique_downloads",
+        "total_views",
+        "total_unique_views",
+        "unique_sources",
+    }
+)

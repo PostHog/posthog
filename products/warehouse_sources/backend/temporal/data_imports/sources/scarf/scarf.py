@@ -1,12 +1,16 @@
-import csv
+import io
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, ClassVar
 
+import pyarrow as pa
+import pyarrow.compute as pc
+from pyarrow import csv as pa_csv
 from requests import Session
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -22,9 +26,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.scarf.sett
     BOOLEAN_COLUMNS,
     DEFAULT_BACKFILL_DAYS,
     ENDPOINTS,
-    EVENT_BATCH_SIZE,
+    FLOAT_COLUMNS,
+    INTEGER_COLUMNS,
     LIST_PAGE_SIZE,
-    NUMERIC_COLUMNS,
+    MAX_BACKFILL_DAYS,
     REQUEST_TIMEOUT,
     ScarfEndpointConfig,
 )
@@ -34,13 +39,23 @@ OWNER_MESSAGE = "Scarf couldn't find that account or organization. Check the own
 PLAN_MESSAGE = "Scarf refused the export. Exports need a Scarf Basic or Premium plan, and a member role or higher."
 RUNS_MESSAGE = "Your Scarf organization has no export runs left. Add runs in Scarf, then resync."
 OWNER_FORMAT_MESSAGE = "Enter the Scarf user or organization name only, without a URL or slashes."
+BACKFILL_MESSAGE = f"Enter between 0 and {MAX_BACKFILL_DAYS} days of event history."
 
 
 @frozen
 class ScarfResumeConfig:
-    # The day an event export is reading. A resume reads that whole day again; rows merge on id.
+    # The next day an event export reads. Staged before the day it follows is handed over.
     day: str | None = None
     paginator_state: dict[str, Any] | None = None
+
+
+@frozen
+class ScarfExportCursor:
+    """The first day the next incremental run exports. It moves on even when a day had no events."""
+
+    cursor_kind: ClassVar[str] = "scarf_export_day"
+
+    next_day: str
 
 
 def validate_owner(owner: str) -> str:
@@ -50,41 +65,48 @@ def validate_owner(owner: str) -> str:
     return stripped
 
 
+def backfill_is_valid(backfill_days: int | None) -> bool:
+    return backfill_days is None or 0 <= backfill_days <= MAX_BACKFILL_DAYS
+
+
 def _session(api_token: str) -> Session:
     return make_tracked_session(
         headers={"Authorization": f"Bearer {api_token}"}, redact_values=(api_token,), allow_redirects=False
     )
 
 
-def shape_event(row: dict[str | None, str | None]) -> dict[str, Any]:
-    """Turn a CSV row into typed values: empty cells are null, flags are booleans, coordinates are numbers.
+def csv_to_table(content: bytes) -> pa.Table:
+    """Read a Scarf CSV export into typed columns: empty cells are null, flags are booleans, measures are numbers.
 
-    DictReader files cells past the header under a None key; they have no column to land in.
+    Every column is read as text first. Letting Arrow infer types would type a column differently
+    from one day to the next, for example a `version` of 1.2 as a float.
     """
-    shaped: dict[str, Any] = {}
-    for key, value in row.items():
-        if key is None:
-            continue
-        if value is None or value == "":
-            shaped[key] = None
-        elif key in BOOLEAN_COLUMNS:
-            shaped[key] = value.strip().lower() == "true"
-        elif key in NUMERIC_COLUMNS:
-            try:
-                shaped[key] = float(value)
-            except ValueError:
-                shaped[key] = None
-        else:
-            shaped[key] = value
-    return shaped
+    header, _, body = content.strip().partition(b"\n")
+    if not body.strip():
+        # A day with no events is the header alone, which Arrow refuses to parse.
+        return pa.table({})
+    names = header.decode("utf-8").strip().split(",")
+    table = pa_csv.read_csv(
+        io.BytesIO(content),
+        convert_options=pa_csv.ConvertOptions(column_types=dict.fromkeys(names, pa.string()), strings_can_be_null=True),
+    )
+    columns: dict[str, Any] = {}
+    for name in table.column_names:
+        column: Any = table[name]
+        if name in BOOLEAN_COLUMNS:
+            column = pc.equal(pc.utf8_lower(column), pa.scalar("true"))
+        elif name in FLOAT_COLUMNS:
+            column = pc.cast(column, pa.float64())
+        elif name in INTEGER_COLUMNS:
+            column = pc.cast(column, pa.int64())
+        columns[name] = column
+    return pa.table(columns)
 
 
-def _iter_csv_rows(session: Session, url: str, params: dict[str, str]) -> Iterator[dict[str, Any]]:
-    with session.get(url, params=params, stream=True, timeout=REQUEST_TIMEOUT) as response:
-        response.raise_for_status()
-        response.encoding = response.encoding or "utf-8"
-        for row in csv.DictReader(response.iter_lines(decode_unicode=True)):
-            yield shape_event(row)
+def _read_export(session: Session, url: str, params: dict[str, str]) -> pa.Table:
+    response = session.get(url, params=params, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    return csv_to_table(response.content)
 
 
 def _watermark_day(value: Any) -> date | None:
@@ -103,26 +125,20 @@ def iter_daily_events(
     first_day: date,
     last_day: date,
     manager: ResumableSourceManager[ScarfResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
+) -> Iterator[pa.Table]:
     resume = manager.load_state() if manager.can_resume() else None
     day = max(first_day, date.fromisoformat(resume.day)) if resume and resume.day else first_day
     while day <= last_day:
-        # One day per request: a resume reads that day again, and the order of rows inside it
-        # cannot move the watermark past rows not read yet.
-        manager.save_state(ScarfResumeConfig(day=day.isoformat()))
-        batch: list[dict[str, Any]] = []
-        delivered = False
-        for row in _iter_csv_rows(session, url, {"start_date": day.isoformat(), "end_date": day.isoformat()}):
-            batch.append(row)
-            if len(batch) >= EVENT_BATCH_SIZE:
-                yield batch
-                delivered = True
-                batch = []
-        if batch:
-            yield batch
-        elif not delivered:
-            manager.safe_point()
+        # A whole day goes to the pipeline as one item, with the next day staged before it. A
+        # hand-off then never reads part of a day twice: a first sync appends, so a replayed day
+        # would stay duplicated. The order of rows inside the day also cannot move the watermark.
+        table = _read_export(session, url, {"start_date": day.isoformat(), "end_date": day.isoformat()})
         day += timedelta(days=1)
+        manager.save_state(ScarfResumeConfig(day=day.isoformat()))
+        if table.num_rows:
+            yield table
+        else:
+            manager.safe_point()
 
 
 def _list_resource(
@@ -179,26 +195,36 @@ def scarf_source(
     backfill_days: int | None,
     inputs: SourceInputs,
     manager: ResumableSourceManager[ScarfResumeConfig],
-    today: date | None = None,
+    cursor_manager: SourceCursorManager[ScarfExportCursor] | None,
 ) -> SourceResponse:
     endpoint = ENDPOINTS[inputs.schema_name]
     owner = validate_owner(owner)
+    if not backfill_is_valid(backfill_days):
+        raise ValueError(BACKFILL_MESSAGE)
     url = f"{BASE_URL}{endpoint.path.replace('{owner}', owner)}"
 
     if endpoint.daily:
-        last_day = today or datetime.now(UTC).date()
-        watermark = (
-            _watermark_day(inputs.db_incremental_field_last_value) if inputs.should_use_incremental_field else None
-        )
-        first_day = watermark or last_day - timedelta(days=backfill_days or DEFAULT_BACKFILL_DAYS)
+        incremental = inputs.should_use_incremental_field
 
-        def items() -> Iterator[list[dict[str, Any]]]:
-            return iter_daily_events(_session(api_token), url, first_day, last_day, manager)
+        def items() -> Iterator[pa.Table]:
+            today = datetime.now(UTC).date()
+            cursor = cursor_manager.load() if incremental and cursor_manager is not None else None
+            watermark = _watermark_day(inputs.db_incremental_field_last_value) if incremental else None
+            if cursor is not None:
+                first_day = date.fromisoformat(cursor.next_day)
+            elif watermark is not None:
+                first_day = watermark
+            else:
+                first_day = today - timedelta(days=DEFAULT_BACKFILL_DAYS if backfill_days is None else backfill_days)
+            yield from iter_daily_events(_session(api_token), url, first_day, today, manager)
+            if incremental and cursor_manager is not None:
+                # Today is still filling up, so the next run exports it again and merges on id.
+                cursor_manager.stage(ScarfExportCursor(next_day=today.isoformat()))
 
     elif endpoint.csv_export:
 
-        def items() -> Iterator[list[dict[str, Any]]]:
-            yield list(_iter_csv_rows(_session(api_token), url, {}))
+        def items() -> Iterator[pa.Table]:
+            yield _read_export(_session(api_token), url, {})
 
     else:
         return SourceResponse(
