@@ -264,9 +264,9 @@ def _mint_transactional_email_jwt(team_id: int, template_id: str) -> str:
 
 
 def send_transactional_email(team_id: int, template_id: str, payload: dict) -> requests.Response:
-    """Queue one email from a message template. `payload` carries the email input built from the template, the
-    recipient's distinct_id and the template variables. 202 means queued, 429 means the team is over its email
-    quota."""
+    """Queue one email from a message template. `payload` carries the recipient, the sender integration id, the
+    recipient's distinct_id and the template variables. cdp-api loads the template content by id. 202 means
+    queued, 429 means the team is over its email quota."""
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/messaging/transactional_email",
         json={**payload, "template_id": template_id},
