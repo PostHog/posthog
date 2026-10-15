@@ -62,8 +62,8 @@ export function useSqlChartModel<
     const ySeriesData = useMemo(() => capYSeriesData(yData), [yData])
 
     const series = useMemo(
-        () => (ySeriesData ? buildSeries(ySeriesData, visualizationType) : []),
-        [ySeriesData, visualizationType]
+        () => (ySeriesData ? buildSeries(ySeriesData, visualizationType, chartSettings.showValuesOnSeries) : []),
+        [ySeriesData, visualizationType, chartSettings.showValuesOnSeries]
     )
 
     const theme = useChartTheme()

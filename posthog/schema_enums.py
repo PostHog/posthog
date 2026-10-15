@@ -234,6 +234,12 @@ class DisplayType(StrEnum):
     AREA = "area"
 
 
+class ValueLabels(StrEnum):
+    AUTO = "auto"
+    SHOW = "show"
+    HIDE = "hide"
+
+
 class YAxisPosition(StrEnum):
     LEFT = "left"
     RIGHT = "right"
