@@ -105,8 +105,9 @@ def upsert_prompts(team: Team, candidates: list[PromptCandidate]) -> dict[str, i
     with team_scope(team_id):
         existing = set(AEOPrompt.objects.filter(prompt_hash__in=rows.keys()).values_list("prompt_hash", flat=True))
         # `active` is left out of the update, so a re-import keeps prompts someone turned off.
+        # Sorted so concurrent imports lock conflicting rows in the same order and cannot deadlock.
         AEOPrompt.objects.bulk_create(
-            list(rows.values()),
+            [rows[key] for key in sorted(rows)],
             update_conflicts=True,
             unique_fields=["team", "prompt_hash"],
             update_fields=["prompt", "prompt_source", "topic", "rank", "evidence", "updated_at"],
