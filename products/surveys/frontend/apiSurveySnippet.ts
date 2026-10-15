@@ -9,7 +9,10 @@ const UNSAVED_QUESTION_ID = '<question id>'
 const QUESTION_COMMENT_MAX_LENGTH = 60
 
 const quote = (value: string): string =>
-    `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r?\n/g, '\\n')}'`
+    `'${value
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r?\n|\r/g, '\\n')}'`
 
 const firstChoice = (question: SurveyQuestion, fallback: string): string =>
     quote(('choices' in question && question.choices[0]) || fallback)
@@ -27,32 +30,34 @@ const ANSWER_PLACEHOLDERS: Record<SurveyQuestionType, (question: SurveyQuestion)
 function responseLines(question: SurveyQuestion): string[] {
     const key = getSurveyIdBasedResponseKey(question.id ?? UNSAVED_QUESTION_ID)
     const comment = truncate(question.question.replace(/\s+/g, ' ').trim(), QUESTION_COMMENT_MAX_LENGTH)
-    return [`    // ${comment}`, `    ${quote(key)}: ${ANSWER_PLACEHOLDERS[question.type](question)},`]
+    return [`            // ${comment}`, `            ${quote(key)}: ${ANSWER_PLACEHOLDERS[question.type](question)},`]
 }
 
+// posthog-js adds the responded/dismissed person properties and the "already seen" state itself when it
+// captures these events, keyed by $survey_iteration, so the snippet must read the iteration at runtime.
 export function buildApiSurveySnippet(survey: Survey | NewSurvey): string {
     const id = survey.id && survey.id !== 'new' ? survey.id : UNSAVED_SURVEY_ID
-    const quotedId = quote(id)
-    const iterationSuffix = survey.current_iteration ? `/${survey.current_iteration}` : ''
 
     return [
         'posthog.getActiveMatchingSurveys((surveys) => {',
-        `    const survey = surveys.find((s) => s.id === ${quotedId})`,
+        `    const survey = surveys.find((s) => s.id === ${quote(id)})`,
         '    if (!survey) return',
-        '    // Render your own UI, then:',
-        `    posthog.capture(${quote(SurveyEventName.SHOWN)}, { ${SurveyEventProperties.SURVEY_ID}: ${quotedId} })`,
-        '})',
+        '    const surveyProperties = {',
+        `        ${SurveyEventProperties.SURVEY_ID}: survey.id,`,
+        `        ${SurveyEventProperties.SURVEY_ITERATION}: survey.current_iteration,`,
+        '    }',
+        `    posthog.capture(${quote(SurveyEventName.SHOWN)}, surveyProperties)`,
         '',
-        '// When the user submits',
-        `posthog.capture(${quote(SurveyEventName.SENT)}, {`,
-        `    ${SurveyEventProperties.SURVEY_ID}: ${quotedId},`,
-        `    ${SurveyEventProperties.SURVEY_SUBMISSION_ID}: crypto.randomUUID(),`,
-        `    ${SurveyEventProperties.SURVEY_COMPLETED}: true,`,
+        '    // Render your own UI and call these from its handlers',
+        '    const onSubmit = () =>',
+        `        posthog.capture(${quote(SurveyEventName.SENT)}, {`,
+        '            ...surveyProperties,',
+        `            ${SurveyEventProperties.SURVEY_SUBMISSION_ID}: crypto.randomUUID(),`,
+        `            ${SurveyEventProperties.SURVEY_COMPLETED}: true,`,
+        '            $survey_questions: survey.questions.map(({ id, question }) => ({ id, question })),',
         ...survey.questions.flatMap(responseLines),
-        `    $set: { ${quote(`$survey_responded/${id}${iterationSuffix}`)}: true },`,
+        '        })',
+        `    const onDismiss = () => posthog.capture(${quote(SurveyEventName.DISMISSED)}, surveyProperties)`,
         '})',
-        '',
-        '// When the user closes the survey without answering',
-        `posthog.capture(${quote(SurveyEventName.DISMISSED)}, { ${SurveyEventProperties.SURVEY_ID}: ${quotedId} })`,
     ].join('\n')
 }
