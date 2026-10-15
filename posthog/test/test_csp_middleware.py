@@ -417,24 +417,32 @@ class TestCSPMiddleware(APIBaseTest):
         enforced = _parse_policies(response.get("Content-Security-Policy", ""))
         reported = _parse_policies(response.get("Content-Security-Policy-Report-Only", ""))
         (app_policy,) = [policy for policy in enforced + reported if "default-src" in policy]
-        # The app policy keeps `https:`, so the shadow reports images without blocking any.
-        assert "https:" in app_policy["img-src"]
+        # The app policy keeps `https:` and the PostHog wildcard, so the shadow reports images without blocking any.
+        assert {"https:", "https://*.posthog.com"} <= set(app_policy["img-src"])
         # The app policy keeps the wildcards until the v=6 reports show the named hosts are complete.
         assert "https://*.posthog.com" in app_policy["style-src"]
         assert "https://*.posthog.com" in app_policy["font-src"]
         # Enforced, a shadow would block every image, stylesheet or font from a host it does not name.
-        assert [policy for policy in enforced if _report_version(policy) in (["5"], ["6"])] == []
-        image_shadows = [policy for policy in reported if _report_version(policy) == ["5"]]
+        assert [policy for policy in enforced if _report_version(policy) in (["6"], ["7"])] == []
+        # A v=5 report names an image that only `https:` admits. The image shadow also reports PostHog hosts the
+        # named list misses, so under 5 its reports would mix with the old ones in one query.
+        assert [policy for policy in enforced + reported if _report_version(policy) == ["5"]] == []
+        image_shadows = [policy for policy in reported if _report_version(policy) == ["7"]]
         style_font_shadows = [policy for policy in reported if _report_version(policy) == ["6"]]
         if not expects_shadows:
             assert image_shadows == style_font_shadows == []
             return
 
         (image_shadow,) = image_shadows
-        # Any other directive would make a v=5 report mean something besides "this image needs https:".
+        # Any other directive would make a v=7 report mean something besides "this image host is not named".
         assert set(image_shadow) == {"img-src", "report-uri"}
-        assert "https:" not in image_shadow["img-src"]
-        assert "https://www.gravatar.com" in image_shadow["img-src"]
+        img_src = set(image_shadow["img-src"])
+        # `https:` admits every host and the wildcard every PostHog host, so with either one a miss never reports.
+        assert not {"https:", "https://*.posthog.com"} & img_src
+        # Without these, every page load reports its own bundle or the toolbar, and a real miss is lost.
+        assert {_US_BUNDLE, "https://internal-cf.posthog.com/static/"} <= img_src
+        # The swap must remove those two sources alone, or every image the others admit reports as a miss.
+        assert {"'self'", "data:", "blob:", "https://posthog.com", "https://www.gravatar.com"} <= img_src
 
         (style_font_shadow,) = style_font_shadows
         # Any other directive would make a v=6 report mean something besides "this host is missing".
