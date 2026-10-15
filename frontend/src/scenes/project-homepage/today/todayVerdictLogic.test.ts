@@ -16,7 +16,7 @@ describe('todayVerdictLogic', () => {
         ['keeps a verdict the API accepts', 200, { a: 'done' }],
         ['takes back a verdict the API refuses', 409, {}],
     ])('%s', async (_, status, finalOverrides) => {
-        const stateBodies: Record<string, unknown>[] = []
+        const stateBodies: unknown[] = []
         useMocks({
             post: {
                 '/api/projects/:team_id/signals/reports/:id/state/': async ({ request }) => {

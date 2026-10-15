@@ -1400,7 +1400,6 @@ type AnyArtefact =
 const DISMISSAL_REASONS = new Set<ReportStateReason>([
   ...DISMISSAL_REASON_OPTIONS.map((o) => o.value),
   ...RESOLVE_REASON_OPTIONS.map((o) => o.value),
-  "pr_merged",
 ]);
 
 const PRIORITY_VALUES = new Set(["P0", "P1", "P2", "P3", "P4"]);
@@ -1570,12 +1569,6 @@ function normalizeDismissalArtefact(
     type: "dismissal",
     ...artefactBase(value),
     content: {
-      state:
-        contentValue.state === "resolved" ||
-        contentValue.state === "suppressed" ||
-        contentValue.state === "potential"
-          ? contentValue.state
-          : null,
       reason,
       note: optionalString(contentValue.note) ?? "",
       user_id:
