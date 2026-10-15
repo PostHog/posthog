@@ -415,7 +415,6 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             dashboardWidgetMenusLogic({
                 instanceKey: widget ? `widget-${widget.id}` : `widget-tile-${tile.id}`,
                 dashboardId,
-                dashboards: undefined,
                 dashboard_tiles: widget?.dashboard_tiles,
             })
         )
