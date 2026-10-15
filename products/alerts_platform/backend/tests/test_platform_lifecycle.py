@@ -25,7 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformOwnershipHandover,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
 
@@ -138,6 +138,24 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.configuration.refresh_from_db()
         assert self.configuration.enabled is False
         assert due_checks(self.team.id, SourceKind.LOGS.value, self.slot, self.cutoff + timedelta(hours=1)) == ()
+
+    def test_switching_a_source_off_leaves_the_alerts_the_platform_owns(self) -> None:
+        with team_scope(self.team.id):
+            owned = PlatformAlertConfiguration.objects.create(
+                team=self.team,
+                name="Cut over",
+                source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+                source_config=self.configuration.source_config,
+                check_interval_minutes=10,
+                owner=PlatformAlertOwner.PLATFORM,
+            )
+
+        assert disable_configurations(SourceKind.LOGS, team_id=self.team.id) == 1
+
+        with team_scope(self.team.id):
+            self.configuration.refresh_from_db()
+            owned.refresh_from_db()
+        assert (self.configuration.enabled, owned.enabled) == (False, True)
 
     def test_recording_a_batch_twice_advances_the_schedule_once(self) -> None:
         self._record()
