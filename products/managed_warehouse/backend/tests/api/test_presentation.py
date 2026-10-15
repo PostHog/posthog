@@ -41,8 +41,8 @@ def _onboarding_side_effects():
 @pytest.mark.parametrize(
     "enabled_flags, expected_variant",
     [
-        ({"data-warehouse-scene-trino"}, "trino"),
-        ({"data-warehouse-scene-trino", "data-warehouse-scene"}, "trino"),
+        ({"managed-warehouse-trino-query"}, "trino"),
+        ({"managed-warehouse-trino-query", "data-warehouse-scene"}, "trino"),
         ({"data-warehouse-scene"}, "duckdb"),
         (set(), None),
     ],
@@ -57,7 +57,7 @@ def test_data_ops_variant_prefers_the_trino_flag(
     assert managed_warehouse.data_ops_variant(organization_id) == expected_variant
     assert managed_warehouse.is_enabled(organization_id) is (expected_variant is not None)
     mock_feature_enabled.assert_any_call(
-        "data-warehouse-scene-trino",
+        "managed-warehouse-trino-query",
         str(organization_id),
         groups={"organization": str(organization_id)},
         group_properties={"organization": {"id": str(organization_id)}},

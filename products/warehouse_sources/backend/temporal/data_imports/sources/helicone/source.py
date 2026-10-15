@@ -58,7 +58,7 @@ class HeliconeSource(ResumableSource[HeliconeSourceConfig, HeliconeResumeConfig]
         ),
         pypi=("helicone", "helicone-helpers", "helicone-async", "helicone-prompts", "llama-index-llms-helicone"),
         go=("github.com/helicone/go-helicone-helpers",),
-        competes_with=(ProductKey.LLM_ANALYTICS,),
+        alternative_to=(ProductKey.LLM_ANALYTICS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

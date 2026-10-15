@@ -228,7 +228,7 @@ class RudderStackSource(ResumableSource[RudderStackSourceConfig, RudderStackResu
             "github.com/rudderlabs/rudder-integration-singular-swift",
             "github.com/rudderlabs/rudder-integration-sprig-ios",
         ),
-        competes_with=(ProductKey.PIPELINE_DESTINATIONS,),
+        alternative_to=(ProductKey.PIPELINE_DESTINATIONS,),
     )
 
     lists_tables_without_credentials = True

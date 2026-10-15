@@ -19,6 +19,22 @@ import {
 } from './llmPlaygroundRunLogic'
 import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 
+// Same contract as fetch-event-source: an error from the request or from onmessage goes to onerror,
+// and the request is sent again unless onerror throws.
+function mockStreamWithRetryContract(
+    produce: (options: any) => void | Promise<void>,
+    onRetry: () => void
+): (url: string, options: any) => Promise<void> {
+    return async (_url, options) => {
+        try {
+            await produce(options)
+        } catch (error) {
+            options.onError(error)
+            onRetry()
+        }
+    }
+}
+
 function setPlaygroundAccessLevel(level: AccessControlLevel): void {
     window.POSTHOG_APP_CONTEXT = {
         ...window.POSTHOG_APP_CONTEXT,
@@ -265,9 +281,10 @@ describe('llmPlaygroundRunLogic', () => {
         const apiError = new ApiError('fallback message', 400, undefined, {
             error: 'Thinking is not supported for this model',
         })
-        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
-            options.onError?.(apiError)
-        })
+        const retried = jest.fn()
+        const streamSpy = jest
+            .spyOn(api, 'stream')
+            .mockImplementation(mockStreamWithRetryContract((options) => options.onError(apiError), retried))
         const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
 
         const logic = llmPlaygroundRunLogic()
@@ -283,8 +300,10 @@ describe('llmPlaygroundRunLogic', () => {
         const items = llmPlaygroundRunLogic.values.comparisonItems
         expect(items).toHaveLength(1)
         expect(items[0].error).toBe(true)
-        expect(items[0].response).toContain('**Error:** Thinking is not supported for this model')
+        expect(items[0].response.match(/\*\*Error:\*\* Thinking is not supported for this model/g)).toHaveLength(1)
         expect(items[0].response).not.toContain('Stream Connection Error')
+        expect(retried).not.toHaveBeenCalled()
+        expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
         expect(captureExceptionSpy).toHaveBeenCalledWith(
             apiError,
             expect.objectContaining({ tag: 'llma-playground-prompt-run', status: 400 })
@@ -295,11 +314,14 @@ describe('llmPlaygroundRunLogic', () => {
         captureExceptionSpy.mockRestore()
     })
 
-    it('labels non-ApiError stream failures as connection errors and captures them', async () => {
+    it('labels network failures as connection errors, captures them once and does not retry', async () => {
         const connectionError = new Error('network down')
-        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
-            options.onError?.(connectionError)
-        })
+        const retried = jest.fn()
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(
+            mockStreamWithRetryContract(() => {
+                throw connectionError
+            }, retried)
+        )
         const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
 
         const logic = llmPlaygroundRunLogic()
@@ -316,6 +338,8 @@ describe('llmPlaygroundRunLogic', () => {
         expect(items).toHaveLength(1)
         expect(items[0].error).toBe(true)
         expect(items[0].response).toContain('**Stream Connection Error:** network down')
+        expect(retried).not.toHaveBeenCalled()
+        expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
         expect(captureExceptionSpy).toHaveBeenCalledWith(
             connectionError,
             expect.objectContaining({ tag: 'llma-playground-prompt-run', status: undefined })
@@ -324,6 +348,112 @@ describe('llmPlaygroundRunLogic', () => {
         logic.unmount()
         streamSpy.mockRestore()
         captureExceptionSpy.mockRestore()
+    })
+
+    it('stops a superseded run silently and keeps submitting until the newer run ends', async () => {
+        let releaseFirstStream: () => void = () => {}
+        const firstStreamGate = new Promise<void>((resolve) => {
+            releaseFirstStream = resolve
+        })
+        let releaseSecondStream: () => void = () => {}
+        const secondStreamGate = new Promise<void>((resolve) => {
+            releaseSecondStream = resolve
+        })
+        const retried = jest.fn()
+        const streamSpy = jest
+            .spyOn(api, 'stream')
+            .mockImplementationOnce(
+                mockStreamWithRetryContract(async (options) => {
+                    await firstStreamGate
+                    options.onMessage({ data: JSON.stringify({ type: 'text', text: 'stale' }) })
+                }, retried)
+            )
+            .mockImplementationOnce(() => secondStreamGate)
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        releaseFirstStream()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(logic.values.submitting).toBe(true)
+        expect(logic.values.comparisonItems.map((item) => item.response)).toEqual([''])
+
+        releaseSecondStream()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.submitting).toBe(false)
+        expect(streamSpy).toHaveBeenCalledTimes(2)
+        expect(retried).not.toHaveBeenCalled()
+        expect(captureSpy.mock.calls.filter(([event]) => event === 'llma playground prompt completed')).toHaveLength(1)
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
+        expect(toastSpy).not.toHaveBeenCalled()
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        captureSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
+        toastSpy.mockRestore()
+    })
+
+    describe('when a streaming run is interrupted', () => {
+        let streamSignal: AbortSignal | undefined
+        let streamSpy: jest.SpyInstance
+        let captureSpy: jest.SpyInstance
+
+        const completedEvents = (): unknown[] =>
+            captureSpy.mock.calls
+                .filter(([event]) => event === 'llma playground prompt completed')
+                .map(([, properties]) => properties)
+
+        beforeEach(async () => {
+            streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
+                streamSignal = options.signal
+                options.onMessage({ data: JSON.stringify({ type: 'text', text: 'partial' }) })
+                // fetch-event-source resolves, rather than rejects, when its signal aborts.
+                await new Promise((resolve) => options.signal.addEventListener('abort', resolve))
+            })
+            captureSpy = jest.spyOn(posthog, 'capture')
+
+            llmPlaygroundRunLogic.mount()
+            await expectLogic(llmPlaygroundRunLogic).toFinishAllListeners()
+            llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+            llmPlaygroundRunLogic.actions.submitPrompt()
+            await expectLogic(llmPlaygroundRunLogic).toDispatchActions(['addToComparison'])
+        })
+
+        afterEach(() => {
+            streamSpy.mockRestore()
+            captureSpy.mockRestore()
+        })
+
+        it('marks the run as stopped when the user stops it', async () => {
+            llmPlaygroundRunLogic.actions.abortRun()
+            await expectLogic(llmPlaygroundRunLogic).toFinishAllListeners()
+
+            expect(llmPlaygroundRunLogic.values.comparisonItems[0].response).toBe('partial\n\n*Generation stopped.*')
+            expect(llmPlaygroundRunLogic.values.submitting).toBe(false)
+            expect(completedEvents()).toEqual([expect.objectContaining({ aborted: true, success: true })])
+
+            llmPlaygroundRunLogic.unmount()
+        })
+
+        it('ends the stream silently when the user leaves the playground', async () => {
+            llmPlaygroundRunLogic.unmount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(streamSignal?.aborted).toBe(true)
+            expect(completedEvents()).toEqual([])
+        })
     })
 
     it('captures exceptions thrown before the stream opens', async () => {
