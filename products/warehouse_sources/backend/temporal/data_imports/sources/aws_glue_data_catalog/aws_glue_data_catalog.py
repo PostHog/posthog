@@ -83,6 +83,15 @@ def error_for_response(response: requests.Response) -> AwsGlueError:
     return error_class(code, message)
 
 
+def page_items(endpoint: GlueEndpoint, body: dict[str, Any]) -> list[dict[str, Any]]:
+    items = body.get(endpoint.result_key, [])
+    if endpoint.names_only and isinstance(items, list) and all(isinstance(item, str) for item in items):
+        items = [{"Name": item} for item in items]
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        raise ValueError("AWS Glue returned an invalid list response.")
+    return items
+
+
 class AwsGlueClient:
     def __init__(self, config: AwsGlueDataCatalogSourceConfig, api_version: str) -> None:
         if not config.aws_access_key_id or not config.aws_secret_access_key:
@@ -149,11 +158,7 @@ class AwsGlueClient:
             if token:
                 params["NextToken"] = token
             body = self.request(endpoint.operation, params)
-            items = body.get(endpoint.result_key, [])
-            if endpoint.names_only and isinstance(items, list) and all(isinstance(item, str) for item in items):
-                items = [{"Name": item} for item in items]
-            if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
-                raise ValueError("AWS Glue returned an invalid list response.")
+            items = page_items(endpoint, body)
             next_token = body.get("NextToken") or None
             if next_token is not None and not isinstance(next_token, str):
                 raise ValueError("AWS Glue returned an invalid pagination token.")
@@ -269,7 +274,7 @@ def probe_endpoint(client: AwsGlueClient, endpoint: str) -> dict[str, Any] | Non
             return None
         payload = parent_payload(endpoint, parent)
     body = client.request(spec.operation, {**payload, "MaxResults": 1})
-    items = body.get(spec.result_key) or []
+    items = page_items(spec, body)
     return normalize_row(endpoint, items[0], client.region, payload) if items else None
 
 

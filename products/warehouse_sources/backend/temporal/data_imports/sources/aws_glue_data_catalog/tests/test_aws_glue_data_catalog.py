@@ -399,22 +399,33 @@ def test_validation_maps_errors_and_accepts_create_time_permission_denials(schem
     factory.return_value.close.assert_called_once()
 
 
-def test_creation_probes_once_and_selected_child_checks_parent_and_child() -> None:
+def test_creation_probes_once() -> None:
     with scripted_network([ScriptedResponse(json={"DatabaseList": []})]) as creation:
         assert glue.validate_credentials(config(), GLUE_API_VERSION) == (True, None)
     assert len(creation.requests_log) == 1
     assert creation.requests_log[0].json() == {"MaxResults": 1}
 
+
+@pytest.mark.parametrize(
+    "schema_name,parent_body,child_payload",
+    [
+        ("job_runs", {"Jobs": [{"Name": "example"}]}, {"MaxResults": 1, "JobName": "example"}),
+        ("workflow_runs", {"Workflows": ["example"]}, {"MaxResults": 1, "Name": "example", "IncludeGraph": False}),
+    ],
+)
+def test_selected_child_checks_parent_and_child(
+    schema_name: str, parent_body: dict[str, Any], child_payload: dict[str, Any]
+) -> None:
     with scripted_network(
         [
-            ScriptedResponse(json={"Jobs": [{"Name": "example"}]}),
+            ScriptedResponse(json=parent_body),
             ScriptedResponse(status=403, json={"__type": "AccessDeniedException"}),
         ]
     ) as selected:
-        valid, reason = glue.validate_credentials(config(), GLUE_API_VERSION, "job_runs")
+        valid, reason = glue.validate_credentials(config(), GLUE_API_VERSION, schema_name)
     assert not valid and reason
     assert len(selected.requests_log) == 2
-    assert selected.requests_log[1].json() == {"MaxResults": 1, "JobName": "example"}
+    assert selected.requests_log[1].json() == child_payload
 
 
 @pytest.mark.parametrize("endpoint", ["tables", "partitions", "job_runs"])
