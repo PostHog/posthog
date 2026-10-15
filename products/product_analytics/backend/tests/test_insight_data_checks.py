@@ -21,7 +21,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.facade.contracts import InsightDataChecks, InsightDataChecksCoverage
 from products.product_analytics.backend.facade.data_checks import run_insight_data_checks
 from products.product_analytics.backend.facade.enums import InsightDataCheckKey, InsightDataCheckLevel
-from products.product_analytics.backend.insight_data_check_days import choose_days_to_check
+from products.product_analytics.backend.insight_data_check_days import newest_days_within
 from products.product_analytics.backend.insight_data_check_results import (
     CheckedEvents,
     SampledEvents,
@@ -51,7 +51,7 @@ IS_PAID = {"key": "plan", "value": ["paid"], "operator": "exact", "type": "event
 HAS_NO_PLAN_TODAY = {"key": "plan", "value": "is_not_set", "operator": "is_not_set", "type": "person"}
 ONE_STEP = [{"kind": "EventsNode", "event": EVENT}]
 TWO_STEPS = [{"kind": "EventsNode", "event": EVENT}, {"kind": "EventsNode", "event": EVENT}]
-TWENTY_DAYS = [date(2026, 3, 1) + timedelta(days=offset) for offset in range(20)]
+SEVEN_DAYS = [date(2026, 3, 1) + timedelta(days=offset) for offset in range(7)]
 
 
 def checked(
@@ -61,7 +61,7 @@ def checked(
     bots: int = 0,
     repeats: int = 0,
     sample_rate: float = 1.0,
-    range_scale: float = 1.0,
+    newest_days_of_a_longer_range: int | None = None,
 ) -> CheckedEvents:
     return CheckedEvents(
         local_events=local,
@@ -72,7 +72,8 @@ def checked(
             repeated_events=repeats,
             distinct_ids=sampled_events,
         ),
-        range_scale=range_scale,
+        days_checked=newest_days_of_a_longer_range or 1,
+        checked_whole_range=newest_days_of_a_longer_range is None,
     )
 
 
@@ -81,11 +82,6 @@ class TestEvaluateDataChecks(SimpleTestCase):
         [
             ("local_tiny_share_still_counts", checked(1_000_000, local=60), {LOCAL: WARNING}),
             ("local_under_50_events", checked(100, local=49), {}),
-            (
-                "local_under_50_on_the_checked_days_but_over_50_in_the_range",
-                checked(10_000, local=10, range_scale=10),
-                {LOCAL: WARNING},
-            ),
             ("local_fifth_is_a_problem", checked(1000, local=200), {LOCAL: PROBLEM}),
             ("local_too_many_events_to_count", checked(1000, local=None), {LOCAL: SKIPPED}),
             ("bots_small_share_is_a_warning", checked(10_000, bots=200), {BOTS: WARNING}),
@@ -128,10 +124,10 @@ class TestEvaluateDataChecks(SimpleTestCase):
                 "66 of these events came from local development",
             ),
             (
-                "count_scaled_up_from_the_checked_days",
+                "count_on_the_newest_days_of_a_longer_range",
                 LOCAL,
-                checked(1_000_000, local=66, range_scale=100),
-                "About 6,600 of these events came from local development",
+                checked(1_000_000, local=66, newest_days_of_a_longer_range=7),
+                "In the last 7 days, 66 of these events came from local development",
             ),
             ("pass_on_every_event", BOTS, checked(50_000), "No bots or crawlers found"),
             (
@@ -140,33 +136,36 @@ class TestEvaluateDataChecks(SimpleTestCase):
                 checked(50_000, sample_rate=0.5),
                 "No bots or crawlers found in a sample of 50,000 events",
             ),
+            (
+                "estimate_from_a_sample",
+                BOTS,
+                checked(50_000, bots=5000, sample_rate=0.5),
+                "About 10% of these events came from bots and crawlers",
+            ),
         ]
     )
-    def test_result_says_when_its_number_is_an_estimate(
+    def test_result_says_what_its_number_covers(
         self, _name: str, key: InsightDataCheckKey, checked_events: CheckedEvents, expected: str
     ) -> None:
         results = {check.key: check.result for check in evaluate_data_checks(checked_events)}
         assert results[key] == expected
 
 
-class TestChooseDaysToCheck(SimpleTestCase):
+class TestNewestDaysWithin(SimpleTestCase):
     @parameterized.expand(
         [
-            ("range_within_the_budget", 1000, TWENTY_DAYS),
-            (
-                "newest_days_in_full_then_days_spread_over_the_rest",
-                100,
-                [TWENTY_DAYS[index] for index in (1, 4, 7, 10, 13, 15, 16, 17, 18, 19)],
-            ),
-            ("newest_day_alone_over_the_budget", 5, [TWENTY_DAYS[-1]]),
+            ("days_within_the_budget", 1000, SEVEN_DAYS),
+            ("budget_reached", 30, SEVEN_DAYS[-3:]),
+            ("newest_day_alone_over_the_budget", 5, SEVEN_DAYS[-1:]),
         ]
     )
-    def test_chooses_days_within_the_budget(self, _name: str, budget: int, expected: list[date]) -> None:
-        assert choose_days_to_check(dict.fromkeys(TWENTY_DAYS, 10), budget) == expected
+    def test_keeps_the_newest_days_within_the_budget(self, _name: str, budget: int, expected: list[date]) -> None:
+        assert newest_days_within(dict.fromkeys(SEVEN_DAYS, 10), budget) == expected
 
 
 @time_machine.travel(NOW, tick=False)
 @patch(f"{CHECKS_MODULE}.SIZING_SAMPLE_ONE_IN", 1)
+@patch(f"{CHECKS_MODULE}.MAX_CHECKED_DAYS", 10_000)
 class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -232,15 +231,15 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         assert result.coverage is not None
         return result.coverage
 
-    def _events_in_range(self, query: dict[str, Any]) -> int | None:
-        return self._coverage(self._check(query)).events_in_range
+    def _events_checked(self, query: dict[str, Any]) -> int | None:
+        return self._coverage(self._check(query)).events_checked
 
     def test_counts_each_problem_in_the_events_the_insight_reads(self) -> None:
         result = self._check(self._query())
 
         coverage = self._coverage(result)
         assert result.status == "warning"
-        assert coverage.events_in_range == 600
+        assert coverage.events_checked == 600
         assert coverage.days_checked == coverage.days_in_range
         assert {check.key: (check.level, check.events) for check in result.checks} == {
             "local_development": ("warning", 60),
@@ -310,7 +309,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
     def test_checks_only_what_the_insights_own_filters_keep(
         self, _name: str, source: dict[str, Any], events_checked: int
     ) -> None:
-        assert self._events_in_range(self._query(**source)) == events_checked
+        assert self._events_checked(self._query(**source)) == events_checked
 
     @parameterized.expand(
         [
@@ -362,12 +361,12 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        assert self._events_in_range(query) == events_checked
+        assert self._events_checked(query) == events_checked
 
     def test_a_first_time_series_checks_only_the_events_in_its_date_range(self) -> None:
         query = self._query([{"kind": "EventsNode", "event": EVENT, "math": "first_time_for_user"}], kind="TrendsQuery")
 
-        assert self._events_in_range(query) == 630
+        assert self._events_checked(query) == 630
 
     @parameterized.expand(
         [
@@ -401,7 +400,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         assert (sample.rate, sample.events) == (0.25, sampled_events)
         assert {check.key: check.level for check in result.checks}[BOTS] == bot_check_level
 
-    def test_checks_the_newest_days_and_a_spread_of_older_days_when_the_range_is_over_the_budget(self) -> None:
+    def test_checks_only_the_newest_days_of_a_longer_range(self) -> None:
         for days_ago in range(20):
             self._events(10, event=WIDELY_SENT_EVENT, days_ago=days_ago, properties={"$host": LOCAL_HOST})
         flush_persons_and_events()
@@ -411,13 +410,16 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             dateRange={"date_from": "-19d"},
         )
 
-        with patch(f"{CHECKS_MODULE}.EVENT_BUDGET", 100):
+        with patch(f"{CHECKS_MODULE}.MAX_CHECKED_DAYS", 7):
             result = self._check(query)
 
         coverage = self._coverage(result)
         local = next(check for check in result.checks if check.key == LOCAL)
-        assert (coverage.days_in_range, coverage.days_checked, coverage.events_in_range) == (20, 10, 200)
-        assert (local.events, local.scaled) == (200, True)
+        assert (coverage.days_in_range, coverage.days_checked, coverage.events_checked) == (20, 7, 70)
+        assert (local.events, local.result) == (
+            70,
+            "In the last 7 days, 100% of these events came from local development",
+        )
 
     def test_counts_an_event_as_sent_twice_only_when_an_identical_one_came_under_100_ms_before(self) -> None:
         sent_twice_by_the_app = (timedelta(0), timedelta(milliseconds=20))
@@ -459,7 +461,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         self._events(40, event=WIDELY_SENT_EVENT, properties={"plan": "paid"})
         flush_persons_and_events()
         query = self._query([{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}], properties=[IS_PAID])
-        assert self._events_in_range(query) == 40
+        assert self._events_checked(query) == 40
 
         plan = PropertyDefinition.objects.create(team=self.team, name="plan", type=PropertyDefinition.Type.EVENT)
         upsert_property_access_control(

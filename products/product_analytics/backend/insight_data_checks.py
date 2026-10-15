@@ -1,6 +1,6 @@
 """Checks the events an insight reads for local development, bots and events sent twice."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import date, datetime, time, timedelta
 from typing import Any, cast
 from zoneinfo import ZoneInfo
@@ -28,14 +28,7 @@ from products.product_analytics.backend.facade.contracts import (
     InsightDataChecksSample,
 )
 from products.product_analytics.backend.facade.enums import InsightDataCheckKey, InsightDataChecksStatus
-from products.product_analytics.backend.insight_data_check_days import (
-    CheckWindow,
-    choose_days_to_check,
-    days_between,
-    days_to_size,
-    estimate_events_per_day,
-    periods_of,
-)
+from products.product_analytics.backend.insight_data_check_days import CheckWindow, days_between, newest_days_within
 from products.product_analytics.backend.insight_data_check_results import (
     REPEAT_WINDOW_MILLISECONDS,
     CheckedEvents,
@@ -45,13 +38,13 @@ from products.product_analytics.backend.insight_data_check_results import (
     status_of,
 )
 
-# The most events the local development check counts. Half go to the newest days, half to days spread over the rest.
+# The checks read only the newest days of a range, so they stay cheap enough to run on every load.
+MAX_CHECKED_DAYS = 7
+# The most events the local development check counts, so a busy event checks fewer days.
 EVENT_BUDGET = 20_000_000
 # A day cannot be split, so the newest day alone is counted up to this size.
 MAX_COUNTED_EVENTS = 2 * EVENT_BUDGET
 SAMPLE_SIZE = 100_000
-# Every day read costs the same fixed amount, so a long range is sized from a spread of its days.
-MAX_SIZED_DAYS = 90
 SIZING_SAMPLE_ONE_IN = 1_000
 
 MAX_EXECUTION_SECONDS = 20
@@ -155,37 +148,22 @@ def _query_settings() -> HogQLGlobalSettings:
     )
 
 
-def _all_of(conditions: list[ast.Expr]) -> ast.Expr:
-    return conditions[0] if len(conditions) == 1 else ast.And(exprs=conditions)
-
-
-def _any_of(conditions: list[ast.Expr]) -> ast.Expr:
-    return conditions[0] if len(conditions) == 1 else ast.Or(exprs=conditions)
-
-
 def _start_of(day: date, timezone: ZoneInfo) -> ast.Constant:
     return ast.Constant(value=datetime.combine(day, time.min, tzinfo=timezone))
 
 
-def _on_days(events: ChartEvents, days: Sequence[date], timezone: ZoneInfo) -> ast.Expr:
-    """A filter for the events on `days`, written as timestamp ranges so ClickHouse skips the other days."""
-    return _any_of(
-        [
-            ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.GtEq,
-                        left=events.timestamp(),
-                        right=_start_of(period.date_from, timezone),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Lt,
-                        left=events.timestamp(),
-                        right=_start_of(period.date_to + timedelta(days=1), timezone),
-                    ),
-                ]
-            )
-            for period in periods_of(days)
+def _between_days(events: ChartEvents, first: date, last: date, timezone: ZoneInfo) -> ast.Expr:
+    """The events from the start of `first` to the end of `last`, as a timestamp range ClickHouse can skip by."""
+    return ast.And(
+        exprs=[
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq, left=events.timestamp(), right=_start_of(first, timezone)
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=events.timestamp(),
+                right=_start_of(last + timedelta(days=1), timezone),
+            ),
         ]
     )
 
@@ -197,12 +175,12 @@ def _sample_of(count: int, total: int) -> ast.SampleExpr:
 
 
 def _count_events_per_day(
-    events: ChartEvents, reader: _EventReader, days: Sequence[date], timezone: ZoneInfo
+    events: ChartEvents, reader: _EventReader, days: list[date], timezone: ZoneInfo
 ) -> dict[date, int]:
     """Each day's events before the chart's filters, estimated from a sample of distinct IDs."""
     query = events.select(
         _EVENTS_PER_DAY_QUERY,
-        where=_all_of([events.sort_key_where, _on_days(events, days, timezone)]),
+        where=ast.And(exprs=[events.sort_key_where, _between_days(events, days[0], days[-1], timezone)]),
         sample=_sample_of(1, SIZING_SAMPLE_ONE_IN),
     )
     sampled = {day: int(count) for day, count in reader.rows(query, query_type="insight_data_checks_sizing")}
@@ -210,12 +188,13 @@ def _count_events_per_day(
 
 
 def _choose_window(events: ChartEvents, reader: _EventReader, timezone: ZoneInfo) -> CheckWindow:
-    days = days_between(events.date_from.astimezone(timezone).date(), events.date_to.astimezone(timezone).date())
-    sized_events = _count_events_per_day(events, reader, days_to_size(days, MAX_SIZED_DAYS), timezone)
-    events_per_day = estimate_events_per_day(days, sized_events)
+    days_in_range = days_between(
+        events.date_from.astimezone(timezone).date(), events.date_to.astimezone(timezone).date()
+    )
+    events_per_day = _count_events_per_day(events, reader, days_in_range[-MAX_CHECKED_DAYS:], timezone)
     return CheckWindow(
-        days_in_range=days,
-        days_to_check=choose_days_to_check(events_per_day, EVENT_BUDGET),
+        days_in_range=days_in_range,
+        days_to_check=newest_days_within(events_per_day, EVENT_BUDGET),
         events_per_day=events_per_day,
     )
 
@@ -268,13 +247,15 @@ def _sample_events(
 def _check_window(events: ChartEvents, reader: _EventReader, window: CheckWindow, timezone: ZoneInfo) -> CheckedEvents:
     where = events.where
     if not window.checks_whole_range:
-        where = _all_of([events.where, _on_days(events, window.days_to_check, timezone)])
+        first, last = window.days_to_check[0], window.days_to_check[-1]
+        where = ast.And(exprs=[events.where, _between_days(events, first, last, timezone)])
 
     too_many_to_count = window.events_on_days_to_check > MAX_COUNTED_EVENTS
     return CheckedEvents(
         local_events=None if too_many_to_count else _count_local_events(events, reader, where),
         sample=_sample_events(events, reader, where, events_before_filters=window.events_on_days_to_check),
-        range_scale=window.range_scale,
+        days_checked=len(window.days_to_check),
+        checked_whole_range=window.checks_whole_range,
     )
 
 
@@ -289,10 +270,11 @@ def _coverage(events: ChartEvents, window: CheckWindow, sample: SampledEvents | 
         date_from=window.days_in_range[0],
         date_to=window.days_in_range[-1],
         days_in_range=len(window.days_in_range),
+        checked_date_from=window.days_to_check[0],
+        checked_date_to=window.days_to_check[-1],
         days_checked=len(window.days_to_check),
-        checked_periods=periods_of(window.days_to_check),
         filters_test_accounts=events.filters_test_accounts,
-        events_in_range=None if sample is None else round(sample.events / sample.rate * window.range_scale),
+        events_checked=None if sample is None else round(sample.events / sample.rate),
         sample=_sample_summary(sample),
     )
 

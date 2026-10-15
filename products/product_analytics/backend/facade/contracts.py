@@ -69,16 +69,10 @@ class InsightDataCheck:
     fix: str | None = None
     action: InsightDataCheckAction | None = None
     method: InsightDataCheckMethod | None = None
-    # The affected events in the insight's whole range, which is an estimate when `scaled` is true.
+    # The affected events on the checked days, scaled up from the sample when `scaled` is true.
     events: int | None = None
     share: float | None = None
     scaled: bool = False
-
-
-@dataclass(frozen=True)
-class InsightDataCheckedPeriod:
-    date_from: date
-    date_to: date
 
 
 @dataclass(frozen=True)
@@ -94,11 +88,13 @@ class InsightDataChecksCoverage:
     date_from: date
     date_to: date
     days_in_range: int
+    # The newest days of the range, which are all of it when the range is short.
+    checked_date_from: date
+    checked_date_to: date
     days_checked: int
-    checked_periods: list[InsightDataCheckedPeriod]
     filters_test_accounts: bool
-    # Scaled up from the sample and the checked days, so it is exact only when both cover every event.
-    events_in_range: int | None
+    # The events on the checked days, scaled up from the sample when the sample did not read every event.
+    events_checked: int | None
     sample: InsightDataChecksSample | None
 
 

@@ -51,15 +51,8 @@ class CheckedEvents:
     local_events: int | None
     # None when the sample was too large to read.
     sample: SampledEvents | None
-    range_scale: float = 1.0
-
-    @property
-    def checked_whole_range(self) -> bool:
-        return self.range_scale == 1
-
-    @property
-    def counted_every_event(self) -> bool:
-        return self.checked_whole_range and self.sample is not None and self.sample.read_every_event
+    days_checked: int = 1
+    checked_whole_range: bool = True
 
 
 def _check(
@@ -102,10 +95,6 @@ def _is_finding(estimate: float, share: float) -> bool:
     return estimate >= MIN_FINDING_EVENTS and share >= MIN_FINDING_SHARE
 
 
-def _capitalized(text: str) -> str:
-    return f"{text[0].upper()}{text[1:]}"
-
-
 def _share_text(share: float, *, exact: bool) -> str:
     percent = f"{round(share * 100)}%"
     return percent if exact else f"about {percent}"
@@ -120,76 +109,79 @@ def _count_text(count: float, *, exact: bool) -> str:
     return f"about {round(rounded / magnitude) * magnitude:,}"
 
 
-def _passed_result(things: str, found: int, estimate: float, *, scope: str) -> str:
-    """A pass says where it looked, so a pass on part of the events never reads as a pass on all of them."""
+def _for_days_checked(statement: str, checked: CheckedEvents) -> str:
+    """Names the days a result covers when they are not the insight's whole range."""
+    if checked.checked_whole_range:
+        return f"{statement[0].upper()}{statement[1:]}"
+    days = "day" if checked.days_checked == 1 else f"{checked.days_checked} days"
+    return f"In the last {days}, {statement}"
+
+
+def _in_sample(sample: SampledEvents | None) -> str:
+    """Names a sample, so a pass on it never reads as a pass on every event."""
+    if sample is None or sample.read_every_event:
+        return ""
+    return f" in a sample of {sample.events:,} events"
+
+
+def _passed_statement(things: str, found: int, *, sample: SampledEvents | None = None) -> str:
     if not found:
-        return f"No {things} found{scope}"
-    if scope:
-        return f"Almost no {things} found{scope}"
-    return f"Almost no {things} found ({_count_text(estimate, exact=True)} events)"
-
-
-def _in_range(count: int, checked: CheckedEvents, *, sample_rate: float = 1.0) -> float:
-    return count / sample_rate * checked.range_scale
+        return f"no {things} found{_in_sample(sample)}"
+    if _in_sample(sample):
+        return f"almost no {things} found{_in_sample(sample)}"
+    return f"almost no {things} found ({found:,} events)"
 
 
 def _local_share(local_events: int, sample: SampledEvents | None) -> float | None:
     if sample is None:
         return None
     # The local count is exact and the sample is an estimate, so the share is capped at all of the events.
-    events_on_checked_days = max(sample.events / sample.rate, local_events)
-    return local_events / events_on_checked_days if events_on_checked_days else 0.0
+    events_checked = max(sample.events / sample.rate, local_events)
+    return local_events / events_checked if events_checked else 0.0
 
 
 def _local_development_check(checked: CheckedEvents) -> InsightDataCheck:
     key = InsightDataCheckKey.LOCAL_DEVELOPMENT
     local_events = checked.local_events
     if local_events is None:
-        return not_checked(key, "Not checked because the days in this range hold too many events to count")
+        return not_checked(key, "Not checked because the days checked hold too many events to count")
 
-    estimate = _in_range(local_events, checked)
     share = _local_share(local_events, checked.sample)
-    scaled = not checked.checked_whole_range
     # No minimum share: a local session also creates test persons and flag exposures, whatever its share.
-    if estimate < MIN_FINDING_EVENTS:
-        scope = "" if checked.checked_whole_range else " on the days checked"
+    if local_events < MIN_FINDING_EVENTS:
         return _check(
             key,
             InsightDataCheckLevel.PASSED,
-            _passed_result("local development events", local_events, estimate, scope=scope),
+            _for_days_checked(_passed_statement("local development events", local_events), checked),
             method=InsightDataCheckMethod.COUNTED,
-            events=estimate,
+            events=local_events,
             share=share,
-            scaled=scaled,
         )
 
     if share is not None and share >= MIN_FINDING_SHARE:
-        amount = _share_text(share, exact=checked.counted_every_event)
+        amount = _share_text(share, exact=checked.sample is not None and checked.sample.read_every_event)
     else:
-        amount = _count_text(estimate, exact=not scaled)
+        amount = _count_text(local_events, exact=True)
     return _check(
         key,
         _finding_level(share),
-        f"{_capitalized(amount)} of these events came from local development",
+        _for_days_checked(f"{amount} of these events came from local development", checked),
         fix=FILTER_FIX_FOR_LOCAL_EVENTS,
         action=InsightDataCheckAction.OPEN_FILTER_SETTINGS,
         method=InsightDataCheckMethod.COUNTED,
-        events=estimate,
+        events=local_events,
         share=share,
-        scaled=scaled,
     )
 
 
 def _sample_problem(sample: SampledEvents | None) -> str | None:
     if sample is None:
         return "Not checked because a sample of these events was too large to read"
-    if not sample.events or (not sample.read_every_event and sample.events < MIN_SAMPLED_EVENTS):
+    if not sample.events:
+        return "Not checked because the days checked have none of these events"
+    if not sample.read_every_event and sample.events < MIN_SAMPLED_EVENTS:
         return f"Not checked because the sample has fewer than {MIN_SAMPLED_EVENTS:,} of these events"
     return None
-
-
-def _sample_scope(checked: CheckedEvents, sample: SampledEvents) -> str:
-    return "" if checked.counted_every_event else f" in a sample of {sample.events:,} events"
 
 
 def _bot_traffic_check(checked: CheckedEvents) -> InsightDataCheck:
@@ -200,13 +192,13 @@ def _bot_traffic_check(checked: CheckedEvents) -> InsightDataCheck:
         return not_checked(key, problem)
 
     share = sample.bot_events / sample.events
-    estimate = _in_range(sample.bot_events, checked, sample_rate=sample.rate)
-    scaled = not checked.counted_every_event
+    estimate = sample.bot_events / sample.rate
+    scaled = not sample.read_every_event
     if not _is_finding(estimate, share):
         return _check(
             key,
             InsightDataCheckLevel.PASSED,
-            _passed_result("bots or crawlers", sample.bot_events, estimate, scope=_sample_scope(checked, sample)),
+            _for_days_checked(_passed_statement("bots or crawlers", sample.bot_events, sample=sample), checked),
             method=InsightDataCheckMethod.SAMPLED,
             events=estimate,
             share=share,
@@ -216,7 +208,9 @@ def _bot_traffic_check(checked: CheckedEvents) -> InsightDataCheck:
     return _check(
         key,
         _finding_level(share),
-        f"{_capitalized(_share_text(share, exact=not scaled))} of these events came from bots and crawlers",
+        _for_days_checked(
+            f"{_share_text(share, exact=not scaled)} of these events came from bots and crawlers", checked
+        ),
         fix=FILTER_FIX_FOR_BOTS,
         action=InsightDataCheckAction.OPEN_FILTER_SETTINGS,
         method=InsightDataCheckMethod.SAMPLED,
@@ -234,17 +228,17 @@ def _duplicate_events_check(checked: CheckedEvents) -> InsightDataCheck:
         return not_checked(key, problem)
 
     share = sample.repeated_events / sample.events
-    estimate = _in_range(sample.repeated_events, checked, sample_rate=sample.rate)
-    scaled = not checked.counted_every_event
+    estimate = sample.repeated_events / sample.rate
+    scaled = not sample.read_every_event
     if estimate < MIN_DUPLICATE_EVENTS or share < MIN_DUPLICATE_SHARE:
         if share < MIN_FINDING_SHARE:
-            result = f"No events sent twice{_sample_scope(checked, sample)}"
+            statement = f"no events sent twice{_in_sample(sample)}"
         else:
-            result = f"Few events sent twice ({_share_text(share, exact=not scaled)})"
+            statement = f"few events sent twice ({_share_text(share, exact=not scaled)})"
         return _check(
             key,
             InsightDataCheckLevel.PASSED,
-            result,
+            _for_days_checked(statement, checked),
             method=InsightDataCheckMethod.SAMPLED,
             events=estimate,
             share=share,
@@ -254,8 +248,11 @@ def _duplicate_events_check(checked: CheckedEvents) -> InsightDataCheck:
     return _check(
         key,
         _finding_level(share),
-        f"{_capitalized(_share_text(share, exact=not scaled))} of these events were sent twice "
-        f"within {REPEAT_WINDOW_MILLISECONDS} ms",
+        _for_days_checked(
+            f"{_share_text(share, exact=not scaled)} of these events were sent twice "
+            f"within {REPEAT_WINDOW_MILLISECONDS} ms",
+            checked,
+        ),
         fix=FIX_FOR_DUPLICATES,
         method=InsightDataCheckMethod.SAMPLED,
         events=estimate,
