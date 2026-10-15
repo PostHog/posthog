@@ -576,14 +576,14 @@ def metrics_for_team(team: Team) -> QuerySet[Metric]:
     return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
 
 
+def _denied_tables(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
+    return Database.create_for(team=team, user=user, user_access_control=user_access_control)._denied_tables
+
+
 def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAccessControl) -> QuerySet[Metric]:
     """Live metrics whose definitions do not disclose a warehouse table the caller cannot read."""
     metrics = metrics_for_team(team)
-    denied_tables = Database.create_for(
-        team=team,
-        user=user,
-        user_access_control=user_access_control,
-    )._denied_tables
+    denied_tables = _denied_tables(team, user, user_access_control)
     if not denied_tables:
         return metrics
     visible_metric_ids = [
@@ -603,11 +603,11 @@ def reject_name_held_by_hidden_metric(
     refine a metric whose definition reads a table the caller is denied, and the response would return
     that definition. The conflict carries no metric data, so it confirms only that the name is taken.
     """
-    if not metrics_for_team(team).filter(name=name).exists():
+    existing = metrics_for_team(team).filter(name=name).only("referenced_table_names").first()
+    if existing is None:
         return
-    if metrics_visible_to_user(team, user, user_access_control).filter(name=name).exists():
-        return
-    raise MetricNameTaken(detail="A metric with this name already exists. Use a different name.")
+    if references_denied_table(existing.referenced_table_names, _denied_tables(team, user, user_access_control)):
+        raise MetricNameTaken(detail="A metric with this name already exists. Use a different name.")
 
 
 def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str]:
