@@ -5431,6 +5431,10 @@ export type TasksListParams = {
      */
     search?: string
     /**
+     * Only tasks from any of these sources. Repeat the parameter for each source. 'posthog_desktop', 'posthog_mobile' and 'posthog_web' match user-created tasks by the client that created them, and a user-created task from no other known client counts as desktop. Any other value matches the task's origin product.
+     */
+    sources?: TasksListSourcesItem[]
+    /**
      * Filter by task run stage
      * @minLength 1
      */
@@ -5528,6 +5532,69 @@ export const TasksListPrState = {
     Draft: 'draft',
     Merged: 'merged',
     Closed: 'closed',
+} as const
+
+/**
+ * * `account_audit` - account_audit
+ * * `autoresearch` - autoresearch
+ * * `business_knowledge` - business_knowledge
+ * * `error_tracking` - error_tracking
+ * * `eval_clusters` - eval_clusters
+ * * `experiments` - experiments
+ * * `hogdesk` - hogdesk
+ * * `image_builder` - image_builder
+ * * `loop` - loop
+ * * `mcp_analytics` - mcp_analytics
+ * * `metrics_import` - metrics_import
+ * * `onboarding` - onboarding
+ * * `posthog_ai` - posthog_ai
+ * * `posthog_desktop` - posthog_desktop
+ * * `posthog_mobile` - posthog_mobile
+ * * `posthog_web` - posthog_web
+ * * `review_hog` - review_hog
+ * * `scout_suggestions` - scout_suggestions
+ * * `session_summaries` - session_summaries
+ * * `signal_report` - signal_report
+ * * `signals_chat` - signals_chat
+ * * `signals_scout` - signals_scout
+ * * `slack` - slack
+ * * `space_setup` - space_setup
+ * * `support_queue` - support_queue
+ * * `support_reply` - support_reply
+ * * `task_analysis` - task_analysis
+ * * `workflow` - workflow
+ */
+export type TasksListSourcesItem = (typeof TasksListSourcesItem)[keyof typeof TasksListSourcesItem]
+
+export const TasksListSourcesItem = {
+    AccountAudit: 'account_audit',
+    Autoresearch: 'autoresearch',
+    BusinessKnowledge: 'business_knowledge',
+    ErrorTracking: 'error_tracking',
+    EvalClusters: 'eval_clusters',
+    Experiments: 'experiments',
+    Hogdesk: 'hogdesk',
+    ImageBuilder: 'image_builder',
+    Loop: 'loop',
+    McpAnalytics: 'mcp_analytics',
+    MetricsImport: 'metrics_import',
+    Onboarding: 'onboarding',
+    PosthogAi: 'posthog_ai',
+    PosthogDesktop: 'posthog_desktop',
+    PosthogMobile: 'posthog_mobile',
+    PosthogWeb: 'posthog_web',
+    ReviewHog: 'review_hog',
+    ScoutSuggestions: 'scout_suggestions',
+    SessionSummaries: 'session_summaries',
+    SignalReport: 'signal_report',
+    SignalsChat: 'signals_chat',
+    SignalsScout: 'signals_scout',
+    Slack: 'slack',
+    SpaceSetup: 'space_setup',
+    SupportQueue: 'support_queue',
+    SupportReply: 'support_reply',
+    TaskAnalysis: 'task_analysis',
+    Workflow: 'workflow',
 } as const
 
 export type TasksListStatus = (typeof TasksListStatus)[keyof typeof TasksListStatus]

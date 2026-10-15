@@ -221,21 +221,60 @@ class TestTaskListFilterMatrix(TestCase):
         assert self._list(client_provenance="posthog_desktop", search="billing") == self._ids("peter_plain")
         assert self._list(client_provenance="posthog_desktop", search="missing") == set()
 
-    def test_client_provenance_rejects_unknown_values(self) -> None:
-        response = self.client.get("/api/projects/@current/tasks/", {"client_provenance": "unknown"})
-        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
-
     def test_exclude_origin_product(self):
         assert self._list(exclude_origin_product="signals_scout") == self.all_except("scout_in_channel")
         assert self._list(created_by=self.peter.id, exclude_origin_product="slack") == self._ids(
             "peter_mention_me", "peter_plain", "peter_i_commented", "peter_legacy_mention"
         )
 
-    def test_exclude_origin_product_rejects_unknown_values(self):
-        # A typo must not fail open: matching nothing would return the full list including the
-        # very tasks the caller asked to drop.
-        response = self.client.get("/api/projects/@current/tasks/", {"exclude_origin_product": "signal_scout"})
+    @parameterized.expand(
+        [
+            ("client_provenance", "unknown"),
+            # A typo must not fail open: matching nothing would return the full list including the
+            # very tasks the caller asked to drop.
+            ("exclude_origin_product", "signal_scout"),
+            ("sources", "signal_scout"),
+            ("sources", "user_created"),
+        ]
+    )
+    def test_rejects_unknown_values(self, param: str, value: str) -> None:
+        response = self.client.get("/api/projects/@current/tasks/", {param: value})
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            (
+                "first_party_clients",
+                ["posthog_desktop", "posthog_mobile", "posthog_web"],
+                [
+                    "peter_mention_me",
+                    "peter_plain",
+                    "adam_mention_peter",
+                    "mine_peter_commented",
+                    "peter_i_commented",
+                    "adam_pinned_by_me",
+                    "peter_legacy_mention",
+                ],
+            ),
+            (
+                "desktop_includes_unknown_client",
+                ["posthog_desktop"],
+                ["peter_mention_me", "peter_plain", "peter_i_commented", "adam_pinned_by_me", "peter_legacy_mention"],
+            ),
+            ("mobile", ["posthog_mobile"], ["mine_peter_commented"]),
+            ("client_and_origin_product", ["posthog_web", "slack"], ["adam_mention_peter", "peter_slack_mention_me"]),
+            ("origin_product", ["signals_scout"], ["scout_in_channel"]),
+        ]
+    )
+    def test_sources(self, _name: str, sources: list[str], expected: list[str]) -> None:
+        for key, provenance in (
+            ("peter_plain", "posthog_desktop"),
+            ("mine_peter_commented", "posthog_mobile"),
+            ("adam_mention_peter", "posthog_web"),
+        ):
+            Task.objects.filter(id=self.tasks[key].id).update(client_provenance=provenance)
+
+        assert self._list(sources=sources) == self._ids(*expected)
 
     @parameterized.expand(
         [

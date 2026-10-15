@@ -6926,6 +6926,31 @@ TASK_LIST_ORDERINGS: dict[str, tuple[str, ...]] = {
 }
 DEFAULT_TASK_LIST_ORDERING = "-created_at"
 
+#: Sources the task list filters on, in the words of the desktop source filter. A first-party client
+#: names the user-created tasks it made. Any other source names an origin product.
+TASK_LIST_SOURCES: frozenset[str] = frozenset(
+    {
+        *TaskClientProvenance.values,
+        *(product for product in Task.OriginProduct.values if product != Task.OriginProduct.USER_CREATED),
+    }
+)
+
+
+def _task_sources_q(sources: list[str]) -> Q:
+    user_created = Q(origin_product=Task.OriginProduct.USER_CREATED)
+    matches = Q(pk__in=[])
+    for source in sources:
+        if source == TaskClientProvenance.POSTHOG_DESKTOP:
+            # A user-created task with no other known client counts as desktop, the same as the desktop app.
+            matches |= user_created & ~Q(
+                client_provenance__in=[TaskClientProvenance.POSTHOG_MOBILE, TaskClientProvenance.POSTHOG_WEB]
+            )
+        elif source in TaskClientProvenance.values:
+            matches |= user_created & Q(client_provenance=source)
+        else:
+            matches |= Q(origin_product=source)
+    return matches
+
 
 def _list_tasks_queryset(
     team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
@@ -6945,6 +6970,10 @@ def _list_tasks_queryset(
     exclude_origin_product = filters.get("exclude_origin_product")
     if exclude_origin_product:
         qs = qs.exclude(origin_product=exclude_origin_product)
+
+    sources = filters.get("sources")
+    if sources:
+        qs = qs.filter(_task_sources_q(sources))
 
     stage = filters.get("stage")
     if stage:

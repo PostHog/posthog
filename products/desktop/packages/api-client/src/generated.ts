@@ -22858,6 +22858,36 @@ export namespace Endpoints {
                 pr_state: "open" | "draft" | "merged" | "closed";
                 repository: string;
                 search: string;
+                sources: Array<
+                    | "account_audit"
+                    | "autoresearch"
+                    | "business_knowledge"
+                    | "error_tracking"
+                    | "eval_clusters"
+                    | "experiments"
+                    | "hogdesk"
+                    | "image_builder"
+                    | "loop"
+                    | "mcp_analytics"
+                    | "metrics_import"
+                    | "onboarding"
+                    | "posthog_ai"
+                    | "posthog_desktop"
+                    | "posthog_mobile"
+                    | "posthog_web"
+                    | "review_hog"
+                    | "scout_suggestions"
+                    | "session_summaries"
+                    | "signal_report"
+                    | "signals_chat"
+                    | "signals_scout"
+                    | "slack"
+                    | "space_setup"
+                    | "support_queue"
+                    | "support_reply"
+                    | "task_analysis"
+                    | "workflow"
+                >;
                 stage: string;
                 status:
                     | "not_started"

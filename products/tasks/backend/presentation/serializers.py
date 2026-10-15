@@ -2346,6 +2346,16 @@ class TaskListQuerySerializer(serializers.Serializer):
         choices=tasks_facade.TaskOriginProduct.choices,
         help_text="Exclude tasks with this origin product from the results",
     )
+    sources = serializers.ListField(
+        required=False,
+        child=serializers.ChoiceField(choices=sorted(tasks_facade.TASK_LIST_SOURCES)),
+        help_text=(
+            "Only tasks from any of these sources. Repeat the parameter for each source. "
+            "'posthog_desktop', 'posthog_mobile' and 'posthog_web' match user-created tasks by the client "
+            "that created them, and a user-created task from no other known client counts as desktop. "
+            "Any other value matches the task's origin product."
+        ),
+    )
     stage = serializers.CharField(required=False, help_text="Filter by task run stage")
     organization = serializers.CharField(required=False, help_text="Filter by repository organization")
     repository = serializers.CharField(
