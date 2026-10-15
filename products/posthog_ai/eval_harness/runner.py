@@ -21,6 +21,7 @@ from products.tasks.backend.facade.agents import (
     create_task_and_trigger,
     poll_for_turn,
 )
+from products.tasks.backend.facade.api import TaskOriginProduct
 from products.tasks.backend.facade.temporal import ProcessTaskWorkflow
 
 from .config import AgentArtifacts, SandboxedEvalCase
@@ -40,6 +41,10 @@ __all__ = ["run_eval_case"]
 # tests-pass / lint-pass scorers, so a false match is a scoring bug.
 TEST_TITLE_RE = re.compile(r"\b(pytest|tests?)\b")
 LINT_TITLE_RE = re.compile(r"\b(ruff|lint)\b")
+
+# The origin selects the agent's LLM gateway product. The default `user_created` origin maps to
+# `posthog_code`, which the local Python gateway no longer serves, so every model call would 403.
+EVAL_ORIGIN_PRODUCT = TaskOriginProduct.POSTHOG_AI
 
 WORKFLOW_COMPLETION_GRACE_SECONDS = 60
 WORKFLOW_CANCELLATION_GRACE_SECONDS = 30
@@ -239,7 +244,9 @@ async def _run_single_turn_case(
     poll_deadline: float | None = None,
 ) -> tuple[str, list[str] | None]:
     """The historical one-prompt path: create, poll once, return the full log."""
-    task_run = await create_task_and_trigger(case.prompt, context, step_name=case.name)
+    task_run = await create_task_and_trigger(
+        case.prompt, context, step_name=case.name, origin_product=EVAL_ORIGIN_PRODUCT
+    )
     state.task_id = task_run.task_id
     provider.register_task(str(task_run.task_id))
     # Handle to the case's workflow so a timeout/error can shut the agent down.
@@ -280,6 +287,7 @@ async def _run_multi_turn_case(
         prompt=case.prompt,
         context=context,
         step_name=case.name,
+        origin_product=EVAL_ORIGIN_PRODUCT,
         verbose=True,
         output_fn=lambda msg: logger.info("agent: %s", msg),
         poll_deadline=poll_deadline,
