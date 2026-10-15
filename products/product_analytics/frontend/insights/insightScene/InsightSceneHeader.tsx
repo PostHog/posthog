@@ -1,17 +1,15 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
-
 import { DebugCHQueries } from 'lib/components/Shortcuts/utils/DebugCHQueries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { urls } from 'scenes/urls'
 
-import { InsightShortId, InsightLogicProps, ItemMode } from '~/types'
+import { InsightLogicProps, ItemMode } from '~/types'
 
 import { ReloadInsight } from 'products/product_analytics/frontend/insights/shared/ReloadInsight'
 
+import { InsightDashboardFiltersBanner } from './InsightDashboardFiltersBanner'
 import { InsightPageHeader } from './InsightPageHeader'
 import { InsightsNav } from './InsightsNav'
 
@@ -20,9 +18,10 @@ export interface InsightSceneHeaderProps {
 }
 
 export function InsightSceneHeader({ insightLogicProps }: InsightSceneHeaderProps): JSX.Element {
-    const { insightMode, hasOverrides, freshQuery } = useValues(insightSceneLogic)
+    const { insightMode, hasOverrides, freshQuery, filtersOverride, variablesOverride, tileFiltersOverride } =
+        useValues(insightSceneLogic)
     const { showDebugPanel } = useValues(insightDataLogic(insightLogicProps))
-    const { insight } = useValues(insightLogic(insightLogicProps))
+    const { insight, savedInsight } = useValues(insightLogic(insightLogicProps))
     const insightId = insightLogicProps.dashboardItemId
 
     return (
@@ -30,21 +29,14 @@ export function InsightSceneHeader({ insightLogicProps }: InsightSceneHeaderProp
             <InsightPageHeader insightLogicProps={insightLogicProps} />
 
             {hasOverrides && insightId && (
-                <LemonBanner type="warning" className="mb-4">
-                    <div className="flex flex-row items-center justify-between gap-2">
-                        <span>
-                            You're viewing this insight with a dashboard's filters applied, so it can't be edited.
-                            Discard the filters to edit the saved insight.
-                        </span>
-
-                        <LemonButton
-                            type="secondary"
-                            to={urls.insightView(insightId as InsightShortId, insightLogicProps.dashboardId)}
-                        >
-                            Discard overrides
-                        </LemonButton>
-                    </div>
-                </LemonBanner>
+                <InsightDashboardFiltersBanner
+                    query={savedInsight.query ?? null}
+                    insightId={insightId}
+                    dashboardId={insightLogicProps.dashboardId}
+                    filtersOverride={filtersOverride ?? undefined}
+                    variablesOverride={variablesOverride ?? undefined}
+                    tileFiltersOverride={tileFiltersOverride}
+                />
             )}
 
             {insightMode === ItemMode.Edit && (
