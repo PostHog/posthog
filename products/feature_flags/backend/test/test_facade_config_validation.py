@@ -50,7 +50,7 @@ from products.feature_flags.backend.facade.config_validation import (
     validate_config,
 )
 
-# Vendored from the released harness contract; SOURCE.json records the revision and digests.
+# Vendored from the harness contract; SOURCE.json records the revision and digests.
 CONTRACT_DIR = Path(__file__).parent / "fixtures" / "rules_v2_contract"
 LIMITS = ValidationLimits(max_config_bytes=64 * 1024, max_metadata_bytes=1024)
 
@@ -91,12 +91,11 @@ def variants(*values: Any, weights: tuple[float, ...] = (50, 50)) -> list[dict[s
 
 
 def experiment(**overrides: Any) -> dict[str, Any]:
-    """An experiment rule without an experiment: a weighted variant split."""
+    """An experiment rule: a weighted variant split."""
     return {
         "id": EXPERIMENT_ID,
         "rule_type": "experiment",
         "targeting": {"properties": []},
-        "experiment_id": None,
         "paused": False,
         "rollout_percentage": 100,
         "on_rollout_miss": "continue",
@@ -108,7 +107,7 @@ def experiment(**overrides: Any) -> dict[str, Any]:
 
 
 def holdout(**overrides: Any) -> dict[str, Any]:
-    return {"id": None, "seed": HOLDOUT_SEED, "exclusion_percentage": 10, **overrides}
+    return {"seed": HOLDOUT_SEED, "exclusion_percentage": 10, **overrides}
 
 
 def person(**overrides: Any) -> dict[str, Any]:
@@ -410,22 +409,15 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
             ("required", "filters.rules[0].on_rollout_miss"),
             ("required", "filters.rules[0].assignment_algorithm"),
             ("required", "filters.rules[0].seed"),
-            ("required", "filters.rules[0].experiment_id"),
             ("required", "filters.rules[0].paused"),
             ("required", "filters.rules[0].variants"),
         ],
     ),
+    ("experiment_id", config(experiment(experiment_id=42)), [("unknown_field", "filters.rules[0].experiment_id")]),
     (
-        "linked_experiment",
-        config(experiment(experiment_id=42, holdout=holdout(id=7))),
-        [("unsupported", "filters.rules[0].experiment_id")],
-    ),
-    ("experiment_id_string", config(experiment(experiment_id="42")), [("invalid", "filters.rules[0].experiment_id")]),
-    ("experiment_id_bool", config(experiment(experiment_id=True)), [("invalid", "filters.rules[0].experiment_id")]),
-    (
-        "missing_experiment_id",
-        config(without(experiment(), "experiment_id")),
-        [("required", "filters.rules[0].experiment_id")],
+        "null_experiment_id",
+        config(experiment(experiment_id=None)),
+        [("unknown_field", "filters.rules[0].experiment_id")],
     ),
     ("missing_paused", config(without(experiment(), "paused")), [("required", "filters.rules[0].paused")]),
     ("paused_null", config(experiment(paused=None)), [("invalid", "filters.rules[0].paused")]),
@@ -498,17 +490,13 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
         [("invalid", "filters.rules[0].variants")],
     ),
     ("experiment_with_value", config(experiment(value=True)), [("unknown_field", "filters.rules[0].value")]),
+    ("holdout_id", config(experiment(holdout=holdout(id=7))), [("unknown_field", "filters.rules[0].holdout.id")]),
     (
-        "shared_holdout",
-        config(experiment(holdout=holdout(id=7))),
-        [("invalid", "filters.rules[0].holdout.id")],
+        "null_holdout_id",
+        config(experiment(holdout=holdout(id=None))),
+        [("unknown_field", "filters.rules[0].holdout.id")],
     ),
     ("holdout_list", config(experiment(holdout=[])), [("invalid", "filters.rules[0].holdout")]),
-    (
-        "holdout_missing_id",
-        config(experiment(holdout=without(holdout(), "id"))),
-        [("required", "filters.rules[0].holdout.id")],
-    ),
     (
         "holdout_missing_seed",
         config(experiment(holdout=without(holdout(), "seed"))),
@@ -1115,18 +1103,11 @@ class TestValidateConfig:
 
 def _contract_path(instance_path: str, expected: dict[str, Any]) -> str:
     attr = "filters" + re.sub(r"/(\d+)", r"[\1]", instance_path).replace("/", ".")
-    # Upstream writes the bare field name in `message_contains` for these two keywords, so it is
-    # the missing or unknown field's path segment. Other keywords carry prose (`2 was expected`).
+    # Upstream writes the field name, sometimes quoted, in `message_contains` for these two keywords,
+    # so it is the missing or unknown field's path segment. Other keywords carry prose (`2 was expected`).
     if expected["keyword"] in ("required", "additionalProperties"):
-        attr += "." + expected["message_contains"]
+        attr += "." + expected["message_contains"].strip("'")
     return attr
-
-
-def _linked_experiment(rule: dict[str, Any]) -> bool:
-    experiment_id = rule.get("experiment_id")
-    return (
-        rule.get("rule_type") == "experiment" and isinstance(experiment_id, int) and not isinstance(experiment_id, bool)
-    )
 
 
 def _admitted_family(document: dict[str, Any]) -> bool:
@@ -1141,11 +1122,7 @@ def _admitted_family(document: dict[str, Any]) -> bool:
         for prop in rule["targeting"].get("properties", [])
         if isinstance(prop, dict)
     ]
-    return (
-        "aggregation_group_type_index" not in document
-        and not any(_linked_experiment(rule) for rule in rules)
-        and all(prop.get("type") == "person" for prop in properties)
-    )
+    return "aggregation_group_type_index" not in document and all(prop.get("type") == "person" for prop in properties)
 
 
 class TestReleasedContract:

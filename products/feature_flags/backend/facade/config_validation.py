@@ -16,14 +16,13 @@ lock. No production caller exists yet.
 
 Admitted family: person-assigned flags of every return type with targeted_release,
 percentage_rollout and experiment rules whose targeting uses person properties. An experiment
-rule is admitted only without an experiment (``experiment_id: null``), with at most a
-rule-local holdout. Everything else the published contract describes (experiment-linked
-rules, group assignment, cohort/group/flag properties) is rejected with the ``unsupported``
-code, so a canonical fixture is never relabelled as malformed and no partially checked
-document is accepted. Shape errors use the other codes. The canonical shape is the harness
-config schema 2.0.0 in contract package 3.0.0; the semantic constraints (unique rule ids and
-variant keys, two decimal places, weights totalling 100, byte limits) come from its literal
-registry.
+rule names no Experiment (an Experiment points at its rule by rule id) and may carry a holdout
+that belongs to the rule. Everything else the published contract describes (group assignment,
+cohort/group/flag properties) is rejected with the ``unsupported`` code, so a canonical
+fixture is never relabelled as malformed and no partially checked document is accepted. Shape
+errors use the other codes. The canonical shape is the harness config schema in contract
+package 3.0.0; the semantic constraints (unique rule ids and variant keys, two decimal places,
+weights totalling 100, byte limits) come from its literal registry.
 """
 
 import re
@@ -129,14 +128,14 @@ _V1_ONLY_ROOT_FIELDS = frozenset(
 )
 _COMMON_RULE_FIELDS = frozenset({"id", "rule_type", "targeting", "description", "metadata", "value"})
 _ROLLOUT_RULE_FIELDS = frozenset({"rollout_percentage", "on_rollout_miss", "assignment_algorithm", "seed", "assign_by"})
-_EXPERIMENT_ONLY_FIELDS = frozenset({"experiment_id", "paused", "variants", "holdout"})
+_EXPERIMENT_ONLY_FIELDS = frozenset({"paused", "variants", "holdout"})
 _RULE_FIELDS: dict[str, frozenset[str]] = {
     "targeted_release": _COMMON_RULE_FIELDS,
     "percentage_rollout": _COMMON_RULE_FIELDS | _ROLLOUT_RULE_FIELDS,
     "experiment": (_COMMON_RULE_FIELDS - {"value"}) | _ROLLOUT_RULE_FIELDS | _EXPERIMENT_ONLY_FIELDS,
 }
 _VARIANT_FIELDS = frozenset({"key", "weight", "value"})
-_HOLDOUT_FIELDS = frozenset({"id", "seed", "exclusion_percentage"})
+_HOLDOUT_FIELDS = frozenset({"seed", "exclusion_percentage"})
 _VARIANT_KEY = re.compile(r"^[a-zA-Z0-9_-]+$")
 _PROPERTY_FIELDS = frozenset(
     {"key", "value", "type", "operator", "group_type_index", "negation", "cohort_name", "group_key_names", "label"}
@@ -213,7 +212,7 @@ class ValidatedVariant:
 
 @frozen
 class ValidatedHoldout:
-    """A rule-local holdout: its seed lives on the rule, not on a shared holdout row."""
+    """A holdout that belongs to its rule; it has no id of its own."""
 
     exclusion_percentage: Decimal
     seed: str = field(repr=False)
@@ -372,11 +371,9 @@ def _validate_rule(
     variants: tuple[ValidatedVariant, ...] = ()
     holdout: ValidatedHoldout | None = None
     if rule_type == "experiment":
-        linked = _validate_experiment_id(rule, path, errors)
         _field(rule, "paused", path, errors, _VALUE_CHECKS["boolean"])
         variants = _validate_variants(rule, path, value_check, errors)
-        # A linked rule is already unsupported, and its holdout is a shared row's.
-        if "holdout" in rule and not linked:
+        if "holdout" in rule:
             holdout = _validate_holdout(rule["holdout"], f"{path}.holdout", errors)
 
     if len(errors) > before or predicates is None or value_check is None:
@@ -409,25 +406,6 @@ _VARIANT_KEY_CHECK: "_Check" = (
     lambda v: isinstance(v, str) and bool(_VARIANT_KEY.fullmatch(v)),
     "Must be letters, digits, hyphens or underscores.",
 )
-_LOCAL_HOLDOUT_ID_CHECK: "_Check" = (
-    lambda v: v is None,
-    "Must be null: a rule without an experiment has a rule-local holdout. Shared holdouts are not available yet.",
-)
-
-
-def _validate_experiment_id(rule: Mapping[str, Any], path: str, errors: list[ConfigError]) -> bool:
-    """Whether the rule links an experiment, which is valid contract but needs the experiment lifecycle."""
-    check = (lambda v: v is None or _is_int(v), "Must be an integer or null.")
-    if not _field(rule, "experiment_id", path, errors, check) or rule["experiment_id"] is None:
-        return False
-    errors.append(
-        ConfigError(
-            code="unsupported",
-            detail="Linking an experiment is not available yet. Use null for a rule without an experiment.",
-            attr=f"{path}.experiment_id",
-        )
-    )
-    return True
 
 
 def _validate_variants(
@@ -486,7 +464,6 @@ def _validate_holdout(holdout: object, path: str, errors: list[ConfigError]) -> 
     for name in holdout:
         if name not in _HOLDOUT_FIELDS:
             errors.append(_unknown_field(f"{path}.{name}"))
-    _field(holdout, "id", path, errors, _LOCAL_HOLDOUT_ID_CHECK)
     _field(holdout, "seed", path, errors, _SEED_CHECK)
     exclusion = _validate_percentage(holdout, "exclusion_percentage", path, errors)
     if len(errors) > before or exclusion is None:

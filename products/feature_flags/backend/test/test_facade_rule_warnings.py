@@ -82,7 +82,7 @@ def split(
     paused: bool = False,
     holdout: int | None = None,
 ) -> ValidatedRule:
-    """An experiment rule without an experiment, splitting its enrolled share evenly across ``values``."""
+    """An experiment rule, splitting its enrolled share evenly across ``values``."""
     weight = Decimal(100) / len(values)
     return ValidatedRule(
         id=rule_id,

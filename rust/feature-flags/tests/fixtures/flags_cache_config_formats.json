@@ -221,24 +221,20 @@
         "version": 2,
         "return_type": "boolean",
         "default_value": false,
+        "aggregation_group_type_index": 0,
         "rules": [
           {
             "id": "e5e5e5e5-e5e5-4e5e-8e5e-e5e5e5e5e5e5",
-            "rule_type": "experiment",
+            "rule_type": "targeted_release",
             "targeting": { "properties": [] },
-            "experiment_id": 1,
-            "rollout_percentage": 100,
-            "on_rollout_miss": "continue",
-            "assignment_algorithm": "sha1_60_v1",
-            "seed": "release-experiment",
-            "variants": [{ "key": "control", "value": false, "rollout_percentage": 100 }]
+            "value": true
           }
         ]
       },
       "expect": "unsupported"
     },
     {
-      "key": "v2-standalone-experiment-active",
+      "key": "v2-experiment-active",
       "active": true,
       "filters": {
         "version": 2,
@@ -249,7 +245,6 @@
             "id": "f6f6f6f6-f6f6-4f6f-8f6f-f6f6f6f6f6f6",
             "rule_type": "experiment",
             "targeting": { "properties": [] },
-            "experiment_id": null,
             "paused": false,
             "rollout_percentage": 50,
             "on_rollout_miss": "continue",
@@ -259,7 +254,7 @@
               { "key": "control", "weight": 50, "value": "standard" },
               { "key": "test", "weight": 50, "value": "compact" }
             ],
-            "holdout": { "id": null, "seed": "layout-split-holdout", "exclusion_percentage": 10 }
+            "holdout": { "seed": "layout-split-holdout", "exclusion_percentage": 10 }
           }
         ]
       },

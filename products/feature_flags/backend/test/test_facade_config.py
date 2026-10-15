@@ -66,7 +66,7 @@ V2_BOOLEAN_ALL_RULE_TYPES: dict[str, Any] = {
                 {"key": "control", "weight": 50, "value": True},
                 {"key": "test", "weight": 50, "value": True},
             ],
-            "holdout": {"id": 7, "seed": "holdout-", "exclusion_percentage": 5},
+            "holdout": {"seed": "holdout-", "exclusion_percentage": 5},
         },
     ],
 }

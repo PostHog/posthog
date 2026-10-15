@@ -4566,7 +4566,7 @@ export interface FeatureFlagRulesV2ExperimentRule extends FeatureFlagRulesV2Rule
     rule_type: 'experiment'
     paused: boolean
     variants: { key: string; weight: number; value: JsonType }[]
-    holdout?: { id: number; seed: string; exclusion_percentage: number }
+    holdout?: { seed: string; exclusion_percentage: number }
 }
 
 export type FeatureFlagRulesV2Rule =

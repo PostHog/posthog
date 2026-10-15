@@ -6,10 +6,9 @@ Four things a v2 write needs that the pure validator deliberately does not do:
   internal feature flags evaluated for the project, both off by default. Nothing else grants
   admission. Disabling and soft-deleting an existing v2 row need neither, which the serializer
   decides; the operation matrix is in ``docs/internal/feature-flags/api-writes.md``.
-- **Identity.** Rule ids, assignment seeds and rule-local holdout seeds are server-owned
-  and identify rules, not list positions. ``resolve_identity`` echoes back existing
-  identity, allocates it for genuinely new rules, and rejects a client that tries to
-  choose it.
+- **Identity.** Rule ids, assignment seeds and holdout seeds are server-owned and identify
+  rules, not list positions. ``resolve_identity`` echoes back existing identity, allocates it
+  for genuinely new rules, and rejects a client that tries to choose it.
 - **Comparison.** ``review_update`` validates both documents' shape and semantics, so
   warnings describe the real before/proposed pair and unsupported stored families are
   rejected. Byte limits apply only to the candidate so oversized rows can be reduced.
@@ -194,7 +193,7 @@ def _resolve_rule(
     stored = current if current is not None and current.get("rule_type") in RANDOMIZED_RULE_TYPES else {}
     resolved["seed"] = _resolve_seed(rule, stored.get("seed"), path, errors)
     holdout = rule.get("holdout")
-    if isinstance(holdout, Mapping) and holdout.get("id") is None:
+    if isinstance(holdout, Mapping):
         stored_holdout = stored.get("holdout")
         stored_seed = stored_holdout.get("seed") if isinstance(stored_holdout, Mapping) else None
         resolved["holdout"] = {**holdout, "seed": _resolve_seed(holdout, stored_seed, f"{path}.holdout", errors)}
