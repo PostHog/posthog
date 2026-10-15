@@ -23,7 +23,10 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { CohortType } from '~/types'
 
-import { captureMessageAudienceClicked } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import {
+    captureMessageAudienceClicked,
+    messageAudienceAccessDisabledReason,
+} from 'products/workflows/frontend/MessageAudience/messageAudience'
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -49,7 +52,8 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
     const isDeleted = cohort.deleted
 
     const cohortIdNumber = typeof cohort.id === 'number' ? cohort.id : undefined
-    const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort)
+    const accessDisabledReason = messageAudienceAccessDisabledReason()
+    const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort) ?? accessDisabledReason
 
     return (
         <SceneMenuBar>
@@ -76,6 +80,8 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                                     captureMessageAudienceClicked('cohort', 'workflow')
                                     router.actions.push(urlForCohortWorkflow(cohort))
                                 }}
+                                disabled={!!accessDisabledReason}
+                                tooltip={accessDisabledReason ?? undefined}
                                 data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}
                             >
                                 <IconSend />
