@@ -771,8 +771,19 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return value
 
     def validate_logs_settings(self, value: dict | None) -> dict | None:
+        team = (
+            self.instance.passthrough_team
+            if self.instance is not None and hasattr(self.instance, "passthrough_team")
+            else self.instance
+        )
+
+        logs_settings = team.logs_settings if team is not None else None
+
         if value is None:
-            return value
+            # The server owns the timestamp, so a client that clears the settings cannot reset the limit.
+            if logs_settings and "retention_last_updated" in logs_settings:
+                return {"retention_last_updated": logs_settings["retention_last_updated"]}
+            return None
 
         if not isinstance(value, dict):
             raise exceptions.ValidationError("logs_settings must be an object or null.")
@@ -788,13 +799,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 )
             value["json_parse_logs_attribute_key"] = attribute_key.strip()
 
-        team = (
-            self.instance.passthrough_team
-            if self.instance is not None and hasattr(self.instance, "passthrough_team")
-            else self.instance
-        )
-
-        logs_settings = team.logs_settings if team is not None else None
         old_retention = logs_settings.get("retention_days") if logs_settings else None
 
         new_retention = value.get("retention_days")
