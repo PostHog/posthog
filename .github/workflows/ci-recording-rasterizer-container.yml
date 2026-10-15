@@ -266,7 +266,7 @@ jobs:
                         },
                         "release": "recording-rasterizer",
                         "commit": ${{ steps.commit.outputs.commit_json }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ steps.commit.outputs.timestamp }}"
                       }

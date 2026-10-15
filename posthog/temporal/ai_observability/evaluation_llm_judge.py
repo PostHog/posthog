@@ -79,14 +79,11 @@ from products.ai_observability.backend.models.evaluation_configs import (
     NumericOutputConfig,
     NumericScoreOutOfBounds,
 )
-from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
+from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS, truncate_by_line_sampling
 
 logger = structlog.get_logger(__name__)
 
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
-
-# Same cap as the trace-level judge (JUDGE_TRACE_MAX_CHARS).
-JUDGE_EVENT_MAX_CHARS = 150_000
 
 LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -520,12 +517,7 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         sections.append(f"Tools available:\n{tools_data}")
     sections.append(f"Output: {output_data}")
     user_prompt = "\n\n".join(sections)
-    if len(user_prompt) > JUDGE_EVENT_MAX_CHARS:
-        # Line-number first so the sampler's "gaps indicate omitted content" header is truthful,
-        # then hard-truncate to guarantee the cap for low-newline payloads the sampler leaves whole.
-        user_prompt = add_line_numbers(user_prompt)
-        user_prompt, _ = reduce_by_uniform_sampling(user_prompt, JUDGE_EVENT_MAX_CHARS)
-        user_prompt = user_prompt[:JUDGE_EVENT_MAX_CHARS]
+    user_prompt = truncate_by_line_sampling(user_prompt, EVENT_TEXT_MAX_CHARS)
 
     return call_llm_judge(
         evaluation=evaluation,
@@ -599,9 +591,16 @@ def call_llm_judge(
         openrouter_enabled = provider == "openrouter" and decision_evaluations_enabled(
             team_id, base_url=OPENROUTER_DECISIONS_BASE_URL
         )
-        uses_decisions = is_decision_model(provider, model, openrouter_enabled=openrouter_enabled)
-        if provider == "openrouter" and not openrouter_enabled:
-            uses_decisions = model in (decision_model_ids(refresh=False) or ())
+        judge_method = evaluation["evaluation_config"].get("judge_method")
+        # Explicit selection takes precedence for models that support both methods.
+        # Models gaining decisions must not move existing chat evaluations onto a different API.
+        uses_decisions = (
+            judge_method == "decision"
+            if judge_method is not None
+            else is_decision_model(provider, model, openrouter_enabled=openrouter_enabled, decision_only=True)
+        )
+        if judge_method is None and provider == "openrouter" and not openrouter_enabled:
+            uses_decisions = model in (decision_model_ids(refresh=False, decision_only=True) or ())
         if uses_decisions:
             if output_type not in ("boolean", "categorical", "numeric"):
                 return build_skipped_evaluation_result(
@@ -876,7 +875,11 @@ def call_llm_judge(
         )
     except UnsupportedModelError:
         # A failed chat call can populate a cold catalogue; a disabled flag must not disable the evaluation.
-        if provider == "openrouter" and not openrouter_enabled and model in (decision_model_ids(refresh=False) or ()):
+        if (
+            provider == "openrouter"
+            and not openrouter_enabled
+            and model in (decision_model_ids(refresh=False, decision_only=True) or ())
+        ):
             return build_skipped_evaluation_result(
                 output_type=output_type,
                 allows_na=allows_na,

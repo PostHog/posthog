@@ -25,7 +25,11 @@ from products.alerts_platform.backend.models import PlatformAlert, PlatformAlert
 
 def _configuration_snapshot(row: PlatformAlertConfiguration) -> PlatformConfigurationSnapshot:
     return PlatformConfigurationSnapshot(
-        id=row.id, next_check_at=row.next_check_at, consecutive_failures=row.consecutive_failures, owner=row.owner
+        id=row.id,
+        next_check_at=row.next_check_at,
+        consecutive_failures=row.consecutive_failures,
+        check_status=row.check_status,
+        owner=row.owner,
     )
 
 
@@ -122,8 +126,12 @@ def record_check(
 
 def alert_for(configuration_id: UUID, *, grouping_key: str = "") -> PlatformAlertSnapshot | None:
     """The instance row a check wrote, or None when no check has written one."""
-    row = PlatformAlert.objects.filter(configuration_id=configuration_id, grouping_key=grouping_key).first()
-    return None if row is None else instance_view(row)
+    row = (
+        PlatformAlert.objects.select_related("configuration")
+        .filter(configuration_id=configuration_id, grouping_key=grouping_key)
+        .first()
+    )
+    return None if row is None else instance_view(row, row.configuration)
 
 
 def undeclared_policy_divergences(correspondence: SourceCorrespondence) -> frozenset[str]:

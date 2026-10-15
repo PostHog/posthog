@@ -13,7 +13,6 @@
 1 posthog/cache_utils.py
 1 posthog/clickhouse/custom_metrics.py
 1 posthog/clickhouse/explain.py
-1 posthog/clickhouse/property_groups.py
 1 posthog/clickhouse/test/test_explain.py
 1 posthog/dags/common/resources.py
 1 posthog/dags/tests/test_events_backfill_to_duckling.py
@@ -55,7 +54,7 @@
 1 posthog/temporal/ai/anomaly_investigation/tools.py
 1 posthog/temporal/ai/anomaly_investigation/workflow.py
 1 posthog/temporal/ai/research_agent.py
-1 posthog/temporal/ai/slack_app/posthog_code_slack_interactivity.py
+1 products/slack_app/backend/temporal/posthog_code_slack_interactivity.py
 1 posthog/temporal/ai_observability/eval_reports/emit_signal.py
 1 posthog/temporal/ai_observability/evaluation_clustering/data.py
 1 posthog/temporal/ai_observability/trace_clustering/coordinator.py
@@ -1198,7 +1197,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/vapi/vapi.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/veeqo/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/veeqo/veeqo.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/vellum/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/vellum/vellum.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/veracode/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/veracode/veracode.py
@@ -1212,7 +1210,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/webflow/webflow.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/weights_and_biases/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/weights_and_biases/weights_and_biases.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/whop/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/whop/whop.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wikipedia_pageviews/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wikipedia_pageviews/wikipedia_pageviews.py
@@ -1420,7 +1417,7 @@
 3 posthog/session/risk.py
 3 posthog/slo/types.py
 3 posthog/tasks/ai_observability_usage_report.py
-3 posthog/temporal/ai/slack_app/eval_slack_repo_selection.py
+3 products/slack_app/backend/temporal/eval_slack_repo_selection.py
 3 posthog/temporal/ai_observability/evaluation_clustering/coordinator.py
 3 posthog/temporal/ai_observability/run_aggregate_evaluation.py
 3 posthog/temporal/ai_observability/run_tagger.py
@@ -1497,7 +1494,7 @@
 6 posthog/hogql/base.py
 6 posthog/hogql/scripts/build_grammar_strategies.py
 6 posthog/local_bootstrap/config.py
-6 posthog/temporal/ai/slack_app/types.py
+6 products/slack_app/backend/temporal/types.py
 6 posthog/temporal/ai/sync_vectors.py
 6 posthog/temporal/salesforce_enrichment/stripe_workflow.py
 6 products/batch_exports/backend/temporal/destinations/redshift_batch_export.py
