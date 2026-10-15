@@ -24,28 +24,20 @@ export function useTasks(
     repository?: string;
     showAllUsers?: boolean;
     showInternal?: boolean;
-    pinned?: boolean;
   },
   options?: { enabled?: boolean; subscribed?: boolean },
 ) {
   const { data: currentUser } = useMeQuery();
   const createdBy = filters?.showAllUsers ? undefined : currentUser?.id;
   const internal = filters?.showInternal ? true : undefined;
-  const pinned = filters?.pinned ? true : undefined;
 
   return useAuthenticatedQuery(
-    taskKeys.list({
-      repository: filters?.repository,
-      createdBy,
-      internal,
-      pinned,
-    }),
+    taskKeys.list({ repository: filters?.repository, createdBy, internal }),
     (client) =>
       client.getTasks({
         repository: filters?.repository,
         createdBy,
         internal,
-        pinned,
         // The server cuts the list at a fixed length. By creation date, a session started last
         // week and still in use is already off the list when scheduled runs create many tasks.
         ordering: "-last_activity_at",
@@ -58,6 +50,22 @@ export function useTasks(
       subscribed: options?.subscribed,
       refetchInterval: TASK_LIST_POLL_INTERVAL_MS,
     },
+  );
+}
+
+// A pin can be on any task the user can see, also one older than the recent list reaches. The
+// server cuts each page at 100 rows, so this reads every page to keep every pin.
+export function usePinnedTaskRecords() {
+  return useAuthenticatedQuery(
+    taskKeys.list({ pinned: true }),
+    async (client) =>
+      (
+        await client.getTasksWithStatus(
+          { pinned: true, basic: true },
+          { fetchAll: true },
+        )
+      ).tasks as unknown as Task[],
+    { refetchInterval: TASK_LIST_POLL_INTERVAL_MS },
   );
 }
 

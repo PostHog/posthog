@@ -12,7 +12,10 @@ import { useChannelSessionFacts } from "@posthog/ui/features/canvas/hooks/useCha
 import { useAllCanvases } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
-import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import {
+  usePinnedTaskRecords,
+  useTasks,
+} from "@posthog/ui/features/tasks/useTasks";
 import { useMemo } from "react";
 
 export const RECENT_WORK_CAP = 50;
@@ -78,11 +81,8 @@ export function useRecentWorkItems(): {
   isLoading: boolean;
 } {
   const { data: tasks = [], isLoading: tasksLoading } = useTasks();
-  // A pin can be on any task, also one older than the recent list reaches.
-  const { data: pinnedTasks = [] } = useTasks({
-    pinned: true,
-    showAllUsers: true,
-  });
+  const { data: pinnedTasks = [], isLoading: pinnedLoading } =
+    usePinnedTaskRecords();
   const { dashboards, isLoading: canvasesLoading } = useAllCanvases();
   const lastViewedByCanvasId = useCanvasViewedStore(
     (state) => state.lastViewedAtByCanvasId,
@@ -118,5 +118,8 @@ export function useRecentWorkItems(): {
     ],
   );
 
-  return { items, isLoading: tasksLoading || canvasesLoading };
+  return {
+    items,
+    isLoading: tasksLoading || canvasesLoading || pinnedLoading,
+  };
 }
