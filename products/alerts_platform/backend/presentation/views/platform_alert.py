@@ -127,7 +127,11 @@ SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
 # Kinds the read API does not serve. An insight copy shows its insight's bound and firing state,
 # and a reader can hold access to insights in general but not to that insight. This product
 # cannot check access to one insight, so the copies stay out of the API until it can.
-UNSERVED_SOURCE_KINDS: frozenset[str] = frozenset({PlatformAlertConfigurationSourceKind.INSIGHT.value})
+# A billing alert belongs to an organization and only its admins may read it, while this API
+# checks a team's `alert` scope, so billing copies stay out too.
+UNSERVED_SOURCE_KINDS: frozenset[str] = frozenset(
+    {PlatformAlertConfigurationSourceKind.INSIGHT.value, PlatformAlertConfigurationSourceKind.BILLING.value}
+)
 
 
 class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
