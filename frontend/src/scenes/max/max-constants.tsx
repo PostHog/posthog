@@ -819,6 +819,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return ['Scanned recordings', replayVisionScanWidgetDef(toolCall)]
         },
     },
+    get_replay_vision_scan_results: {
+        name: 'Read scan results',
+        description: "Read each recording's outcome for a Replay Vision scan, failures included",
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Read the scan results'
+            }
+            return 'Reading the scan results...'
+        },
+    },
     retry_replay_vision_observation: {
         name: 'Retry a scan',
         description: 'Retry a scan on a recording whose observation failed',

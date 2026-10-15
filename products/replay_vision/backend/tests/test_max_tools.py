@@ -33,6 +33,7 @@ from products.replay_vision.backend.max_tools import (
     DeleteReplayVisionScannerTool,
     DraftReplayVisionScannerPromptTool,
     GetReplayVisionQuotaTool,
+    GetReplayVisionScanResultsTool,
     LabelReplayVisionObservationTool,
     ListReplayVisionScannersTool,
     RetryReplayVisionObservationTool,
@@ -59,6 +60,14 @@ from ee.hogai.tool import ApprovalResumePayload, MaxTool
 _REFRESH_ESTIMATE_PATH = "products.replay_vision.backend.api.scanners._refresh_estimate_fail_soft"
 _GENERATE_EMBEDDING_PATH = "products.replay_vision.backend.search.generate_embedding"
 _SYNC_EXECUTE_PATH = "products.replay_vision.backend.search.sync_execute"
+_BATCH_EXISTS_PATH = "products.replay_vision.backend.max_tools.SessionReplayEvents.batch_exists"
+
+
+@pytest.fixture(autouse=True)
+def _every_recording_exists():
+    # The scan tool checks recordings exist in ClickHouse first; most tests here are about what follows.
+    with patch(_BATCH_EXISTS_PATH, side_effect=lambda session_ids, team: dict.fromkeys(session_ids, True)):
+        yield
 
 
 def _two_pass(rows: list[tuple]):
@@ -682,7 +691,6 @@ class TestCompareReplayVisionVariantsTool(BaseTest):
             scanner_config={"prompt": "p"},
             model=ScannerModel.GEMINI_3_8_FLASH,
         )
-
         _, artifact = await self._tool()._arun_impl(scanner_id=str(scanner.id))
 
         assert artifact == {"error": "wrong_scanner_type"}
@@ -763,6 +771,128 @@ class TestCompareReplayVisionVariantsTool(BaseTest):
         assert artifact["has_analysis"] is False
         assert "retries" not in content
         assert "Variants tab" in content
+
+
+class TestScanReplayVisionSessionsOutcomes(BaseTest):
+    """The reply has to match what the scan will do, so PostHog AI never reports a scan that cannot run."""
+
+    def _tool(self, tool_cls=ScanReplayVisionSessionsTool):
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        return tool_cls(team=self.team, user=self.user, config=config)
+
+    def _scanner(self) -> ReplayScanner:
+        return ReplayScanner.objects.create(
+            team=self.team,
+            name="checkout",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+
+    def _observation(self, scanner: ReplayScanner, session_id: str, status: str, error_reason: str = ""):
+        return ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id=session_id,
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=status,
+            error_reason=error_reason,
+            completed_at=None if status == ObservationStatus.RUNNING else timezone.now(),
+        )
+
+    @staticmethod
+    def _only_found(*found: str):
+        return patch(_BATCH_EXISTS_PATH, side_effect=lambda session_ids, team: {s: s in found for s in session_ids})
+
+    @parameterized.expand([("inline", False), ("saved_scanner", True)])
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_missing_recordings_are_reported_and_not_started(self, _name, saved):
+        scanner_kwargs = {"scanner_id": str((await sync_to_async(self._scanner)()).id)} if saved else {"prompt": "p?"}
+        start = MagicMock(return_value=MagicMock())
+        with (
+            self._only_found("found"),
+            patch("products.replay_vision.backend.api.trigger.sync_connect", MagicMock()),
+            patch("products.replay_vision.backend.api.trigger.async_to_sync", return_value=start),
+        ):
+            content, artifact = await self._tool()._arun_impl(session_ids=["found", "gone"], **scanner_kwargs)
+
+        assert {r["session_id"]: r["scan_outcome"] for r in artifact["results"]} == {
+            "found": "started",
+            "gone": "no_recording",
+        }
+        assert "Started 1 scan(s)." in content
+        assert "1 recording(s) could not be found" in content
+        assert start.call_count == 1
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_a_batch_with_no_recordings_starts_nothing_and_mints_no_scanner(self):
+        start = MagicMock()
+        with (
+            self._only_found(),
+            patch("products.replay_vision.backend.api.trigger.async_to_sync", return_value=start),
+        ):
+            content, artifact = await self._tool()._arun_impl(session_ids=["gone"], prompt="p?")
+
+        assert artifact["error"] == "no_recordings"
+        assert content.startswith("Nothing started.")
+        start.assert_not_called()
+        assert not await sync_to_async(ReplayScanner.all_origins.filter(origin="inline").exists)()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_preview_prices_only_the_recordings_that_exist(self):
+        with self._only_found("found"):
+            preview = await self._tool().format_dangerous_operation_preview(session_ids=["found", "gone"], prompt="p?")
+
+        assert "**Scan 1 session(s)**" in preview
+        assert "1 more recording(s) can't be found" in preview
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_a_reused_failure_is_not_reported_as_an_answer(self):
+        scanner = await sync_to_async(self._scanner)()
+        await sync_to_async(self._observation)(scanner, "answered", ObservationStatus.SUCCEEDED)
+        failed = await sync_to_async(self._observation)(
+            scanner, "failed", ObservationStatus.INELIGIBLE, "too_short:Only 2s long"
+        )
+
+        content, _ = await self._tool()._arun_impl(session_ids=["answered", "failed"], scanner_id=str(scanner.id))
+
+        assert "1 already had an answer" in content
+        assert "1 were scanned before and got no answer" in content
+        assert "ineligible (too_short)" in content
+        assert str(failed.id) in content
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_scan_results_include_failures_and_unscanned_sessions(self):
+        scanner = await sync_to_async(self._scanner)()
+        await sync_to_async(self._observation)(scanner, "running", ObservationStatus.RUNNING)
+        await sync_to_async(self._observation)(
+            scanner, "gone", ObservationStatus.INELIGIBLE, "no_recording:No replay metadata found"
+        )
+
+        content, artifact = await self._tool(GetReplayVisionScanResultsTool)._arun_impl(
+            scan_id=str(scanner.id), session_ids=["running", "gone", "never"]
+        )
+
+        assert artifact["status_counts"] == {"ineligible": 1, "running": 1}
+        assert "(session gone) ineligible (no_recording): No replay metadata found" in content
+        assert "(session running) running" in content
+        assert "(session never) no scan on record" in content
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_scan_results_hide_a_scanner_the_user_cannot_read(self):
+        scanner = await sync_to_async(self._scanner)()
+        tool = self._tool(GetReplayVisionScanResultsTool)
+
+        with patch.object(type(tool), "user_access_control", new_callable=PropertyMock) as uac:
+            uac.return_value = MagicMock(check_access_level_for_object=MagicMock(return_value=False))
+            _, artifact = await tool._arun_impl(scan_id=str(scanner.id))
+
+        assert artifact["error"] == "not_found"
 
 
 class TestCreateReplayVisionScannerTool(BaseTest):
@@ -1230,6 +1360,7 @@ class TestEveryReplayVisionToolDeclaresItsCost(BaseTest):
         "list_replay_vision_scanners": False,
         "estimate_replay_vision_scanner": False,
         "get_replay_vision_quota": False,
+        "get_replay_vision_scan_results": False,
         "search_replay_vision_observations": False,
         "compare_replay_vision_variants": False,
         "draft_replay_vision_scanner_prompt": False,
