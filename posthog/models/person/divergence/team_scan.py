@@ -106,6 +106,28 @@ class ScanError(Exception):
 
 
 @frozen
+class KeyBounds:
+    # Inclusive lower and exclusive upper bound; None is open.
+    lower: str | None
+    upper: str | None
+
+
+@frozen
+class IdRange:
+    # Postgres person ids in [start, end).
+    start: int
+    end: int
+
+
+@frozen
+class PageResult:
+    rows: list[dict[str, Any]]
+    # Hashes of every key the page classified, for the Postgres phase's key sets.
+    keys: list[int]
+    counts: Counter[str]
+
+
+@frozen
 class ChunkBounds:
     # Inclusive lower and exclusive upper bound per ClickHouse phase; None is open.
     person_from: str | None
@@ -113,10 +135,10 @@ class ChunkBounds:
     mapping_from: str | None
     mapping_to: str | None
 
-    def bounds(self, phase: ChPhase) -> tuple[str | None, str | None]:
+    def bounds(self, phase: ChPhase) -> KeyBounds:
         if phase == "persons":
-            return self.person_from, self.person_to
-        return self.mapping_from, self.mapping_to
+            return KeyBounds(lower=self.person_from, upper=self.person_to)
+        return KeyBounds(lower=self.mapping_from, upper=self.mapping_to)
 
 
 @frozen
@@ -176,8 +198,8 @@ def chunk_files(scan_dir: Path, chunk: int) -> RunFiles:
     )
 
 
-def postgres_files(scan_dir: Path, id_range: tuple[int, int] | None) -> RunFiles:
-    name = "postgres" if id_range is None else f"postgres-{id_range[0]}-{id_range[1]}"
+def postgres_files(scan_dir: Path, id_range: IdRange | None) -> RunFiles:
+    name = "postgres" if id_range is None else f"postgres-{id_range.start}-{id_range.end}"
     return RunFiles(
         rows=scan_dir / f"{name}.rows.jsonl",
         cursor=scan_dir / f"{name}.cursor.json",
@@ -225,19 +247,19 @@ def _sample_bounds(team_id: int, phase: ChPhase, chunks: int) -> list[str]:
     return bounds
 
 
-def _phase_edges(bounds: list[str], chunks: int, first_key: str) -> list[tuple[str | None, str | None]]:
+def _phase_edges(bounds: list[str], chunks: int, first_key: str) -> list[KeyBounds]:
     points: list[str | None] = [None, *bounds, None]
-    edges = [(points[i], points[i + 1]) for i in range(len(points) - 1)]
+    edges = [KeyBounds(lower=points[i], upper=points[i + 1]) for i in range(len(points) - 1)]
     # A small team can yield fewer distinct bounds than chunks. The extra chunks get an empty range.
     empty = bounds[-1] if bounds else first_key
-    return edges + [(empty, empty)] * (chunks - len(edges))
+    return edges + [KeyBounds(lower=empty, upper=empty)] * (chunks - len(edges))
 
 
 def _chunks_from_bounds(person_bounds: list[str], mapping_bounds: list[str], chunks: int) -> tuple[ChunkBounds, ...]:
     persons = _phase_edges(person_bounds, chunks, _FIRST_PERSON_KEY)
     mappings = _phase_edges(mapping_bounds, chunks, _FIRST_MAPPING_KEY)
     return tuple(
-        ChunkBounds(person_from=p[0], person_to=p[1], mapping_from=m[0], mapping_to=m[1])
+        ChunkBounds(person_from=p.lower, person_to=p.upper, mapping_from=m.lower, mapping_to=m.upper)
         for p, m in zip(persons, mappings)
     )
 
@@ -390,9 +412,7 @@ def _page_end(plan: ScanPlan, phase: ChPhase, after: str, first: bool, upper: st
     return count, (str(rows[0][1]) if count else None)
 
 
-def _classify_persons_page(
-    plan: ScanPlan, after: str, last: str, first: bool
-) -> tuple[list[dict[str, Any]], list[int], Counter[str]]:
+def _classify_persons_page(plan: ScanPlan, after: str, last: str, first: bool) -> PageResult:
     observed_at = _now()
     ch = observe.ch_person_states_in_range(plan.team_id, after, last, first=first)
     uuids = list(ch)
@@ -422,12 +442,10 @@ def _classify_persons_page(
                     ch=ch_state,
                 )
             )
-    return rows, [key_hash(u) for u in uuids], counts
+    return PageResult(rows=rows, keys=[key_hash(u) for u in uuids], counts=counts)
 
 
-def _classify_mappings_page(
-    plan: ScanPlan, after: str, last: str, first: bool
-) -> tuple[list[dict[str, Any]], list[int], Counter[str]]:
+def _classify_mappings_page(plan: ScanPlan, after: str, last: str, first: bool) -> PageResult:
     observed_at = _now()
     ch = observe.ch_mapping_states_in_range(plan.team_id, after, last, first=first)
     distinct_ids = list(ch)
@@ -462,10 +480,10 @@ def _classify_mappings_page(
                     ch_owner_pg_state=owner_state,
                 )
             )
-    return rows, [key_hash(d) for d in distinct_ids], counts
+    return PageResult(rows=rows, keys=[key_hash(d) for d in distinct_ids], counts=counts)
 
 
-_PAGE_CLASSIFIERS: dict[ChPhase, Callable[..., tuple[list[dict[str, Any]], list[int], Counter[str]]]] = {
+_PAGE_CLASSIFIERS: dict[ChPhase, Callable[..., PageResult]] = {
     "persons": _classify_persons_page,
     "mappings": _classify_mappings_page,
 }
@@ -492,7 +510,8 @@ def run_chunk(
     try:
         while cursor.phase != DONE:
             phase: ChPhase = "persons" if cursor.phase == "persons" else "mappings"
-            lower, upper = plan.chunks[chunk].bounds(phase)
+            bounds = plan.chunks[chunk].bounds(phase)
+            lower, upper = bounds.lower, bounds.upper
             first = cursor.after is None
             after = cursor.after if cursor.after is not None else (lower if lower is not None else _first_key(phase))
             count, last = _page_end(plan, phase, after, first, upper)
@@ -500,7 +519,8 @@ def run_chunk(
                 writer.finish_phase(_next_phase(phase))
                 log(f"chunk {chunk} {phase}: done")
                 continue
-            rows, keys, counts = _PAGE_CLASSIFIERS[phase](plan, after, last, first)
+            page = _PAGE_CLASSIFIERS[phase](plan, after, last, first)
+            rows, keys, counts = page.rows, page.keys, page.counts
             writer.commit(
                 rows,
                 person_keys=keys if phase == "persons" else (),
@@ -554,7 +574,7 @@ def run_postgres(
     scan_dir: Path,
     *,
     resume: bool,
-    id_range: tuple[int, int] | None = None,
+    id_range: IdRange | None = None,
     pause_seconds: float = 0.0,
     log: Callable[[str], None] = lambda _: None,
 ) -> Cursor:
@@ -572,8 +592,8 @@ def run_postgres(
     cursor = load_cursor(files.cursor)
     if cursor is not None and not resume:
         raise ScanError(f"{files.cursor} exists; pass resume to continue it")
-    cursor = cursor or Cursor(phase="postgres", after=str(id_range[0] - 1 if id_range else 0))
-    before = id_range[1] if id_range else None
+    cursor = cursor or Cursor(phase="postgres", after=str(id_range.start - 1 if id_range else 0))
+    before = id_range.end if id_range else None
     writer = _RunWriter(files, cursor)
     try:
         while cursor.phase != DONE:
@@ -684,7 +704,13 @@ def _classify_postgres_page(
     return rows, counts
 
 
-def _run_files(scan_dir: Path, plan: ScanPlan) -> tuple[list[RunFiles], list[RunFiles]]:
+@frozen
+class ScanRuns:
+    chunks: list[RunFiles]
+    postgres: list[RunFiles]
+
+
+def _run_files(scan_dir: Path, plan: ScanPlan) -> ScanRuns:
     chunks = [chunk_files(scan_dir, i) for i in range(len(plan.chunks))]
     postgres = [
         RunFiles(
@@ -695,7 +721,7 @@ def _run_files(scan_dir: Path, plan: ScanPlan) -> tuple[list[RunFiles], list[Run
         )
         for p in sorted(scan_dir.glob("postgres*.cursor.json"))
     ]
-    return chunks, postgres
+    return ScanRuns(chunks=chunks, postgres=postgres)
 
 
 def _iter_rows(runs: Sequence[RunFiles]) -> Iterator[dict[str, Any]]:
@@ -800,7 +826,8 @@ def _regroup(row: dict[str, Any], groups: _Groups, plan: ScanPlan) -> dict[str, 
 def finalize(scan_dir: Path, *, partial: bool = False) -> dict[str, Any]:
     """Join every run's rows into the report, apply the cross-key groups, and write the summary."""
     plan = load_plan(scan_dir)
-    chunks, postgres = _run_files(scan_dir, plan)
+    runs_found = _run_files(scan_dir, plan)
+    chunks, postgres = runs_found.chunks, runs_found.postgres
     cursors = {str(f.cursor.name): load_cursor(f.cursor) for f in [*chunks, *postgres]}
     unfinished = sorted(name for name, c in cursors.items() if c is None or c.phase != DONE)
     if plan.team_exists and not postgres:
