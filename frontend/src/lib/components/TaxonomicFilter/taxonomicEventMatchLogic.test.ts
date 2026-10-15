@@ -31,6 +31,8 @@ const ALL_TAB_PROPS: TaxonomicFilterLogicProps = {
     taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
 }
 
+const ELIGIBLE_EVENT = 'taxonomic filter event match eligible'
+
 const AUTOCAPTURE = { name: '$autocapture', display_name: 'Autocapture', probability: 0.95 }
 
 describe('taxonomicEventMatchLogic', () => {
@@ -158,6 +160,8 @@ describe('taxonomicEventMatchLogic', () => {
         expect(allTabLogic.values.isMatching).toBe(false)
         expect(allTabLogic.values.suggestedEvents).toEqual([])
         expect(captureSpy).not.toHaveBeenCalledWith('taxonomic filter event match suggested', expect.anything())
+        // Exposure counts only once the pause ended on a visible list.
+        expect(captureSpy.mock.calls.filter(([event]) => event === ELIGIBLE_EVENT)).toHaveLength(expectedRequests)
     })
 
     it('shows a loading state from the All tab until the answer arrives, and records the tab', async () => {
@@ -285,11 +289,15 @@ describe('taxonomicEventMatchLogic', () => {
         enroll('test')
         status = 404
 
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
         await search('browser capture')
         await search('page view')
 
         expect(matchRequests).toHaveLength(1)
         expect(logic.values.suggestedEvents).toEqual([])
+        // A 404 must not make the test arm look less exposed than control.
+        expect(captureSpy.mock.calls.filter(([event]) => event === ELIGIBLE_EVENT)).toHaveLength(2)
     })
 
     it.each([
@@ -318,14 +326,13 @@ describe('taxonomicEventMatchLogic', () => {
             enroll(variant)
             const captureSpy = jest.spyOn(posthog, 'capture')
 
+            filterLogic.actions.setSearchQuery('browser')
             await search('browser capture')
             logic.unmount()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
-            const eligible = captureSpy.mock.calls.filter(
-                ([event]) => event === 'taxonomic filter event match eligible'
-            )
+            const eligible = captureSpy.mock.calls.filter(([event]) => event === ELIGIBLE_EVENT)
             expect(eligible).toEqual([
                 ['taxonomic filter event match eligible', { surface: 'legacy-pill', tab: 'events', variant }],
             ])
@@ -373,7 +380,7 @@ describe('taxonomicEventMatchLogic', () => {
         expect(excludingLogic.values.hint).toBeNull()
     })
 
-    it('points a search made of values to the All tab', async () => {
+    it('hides the All tab button while All is empty, and records the hint click', async () => {
         enroll('test')
         matches = []
         outcome = 'only_values'
@@ -384,9 +391,15 @@ describe('taxonomicEventMatchLogic', () => {
         await expectLogic(allTabLogic).toFinishAllListeners()
 
         expect(allTabLogic.values.hint).toEqual({ kind: 'value' })
-        expect(allTabLogic.values.canSearchAllCategories).toBe(true)
+        expect(allTabLogic.values.canSearchAllCategories).toBe(false)
 
+        const captureSpy = jest.spyOn(posthog, 'capture')
         allTabLogic.actions.searchAllCategories()
+        expect(captureSpy).toHaveBeenCalledWith('taxonomic filter event match hint clicked', {
+            surface: 'legacy-pill',
+            tab: 'events',
+            hint: 'value',
+        })
         expect(allTabFilterLogic.values.activeTab).toEqual(TaxonomicFilterGroupType.SuggestedFilters)
         expect(allTabLogic.values.canSearchAllCategories).toBe(false)
     })
