@@ -3,6 +3,8 @@ import { useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
@@ -40,6 +42,7 @@ export function ReportCheckMetricChart({
     version: string
     monitoring?: ReportMonitoringChartWindow
 }): JSX.Element {
+    const { timezone } = useValues(teamLogic)
     const [observedAt] = useState(() => Date.now())
     const chartQuery = monitoring ? monitoringChartQuery(query, monitoring, observedAt) : query
     const props: DataNodeLogicProps = {
@@ -50,7 +53,8 @@ export function ReportCheckMetricChart({
     }
     const { response, responseError, responseLoading } = useValues(dataNodeLogic(props))
     const responsePoints = reportMetricSeriesPoints(response)
-    const points = responsePoints && monitoring ? monitoringChartPoints(responsePoints, observedAt) : responsePoints
+    const points =
+        responsePoints && monitoring ? monitoringChartPoints(responsePoints, observedAt, timezone) : responsePoints
     const aggregateQuery = asReportMetricAggregateQuery(metric.query)
     const aggregateProps: DataNodeLogicProps = {
         key: `FollowUpCheckTotal.${reportId}.${metric.metric_id}.${version}`,
@@ -86,7 +90,9 @@ export function ReportCheckMetricChart({
                 points={points}
                 type={reportMetricChartType(metric)}
                 interval={chartQuery.interval}
-                markers={monitoring ? monitoringChartMarkers(points.labels, monitoring, observedAt) : undefined}
+                markers={
+                    monitoring ? monitoringChartMarkers(points.labels, monitoring, observedAt, timezone) : undefined
+                }
                 goalValue={!monitoring && goalGrain === 'per_interval' ? (goal ?? undefined) : undefined}
             />
             {!monitoring && goalGrain === 'whole_window' && targets.length > 0 && (

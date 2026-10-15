@@ -1,5 +1,7 @@
 import type { ReferenceLineProps } from '@posthog/quill-charts'
 
+import { dayjs } from 'lib/dayjs'
+
 import type { TrendsQuery } from '~/queries/schema/schema-general'
 
 import type { ReportMetricSeriesPoints } from './reportMetrics'
@@ -34,21 +36,32 @@ export function monitoringChartQuery(
     }
 }
 
-export function monitoringChartPoints(points: ReportMetricSeriesPoints, now: number): ReportMetricSeriesPoints {
+function bucketTimestamp(label: string, timezone: string): number {
+    return /(?:Z|[+-]\d{2}:\d{2})$/i.test(label) ? dayjs(label).valueOf() : dayjs.tz(label, timezone).valueOf()
+}
+
+export function monitoringChartPoints(
+    points: ReportMetricSeriesPoints,
+    now: number,
+    timezone: string
+): ReportMetricSeriesPoints {
     return {
         labels: points.labels,
         // Trends fills future buckets with zero; they are unobserved rather than successful checks.
-        values: points.values.map((value, index) => (Date.parse(points.labels[index]) > now ? NaN : value)),
+        values: points.values.map((value, index) =>
+            bucketTimestamp(points.labels[index], timezone) > now ? NaN : value
+        ),
     }
 }
 
 export function monitoringChartMarkers(
     labels: string[],
     monitoring: ReportMonitoringChartWindow,
-    now: number
+    now: number,
+    timezone: string
 ): ReferenceLineProps[] {
     const bucketFor = (at: number): string | undefined => {
-        const dates = labels.map((label) => Date.parse(label))
+        const dates = labels.map((label) => bucketTimestamp(label, timezone))
         if (!dates.length || at < dates[0]) {
             return undefined
         }

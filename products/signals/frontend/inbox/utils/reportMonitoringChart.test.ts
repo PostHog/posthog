@@ -31,8 +31,19 @@ describe('Monitoring chart context', () => {
 
     it('keeps observed zeros and masks future buckets instead of implying success', () => {
         const points = { labels: ['2026-08-28', '2026-08-29', '2026-08-30'], values: [0, 3, 0] }
-        expect(monitoringChartPoints(points, now)).toEqual({ labels: points.labels, values: [0, 3, NaN] })
+        expect(monitoringChartPoints(points, now, 'UTC')).toEqual({ labels: points.labels, values: [0, 3, NaN] })
         expect(points.values).toEqual([0, 3, 0])
+    })
+
+    it.each([
+        ['America/Los_Angeles', ['2026-08-28', '2026-08-29'], '2026-08-29T06:30:00Z'],
+        ['America/Los_Angeles', ['2026-08-28 23:00:00', '2026-08-29 00:00:00'], '2026-08-29T06:30:00Z'],
+        ['Asia/Tokyo', ['2026-08-29', '2026-08-30'], '2026-08-29T14:30:00Z'],
+        ['America/Los_Angeles', ['2026-08-29T06:00:00Z', '2026-08-29T07:00:00Z'], '2026-08-29T06:30:00Z'],
+    ])('interprets buckets in %s when hiding future activity and marking now', (timezone, labels, observedAt) => {
+        const at = Date.parse(observedAt)
+        expect(monitoringChartPoints({ labels, values: [0, 0] }, at, timezone).values).toEqual([0, NaN])
+        expect(monitoringChartMarkers(labels, { referencePeriodMinutes: 1440 }, at, timezone)[0].value).toBe(labels[0])
     })
 
     it.each([
@@ -41,7 +52,7 @@ describe('Monitoring chart context', () => {
         ['2026-08-29T10:00:00Z', ['Monitoring start / now']],
     ])('marks the observation boundaries for %s', (startedAt, labels) => {
         const buckets = ['2026-08-27', '2026-08-28', '2026-08-29', '2026-08-30']
-        const markers = monitoringChartMarkers(buckets, { referencePeriodMinutes: 10080, startedAt }, now)
+        const markers = monitoringChartMarkers(buckets, { referencePeriodMinutes: 10080, startedAt }, now, 'UTC')
         expect(markers.map((marker) => marker.label)).toEqual(labels)
         expect(markers.at(-1)?.value).toBe('2026-08-29')
         if (markers.length === 2) {
