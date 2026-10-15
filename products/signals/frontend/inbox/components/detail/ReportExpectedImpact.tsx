@@ -11,7 +11,7 @@ import { SignalReport } from '../../types'
 import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/reportMetrics'
 import { ReportCheckMetricChart } from './ReportCheckMetricChart'
 import { ReportCheckMetricSuggestionModal } from './ReportCheckMetricSuggestionModal'
-import { buildReportCheckRows, latestCheckExplanations } from './reportCheckPresentation'
+import { buildReportCheckRows, latestCheckExplanations, monitoringPeriodLabel } from './reportCheckPresentation'
 
 const MAX_VISIBLE_MEASUREMENTS = 6
 
@@ -78,7 +78,10 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                     return (
                         <div key={check.id} className="flex flex-col gap-2">
                             <p className="m-0 font-semibold">
-                                {metric.title}: {goal}
+                                <span>{`${metric.title}: ${goal}`}</span>
+                                {config.monitoring?.threshold_scaling === 'linear' && (
+                                    <span>{` per ${monitoringPeriodLabel(config.monitoring.reference_period_minutes)}`}</span>
+                                )}
                             </p>
                             <p className="m-0 text-secondary text-sm">
                                 {cancellable ? (
@@ -86,9 +89,26 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                 ) : (
                                     <LemonTag type={tag.type}>{tag.label}</LemonTag>
                                 )}
-                                <span> · Goal for the full query window</span>
+                                <span>
+                                    {config.monitoring
+                                        ? ' · Monitoring definition'
+                                        : ' · Goal for the full query window'}
+                                </span>
                             </p>
-                            {query ? (
+                            {config.monitoring ? (
+                                <div className="flex flex-col gap-1 text-sm text-secondary">
+                                    <p className="m-0">Measurement window: since Monitoring starts.</p>
+                                    <p className="m-0">
+                                        {`Target reference period: ${monitoringPeriodLabel(config.monitoring.reference_period_minutes)}.`}
+                                    </p>
+                                    <p className="m-0">
+                                        {config.monitoring.threshold_scaling === 'linear'
+                                            ? 'The target scales in proportion to elapsed time.'
+                                            : 'The target stays fixed as the measurement period grows.'}
+                                    </p>
+                                    <p className="m-0">Interim Monitoring measurements are not available yet.</p>
+                                </div>
+                            ) : query ? (
                                 <ReportCheckMetricChart
                                     reportId={report.id}
                                     metric={metric}
@@ -104,11 +124,19 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                             )}
                             {config.baseline_value != null && (
                                 <p className="m-0 text-secondary text-sm">
-                                    Baseline:{' '}
-                                    {formatReportMetricValue(metric, config.baseline_value) ?? config.baseline_value}
+                                    <span>{`Baseline: ${formatReportMetricValue(metric, config.baseline_value) ?? config.baseline_value}`}</span>
+                                    {config.monitoring?.baseline_period_minutes != null && (
+                                        <span>{` · Measured over ${monitoringPeriodLabel(config.monitoring.baseline_period_minutes)}`}</span>
+                                    )}
                                 </p>
                             )}
-                            <p className="m-0 text-secondary text-sm">{detail}</p>
+                            <p className="m-0 text-secondary text-sm">
+                                {config.monitoring && cancellable
+                                    ? check.soak_minutes != null
+                                        ? `Minimum wait after implementation: ${monitoringPeriodLabel(check.soak_minutes)}.`
+                                        : 'The soak and run schedule are separate from this definition.'
+                                    : detail}
+                            </p>
                             {config.query != null && (
                                 <details className="text-sm">
                                     <summary className="cursor-pointer">View measurement query</summary>

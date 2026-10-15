@@ -62,25 +62,63 @@ const meta: Meta<typeof ReportExpectedImpact> = {
                         ? [500, {}]
                         : {
                               results: [
-                                  context.parameters.failed
+                                  context.parameters.monitoringDefinition
                                       ? {
                                             ...check,
-                                            status: 'failed',
-                                            last_run_at: '2026-08-29T00:00:00Z',
-                                            last_outcome: 'failed',
+                                            title: 'Checkout errors stay low',
+                                            config: {
+                                                ...check.config,
+                                                metric_kind: 'occurrences',
+                                                value_format: 'count',
+                                                unit: 'errors',
+                                                comparison: { operator: 'lte', value: 70 },
+                                                baseline_value: 280,
+                                                query: {
+                                                    kind: 'InsightVizNode',
+                                                    source: {
+                                                        kind: 'TrendsQuery',
+                                                        dateRange: { date_from: '-7d', explicitDate: true },
+                                                        series: [
+                                                            {
+                                                                kind: 'EventsNode',
+                                                                event: 'checkout_failed',
+                                                                math: 'total',
+                                                            },
+                                                        ],
+                                                    },
+                                                },
+                                                ...(context.parameters.monitoringGateOff
+                                                    ? {}
+                                                    : {
+                                                          monitoring: {
+                                                              reference_period_minutes: 10080,
+                                                              threshold_scaling: context.parameters.fixedTarget
+                                                                  ? 'fixed'
+                                                                  : 'linear',
+                                                              baseline_period_minutes: 20160,
+                                                          },
+                                                      }),
+                                            },
                                         }
-                                      : context.parameters.rangeGoal
+                                      : context.parameters.failed
                                         ? {
                                               ...check,
-                                              config: {
-                                                  ...check.config,
-                                                  comparison: {
-                                                      operator: 'between',
-                                                      bounds: { lower: 50, upper: 100 },
-                                                  },
-                                              },
+                                              status: 'failed',
+                                              last_run_at: '2026-08-29T00:00:00Z',
+                                              last_outcome: 'failed',
                                           }
-                                        : check,
+                                        : context.parameters.rangeGoal
+                                          ? {
+                                                ...check,
+                                                config: {
+                                                    ...check.config,
+                                                    comparison: {
+                                                        operator: 'between',
+                                                        bounds: { lower: 50, upper: 100 },
+                                                    },
+                                                },
+                                            }
+                                          : check,
                               ],
                           },
                     '/api/projects/:id/signals/reports/available_reviewers/': [],
@@ -106,6 +144,37 @@ const meta: Meta<typeof ReportExpectedImpact> = {
 
 export default meta
 type Story = StoryObj<typeof ReportExpectedImpact>
+
+export const MonitoringDefinitionFlagOff: Story = {
+    parameters: {
+        monitoringDefinition: true,
+        monitoringGateOff: true,
+        featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: true, 'signals-report-monitoring': false },
+    },
+}
+
+export const MonitoringDefinition: Story = {
+    parameters: {
+        monitoringDefinition: true,
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
+    },
+}
+
+export const MonitoringDefinitionNarrow: Story = {
+    parameters: {
+        monitoringDefinition: true,
+        narrow: true,
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
+    },
+}
+
+export const MonitoringFixedTarget: Story = {
+    parameters: {
+        monitoringDefinition: true,
+        fixedTarget: true,
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
+    },
+}
 
 export const MetricCheck: Story = {}
 export const RangeGoal: Story = { parameters: { rangeGoal: true } }

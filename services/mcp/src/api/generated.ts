@@ -26360,6 +26360,27 @@ export namespace Schemas {
       Agent: 'agent',
     } as const;
 
+    export type ThresholdScalingEnum = typeof ThresholdScalingEnum[keyof typeof ThresholdScalingEnum];
+
+
+    export const ThresholdScalingEnum = {
+      Linear: 'linear',
+      Fixed: 'fixed',
+    } as const;
+
+    export interface MonitoringMetricConfig {
+      /**
+         * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
+         * @maximum 527040
+         * @exclusiveMinimum 0
+         */
+      reference_period_minutes: number;
+      /** How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution. */
+      threshold_scaling: ThresholdScalingEnum;
+      /** The actual period measured by baseline_value, in minutes. Required when a baseline is supplied. */
+      baseline_period_minutes?: number | null;
+    }
+
     /**
      * How to draw this measurement; copied from a referenced metric.
      */
@@ -26416,6 +26437,8 @@ export namespace Schemas {
       metric_id?: string | null;
       /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already. */
       query?: MetricThresholdConfigQuery;
+      /** Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks. */
+      monitoring?: MonitoringMetricConfig | null;
       /** What the measured value must satisfy to pass. */
       comparison: CheckComparison;
       /** The value observed when the check was written, recorded on each result for context. */

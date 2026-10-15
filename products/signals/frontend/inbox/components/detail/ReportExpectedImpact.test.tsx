@@ -118,6 +118,49 @@ describe('ReportExpectedImpact', () => {
         render(<ReportExpectedImpact report={report} reportUrl="https://example.com/report-1" />)
     }
 
+    it.each(['linear', 'fixed'] as const)(
+        'explains the %s Monitoring definition without showing a legacy measurement',
+        (scaling) => {
+            renderMeasurements([
+                {
+                    ...check,
+                    config: {
+                        ...check.config,
+                        metric_kind: 'occurrences',
+                        value_format: 'count',
+                        unit: 'errors',
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                dateRange: { date_from: '-7d', explicitDate: true },
+                                series: [{ kind: 'EventsNode', event: 'checkout_failed', math: 'total' }],
+                            },
+                        },
+                        monitoring: {
+                            reference_period_minutes: 10080,
+                            threshold_scaling: scaling,
+                            baseline_period_minutes: 20160,
+                        },
+                    },
+                },
+            ])
+            expect(screen.getByText('Measurement window: since Monitoring starts.')).toBeInTheDocument()
+            expect(screen.getByText('Target reference period: 7 days.')).toBeInTheDocument()
+            expect(screen.getByText('· Measured over 14 days')).toBeInTheDocument()
+            expect(
+                screen.getByText(
+                    scaling === 'linear'
+                        ? 'The target scales in proportion to elapsed time.'
+                        : 'The target stays fixed as the measurement period grows.'
+                )
+            ).toBeInTheDocument()
+            expect(screen.getByText('Interim Monitoring measurements are not available yet.')).toBeInTheDocument()
+            expect(screen.queryByText('Chart')).not.toBeInTheDocument()
+            expect(screen.queryByText(/Goal for the full query window/)).not.toBeInTheDocument()
+        }
+    )
+
     it('uses check goals and excludes investigations and replaced checks', async () => {
         renderMeasurements([
             check,

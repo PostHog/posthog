@@ -55,6 +55,16 @@ Custom HogQL aggregations are parsed before a metric or check is authored. Inval
 
 Protected research runs require analytics access before a person can resume or warm a successor. The successor’s bound sandbox can read the verified source history through authenticated log routes, but cannot modify the source run.
 
+## Monitoring metric definitions
+
+With `signals-report-monitoring` enabled, a metric check can include an optional `config.monitoring` definition. It records the target's `reference_period_minutes`, an explicit `threshold_scaling` policy, and `baseline_period_minutes` when a baseline is supplied. These periods are independent of the soak, run interval, expiry, and any future Monitoring deadline. No existing check receives an inferred definition.
+
+The definition describes a measurement from Monitoring start through the observation time. A `linear` target scales by elapsed minutes divided by reference minutes and requires a single additive event count or property sum without a formula. A `fixed` target keeps its bound as the observation period grows, including for percentages, averages, distinct counts, or explicitly fixed custom targets. Display format alone never selects the policy. The baseline retains its own measured period and is not presented as an observation from Monitoring.
+
+Expected impact displays the target period, scaling policy, baseline period, and a notice that interim measurements are not available yet. It does not run the legacy trailing-window chart for this definition or fabricate observations. The stored bounded query and whole-window comparison retain their existing Resolved execution meaning. Monitoring execution, scaled comparisons, saved interim observations, and final outcomes remain separate work.
+
+The server refuses new Monitoring definitions when the flag is disabled or unavailable and omits the definition from check responses. Stored definitions remain intact. Existing definitions, charts, check schedules, and Resolved outcomes otherwise follow their current behavior.
+
 ## Follow-up measurement timing
 
 Reopening or archiving a resolved report immediately parks its active checks and clears their measurement starts and dispatches. It resets both error and inconclusive retry streaks. Delayed resolution callbacks only arm checks while the report is still resolved. Results from an earlier measurement window or dispatch cannot update the current check.

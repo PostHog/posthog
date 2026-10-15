@@ -46,6 +46,7 @@ from products.signals.backend.report_charts import ReportChart, chart_batch_erro
 from products.signals.backend.report_check_research import check_versions
 from products.signals.backend.report_content_gates import (
     team_report_metrics_enabled,
+    team_report_monitoring_enabled,
     team_research_reviewer_selection_enabled,
 )
 from products.signals.backend.report_generation.ownership_reviewers import suggest_repository_owners
@@ -267,7 +268,7 @@ def _parse_stored_metrics(raw: object, report_id: str) -> list[ReportMetric]:
     return parsed
 
 
-def _load_previous_checks(team_id: int, report_id: str) -> list[dict]:
+def _load_previous_checks(team_id: int, report_id: str, *, monitoring_enabled: bool = False) -> list[dict]:
     checks = SignalReportCheck.objects.for_team(team_id).filter(
         report_id=report_id, status__in=SignalReportCheck.OPEN_STATUSES
     )
@@ -282,6 +283,7 @@ def _load_previous_checks(team_id: int, report_id: str) -> list[dict]:
                 for key, value in check.config.items()
                 if (key != "query" or not check.config.get("metric_id"))
                 and (key != "baseline_value" or check.config.get("query") is not None)
+                and (key != "monitoring" or monitoring_enabled)
             },
             "stored_query": check.config.get("query")
             if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
@@ -1087,6 +1089,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             metrics_enabled = await database_sync_to_async(team_report_metrics_enabled, thread_sensitive=False)(
                 input.team_id
             )
+            monitoring_enabled = await database_sync_to_async(team_report_monitoring_enabled, thread_sensitive=False)(
+                input.team_id
+            )
             reviewer_selection_enabled = await database_sync_to_async(
                 team_research_reviewer_selection_enabled, thread_sensitive=False
             )(input.team_id)
@@ -1114,7 +1119,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             )
             previous_research = await _load_previous_research(input.team_id, input.report_id)
             previous_checks = await database_sync_to_async(_load_previous_checks, thread_sensitive=False)(
-                input.team_id, input.report_id
+                input.team_id, input.report_id, monitoring_enabled=monitoring_enabled
             )
             # 2b. Load the resolved report this one recurred from, if any, as extra research context
             resolved_report_title, resolved_report_summary = await _load_resolved_report_context(
@@ -1151,6 +1156,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 resolved_report_summary=resolved_report_summary,
                 linked_reports=linked_reports,
                 metrics_enabled=metrics_enabled,
+                monitoring_enabled=monitoring_enabled,
                 reviewer_selection_enabled=reviewer_selection_enabled,
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,

@@ -48,6 +48,7 @@ from products.signals.backend.report_checks import (
     soak_minutes_from_gap,
     validate_metric_check_for_write,
 )
+from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 
@@ -228,6 +229,12 @@ def _stored_config(report: SignalReport, kind: str, config: dict) -> dict:
     except CheckConfigValidationError as error:
         raise CheckCreationError(str(error)) from None
 
+    if (
+        isinstance(parsed, MetricThresholdConfig)
+        and parsed.monitoring is not None
+        and not team_report_monitoring_enabled(report.team_id)
+    ):
+        raise CheckCreationError("Monitoring metric definitions are not enabled for this organization.")
     stored_config = dict(config)
     if isinstance(parsed, MetricThresholdConfig) and parsed.metric_id is not None:
         if parsed.query is not None:
@@ -287,6 +294,12 @@ def _check_configs_match(report: SignalReport, check: SignalReportCheck, desired
         )
     except CheckConfigValidationError:
         return False
+    if (
+        isinstance(stored, MetricThresholdConfig)
+        and stored.monitoring is not None
+        and not team_report_monitoring_enabled(report.team_id)
+    ):
+        stored = stored.model_copy(update={"monitoring": None})
     return stored == parse_check_config(check.kind, desired)
 
 
