@@ -13,9 +13,11 @@ The rules, in order. The first rule that matches gives the reason:
    rebase). A merge that changes the PR's own lines runs the review.
 4. `docs_only`: the new own commits touch only docs, lockfiles, snapshots, images, and generated files.
 5. `small_change`: the push changes at most `SMALL_CHANGE_MAX_NET_CODE_LINES` code lines net, read from
-   the compare of the last reviewed head and the push head. A rebase counts every commit again in
-   `own_code_lines`, but not in the net count. After `SMALL_CHANGE_MAX_DEFERRALS` deferrals in a row the
-   next small push runs the review, so small pushes cannot pile up without a review.
+   the compare of the last reviewed head and the push head. The rule matches only when the push head
+   descends from the last reviewed head: after a rebase or a force-push the compare does not show the
+   push's own change. After `SMALL_CHANGE_MAX_DEFERRALS` deferrals in a row the next small push runs the
+   review, so small pushes cannot pile up without a review. A push that any rule lets through to a review
+   sets the count back to 0. A push that a rule skips keeps the count, because nothing was reviewed.
 6. `system_one_below_threshold`: System One rates the new own commits below a threshold.
 7. `draft`: the PR is a draft and no rule above skips the push. A draft cannot merge, and marking it
    ready starts a turn that reviews everything since the last reviewed head. The rules above still run,
@@ -430,6 +432,11 @@ class PushGate:
         )
         if comparison is None:
             return None
+        # A three-dot compare starts at the merge base, so its files are the push's change only when
+        # the push head descends from the last reviewed head.
+        merge_base_sha = (comparison.get("merge_base_commit") or {}).get("sha")
+        if comparison.get("status") != "ahead" or merge_base_sha != previous_head_sha:
+            return None
         files: list[dict[str, Any]] = comparison.get("files") or []
         if len(files) >= GITHUB_COMPARE_FILES_CAP:
             return None
@@ -504,11 +511,7 @@ class PushGate:
             own_code_lines=lines,
         )
 
-    def decide(self, *, previous_head_sha: str, head_sha: str, base_branch: str, pr_number: int) -> PushGateDecision:
-        """Judge the push from `previous_head_sha`, the last automatically reviewed head, to `head_sha`.
-
-        Rules 1 to 6 only: `apply_draft_rule` adds rule 7 on top of the result.
-        """
+    def _judge(self, *, previous_head_sha: str, head_sha: str, base_branch: str, pr_number: int) -> PushGateDecision:
         previous = self._pr_diff(base_branch, previous_head_sha)
         current = self._pr_diff(base_branch, head_sha)
         if previous is None or current is None:
@@ -554,6 +557,24 @@ class PushGate:
             )
         decision = self._ask_system_one(code_files, own_commits=len(own_shas), lines_known=own_files.complete)
         return replace(decision, net_code_lines=net_code_lines, small_change_deferrals=deferrals)
+
+    def decide(self, *, previous_head_sha: str, head_sha: str, base_branch: str, pr_number: int) -> PushGateDecision:
+        """Judge the push from `previous_head_sha`, the last automatically reviewed head, to `head_sha`.
+
+        Rules 1 to 6 only: `apply_draft_rule` adds rule 7 on top of the result.
+        """
+        decision = self._judge(
+            previous_head_sha=previous_head_sha, head_sha=head_sha, base_branch=base_branch, pr_number=pr_number
+        )
+        # A skipped push reviewed nothing, so the small-change streak stays.
+        if decision.skip:
+            return decision
+        # The rule chain already counted this push.
+        if decision.small_change_deferrals is not None:
+            return decision
+        # The review runs and moves the baseline, so the small-change streak starts again.
+        deferrals = self._small_change_deferrals(pr_number=pr_number, head_sha=head_sha, small=False)
+        return replace(decision, small_change_deferrals=deferrals)
 
 
 def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDecision:

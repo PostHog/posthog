@@ -63,6 +63,10 @@ def _net_file(filename: str, lines: int) -> dict[str, Any]:
     return {"filename": filename, "additions": lines, "deletions": 0}
 
 
+def _net_compare(files: list[dict[str, Any]], *, status: str = "ahead") -> dict[str, Any]:
+    return {"status": status, "merge_base_commit": {"sha": "old"}, "files": files}
+
+
 # Large enough that the small-change rule leaves the push to the rules after it.
 _LARGE_NET_FILES = [_net_file("posthog/billing.py", 40)]
 
@@ -82,7 +86,7 @@ def _push(
     return {
         "compare/master...old": _pr([_commit("a")], [_file("posthog/billing.py", _BILLING)]),
         f"compare/master...{head}": _pr(new_commits, pr_files),
-        f"compare/old...{head}": {"files": _LARGE_NET_FILES if net_files is None else net_files},
+        f"compare/old...{head}": _net_compare(_LARGE_NET_FILES if net_files is None else net_files),
         "commits/c": {"files": own_commit_files or []},
     }
 
@@ -497,6 +501,15 @@ def _small_push(head: str, net_files: list[dict[str, Any]]) -> dict[str, dict[st
             _small_push("new", [_net_file(f"posthog/module_{n}.py", 1) for n in range(300)]),
             (False, False, "system_one_above_threshold", None, 0),
         ),
+        # After a rebase the compare starts at the merge base, so its files are not the push's change.
+        (
+            "rebased_head_is_unknown",
+            {
+                **_small_push("new", []),
+                "compare/old...new": _net_compare([_net_file("posthog/billing.py", 3)], status="diverged"),
+            },
+            (False, False, "system_one_above_threshold", None, 0),
+        ),
         (
             "missing_count_is_unknown",
             _small_push("new", [{"filename": "posthog/billing.py"}]),
@@ -504,8 +517,8 @@ def _small_push(head: str, net_files: list[dict[str, Any]]) -> dict[str, dict[st
         ),
         (
             "no_code_lines_stays_docs_only",
-            {**_DOCS_PUSH, "compare/old...new": {"files": [_net_file("posthog/billing.py", 3)]}},
-            (False, True, "docs_only", None, None),
+            {**_DOCS_PUSH, "compare/old...new": _net_compare([_net_file("posthog/billing.py", 3)])},
+            (False, True, "docs_only", None, 0),
         ),
     ]
 )
@@ -562,3 +575,46 @@ def test_push_gate_reviews_a_small_push_when_redis_is_down() -> None:
         3,
         None,
     )
+
+
+@parameterized.expand(
+    [
+        # The shadow docs_only push runs the review, so the next small push starts a new streak.
+        (
+            "reviewed_docs_push_resets",
+            _push(
+                new_commits=[_commit("a"), _commit("c")],
+                pr_files=[_file("posthog/billing.py", _BILLING), _file("README.md")],
+                own_commit_files=[_file("README.md")],
+                head="n3",
+            ),
+            [("docs_only", 0), ("small_change", 1)],
+        ),
+        # A skipped push reviews nothing, so the streak stays and the next small push runs the review.
+        (
+            "skipped_merge_keeps_streak",
+            _push(
+                new_commits=[_commit("a"), _commit("m", merge=True)],
+                pr_files=[_file("posthog/billing.py", _BILLING_AFTER_MERGE)],
+                head="n3",
+            ),
+            [("merge_only", None), ("system_one_above_threshold", 0)],
+        ),
+    ]
+)
+def test_push_gate_small_change_streak_after_a_push_another_rule_decides(
+    _name: str, middle_push: dict[str, dict[str, Any] | None], expected_tail: list[tuple[str, int | None]]
+) -> None:
+    small = [_net_file("posthog/billing.py", 3)]
+    pushes = [
+        ("n1", _small_push("n1", small)),
+        ("n2", _small_push("n2", small)),
+        ("n3", middle_push),
+        ("n4", _small_push("n4", small)),
+    ]
+    outcomes = []
+    for head, responses in pushes:
+        decision = _decide(responses, _system_one(0.8), head=head)
+        outcomes.append((decision.reason, decision.small_change_deferrals))
+
+    assert outcomes == [("small_change", 1), ("small_change", 2), *expected_tail]
