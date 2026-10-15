@@ -261,7 +261,7 @@ class TestSync:
         )
 
         assert result.raised is None
-        assert result.rows == [
+        assert table_rows(result.items) == [
             {
                 "bill_payer_account_id": "012345678901",
                 "line_item_unblended_cost": 1.5,
@@ -278,6 +278,62 @@ class TestSync:
                 "line_item_usage_start_date": None,
                 "billing_period": MARCH,
             },
+        ]
+
+    def test_a_file_rewritten_after_its_manifest_stops_the_run_instead_of_mixing_deliveries(self) -> None:
+        key = f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.snappy.parquet"
+        manifest_written = "Wed, 06 Mar 2024 10:00:00 GMT"
+        result = SourceDriver(AwsCostAndUsageReportSource(), config()).run(
+            "cost_and_usage",
+            s3(
+                {f"{BASE}/data/": [listing(prefixes=[f"{BASE}/data/BILLING_PERIOD=2024-03/"])]},
+                {
+                    f"{BASE}/metadata/BILLING_PERIOD=2024-03/my-export-Manifest.json": ScriptedResponse(
+                        json={"dataFiles": [key]}, headers={"Last-Modified": manifest_written}
+                    ),
+                    # AWS overwrote the file after the manifest we read, as an "overwrite" export does.
+                    key: s3_error("PreconditionFailed", 412),
+                },
+            ),
+        )
+
+        download = next(request for request in result.requests if unquote(request.path).endswith(".parquet"))
+        assert download.headers["if-unmodified-since"] == manifest_written
+        assert str(result.raised).startswith("AWS Cost and Usage Report request failed: DeliveryInProgress")
+
+    def test_a_run_mixing_parquet_and_csv_periods_yields_arrow_tables_only(self) -> None:
+        march = f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.csv.gz"
+        april = f"{BASE}/data/BILLING_PERIOD=2024-04/my-export-00001.snappy.parquet"
+        result = SourceDriver(AwsCostAndUsageReportSource(), config()).run(
+            "cost_and_usage",
+            s3(
+                {
+                    f"{BASE}/data/": [
+                        listing(
+                            prefixes=[f"{BASE}/data/BILLING_PERIOD=2024-03/", f"{BASE}/data/BILLING_PERIOD=2024-04/"]
+                        )
+                    ]
+                },
+                {
+                    f"{BASE}/metadata/BILLING_PERIOD=2024-03/Manifest.json": ScriptedResponse(
+                        json={"dataFiles": [march], "columns": [{"name": "line_item_unblended_cost", "type": "double"}]}
+                    ),
+                    march: csv_gz_file("identity_line_item_id,line_item_unblended_cost\na,1.5\n"),
+                    f"{BASE}/metadata/BILLING_PERIOD=2024-04/Manifest.json": ScriptedResponse(
+                        json={"dataFiles": [april]}
+                    ),
+                    april: parquet_file([{"id": "b", "cost": 2.0, "tags": None}]),
+                },
+            ),
+        )
+
+        assert result.raised is None
+        assert all(isinstance(item, pa.Table) for item in result.items)
+        assert [
+            (row["identity_line_item_id"], row["line_item_unblended_cost"]) for row in table_rows(result.items)
+        ] == [
+            ("a", 1.5),
+            ("b", 2.0),
         ]
 
     def test_a_download_cut_off_mid_body_is_retried_for_that_file_only(self) -> None:

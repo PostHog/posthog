@@ -49,6 +49,7 @@ REQUEST_TIMEOUT_SECONDS = 120
 # headers. One file is retried on its own so a late failure does not restart the whole refresh.
 DOWNLOAD_ATTEMPTS = 3
 NO_MANIFEST = "NoManifest"
+DELIVERY_IN_PROGRESS = "DeliveryInProgress"
 BILLING_PERIOD_COLUMN = "billing_period"
 ERROR_PREFIX = "AWS Cost and Usage Report request failed"
 WRONG_REGION_CODES = frozenset(
@@ -83,6 +84,15 @@ class Delivery:
     keys: list[str]
     # Column name -> the type the export declares for it, lowercased.
     column_types: dict[str, str]
+    # When AWS wrote the manifest. An "overwrite" export rewrites its data files in place, so a
+    # file changed after this belongs to a newer delivery.
+    manifest_last_modified: Optional[str] = None
+
+
+@dataclasses.dataclass(frozen=True)
+class S3Body:
+    content: bytes
+    last_modified: Optional[str]
 
 
 @cache
@@ -170,15 +180,21 @@ class S3Client:
             url = f"{url}?{urlencode(sorted(query.items()), quote_via=quote, safe='~')}"
         return url
 
-    def _signed_headers(self, url: str) -> dict[str, str]:
-        aws_request = AWSRequest(method="GET", url=url)
+    def _signed_headers(self, url: str, extra_headers: Optional[dict[str, str]] = None) -> dict[str, str]:
+        aws_request = AWSRequest(method="GET", url=url, headers=dict(extra_headers or {}))
         S3SigV4Auth(self._credentials, S3_SIGNING_NAME, self._region).add_auth(aws_request)
         return dict(aws_request.headers.items())
 
-    def _get(self, session: requests.Session, url: str, stream: bool = False) -> requests.Response:
+    def _get(
+        self,
+        session: requests.Session,
+        url: str,
+        stream: bool = False,
+        extra_headers: Optional[dict[str, str]] = None,
+    ) -> requests.Response:
         response = session.get(
             url,
-            headers=self._signed_headers(url),
+            headers=self._signed_headers(url, extra_headers),
             timeout=REQUEST_TIMEOUT_SECONDS,
             stream=stream,
             allow_redirects=False,
@@ -208,21 +224,25 @@ class S3Client:
             if not token:
                 return S3ListPage(objects=objects, prefixes=prefixes, next_token=None)
 
-    def get_bytes(self, key: str) -> Optional[bytes]:
-        """The object body, or None when the key does not exist."""
+    def get_object(self, key: str) -> Optional[S3Body]:
+        """The object body and its `Last-Modified`, or None when the key does not exist."""
         try:
-            return self._get(self._session, self._url(key)).content
+            response = self._get(self._session, self._url(key))
+            return S3Body(content=response.content, last_modified=response.headers.get("Last-Modified"))
         except AwsCostAndUsageReportError as error:
             if error.code in ("NoSuchKey", "HTTP 404"):
                 return None
             raise
 
-    def download(self, key: str, destination: IO[bytes]) -> None:
+    def download(self, key: str, destination: IO[bytes], unmodified_since: Optional[str] = None) -> None:
+        conditions = {"If-Unmodified-Since": unmodified_since} if unmodified_since else None
         for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
             destination.seek(0)
             destination.truncate()
             try:
-                with self._get(self._download_session, self._url(key), stream=True) as response:
+                with self._get(
+                    self._download_session, self._url(key), stream=True, extra_headers=conditions
+                ) as response:
                     for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_BYTES):
                         destination.write(chunk)
                 break
@@ -308,17 +328,21 @@ def latest_delivery(client: S3Client, bucket: str, base: str, export_name: str, 
         f"{base}/metadata/{partition}/{export_name.strip('/')}-Manifest.json",
         f"{base}/metadata/{partition}/Manifest.json",
     ):
-        body = client.get_bytes(manifest_key)
+        manifest_object = client.get_object(manifest_key)
         reach_safe_point()
-        if body is None:
+        if manifest_object is None:
             continue
         try:
-            manifest = json.loads(body)
+            manifest = json.loads(manifest_object.content)
         except ValueError:
             continue
         keys = manifest_data_keys(manifest, bucket)
         if keys:
-            return Delivery(keys=keys, column_types=manifest_column_types(manifest))
+            return Delivery(
+                keys=keys,
+                column_types=manifest_column_types(manifest),
+                manifest_last_modified=manifest_object.last_modified,
+            )
     return None
 
 
@@ -385,6 +409,22 @@ def csv_converter(declared_type: str) -> Optional[Callable[[str], Any]]:
     return None
 
 
+def csv_arrow_type(declared_type: Optional[str]) -> pa.DataType:
+    """The Arrow type a CSV column lands as, matching what `csv_converter` produces for it."""
+    converter = csv_converter(declared_type) if declared_type else None
+    if converter is float:
+        return pa.float64()
+    if converter is int:
+        return pa.int64()
+    if converter is _parse_timestamp:
+        return pa.timestamp("us", tz="UTC")
+    if converter is dt.date.fromisoformat:
+        return pa.date32()
+    if converter is _parse_boolean:
+        return pa.bool_()
+    return pa.string()
+
+
 def convert_csv_rows(rows: list[dict[str, Any]], converters: dict[str, Callable[[str], Any]]) -> None:
     """Give CSV cells the types the export declares. Every cell arrives as text, so without this a
     cost column would land as a string. An empty or unreadable cell becomes null."""
@@ -402,11 +442,19 @@ def convert_csv_rows(rows: list[dict[str, Any]], converters: dict[str, Callable[
                 row[column] = None
 
 
-def iter_data_file(
-    client: S3Client, key: str, period: dt.date, column_types: dict[str, str]
-) -> Iterator[pa.Table | list[dict[str, Any]]]:
+def iter_data_file(client: S3Client, key: str, period: dt.date, delivery: Delivery) -> Iterator[pa.Table]:
+    """Yield the file's rows as Arrow tables, whatever its format, so one run never mixes item types."""
     with tempfile.NamedTemporaryFile(suffix=".download") as destination:
-        client.download(key, destination)
+        try:
+            client.download(key, destination, unmodified_since=delivery.manifest_last_modified)
+        except AwsCostAndUsageReportError as error:
+            if error.code != "PreconditionFailed":
+                raise
+            raise AwsCostAndUsageReportError(
+                f"{ERROR_PREFIX}: {DELIVERY_IN_PROGRESS} - AWS is rewriting billing period {period:%Y-%m}; "
+                "the next attempt reads its finished delivery",
+                DELIVERY_IN_PROGRESS,
+            ) from error
         if key.endswith(".parquet"):
             parquet_file = pq.ParquetFile(destination)
             for batch in parquet_file.iter_batches(batch_size=ROWS_PER_BATCH):
@@ -416,17 +464,28 @@ def iter_data_file(
             return
 
         period_start = dt.datetime(period.year, period.month, 1, tzinfo=dt.UTC)
+        declared = {normalize_column_name(name): kind for name, kind in delivery.column_types.items()}
         converters = {
-            normalize_column_name(name): converter
-            for name, declared_type in column_types.items()
-            if (converter := csv_converter(declared_type)) is not None
+            name: converter for name, kind in declared.items() if (converter := csv_converter(kind)) is not None
         }
         for rows in iter_file_rows(destination, resolve_file_format(key), key, chunk_size=ROWS_PER_BATCH):
+            if not rows:
+                continue
             convert_csv_rows(rows, converters)
             for row in rows:
                 row[BILLING_PERIOD_COLUMN] = period_start
-            if rows:
-                yield rows
+            schema = pa.schema(
+                [
+                    pa.field(
+                        name,
+                        pa.timestamp("us", tz="UTC")
+                        if name == BILLING_PERIOD_COLUMN
+                        else csv_arrow_type(declared.get(name)),
+                    )
+                    for name in rows[0]
+                ]
+            )
+            yield pa.Table.from_pylist(rows, schema=schema)
 
 
 def get_rows(
@@ -439,7 +498,7 @@ def get_rows(
     export_name: str,
     first_billing_period: Optional[str],
     logger: FilteringBoundLogger,
-) -> Iterator[pa.Table | list[dict[str, Any]]]:
+) -> Iterator[pa.Table]:
     client = S3Client(aws_access_key_id, aws_secret_access_key, aws_session_token, aws_region, bucket)
     base = export_base(prefix, export_name)
     periods = list_billing_periods(client, base, parse_billing_period(first_billing_period))
@@ -456,7 +515,7 @@ def get_rows(
         delivered += 1
         logger.debug(f"Reading billing period {period:%Y-%m} from {len(delivery.keys)} file(s)")
         for key in delivery.keys:
-            yield from iter_data_file(client, key, period, delivery.column_types)
+            yield from iter_data_file(client, key, period, delivery)
 
     if not delivered:
         raise AwsCostAndUsageReportError(

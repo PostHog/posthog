@@ -72,6 +72,10 @@ class AwsCostAndUsageReportSource(SimpleSource[AwsCostAndUsageReportSourceConfig
         )
         return errors
 
+    def get_retryable_errors(self) -> set[str]:
+        # An "overwrite" export is being rewritten; the next attempt reads the finished delivery.
+        return {f"{ERROR_PREFIX}: DeliveryInProgress"}
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_and_usage_report.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
