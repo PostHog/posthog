@@ -659,6 +659,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         task = Task.objects.get(id=response.json()["id"])
+        assert task.json_schema is not None
         assert task.json_schema["properties"] == {
             "report_id": {"type": "string", "maxLength": RESULT_STRING_CAP},
             "reproduced": {"type": "boolean", "description": "true only if a failing test reproduces the bug"},
