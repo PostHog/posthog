@@ -10,7 +10,12 @@ temporalio-heavy imports here, off the ``facade/api.py`` path.
 
 from products.logs.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.logs.backend.temporal.activities import CheckAlertsInput
-from products.logs.backend.temporal.alert_evaluate import SOURCE_EVALUATION_ACTIVITIES, SOURCE_EVALUATION_WORKFLOWS
+from products.logs.backend.temporal.alert_evaluate import (
+    PLATFORM_SIGNAL_ACTIVITIES,
+    PLATFORM_SIGNAL_WORKFLOWS,
+    SOURCE_EVALUATION_ACTIVITIES,
+    SOURCE_EVALUATION_WORKFLOWS,
+)
 from products.logs.backend.temporal.constants import SCHEDULE_CRON, SCHEDULE_ID, WORKFLOW_NAME
 from products.logs.backend.temporal.metrics import (
     LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS,
@@ -33,11 +38,13 @@ from products.logs.backend.temporal.volume_tick.metrics import (
     LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS,
     LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS,
 )
-from products.logs.backend.temporal.volume_tick.schedule import create_logs_volume_tick_schedule
+from products.logs.backend.temporal.volume_tick.schedule import disable_logs_volume_tick_schedule
 
 __all__ = [
     "ACTIVITIES",
     "WORKFLOWS",
+    "PLATFORM_SIGNAL_ACTIVITIES",
+    "PLATFORM_SIGNAL_WORKFLOWS",
     "SOURCE_EVALUATION_ACTIVITIES",
     "SOURCE_EVALUATION_WORKFLOWS",
     "CheckAlertsInput",
@@ -52,7 +59,7 @@ __all__ = [
     "LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS",
     "LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS",
     "VolumeTickInput",
-    "create_logs_volume_tick_schedule",
+    "disable_logs_volume_tick_schedule",
     "LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS",
     "LOGS_ALERTING_COUNT_HISTOGRAM_METRICS",
     "LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS",

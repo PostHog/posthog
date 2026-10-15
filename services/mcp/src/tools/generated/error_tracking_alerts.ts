@@ -144,7 +144,7 @@ const errorTrackingAlertsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/error_tracking')
+        return await withPostHogUrl(context, filtered, '/error-tracking')
     },
 })
 

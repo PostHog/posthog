@@ -1785,6 +1785,8 @@ export interface HogQLQueryModifiersApi {
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
     mergeFederatedAggregateJoins?: boolean | null
+    /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
+    negatedPersonFiltersNotIn?: boolean | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -6994,6 +6996,13 @@ export interface PathsV2ActorsQueryApi {
     version?: number | null
 }
 
+export type ExecutionTargetApi = (typeof ExecutionTargetApi)[keyof typeof ExecutionTargetApi]
+
+export const ExecutionTargetApi = {
+    Default: 'default',
+    ManagedTrino: 'managed_trino',
+} as const
+
 export interface HogQLFiltersApi {
     /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
     breakdownFilter?: BreakdownFilterApi | null
@@ -7090,6 +7099,8 @@ export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null
 export interface HogQLQueryApi {
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string | null
+    /** Compile and run this query against the hosted Trino target. */
+    executionTarget?: ExecutionTargetApi | null
     explain?: boolean | null
     /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
     filters?: HogQLFiltersApi | null
@@ -9481,6 +9492,7 @@ export interface BILocalFieldDefinition2Api {
     groups: BICategoryGroupApi[]
     kind?: 'groups'
     other: string
+    preserveUngrouped?: boolean | null
 }
 
 export interface BILocalFieldDefinition3Api {
@@ -9522,6 +9534,7 @@ export interface BIFieldApi {
     datePart?: DatePartApi | null
     expression: string
     id: string
+    label?: string | null
     localDefinition?: BILocalFieldDefinition1Api | BILocalFieldDefinition2Api | BILocalFieldDefinition3Api | null
     localFieldId?: string | null
     name: string
@@ -9556,6 +9569,7 @@ export interface BIFilterApi {
     customExpression?: string | null
     enabled?: boolean | null
     field: BIFieldApi
+    label?: string | null
     operator: BIFilterOperatorApi
     value: string
     valueTo?: string | null
@@ -9569,6 +9583,13 @@ export interface BIHierarchyApi {
     name: string
 }
 
+export interface HierarchyDrillPathItemApi {
+    filterIds: string[]
+    hierarchyId: string
+    nextField: BIFieldApi
+    previousField: BIFieldApi
+}
+
 export type BIQueryLimitApi = (typeof BIQueryLimitApi)[keyof typeof BIQueryLimitApi]
 
 export const BIQueryLimitApi = {
@@ -9577,6 +9598,16 @@ export const BIQueryLimitApi = {
     Number10000: 10000,
     Number50000: 50000,
 } as const
+
+export interface AliasApi {
+    label: string
+    value?: string | null
+}
+
+export interface MemberAliaseApi {
+    aliases: AliasApi[]
+    field: BIFieldApi
+}
 
 export type MissingDatesApi = (typeof MissingDatesApi)[keyof typeof MissingDatesApi]
 
@@ -9615,6 +9646,7 @@ export const Operator2Api = {
 export interface BIResultFilterApi {
     enabled?: boolean | null
     id: string
+    label?: string | null
     /** @minimum 0 */
     measureIndex: number
     operator: Operator2Api
@@ -9714,9 +9746,11 @@ export interface BIConfigApi {
     filters: BIFilterApi[]
     /** Named dimension sequences saved with the worksheet; imports are independent copies. */
     hierarchies?: BIHierarchyApi[] | null
+    hierarchyDrillPath?: HierarchyDrillPathItemApi[] | null
     limit: BIQueryLimitApi
     /** Reusable expressions owned by this worksheet only. */
     localFields?: BIFieldApi[] | null
+    memberAliases?: MemberAliaseApi[] | null
     /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
     missingDates?: MissingDatesApi | null
     resultFilterGroup?: BIConditionGroupApi | null

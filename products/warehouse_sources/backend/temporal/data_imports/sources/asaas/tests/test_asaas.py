@@ -23,8 +23,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asaas import AsaasSourceConfig
 
-_INCREMENTAL_ENDPOINTS = {"Payments", "Transfers"}
-_FULL_REFRESH_ENDPOINTS = {"Customers", "Subscriptions", "Installments"}
+_INCREMENTAL_ENDPOINTS = [
+    ("Payments", "dateCreated[ge]"),
+    ("Transfers", "dateCreated[ge]"),
+    ("FinancialTransactions", "startDate"),
+]
+_FULL_REFRESH_ENDPOINTS = {
+    "Customers",
+    "Subscriptions",
+    "Installments",
+    "ReceivedSplits",
+    "Invoices",
+    "PixTransactions",
+}
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.asaas.source.validate_asaas_credentials"
@@ -67,24 +78,24 @@ class TestFormatDateParam:
 
 
 class TestGetResource:
-    @parameterized.expand(sorted(_INCREMENTAL_ENDPOINTS))
-    def test_incremental_endpoint_adds_date_filter_when_requested(self, endpoint: str) -> None:
+    @parameterized.expand(_INCREMENTAL_ENDPOINTS)
+    def test_incremental_endpoint_adds_date_filter_when_requested(self, endpoint: str, date_param: str) -> None:
         resource = get_resource(endpoint, should_use_incremental_field=True)
 
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
         endpoint_config = cast(Endpoint, resource["endpoint"])
         params = endpoint_config["params"]
         assert params is not None
-        assert "dateCreated[ge]" in params
-        assert params["dateCreated[ge]"]["type"] == "incremental"
+        assert date_param in params
+        assert params[date_param]["type"] == "incremental"
 
-    @parameterized.expand(sorted(_INCREMENTAL_ENDPOINTS))
-    def test_incremental_endpoint_omits_filter_when_not_requested(self, endpoint: str) -> None:
+    @parameterized.expand(_INCREMENTAL_ENDPOINTS)
+    def test_incremental_endpoint_omits_filter_when_not_requested(self, endpoint: str, date_param: str) -> None:
         resource = get_resource(endpoint, should_use_incremental_field=False)
 
         assert resource["write_disposition"] == "replace"
         endpoint_config = cast(Endpoint, resource["endpoint"])
-        assert endpoint_config["params"] == {}
+        assert date_param not in (endpoint_config["params"] or {})
 
     @parameterized.expand(sorted(_FULL_REFRESH_ENDPOINTS))
     def test_full_refresh_endpoint_never_adds_date_filter(self, endpoint: str) -> None:
@@ -170,18 +181,40 @@ class TestAsaasSource:
         assert (is_valid, error_message) == (expected_valid, expected_message)
         mock_validate.assert_called_once_with("test-key", "production")
 
-    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+    @parameterized.expand(
+        [
+            ("Payments", "/v3/payments", {"dateCreated[ge]": "2026-01-01"}),
+            ("FinancialTransactions", "/v3/financialTransactions", {"startDate": "2026-01-01", "order": "asc"}),
+        ]
+    )
+    def test_source_for_pipeline_plumbs_arguments(
+        self, endpoint: str, expected_path: str, expected_params: dict[str, str]
+    ) -> None:
         result = _driver().run(
-            "Payments",
-            [_page([{"id": "payment-1", "dateCreated": "2026-01-01"}], 1)],
+            endpoint,
+            [_page([{"id": "row-1", "dateCreated": "2026-01-01", "date": "2026-01-01"}], 1)],
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-01-01",
         )
 
         assert result.raised is None
-        assert result.paths == ["/v3/payments"]
+        assert result.paths == [expected_path]
         assert result.requests[0].headers["access_token"] == "test-key"
-        assert result.requests[0].param("dateCreated[ge]") == "2026-01-01"
+        for name, value in expected_params.items():
+            assert result.requests[0].param(name) == value
+
+    @parameterized.expand(
+        [
+            ("ReceivedSplits", "/v3/payments/splits/received"),
+            ("Invoices", "/v3/invoices"),
+            ("PixTransactions", "/v3/pix/transactions"),
+        ]
+    )
+    def test_full_refresh_endpoint_requests_vendor_path(self, endpoint: str, expected_path: str) -> None:
+        result = _driver().run(endpoint, [_page([{"id": "row-1"}], 1)])
+
+        assert result.raised is None
+        assert result.paths == [expected_path]
 
     def test_source_for_pipeline_omits_cursor_when_not_incremental(self) -> None:
         inputs = mock.MagicMock()

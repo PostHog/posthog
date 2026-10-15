@@ -178,16 +178,18 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
             ],
         })),
         actions({ revalidateCachedStatus: true }),
-        loaders({
+        loaders(({ cache }) => ({
             detectedStatus: {
                 __default: null as ProductSetupStatus | null,
                 detectStatus: async (_: void, breakpoint: BreakPointFunction): Promise<ProductSetupStatus | null> => {
-                    const status = await detectOrNullOnOutage(detect)
+                    const status = await detectOrNullOnOutageOrForbidden(detect, () =>
+                        cache.disposables.dispose('poll')
+                    )
                     breakpoint()
                     return status
                 },
             },
-        }),
+        })),
         listeners(({ actions, values, cache }) => ({
             ...Object.fromEntries(
                 (recheckActionTypes?.() ?? []).map((actionType) => [
@@ -270,14 +272,20 @@ async function detectOrNull(detect: () => Promise<ProductSetupStatus | null>): P
     }
 }
 
-// A 5xx or a dropped connection says nothing about setup, and the gate treats null as "cannot
-// answer". Throwing would file one error tracking issue per product for each backend blip.
-async function detectOrNullOnOutage(
-    detect: () => Promise<ProductSetupStatus | null>
+// A 5xx, a dropped connection or a 403 says nothing about setup, and the gate treats null as
+// "cannot answer". Throwing would file one error tracking issue per product for each failure.
+// A 403 does not clear on retry, so it also stops the poll.
+async function detectOrNullOnOutageOrForbidden(
+    detect: () => Promise<ProductSetupStatus | null>,
+    onForbidden: () => void
 ): Promise<ProductSetupStatus | null> {
     try {
         return await detect()
     } catch (error) {
+        if (error instanceof ApiError && error.status === 403) {
+            onForbidden()
+            return null
+        }
         if (
             (error instanceof ApiError && error.status !== undefined && error.status >= 500) ||
             isBrowserNetworkFailure(error)

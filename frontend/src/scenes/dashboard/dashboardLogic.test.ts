@@ -3228,50 +3228,64 @@ describe('dashboardLogic', () => {
                     })
             })
 
-            it('keeps tile data and marks the tile errored when a refresh terminates in a rejection stub', async () => {
-                const dashboard = dashboards[5]
-                const insight1 = dashboard.tiles[0].insight!
-                const insight2 = dashboard.tiles[1].insight!
-                const resultsBeforeRefresh = logic.values.insightTiles.map((t) => t.insight!.result)
-                expect(resultsBeforeRefresh.every((r) => r != null)).toBe(true)
+            it.each([
+                ['rate_limited', 'Queries are a little too busy right now.', 429],
+                ['table_access_denied', "You don't have access to table `events`.", 400],
+                [null, "'NoneType' object has no attribute 'get'", null],
+            ])(
+                'keeps tile data and marks the tile errored when a refresh terminates in a %s rejection stub',
+                async (errorCode, errorMessage, expectedStatus) => {
+                    const dashboard = dashboards[5]
+                    const insight1 = dashboard.tiles[0].insight!
+                    const insight2 = dashboard.tiles[1].insight!
+                    const resultsBeforeRefresh = logic.values.insightTiles.map((t) => t.insight!.result)
+                    expect(resultsBeforeRefresh.every((r) => r != null)).toBe(true)
 
-                // What getInsightWithRetry resolves to when the app-level concurrency limiter (or a
-                // server-side calculation error) rejects every attempt: an insight-shaped payload with
-                // no result and an errored query_status
-                const getInsightWithRetrySpy = jest
-                    .spyOn(dashboardUtils, 'getInsightWithRetry')
-                    .mockImplementation(async (_teamId, insight) => ({
-                        ...insight,
-                        result: null,
-                        query_status: {
-                            id: 'rejected-query',
-                            team_id: 2,
-                            query_async: true,
-                            complete: false,
-                            error: true,
-                            error_code: 'rate_limited',
-                            error_message: 'Queries are a little too busy right now.',
-                        },
-                    }))
+                    // What getInsightWithRetry resolves to when the app-level concurrency limiter (or a
+                    // server-side calculation error) rejects every attempt: an insight-shaped payload with
+                    // no result and an errored query_status
+                    const getInsightWithRetrySpy = jest
+                        .spyOn(dashboardUtils, 'getInsightWithRetry')
+                        .mockImplementation(async (_teamId, insight) => ({
+                            ...insight,
+                            result: null,
+                            query_status: {
+                                id: 'rejected-query',
+                                team_id: 2,
+                                query_async: true,
+                                complete: false,
+                                error: true,
+                                error_code: errorCode,
+                                error_message: errorMessage,
+                            },
+                        }))
 
-                try {
-                    await expectLogic(logic, () => {
-                        logic.actions.triggerDashboardRefresh()
-                    }).toFinishAllListeners()
+                    try {
+                        await expectLogic(logic, () => {
+                            logic.actions.triggerDashboardRefresh()
+                        }).toFinishAllListeners()
 
-                    // The stub must not be committed as a successful refresh: tiles keep their data
-                    expect(logic.values.insightTiles.map((t) => t.insight!.result)).toEqual(resultsBeforeRefresh)
-                    // and surface an error state instead of rendering the null result as an empty insight
-                    expect(logic.values.refreshStatus[insight1.short_id]).toEqual(
-                        expect.objectContaining({ errored: true })
-                    )
-                    expect(logic.values.refreshStatus[insight2.short_id]).toEqual(
-                        expect.objectContaining({ errored: true })
-                    )
-                } finally {
-                    getInsightWithRetrySpy.mockRestore()
+                        // The stub must not be committed as a successful refresh: tiles keep their data
+                        expect(logic.values.insightTiles.map((t) => t.insight!.result)).toEqual(resultsBeforeRefresh)
+                        // and surface an error state instead of rendering the null result as an empty insight
+                        for (const shortId of [insight1.short_id, insight2.short_id]) {
+                            const status = logic.values.refreshStatus[shortId]
+                            expect(status?.errored).toBe(true)
+                            expect(status?.error).toEqual(
+                                expectedStatus === null
+                                    ? undefined
+                                    : expect.objectContaining({
+                                          status: expectedStatus,
+                                          detail: errorMessage,
+                                          code: errorCode,
+                                      })
+                            )
+                        }
+                    } finally {
+                        getInsightWithRetrySpy.mockRestore()
+                    }
                 }
-            })
+            )
 
             it('pins the "X out of Y" denominator when a tile aborts mid-cycle and keeps siblings tracked', async () => {
                 const dashboard = dashboards[5]

@@ -18,16 +18,14 @@ from parameterized import parameterized
 from rest_framework import status, test
 
 from posthog.api.project import ProjectBackwardCompatSerializer, log_activity
-from posthog.api.team import (
+from posthog.api.team.conversations_settings import handle_conversations_token_on_update, merge_conversations_settings
+from posthog.api.team.live_events import _default_data_color_theme_id, _reset_default_data_color_theme_id_cache
+from posthog.api.team.team_config import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
-    TeamSerializer,
     TeamWorkflowsConfigSerializer,
-    _default_data_color_theme_id,
-    _reset_default_data_color_theme_id_cache,
-    handle_conversations_token_on_update,
-    merge_conversations_settings,
 )
+from posthog.api.team.team_serializer import TeamSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -58,6 +56,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.team_home_tab_dashboard_config import TeamHomeTabDashboardConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.feature_flags.backend.test import replay_gate_fixtures
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
@@ -1426,6 +1425,37 @@ def team_api_test_factory():
 
         @parameterized.expand(
             [
+                (
+                    "environments",
+                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
+                    None,
+                    {"useNewEventsSchema": True},
+                ),
+                (
+                    "projects",
+                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
+                    None,
+                    {"useNewEventsSchema": True},
+                ),
+                ("environments", True, None, None),
+                ("projects", ["useNewEventsSchema"], None, None),
+                ("environments", True, {"bounceRateDurationSeconds": 30}, {"bounceRateDurationSeconds": 30}),
+            ]
+        )
+        def test_patching_modifiers_over_a_stored_value(
+            self, prefix: str, stored: object, patched: dict | None, expected: dict | None
+        ) -> None:
+            self.team.modifiers = stored
+            self.team.save()
+
+            response = self.client.patch(f"/api/{prefix}/{self.team.id}", {"modifiers": patched}, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            self.team.refresh_from_db()
+            assert self.team.modifiers == expected
+
+        @parameterized.expand(
+            [
                 (1, True),
                 (-1, False),
                 (60, True),
@@ -1565,7 +1595,7 @@ def team_api_test_factory():
                 team=self.team,
             )
 
-        @patch("posthog.api.team.enqueue_product_activation_calc_debounced", MagicMock())
+        @patch("posthog.api.team.team_serializer.enqueue_product_activation_calc_debounced", MagicMock())
         @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation", return_value=False)
         @patch("posthog.event_usage.report_user_action")
         @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
@@ -1635,7 +1665,7 @@ def team_api_test_factory():
             assert self.team.session_recording_opt_in is True
 
         @patch("posthog.api.project.report_user_action")
-        @patch("posthog.api.team.report_user_action")
+        @patch("posthog.api.team.viewsets.report_user_action")
         def test_can_complete_product_onboarding(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
@@ -1670,7 +1700,7 @@ def team_api_test_factory():
             )
 
         @patch("posthog.api.project.report_user_action")
-        @patch("posthog.api.team.report_user_action")
+        @patch("posthog.api.team.viewsets.report_user_action")
         def test_can_complete_product_onboarding_as_member(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
@@ -2064,7 +2094,7 @@ def team_api_test_factory():
             assert response.json()["conversations_settings"]["widget_color"] == "#ff0000"
 
         def test_conversations_settings_change_reports_event_per_setting(self):
-            with patch("posthog.api.team.report_user_action") as mock_report:
+            with patch("posthog.api.team.conversations_settings.report_user_action") as mock_report:
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"conversations_settings": {"slack_nudge_enabled": False, "widget_greeting_text": "Hi!"}},
@@ -2081,7 +2111,7 @@ def team_api_test_factory():
                 assert "value" not in props_by_setting["widget_greeting_text"]
 
             # A no-op save (same values) must not re-fire the event.
-            with patch("posthog.api.team.report_user_action") as mock_report:
+            with patch("posthog.api.team.conversations_settings.report_user_action") as mock_report:
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"conversations_settings": {"slack_nudge_enabled": False}},
@@ -3814,7 +3844,7 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
     def test_default_data_color_theme_id_is_cached_for_process_lifetime(self):
         # System-wide default DataColorTheme is a deploy-time fixture; cache for
         # process lifetime to skip a per-render PG round-trip on the home view.
-        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+        with patch("posthog.api.team.live_events.DataColorTheme.objects") as mock_objects:
             chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
             chained.first.return_value = 42
 
@@ -3828,7 +3858,7 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
         # If the very first call lands before the data migration is applied, a
         # None must NOT be cached - subsequent calls should retry so we recover
         # automatically once the row appears.
-        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+        with patch("posthog.api.team.live_events.DataColorTheme.objects") as mock_objects:
             chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
             chained.first.return_value = None
 
@@ -3837,7 +3867,7 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
 
         assert mock_objects.filter.call_count == 2
 
-        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+        with patch("posthog.api.team.live_events.DataColorTheme.objects") as mock_objects:
             chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
             chained.first.return_value = 7
 
@@ -3859,7 +3889,7 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         ]
     )
     def test_returns_a_signed_jwt_with_expected_claims(self, _name: str, anonymous: bool) -> None:
-        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.api.team.live_events import get_or_mint_live_events_token
         from posthog.jwt import PosthogJwtAudience, decode_jwt
 
         user_id = None if anonymous else self.user.id
@@ -3877,11 +3907,11 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         ]
     )
     def test_second_call_returns_cached_token_without_re_signing(self, _name: str, anonymous: bool) -> None:
-        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.api.team.live_events import get_or_mint_live_events_token
 
         user_id = None if anonymous else self.user.id
         first = get_or_mint_live_events_token(self.team, user_id)
-        with patch("posthog.api.team.encode_jwt") as mock_encode:
+        with patch("posthog.api.team.live_events.encode_jwt") as mock_encode:
             second = get_or_mint_live_events_token(self.team, user_id)
         mock_encode.assert_not_called()
         assert first == second
@@ -3899,7 +3929,7 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         ]
     )
     def test_cache_key_component_changes_force_a_fresh_mint(self, _name: str, mutation_factory) -> None:
-        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.api.team.live_events import get_or_mint_live_events_token
 
         mutation = mutation_factory(self)
         first_user_id = mutation.get("first_user_id", self.user.id)
@@ -3917,7 +3947,7 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         # the livestream service would reject the cached old-key signatures for up
         # to the cache TTL. We embed a fingerprint of JWT_SIGNING_KEY in the cache key so
         # the namespace partitions cleanly on rotation.
-        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.api.team.live_events import get_or_mint_live_events_token
 
         token_old_key = get_or_mint_live_events_token(self.team, self.user.id)
         with override_settings(JWT_SIGNING_KEY="completely-different-rotated-secret"):
@@ -4236,7 +4266,9 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
             "conversations_settings": merge_conversations_settings(None, current),
         }
 
-        with patch("posthog.api.team.secrets.token_urlsafe", return_value="test-generated-token"):
+        with patch(
+            "posthog.api.team.conversations_settings.secrets.token_urlsafe", return_value="test-generated-token"
+        ):
             result = handle_conversations_token_on_update(updates, not enabling, current)
 
         token = ("test-existing-token" if has_token else "test-generated-token") if enabling else None
@@ -4254,7 +4286,9 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         if settings_input != "omitted":
             updates["conversations_settings"] = None if settings_input == "null" else {}
 
-        with patch("posthog.api.team.secrets.token_urlsafe", return_value="test-generated-token"):
+        with patch(
+            "posthog.api.team.conversations_settings.secrets.token_urlsafe", return_value="test-generated-token"
+        ):
             result = handle_conversations_token_on_update(updates, not enabling, current_settings)
 
         expected: dict[str, str | None] = dict(current_settings) if settings_input == "omitted" else {}
@@ -4289,7 +4323,7 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         team = Team(id=1)
         serializer = serializer_class(context={"request": request})
 
-        with patch("posthog.api.team.get_or_mint_live_events_token", return_value="test-live-token"):
+        with patch("posthog.api.team.live_events.get_or_mint_live_events_token", return_value="test-live-token"):
             if isinstance(serializer, TeamSerializer):
                 token = serializer.get_live_events_token(team)
             else:
@@ -4436,6 +4470,43 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
     def test_valid_session_recording_linked_flag(self, _name: str, value: dict | None, expected: dict | None) -> None:
         assert TeamSerializer.validate_session_recording_linked_flag(value) == expected
         assert ProjectBackwardCompatSerializer.validate_session_recording_linked_flag(value) == expected
+
+    @staticmethod
+    def _trigger_groups_gated_on(flag: Any) -> dict:
+        return {
+            **replay_gate_fixtures.trigger_groups({"events": ["$pageview"], "flag": flag}),
+            "fallbackSampleRate": 0.1,
+        }
+
+    @parameterized.expand(
+        [
+            ["non-numeric string id", "abc"],
+            ["null id", None],
+        ]
+    )
+    def test_invalid_session_recording_trigger_groups_flag_id(self, _name: str, flag_id: Any) -> None:
+        self._assert_field_error(
+            "session_recording_trigger_groups",
+            self._trigger_groups_gated_on({"id": flag_id, "key": "flag-key"}),
+            "invalid",
+            "Group 0: flag 'id' must be an integer.",
+        )
+
+    @parameterized.expand(
+        [
+            ["integer id", {"id": 123, "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
+            [
+                "numeric string id with variant",
+                {"id": "123", "key": "flag-key", "variant": "test"},
+                {"id": 123, "key": "flag-key", "variant": "test"},
+            ],
+        ]
+    )
+    def test_valid_session_recording_trigger_groups_flag_id(self, _name: str, flag: dict, expected: dict) -> None:
+        value = self._trigger_groups_gated_on(flag)
+        expected_groups = self._trigger_groups_gated_on(expected)
+        assert TeamSerializer.validate_session_recording_trigger_groups(value) == expected_groups
+        assert ProjectBackwardCompatSerializer.validate_session_recording_trigger_groups(value) == expected_groups
 
     @parameterized.expand(
         [
