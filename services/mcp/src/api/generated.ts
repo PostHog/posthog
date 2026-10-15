@@ -10855,6 +10855,7 @@ export namespace Schemas {
       groups: BICategoryGroup[];
       kind?: 'groups';
       other: string;
+      preserveUngrouped?: boolean | null;
     }
 
     export interface BILocalFieldDefinition3 {
@@ -10933,6 +10934,7 @@ export namespace Schemas {
       customExpression?: string | null;
       enabled?: boolean | null;
       field: BIField;
+      label?: string | null;
       operator: BIFilterOperator;
       value: string;
       valueTo?: string | null;
@@ -10946,6 +10948,13 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface HierarchyDrillPathItem {
+      filterIds: string[];
+      hierarchyId: string;
+      nextField: BIField;
+      previousField: BIField;
+    }
+
     export type BIQueryLimit = typeof BIQueryLimit[keyof typeof BIQueryLimit];
 
 
@@ -10955,6 +10964,16 @@ export namespace Schemas {
       Number10000: 10000,
       Number50000: 50000,
     } as const;
+
+    export interface Alias {
+      label: string;
+      value?: string | null;
+    }
+
+    export interface MemberAliase {
+      aliases: Alias[];
+      field: BIField;
+    }
 
     export type MissingDates = typeof MissingDates[keyof typeof MissingDates];
 
@@ -10996,6 +11015,7 @@ export namespace Schemas {
     export interface BIResultFilter {
       enabled?: boolean | null;
       id: string;
+      label?: string | null;
       /** @minimum 0 */
       measureIndex: number;
       operator: Operator2;
@@ -11099,9 +11119,11 @@ export namespace Schemas {
       filters: BIFilter[];
       /** Named dimension sequences saved with the worksheet; imports are independent copies. */
       hierarchies?: BIHierarchy[] | null;
+      hierarchyDrillPath?: HierarchyDrillPathItem[] | null;
       limit: BIQueryLimit;
       /** Reusable expressions owned by this worksheet only. */
       localFields?: BIField[] | null;
+      memberAliases?: MemberAliase[] | null;
       /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
       missingDates?: MissingDates | null;
       resultFilterGroup?: BIConditionGroup | null;
