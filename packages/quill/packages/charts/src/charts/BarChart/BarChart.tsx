@@ -49,6 +49,8 @@ export interface BarChartProps<Meta = unknown> {
     theme: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** See `ChartProps.isPointClickable`. */
+    isPointClickable?: (dataIndex: number) => boolean
     /** Enables x-axis drag-to-zoom. Vertical bars only — horizontal bars interact along y,
      *  where the gesture is disabled by the core. See `ChartProps.onDateRangeZoom`. */
     onDateRangeZoom?: (data: DateRangeZoomData) => void
@@ -74,6 +76,7 @@ function BarChartInner<Meta = unknown>({
     theme,
     tooltip,
     onPointClick,
+    isPointClickable,
     onDateRangeZoom,
     className,
     dataAttr,
@@ -108,7 +111,8 @@ function BarChartInner<Meta = unknown>({
         fillStyle: barFillStyle = 'flat',
     } = config?.bars ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
-    const barTrack = trackConfig !== false
+    const solidTrack = trackConfig === 'solid'
+    const barTrack = trackConfig !== false && !solidTrack
     const barTrackHover = trackConfig === true || (typeof trackConfig === 'object' && trackConfig.hover !== false)
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
@@ -288,6 +292,7 @@ function BarChartInner<Meta = unknown>({
                 roundStackEnds,
                 barCornerRadius,
                 barTrack,
+                solidTrack,
                 barShadow,
                 barFillStyle,
                 minBarSizeScope,
@@ -302,6 +307,7 @@ function BarChartInner<Meta = unknown>({
             roundStackEnds,
             barCornerRadius,
             barTrack,
+            solidTrack,
             xTickFormatter,
             barShadow,
             barFillStyle,
@@ -444,6 +450,7 @@ function BarChartInner<Meta = unknown>({
                 />
             )}
             onPointClick={onPointClick}
+            isPointClickable={isPointClickable}
             onDateRangeZoom={onDateRangeZoom}
             wrapClickData={onPointClick ? wrapClickData : undefined}
             resolveHoverIndex={seriesHasTrackCeiling ? resolveHoverIndex : undefined}

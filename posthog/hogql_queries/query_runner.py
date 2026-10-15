@@ -126,6 +126,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -185,6 +186,7 @@ from posthog.hogql_queries.validation.validation import (
     run_validation_rules,
 )
 from posthog.models import Team, User
+from posthog.models.event.new_events_schema import get_new_events_cluster_host, new_events_cluster_host_scope
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -2317,6 +2319,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
             return query_result, query_duration_ms
 
+    @new_events_cluster_host_scope()
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -2327,6 +2330,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cache_age_seconds: Optional[int] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
+        if self.modifiers.useNewEventsCluster:
+            if not isinstance(self.query, HogQLQuery):
+                raise ExposedHogQLError("Native cluster comparisons currently support HogQLQuery only.")
+            if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
+                raise ExposedHogQLError("Native cluster comparisons require refresh=force_blocking and async=false.")
+
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in
         # __init__; let them refresh it now that we know the real user. Only on an
@@ -3091,7 +3100,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # note: to_dict already strips custom_name from series (see schema_helpers.py)
         query = to_dict(self.query)
         query.pop("tags", None)
-
         payload = {
             "query_runner": self.__class__.__name__,
             "query": query,
@@ -3103,6 +3111,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
             "version": 2,
         }
+        if self.modifiers.useNewEventsCluster:
+            payload["native_events_host"] = get_new_events_cluster_host()
 
         # Include property-level access control restrictions in the cache key so that
         # users with different property restrictions get separate cache entries.
@@ -3414,6 +3424,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """Apply an opaque cursor for paginating through results. Override in subclasses."""
         pass
 
+    def _accepts_dashboard_compare_filter(self) -> bool:
+        """Override to keep a dashboard-level compareFilter off displays that cannot render a comparison."""
+        return True
+
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversibly update self.query with provided dashboard filters."""
         if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):
@@ -3493,6 +3507,25 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if dashboard_filter.filterTestAccounts is not None and hasattr(self.query, "filterTestAccounts"):
             self.query.filterTestAccounts = dashboard_filter.filterTestAccounts
+
+        if (
+            dashboard_filter.compareFilter is not None
+            and hasattr(self.query, "compareFilter")
+            and self._accepts_dashboard_compare_filter()
+        ):
+            self.query.compareFilter = dashboard_filter.compareFilter
+
+        if (
+            hasattr(self.query, "compareFilter")
+            and self.query.compareFilter is not None
+            and self.query.compareFilter.compare
+            and self.query.dateRange is not None
+            and self.query.dateRange.date_from == "all"
+        ):
+            # "All time" has no earlier period to compare against, so no query kind should run a
+            # previous-period comparison once the resolved range is "all" - regardless of whether
+            # `compare` was already set before this call or just arrived via `dashboard_filter`.
+            self.query.compareFilter = self.query.compareFilter.model_copy(update={"compare": False})
 
         self.__post_init__()
 

@@ -157,8 +157,12 @@ def get_or_create_saved_insight(
     description: str | None,
     query: dict[str, object] | None,
     revive_deleted: bool = True,
+    saved: bool = True,
 ) -> tuple[int, bool]:
-    """Create a saved insight, optionally restoring a soft-deleted short-ID collision."""
+    """Create an insight, optionally restoring a soft-deleted short-ID collision.
+
+    `saved=False` keeps the insight out of the saved insights list, for an insight that only a hidden dashboard shows.
+    """
     return logic.get_or_create_saved_insight(
         team_id=team_id,
         user_id=user_id,
@@ -167,6 +171,7 @@ def get_or_create_saved_insight(
         description=description,
         query=query,
         revive_deleted=revive_deleted,
+        saved=saved,
     )
 
 

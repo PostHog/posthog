@@ -59,7 +59,12 @@ from posthog.errors import (
     look_up_clickhouse_error_code_meta,
 )
 from posthog.event_usage import EventSource
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    TRANSIENT_QUERY_ERROR_CODES,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+    QueryRanConcurrently,
+)
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -488,7 +493,19 @@ class AssistantQueryExecutor:
 
                 # Check for query execution errors before using results
                 if query_status.get("error"):
+                    if query_status.get("error_code") in TRANSIENT_QUERY_ERROR_CODES:
+                        raise MaxToolTransientError(
+                            query_status.get("error_message") or "The query service was too busy to run this query.",
+                            error_type=(
+                                "api_5xx"
+                                if query_status.get("error_code") == QueryRanConcurrently.default_code
+                                else "rate_limited"
+                            ),
+                        )
                     error_code = query_status.get("error_code")
+                    cached_error_type: MaxToolErrorType = (
+                        "memory_limit" if error_code == ClickHouseQueryMemoryLimitExceeded.default_code else "internal"
+                    )
                     error_code = (
                         error_code.lower() if error_code and internal_ch_error_user_message(error_code) else None
                     )
@@ -496,7 +513,7 @@ class AssistantQueryExecutor:
                         raise MaxToolRetryableError(rejection, error_type="validation", error_code=error_code)
                     if error_message := query_status.get("error_message") or internal_ch_error_user_message(error_code):
                         # Async status loses the exception type, so keep retry advice without guessing its category.
-                        raise MaxToolRetryableError(error_message, error_type="internal", error_code=error_code)
+                        raise MaxToolRetryableError(error_message, error_type=cached_error_type, error_code=error_code)
                     raise Exception("Query failed")
 
                 # Use the completed query results
@@ -508,7 +525,7 @@ class AssistantQueryExecutor:
             raise MaxToolAccessDeniedError(err.resource, err.required_level) from err
         except (PermissionDenied, TableAccessDeniedError) as err:
             raise MaxToolFatalError(str(err), error_type="permission") from err
-        except (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded) as err:
+        except (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded, QueryRanConcurrently) as err:
             error_type: MaxToolErrorType = (
                 "rate_limited" if classify_query_error(err) == QueryErrorCategory.RATE_LIMITED else "api_5xx"
             )
@@ -628,7 +645,12 @@ class AssistantQueryExecutor:
                 else:
                     formatter_name = "TrendsResultsFormatter"
                     result = TrendsResultsFormatter(
-                        query, response["results"], self._team, self._utc_now_datetime
+                        query,
+                        response["results"],
+                        self._team,
+                        self._utc_now_datetime,
+                        resolved_date_range=response.get("resolved_date_range"),
+                        resolved_compare_date_range=response.get("resolved_compare_date_range"),
                     ).format()
             elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
                 formatter_name = "FunnelResultsFormatter"

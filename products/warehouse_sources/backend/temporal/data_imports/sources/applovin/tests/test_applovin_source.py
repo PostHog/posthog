@@ -1,18 +1,19 @@
 from typing import Optional
 
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.source import AppLovinSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.applovin import (
     AppLovinSourceConfig,
 )
-
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.applovin.source"
 
 
 class TestAppLovinSource:
@@ -34,21 +35,23 @@ class TestAppLovinSource:
             (False, False, "Invalid AppLovin Report Key"),
         ],
     )
-    @mock.patch(f"{_SOURCE_MODULE}.validate_applovin_credentials")
     def test_validate_credentials(
         self,
-        mock_validate: mock.MagicMock,
         probe_result: bool,
         expected_valid: bool,
         expected_message: Optional[str],
     ) -> None:
-        mock_validate.return_value = probe_result
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+        responses = (
+            [ScriptedResponse(json={"code": 200, "results": []})]
+            if probe_result
+            else [ScriptedResponse(status=403)] * 2
+        )
+        with scripted_network(responses) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("report-key")
+        assert [request.param("api_key") for request in network.requests_log] == ["report-key"] * len(responses)
 
 
 class TestAppLovinCanonicalDescriptions:

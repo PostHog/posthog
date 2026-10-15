@@ -28,7 +28,7 @@ import type {
     TrendsQuery,
     TrendsResult,
 } from './types'
-import { insightQueryProperties } from './utils'
+import { insightQueryProperties, toTableResult } from './utils'
 
 /** Data payload from MCP tools */
 interface DataPayload {
@@ -50,6 +50,8 @@ interface DataPayload {
         | HogQLResult
     /** Saved insight from `insight-query`; its `query` keeps the wrapper node that `query` drops */
     insight?: { query?: unknown }
+    /** Column names for table-shaped results such as `WebStatsTableQuery` */
+    columns?: string[]
     _posthogUrl?: string
 }
 
@@ -141,7 +143,7 @@ export function Component({ data }: ComponentProps): ReactElement {
                 return <PathsVisualizer results={payload.results as PathsResult} />
 
             case 'table':
-                return <TableVisualizer results={payload.results as HogQLResult} />
+                return <TableVisualizer results={toTableResult(payload.query, payload.results, payload.columns)} />
 
             default:
                 return <div className="text-muted-foreground">Unknown visualization type: {visualizationType}</div>

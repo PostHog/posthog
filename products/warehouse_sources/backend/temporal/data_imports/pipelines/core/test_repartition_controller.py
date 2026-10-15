@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     save_repartition_checkpoint_if_claimed,
+    save_repartition_swap_phase_if_claimed,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
@@ -1016,6 +1017,30 @@ class TestRepartitionActivity:
         assert wrote is True
         rewrite = schema.repartition_rewrite
         assert rewrite is not None and rewrite["rows_written"] == 5
+
+    @pytest.mark.parametrize(
+        "claim_token, temp_uri, saved",
+        [
+            pytest.param("live-claim", "s3://b/t__repartitioned_aa", True, id="own_claim_own_temp"),
+            # A stale worker that saved here would let its resume trust the wrong copy of the table.
+            pytest.param("stale-claim", "s3://b/t__repartitioned_aa", False, id="superseded_claim"),
+            pytest.param("live-claim", "s3://b/t__repartitioned_bb", False, id="swap_of_another_attempt"),
+        ],
+    )
+    def test_a_swap_phase_is_recorded_only_by_the_claimant_on_its_own_swap(self, team, claim_token, temp_uri, saved):
+        marker = {"state": "ready", "temp_uri": "s3://b/t__repartitioned_aa", "live_uri": "s3://b/t"}
+        schema = _make_schema(team, {"repartition_swap": dict(marker)})
+        schema.set_repartition_claim({"token": "live-claim", "job_id": "j1", "claimed_at": _days_ago_iso(0)})
+
+        wrote = save_repartition_swap_phase_if_claimed(
+            schema, claim_token=claim_token, temp_uri=temp_uri, phase="switch_log"
+        )
+
+        schema.refresh_from_db()
+        assert wrote is saved
+        assert schema.repartition_swap == ({**marker, "phase": "switch_log"} if saved else marker)
+        claim = schema.repartition_claim
+        assert claim is not None and claim["token"] == "live-claim"
 
     def test_the_checkpoint_claim_check_runs_inside_the_row_lock(self, team):
         # The predicate tests below pass against a plain refresh-then-write, which is the bug: the

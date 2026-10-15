@@ -95,6 +95,8 @@ export interface CatalogItem {
     /** The source kind passed to the new-source URL (e.g. "Stripe", or "aws" for self-managed). */
     name: string
     label: string
+    /** One line under the label, for entries whose name alone doesn't say what they do. */
+    description?: string
     iconType: string
     iconClassName?: string
     category: DataWarehouseSourceCategoryApi
@@ -110,19 +112,33 @@ export interface CatalogItem {
     featured?: boolean
 }
 
-// PostHog's own webhook endpoint isn't a warehouse connector, so it never reaches this catalog
-// through `availableSources` — but it's where people look for one, and the only other entry point
+// PostHog's own event sources aren't warehouse connectors, so they never reach this catalog
+// through `availableSources` — but it's where people look for them, and the only other entry point
 // is the sources list. Gated on the same preview flag as that list's section.
-const EVENT_WEBHOOK_CATALOG_ITEM: CatalogItem = {
-    name: 'event-webhook',
-    label: 'Incoming webhook',
-    iconType: 'PostHog',
-    category: 'Engineering & monitoring',
-    keywords: ['webhook', 'webhooks', 'http', 'https', 'endpoint', 'events', 'incoming', 'custom', 'real time'],
-    status: 'stable',
-    releaseStatus: 'alpha',
-    url: urls.hogFunctionNew('template-source-webhook'),
-}
+const EVENT_SOURCE_CATALOG_ITEMS: CatalogItem[] = [
+    {
+        name: 'event-webhook',
+        label: 'Incoming webhook',
+        description: 'Turn HTTP requests from any service into events.',
+        iconType: 'PostHog',
+        category: 'Engineering & monitoring',
+        keywords: ['webhook', 'webhooks', 'http', 'https', 'endpoint', 'events', 'incoming', 'custom', 'real time'],
+        status: 'stable',
+        releaseStatus: 'alpha',
+        url: urls.hogFunctionNew('template-source-webhook'),
+    },
+    {
+        name: 'event-tracking-pixel',
+        label: 'Tracking pixel',
+        description: 'Capture an event each time an email or page loads a 1x1 image.',
+        iconType: 'PostHog',
+        category: 'Engineering & monitoring',
+        keywords: ['pixel', 'tracking pixel', 'image', 'gif', 'email', 'open tracking', 'beacon', 'events'],
+        status: 'stable',
+        releaseStatus: 'alpha',
+        url: urls.hogFunctionNew('template-source-webhook-pixel'),
+    },
+]
 
 export interface CatalogCategory {
     category: SourceCategoryFilter
@@ -143,6 +159,7 @@ export interface sourceCatalogLogicValues {
     catalogFuse: Fuse
     catalogItems: CatalogItem[]
     categoriesWithCounts: CatalogCategory[]
+    customSourceItem: CatalogItem | null
     filteredItems: CatalogItem[]
     hasCrossCategoryMatches: boolean
     registeredInterestSources: string[]
@@ -210,6 +227,7 @@ export interface sourceCatalogLogicMeta {
             selectedCategory: SourceCategoryFilter
         ) => CatalogItem[]
         hasCrossCategoryMatches: (catalogFuse: Fuse, search: string, selectedCategory: SourceCategoryFilter) => boolean
+        customSourceItem: (catalogItems: CatalogItem[]) => CatalogItem | null
     }
 }
 
@@ -416,12 +434,12 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     })
                 )
 
-                // `allowedSources` restricts the catalog to warehouse connectors, so the webhook
-                // source has no place in it.
-                const eventWebhook =
-                    !allowedSources && featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES] ? [EVENT_WEBHOOK_CATALOG_ITEM] : []
+                // `allowedSources` restricts the catalog to warehouse connectors, so event sources have
+                // no place in it.
+                const eventSources =
+                    !allowedSources && featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES] ? EVENT_SOURCE_CATALOG_ITEMS : []
 
-                return [...managed, ...selfManaged, ...fileUpload, ...eventWebhook]
+                return [...managed, ...selfManaged, ...fileUpload, ...eventSources]
             },
             // featureFlags is a broad dependency that changes identity on every flag refresh;
             // keeping the previous array when the derived catalog is unchanged stops the Fuse
@@ -534,6 +552,16 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     (item) => item.status !== 'coming_soon' && !matchesCategory(item, selectedCategory)
                 )
             },
+        ],
+
+        // A search that finds nothing is usually for a tool we have no connector for. Any tool with
+        // a REST API can still connect through the Custom REST source, so the empty state offers it.
+        customSourceItem: [
+            (s) => [s.catalogItems],
+            (catalogItems: CatalogItem[]): CatalogItem | null =>
+                catalogItems.find(
+                    (item) => item.name === ExternalDataSourceTypeEnumApi.Custom && item.status !== 'coming_soon'
+                ) ?? null,
         ],
     }),
     listeners(({ values, actions }) => ({

@@ -7,12 +7,13 @@ import {
     MessageAudience,
     MessageAudienceDestination,
     captureMessageAudienceClicked,
+    messageAudienceAccessDisabledReason,
     messageAudienceUrl,
 } from './messageAudience'
 
 const DESTINATION_LABELS: Record<MessageAudienceDestination, string> = {
-    broadcast: 'Send a broadcast',
-    workflow: 'Start a workflow',
+    broadcast: 'Send a one-time email',
+    workflow: 'Build a custom workflow',
 }
 
 export interface MessageAudienceButtonProps extends Pick<
@@ -27,7 +28,7 @@ export interface MessageAudienceButtonProps extends Pick<
 export function MessageAudienceButton({
     audience,
     destinations = ['broadcast', 'workflow'],
-    label = 'Message these people',
+    label = 'Email these people',
     type = 'secondary',
     size = 'small',
     disabledReason,
@@ -37,7 +38,13 @@ export function MessageAudienceButton({
         captureMessageAudienceClicked(audience.source, destination)
         router.actions.push(messageAudienceUrl(audience, destination))
     }
-    const buttonProps = { type, size, disabledReason, fullWidth, icon: <IconSend /> }
+    const buttonProps = {
+        type,
+        size,
+        disabledReason: disabledReason ?? messageAudienceAccessDisabledReason(),
+        fullWidth,
+        icon: <IconSend />,
+    }
 
     if (destinations.length === 1) {
         return (

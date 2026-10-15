@@ -15,7 +15,6 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -23,7 +22,6 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -34,6 +32,7 @@ import { AutomationSuggestionBanner } from '../setupGuide/AutomationSuggestionBa
 import { MessagingSetupReminderBanner } from '../setupGuide/MessagingSetupReminderBanner'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
+import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSuggestionsAvailabilityLogic'
 import { workflowLogic } from './workflowLogic'
 import { findMatchingWorkflowSteps } from './workflowSearchMatches'
 import {
@@ -116,10 +115,7 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 }
 
 export function WorkflowsTable(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
-    const newNavigationEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_NEW_NAVIGATION]
-    const guidedOnboardingEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_GUIDED_ONBOARDING]
+    const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
     const logic = workflowsLogic()
     const {
         workflowsLoading,
@@ -132,8 +128,6 @@ export function WorkflowsTable(): JSX.Element {
     } = useValues(logic)
     // Only an unfiltered Automations tab is truly empty. With a search or filter, the plain message fits.
     const showAutomationEmptyState =
-        newNavigationEnabled &&
-        guidedOnboardingEnabled &&
         filters.type === 'automation' &&
         !filters.search &&
         filters.createdBy === null &&
@@ -211,7 +205,7 @@ export function WorkflowsTable(): JSX.Element {
                                 title={
                                     <span className="flex items-center gap-2 flex-wrap">
                                         {item.name}
-                                        {selfOptimisingEnabled &&
+                                        {suggestionsAvailable &&
                                             item.status === 'active' &&
                                             item.suggestions_enabled && (
                                                 // Reads only: the row link already renders an anchor, and an
@@ -405,26 +399,24 @@ export function WorkflowsTable(): JSX.Element {
     return (
         <div className="workflows-section" data-attr="workflows-table" data-loading={workflowsLoading}>
             <>
-                {guidedOnboardingEnabled && <MessagingSetupReminderBanner />}
-                {newNavigationEnabled && (
-                    <div className="mb-3">
-                        <LemonSegmentedButton<WorkflowTypeFilter>
-                            size="small"
-                            value={filters.type}
-                            onChange={selectTypeTab}
-                            options={[
-                                { value: 'all', label: 'All', 'data-attr': 'workflows-type-tab-all' },
-                                { value: 'messaging', label: 'Messaging', 'data-attr': 'workflows-type-tab-messaging' },
-                                {
-                                    value: 'automation',
-                                    label: 'Automations',
-                                    'data-attr': 'workflows-type-tab-automation',
-                                },
-                                { value: 'loop', label: 'Loops', 'data-attr': 'workflows-type-tab-loop' },
-                            ]}
-                        />
-                    </div>
-                )}
+                <MessagingSetupReminderBanner />
+                <div className="mb-3">
+                    <LemonSegmentedButton<WorkflowTypeFilter>
+                        size="small"
+                        value={filters.type}
+                        onChange={selectTypeTab}
+                        options={[
+                            { value: 'all', label: 'All', 'data-attr': 'workflows-type-tab-all' },
+                            { value: 'messaging', label: 'Messaging', 'data-attr': 'workflows-type-tab-messaging' },
+                            {
+                                value: 'automation',
+                                label: 'Automations',
+                                'data-attr': 'workflows-type-tab-automation',
+                            },
+                            { value: 'loop', label: 'Loops', 'data-attr': 'workflows-type-tab-loop' },
+                        ]}
+                    />
+                </div>
                 <div className="flex justify-between gap-2 flex-wrap mb-4">
                     <LemonInput
                         type="search"
@@ -448,25 +440,6 @@ export function WorkflowsTable(): JSX.Element {
                             ]}
                             value={filters.status}
                         />
-                        {!newNavigationEnabled && (
-                            <>
-                                <span className="ml-1">
-                                    <b>Type</b>
-                                </span>
-                                <LemonSelect
-                                    dropdownMatchSelectWidth={false}
-                                    size="small"
-                                    onChange={(value) => setFilters({ type: value as WorkflowTypeFilter })}
-                                    options={[
-                                        { label: 'All', value: 'all' },
-                                        { label: 'Messaging', value: 'messaging' },
-                                        { label: 'Automation', value: 'automation' },
-                                        { label: 'Loop', value: 'loop' },
-                                    ]}
-                                    value={filters.type}
-                                />
-                            </>
-                        )}
                         <span className="ml-1">
                             <b>Trigger</b>
                         </span>
@@ -508,7 +481,7 @@ export function WorkflowsTable(): JSX.Element {
                     nouns={['workflow', 'workflows']}
                     emptyState={showAutomationEmptyState ? <AutomationEmptyState /> : 'No workflows matching filters'}
                 />
-                {guidedOnboardingEnabled && <AutomationSuggestionBanner />}
+                <AutomationSuggestionBanner />
             </>
         </div>
     )

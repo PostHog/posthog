@@ -49,6 +49,7 @@ from products.warehouse_sources_queue.backend.core.batch_consumer import (
     _is_admin_shutdown_error,
     _is_connect_timeout_error,
     _is_dns_resolution_transient_error,
+    _is_executor_shutdown_error,
     _is_retryable_queue_db_error,
     _is_schema_lag_error,
     _is_server_not_ready_error,
@@ -662,7 +663,7 @@ class TestRecoverySweep:
             expected_state_changed_at=stale_batch.state_changed_at,
         )
         mock_unlock.assert_called_once_with(
-            consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
+            consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token, skip_locked=False
         )
 
     @pytest.mark.asyncio
@@ -742,7 +743,7 @@ class TestRecoverySweep:
             await consumer._recovery_sweep()
 
         mock_unlock.assert_called_once_with(
-            consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
+            consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token, skip_locked=False
         )
 
 
@@ -1363,6 +1364,59 @@ class TestQueueOperationTimeouts:
         mock_capture.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_startup_connect_retries_a_dns_blip_instead_of_crashing(self):
+        # Reproduces the reported issue: the queue DB being unreachable for a DNS blip when
+        # this process starts used to raise straight out of run() uncaught -- crashing the
+        # whole consumer -- even though every other connect path here (the poll loop, the
+        # recovery loop, _ensure_poll_conn/_ensure_recovery_conn) already redials through the
+        # identical error instead of giving up.
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            poll_interval_seconds=0.01,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+
+        polling_started = asyncio.Event()
+        connect_attempts = 0
+
+        async def flaky_connect(**kwargs: Any) -> Any:
+            nonlocal connect_attempts
+            connect_attempts += 1
+            if connect_attempts == 1:
+                raise psycopg.OperationalError("[Errno -3] Temporary failure in name resolution")
+            return _make_healthy_conn()
+
+        async def fetch(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            polling_started.set()
+            return []
+
+        with (
+            patch.object(consumer, "_connect", side_effect=flaky_connect),
+            patch(f"{batch_consumer_module.__name__}._queue_retry_delay", return_value=0),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_unprocessed_and_lock",
+                side_effect=fetch,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+                new_callable=AsyncMock,
+            ),
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            # Polling can only begin if the startup DNS blip was retried instead of crashing run().
+            await asyncio.wait_for(polling_started.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
+
+        assert connect_attempts >= 2
+
+    @pytest.mark.asyncio
     async def test_poll_timeout_wrapped_as_operational_error_is_not_reported(self):
         # psycopg's async wait loop can catch the CancelledError that
         # asyncio.timeout() raises on expiry and re-raise it as a generic
@@ -1548,6 +1602,44 @@ def test_is_server_not_ready_error_ignores_non_operational_errors():
     assert _is_server_not_ready_error(RuntimeError("the database system is in recovery mode")) is False
 
 
+class TestExecutorShutdownErrorClassification:
+    def test_classifies_executor_shutdown(self) -> None:
+        assert _is_executor_shutdown_error(RuntimeError("cannot schedule new futures after shutdown")) is True
+
+    def test_ignores_other_runtime_errors(self) -> None:
+        assert _is_executor_shutdown_error(RuntimeError("some other failure")) is False
+
+    @pytest.mark.asyncio
+    async def test_unlock_group_does_not_report_executor_shutdown_error(self) -> None:
+        # Reproduces the reported issue: the group's per-group connection is left mid-protocol
+        # by the task's own cancellation, so the first unlock attempt fails with an
+        # OperationalError and _unlock_group falls back to a fresh connection. If the pod is
+        # already mid-teardown, that redial hits the event loop's already-shut-down default
+        # executor (used for DNS resolution) instead of a connection error, and must not page
+        # anyone — the lease simply expires and a surviving pod reclaims it.
+        consumer = _make_consumer()
+        batches = [_make_batch()]
+
+        with (
+            patch.object(
+                consumer._adapter,
+                "unlock",
+                new_callable=AsyncMock,
+                side_effect=psycopg.OperationalError("another command is already in progress"),
+            ),
+            patch.object(
+                consumer,
+                "_connect",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("cannot schedule new futures after shutdown"),
+            ),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            await consumer._unlock_group(_make_healthy_conn(), batches, team_id=1, schema_id="schema-1")
+
+        mock_capture.assert_not_called()
+
+
 class TestPollFailureLiveness:
     def test_withholds_liveness_after_threshold_consecutive_failures(self):
         # Without the trip, a pod whose every poll fails passes liveness forever.
@@ -1661,6 +1753,10 @@ class TestStatementTimeoutBackstop:
             "SET statement_timeout = 210000",
             "SET jit = off",
         ]
+        # The queue DB sits behind a transaction pooler: psycopg's default prepare_threshold
+        # would server-prepare a statement after 5 identical executions, and a pooler can bind
+        # it on a backend that never parsed it ("unable to bind ... cannot get parse message").
+        assert fresh.prepare_threshold is None
 
 
 class TestPollBackoff:
@@ -4028,6 +4124,7 @@ class TestDispatchGroups:
             assert (1, "schema-2") not in consumer._in_flight
             released = mock_unlock.call_args.kwargs["batches"]
             assert {b.id for b in released} == {dropped_1.id, dropped_2.id}
+            assert mock_unlock.call_args.kwargs["skip_locked"] is True
 
         task = consumer._in_flight.pop((1, "schema-1"))
         task.cancel()

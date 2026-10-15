@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import cast
 
 from unittest.mock import Mock, patch
 
@@ -15,22 +15,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.ca
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.settings import COST_REPORT_STEP_SECONDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
+from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.source import CastAiSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
-
-
-class _FakeDltResource:
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper):
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.castai import CastAiSourceConfig
 
 
 def _make_manager(resume_state: CastAiResumeConfig | None = None) -> Mock:
@@ -89,18 +81,20 @@ class TestCastAiValidateCredentials:
             (500, False, "CAST AI API returned an unexpected status: 500"),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, status, expected_valid, expected_message, mock_session) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=status)
-
-        result = validate_credentials(api_key="key")
+    def test_validate_credentials_status_mapping(
+        self, status: int, expected_valid: bool, expected_message: str | None
+    ) -> None:
+        script = always(ScriptedResponse(status=status)) if status == 500 else [ScriptedResponse(status=status)]
+        with scripted_network(script) as network:
+            result = validate_credentials(api_key="key")
 
         assert result == (expected_valid, expected_message)
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.cast.ai/v1/kubernetes/external-clusters"
-        assert call.kwargs["headers"]["X-API-Key"] == "key"
+        assert {request.url for request in network.requests_log} == {
+            "https://api.cast.ai/v1/kubernetes/external-clusters"
+        }
+        assert network.requests_log[0].headers["x-api-key"] == "key"
         # The X-API-Key header survives cross-origin redirects, so the probe must not follow them.
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
+        assert network.session_options[0]["allow_redirects"] is False
 
     def test_client_config_disables_redirects(self) -> None:
         # Same guard for the sync path: RESTClient reads allow_redirects from the client config.
@@ -131,55 +125,43 @@ class TestCastAiSourceTopLevel:
 
 
 class TestCastAiFanoutRowFormat:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_cluster_cost_reports_row_format(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("clusters", [{"id": "cluster-1"}]),
-            _FakeDltResource(
-                "cluster_cost_reports",
-                [{"timestamp": "2026-03-01T00:00:00Z", "costOnDemand": "1.5", "_clusters_id": "cluster-1"}],
-            ),
-        ]
-
-        response = cast_ai_source(
-            api_key="key",
-            endpoint="cluster_cost_reports",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
+    def test_cluster_cost_reports_row_format(self) -> None:
+        result = SourceDriver(CastAiSource(), CastAiSourceConfig(api_key="key")).run(
+            "cluster_cost_reports",
+            [
+                ScriptedResponse(json={"items": [{"id": "cluster-1"}]}),
+                ScriptedResponse(
+                    json={
+                        "items": [
+                            {"timestamp": "2026-03-01T00:00:00Z", "costOnDemand": "1.5"},
+                        ]
+                    }
+                ),
+            ],
         )
 
-        rows = list(cast(Any, response.items()))
-        assert rows == [{"timestamp": "2026-03-01T00:00:00Z", "costOnDemand": "1.5", "cluster_id": "cluster-1"}]
-        assert response.primary_keys == ["cluster_id", "timestamp"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["timestamp"]
+        assert result.raised is None
+        assert result.rows == [{"timestamp": "2026-03-01T00:00:00Z", "costOnDemand": "1.5", "cluster_id": "cluster-1"}]
+        assert result.response is not None
+        assert result.response.primary_keys == ["cluster_id", "timestamp"]
+        assert result.response.partition_mode == "datetime"
+        assert result.response.partition_keys == ["timestamp"]
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_cluster_savings_history_row_format(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("clusters", [{"id": "cluster-9"}]),
-            _FakeDltResource(
-                "cluster_savings_history",
-                [{"createdAt": "2026-03-01T00:00:00Z", "current": {"cost": "9"}, "_clusters_id": "cluster-9"}],
-            ),
-        ]
-
-        response = cast_ai_source(
-            api_key="key",
-            endpoint="cluster_savings_history",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
+    def test_cluster_savings_history_row_format(self) -> None:
+        result = SourceDriver(CastAiSource(), CastAiSourceConfig(api_key="key")).run(
+            "cluster_savings_history",
+            [
+                ScriptedResponse(json={"items": [{"id": "cluster-9"}]}),
+                ScriptedResponse(json={"items": [{"createdAt": "2026-03-01T00:00:00Z", "current": {"cost": "9"}}]}),
+            ],
         )
 
-        rows = list(cast(Any, response.items()))
-        assert rows == [{"createdAt": "2026-03-01T00:00:00Z", "current": {"cost": "9"}, "cluster_id": "cluster-9"}]
-        assert response.primary_keys == ["cluster_id", "createdAt"]
+        assert result.raised is None
+        assert result.rows == [
+            {"createdAt": "2026-03-01T00:00:00Z", "current": {"cost": "9"}, "cluster_id": "cluster-9"}
+        ]
+        assert result.response is not None
+        assert result.response.primary_keys == ["cluster_id", "createdAt"]
 
 
 class TestCastAiFanoutWiring:
@@ -189,34 +171,50 @@ class TestCastAiFanoutWiring:
             ("cluster_savings_history", "fromDate", "toDate", False),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai.build_dependent_resource")
     def test_fanout_wiring_per_endpoint(
-        self, endpoint, start_param, end_param, expects_step_seconds, mock_build_dependent_resource
+        self, endpoint: str, start_param: str, end_param: str, expects_step_seconds: bool
     ) -> None:
-        mock_build_dependent_resource.return_value = iter([])
-        manager = _make_manager(CastAiResumeConfig(paginator_state={"completed": []}))
-
-        cast_ai_source(
-            api_key="key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+        child_path = (
+            "/v1/cost-reports/clusters/{cluster_id}/cost"
+            if endpoint == "cluster_cost_reports"
+            else "/v1/cost-reports/clusters/{cluster_id}/estimated-savings-history"
+        )
+        cursor_field = "timestamp" if endpoint == "cluster_cost_reports" else "createdAt"
+        result = SourceDriver(CastAiSource(), CastAiSourceConfig(api_key="key")).run(
+            endpoint,
+            [
+                ScriptedResponse(json={"items": [{"id": "cluster-1"}, {"id": "cluster-2"}]}),
+                ScriptedResponse(json={"items": [{cursor_field: "2026-03-01T00:00:00Z"}]}),
+            ],
+            resume_state=CastAiResumeConfig(paginator_state={"completed": [child_path.format(cluster_id="cluster-1")]}),
         )
 
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["page_size_param"] is None
-        assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], SinglePagePaginator)
-        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], SinglePagePaginator)
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "items"
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "items"
-        assert start_param in kwargs["child_params_extra"]
-        assert end_param in kwargs["child_params_extra"]
-        assert ("stepSeconds" in kwargs["child_params_extra"]) is expects_step_seconds
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/kubernetes/external-clusters",
+            child_path.format(cluster_id="cluster-2"),
+        ]
+        assert result.params("limit") == [None, None]
+        assert result.rows == [{cursor_field: "2026-03-01T00:00:00Z", "cluster_id": "cluster-2"}]
+        assert result.requests[0].param(start_param) is None
+        assert result.requests[0].param(end_param) is None
+        assert result.requests[1].param(start_param) is not None
+        assert result.requests[1].param(end_param) is not None
+        assert (result.requests[1].param("stepSeconds") is not None) is expects_step_seconds
         if expects_step_seconds:
-            assert kwargs["child_params_extra"]["stepSeconds"] == COST_REPORT_STEP_SECONDS
-        assert kwargs["resume_hook"] is not None
-        assert kwargs["initial_paginator_state"] == {"completed": []}
+            assert result.requests[1].param("stepSeconds") == str(COST_REPORT_STEP_SECONDS)
+        assert result.saved_states == [
+            CastAiResumeConfig(
+                paginator_state={
+                    "completed": [
+                        child_path.format(cluster_id="cluster-1"),
+                        child_path.format(cluster_id="cluster-2"),
+                    ],
+                    "current": None,
+                    "child_state": None,
+                }
+            )
+        ]
 
     @parameterized.expand(
         [

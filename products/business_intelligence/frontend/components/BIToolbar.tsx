@@ -1,7 +1,7 @@
 import { useActions, useValues, useMountedLogic } from 'kea'
 
 import { IconSort } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonDropdown, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { IconArrowDown, IconArrowUp, IconSwapHoriz } from 'lib/lemon-ui/icons'
 
@@ -12,7 +12,6 @@ import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorL
 import { LIMIT_OPTIONS } from 'products/business_intelligence/frontend/biEditorOptions'
 import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { biSceneLogic } from 'products/business_intelligence/frontend/biSceneLogic'
-import { BIChartTypes } from 'products/business_intelligence/frontend/components/BIChartTypes'
 
 import { BIDateControls } from './BIDateControls'
 
@@ -28,8 +27,8 @@ export function BIToolbar(): JSX.Element {
             autoLoad: !!lastRunQuery,
         })
     )
-    const { autoUpdate, config, generatedQuery, chartTypesOpen, sortOptions } = useValues(biEditorLogic)
-    const { resetConfig, setAutoUpdate, setLimit, setChartTypesOpen, setSort, swapRowsAndColumns } =
+    const { autoUpdate, config, generatedQuery, activePanel, fieldsPaneOpen, sortOptions } = useValues(biEditorLogic)
+    const { resetConfig, setAutoUpdate, setLimit, setActivePanel, toggleFieldsPane, setSort, swapRowsAndColumns } =
         useActions(biEditorLogic)
 
     // Quick sort follows the chosen sort field, or the first measure like desktop BI tools do
@@ -51,7 +50,9 @@ export function BIToolbar(): JSX.Element {
                     !config.source
                         ? 'Select a table before running'
                         : !generatedQuery
-                          ? 'Fix invalid worksheet fields before running'
+                          ? config.rows.length || config.columns.length || config.values.length
+                              ? 'Fix invalid worksheet fields before running'
+                              : 'Add a field to rows or columns before running'
                           : undefined
                 }
                 data-attr="bi-editor-run-query"
@@ -74,7 +75,9 @@ export function BIToolbar(): JSX.Element {
                 tooltip="Swap rows and columns"
                 aria-label="Swap rows and columns"
                 disabledReason={
-                    config.rows.length === 0 && config.columns.length === 0 ? 'No fields to swap' : undefined
+                    config.rows.length === 0 && config.columns.length === 0 && config.values.length === 0
+                        ? 'No fields to swap'
+                        : undefined
                 }
                 onClick={swapRowsAndColumns}
                 data-attr="bi-editor-swap"
@@ -125,8 +128,9 @@ export function BIToolbar(): JSX.Element {
                 value={config.limit}
                 options={LIMIT_OPTIONS}
                 onChange={setLimit}
-                renderButtonContent={(option) => `Limit: ${option?.label ?? config.limit}`}
-                aria-label="Query row limit"
+                renderButtonContent={(option) => `Aggregated rows: ${option?.label ?? config.limit}`}
+                aria-label="Aggregated result row limit"
+                tooltip="Maximum aggregated result rows, after grouping and calculations. This does not limit the source rows read."
                 size="xsmall"
                 type="tertiary"
                 dropdownMatchSelectWidth={false}
@@ -147,29 +151,37 @@ export function BIToolbar(): JSX.Element {
             >
                 Clear sheet
             </LemonButton>
-            <div className="ml-auto flex items-center gap-2">
-                {/* Narrow sheets have no room to dock the chart picker, so it opens as a dropdown */}
-                <LemonDropdown overlay={<BIChartTypes docked={false} />} placement="bottom-end">
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        className="@3xl/bi-editor:hidden"
-                        data-attr="bi-editor-show-me"
-                    >
-                        Chart types
-                    </LemonButton>
-                </LemonDropdown>
-                {!chartTypesOpen ? (
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        className="hidden @3xl/bi-editor:flex"
-                        onClick={() => setChartTypesOpen(true)}
-                        data-attr="bi-editor-show-me"
-                    >
-                        Chart types
-                    </LemonButton>
-                ) : null}
+            <div className="ml-auto flex flex-wrap items-center gap-1">
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    active={fieldsPaneOpen}
+                    onClick={toggleFieldsPane}
+                    aria-pressed={fieldsPaneOpen}
+                    data-attr="bi-editor-toggle-fields"
+                >
+                    Fields
+                </LemonButton>
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    active={activePanel === 'charts'}
+                    onClick={() => setActivePanel(activePanel === 'charts' ? null : 'charts')}
+                    aria-expanded={activePanel === 'charts'}
+                    data-attr="bi-editor-show-me"
+                >
+                    Charts
+                </LemonButton>
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    active={activePanel === 'analysis'}
+                    onClick={() => setActivePanel(activePanel === 'analysis' ? null : 'analysis')}
+                    aria-expanded={activePanel === 'analysis'}
+                    data-attr="bi-editor-analysis"
+                >
+                    Analysis
+                </LemonButton>
             </div>
         </div>
     )

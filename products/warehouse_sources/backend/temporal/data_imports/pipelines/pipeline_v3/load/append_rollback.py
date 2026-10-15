@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     APPEND_RUN_MARKER_KEY,
     ExternalDataSchema,
+    attempt_of,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
@@ -37,7 +38,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     APPEND_ROLLBACK_TOTAL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.table_rebuild import attempt_of
 
 logger = structlog.get_logger(__name__)
 

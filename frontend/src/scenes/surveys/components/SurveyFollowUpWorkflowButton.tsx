@@ -6,7 +6,11 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { SurveyEventName } from '~/types'
 
-import { captureMessageAudienceClicked } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import {
+    captureMessageAudienceClicked,
+    messageAudienceAccessDisabledReason,
+} from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
 import {
     type WorkflowTriggerConfig,
     urlForNewWorkflowWithTrigger,
@@ -28,18 +32,27 @@ function surveyFollowUpTrigger(surveyId: string): WorkflowTriggerConfig {
 }
 
 export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string }): JSX.Element {
+    const accessDisabledReason = messageAudienceAccessDisabledReason()
     return (
         <ButtonPrimitive
             menuItem
-            tooltip="Open a new workflow that runs each time someone submits a response to this survey"
+            tooltip="Open a workflow that emails each person who responds to this survey"
             onClick={() => {
                 captureMessageAudienceClicked(SOURCE, 'workflow')
-                router.actions.push(urlForNewWorkflowWithTrigger(surveyFollowUpTrigger(surveyId)))
+                router.actions.push(
+                    urlForNewWorkflowWithTrigger(
+                        surveyFollowUpTrigger(surveyId),
+                        SOURCE,
+                        draftMessage({ kind: 'survey_responded' }),
+                        { source: 'survey', source_id: surveyId }
+                    )
+                )
             }}
+            disabledReasons={accessDisabledReason ? { [accessDisabledReason]: true } : {}}
             data-attr="survey-start-follow-up-workflow"
         >
             <IconSend />
-            Start a follow-up workflow
+            Email everyone who responds
         </ButtonPrimitive>
     )
 }

@@ -3,7 +3,7 @@ from dataclasses import replace
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 import requests
 import dns.resolver
@@ -66,7 +66,7 @@ def _caa_rdata(tag: bytes, issuer: str):
     return rd
 
 
-class TestCheckCname(TestCase):
+class TestCheckCname(SimpleTestCase):
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_pass_when_cname_matches(self, ResolverMock):
         cname = MagicMock()
@@ -101,7 +101,7 @@ class TestCheckCname(TestCase):
         self.assertIn("doesn't have a CNAME", result.detail)
 
 
-class TestCheckCloudflare(TestCase):
+class TestCheckCloudflare(SimpleTestCase):
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     def test_pass_when_ssl_active(self, get_mock):
         get_mock.return_value = _hostname_info(ssl_status=CustomHostnameSSLStatus.ACTIVE)
@@ -179,7 +179,7 @@ class TestCheckCloudflare(TestCase):
         self.assertIn("domain", props)
 
 
-class TestCheckCaa(TestCase):
+class TestCheckCaa(SimpleTestCase):
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_pass_when_no_caa_records(self, ResolverMock):
         ResolverMock.return_value.resolve.side_effect = dns.resolver.NoAnswer()
@@ -215,7 +215,7 @@ class TestCheckCaa(TestCase):
         self.assertIn("letsencrypt.org", result.detail)
 
 
-class TestCheckHttpChallenge(TestCase):
+class TestCheckHttpChallenge(SimpleTestCase):
     @patch("posthog.api.proxy_record_diagnostics.requests.get")
     def test_pass_when_body_matches(self, get_mock):
         get_mock.return_value = MagicMock(status_code=200, text="tok.body")
@@ -245,7 +245,7 @@ class TestCheckHttpChallenge(TestCase):
         self.assertIn("404", result.detail)
 
 
-class TestCheckLiveEvent(TestCase):
+class TestCheckLiveEvent(SimpleTestCase):
     @parameterized.expand(
         [
             ("ssl_error", requests.exceptions.SSLError("bad cert"), "failed", "tls"),
@@ -366,7 +366,7 @@ class TestCheckCertExpiry(TestCase):
         self.assertEqual(result.status, "warned")
 
 
-class TestIsValidProxyDomain(TestCase):
+class TestIsValidProxyDomain(SimpleTestCase):
     @parameterized.expand(
         [
             ("plain", "e.example.com"),
@@ -408,7 +408,7 @@ class TestIsValidProxyDomain(TestCase):
         self.assertFalse(is_valid_proxy_domain(domain))
 
 
-class TestIsReservedProxyDomain(TestCase):
+class TestIsReservedProxyDomain(SimpleTestCase):
     @parameterized.expand(
         [
             ("apex", "posthog.com"),

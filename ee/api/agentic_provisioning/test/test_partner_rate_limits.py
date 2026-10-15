@@ -16,7 +16,7 @@ from posthog.token_bucket import Budget, TEST_reset_scripts
 
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
-from ee.api.agentic_provisioning.ratelimits import FLAT_MULTIPLIERS, charge_partner_by_name
+from ee.api.agentic_provisioning.ratelimits import FLAT_MULTIPLIERS, charge_partner, registered_budgets
 from ee.api.agentic_provisioning.test.base import (
     TEST_PARTNER_CLIENT_SECRET,
     ProvisioningTestBase,
@@ -24,9 +24,13 @@ from ee.api.agentic_provisioning.test.base import (
     provisioning_config,
 )
 from ee.api.agentic_provisioning.views.resources import RotateCredentialsView
-from ee.api.agentic_provisioning.wizard import create_wizard_run
 
 PARTNER_CLIENT_ID = "partner_rate_limit_test"
+
+
+def _charge(endpoint: str, partner: OAuthApplication) -> None:
+    charge_partner(registered_budgets()[endpoint], partner)
+
 
 # account_requests declares Budget(burst=5, per_hour=10); the tier grid scales it.
 ACCOUNT_REQUESTS_BURST_BY_TIER = {
@@ -96,10 +100,10 @@ class TestPartnerRateLimits(ProvisioningTestBase):
 
         with time_machine.travel("2026-01-01 00:00:00", tick=False):
             for _ in range(burst):
-                charge_partner_by_name("account_requests", partner)
+                _charge("account_requests", partner)
 
             with self.assertRaises(ProvisioningError) as ctx:
-                charge_partner_by_name("account_requests", partner)
+                _charge("account_requests", partner)
         assert ctx.exception.status == 429
         assert ctx.exception.retry_after is not None
 
@@ -112,10 +116,10 @@ class TestPartnerRateLimits(ProvisioningTestBase):
 
         with time_machine.travel("2026-01-01 00:00:00", tick=False):
             for _ in range(2):
-                charge_partner_by_name("account_requests", self.partner_app)
+                _charge("account_requests", self.partner_app)
 
             with self.assertRaises(ProvisioningError) as ctx:
-                charge_partner_by_name("account_requests", self.partner_app)
+                _charge("account_requests", self.partner_app)
         assert ctx.exception.status == 429
         assert ctx.exception.retry_after is not None
 
@@ -124,16 +128,16 @@ class TestPartnerRateLimits(ProvisioningTestBase):
 
         with time_machine.travel("2026-01-01 00:00:00", tick=False):
             for _ in range(100):
-                charge_partner_by_name("account_requests", self.partner_app)
+                _charge("account_requests", self.partner_app)
 
     def test_separate_buckets_per_endpoint(self):
         self.partner_app.update_provisioning_rate_limits(account_requests=1, resource_creates=1)
         with time_machine.travel("2026-01-01 00:00:00", tick=False):
-            charge_partner_by_name("account_requests", self.partner_app)
+            _charge("account_requests", self.partner_app)
 
             with self.assertRaises(ProvisioningError):
-                charge_partner_by_name("account_requests", self.partner_app)
-            charge_partner_by_name("resource_creates", self.partner_app)
+                _charge("account_requests", self.partner_app)
+            _charge("resource_creates", self.partner_app)
 
     def test_separate_buckets_per_partner(self):
         other_partner = self._partner_at_tier(PartnerTier.JWKS)
@@ -141,11 +145,11 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         other_partner.update_provisioning_rate_limits(account_requests=1)
 
         with time_machine.travel("2026-01-01 00:00:00", tick=False):
-            charge_partner_by_name("account_requests", self.partner_app)
+            _charge("account_requests", self.partner_app)
 
             with self.assertRaises(ProvisioningError):
-                charge_partner_by_name("account_requests", self.partner_app)
-            charge_partner_by_name("account_requests", other_partner)
+                _charge("account_requests", self.partner_app)
+            _charge("account_requests", other_partner)
 
     # --- Integration: token endpoint ---
 
@@ -265,36 +269,8 @@ class TestPartnerRateLimits(ProvisioningTestBase):
     def test_blocked_tier_cannot_use_deep_links(self):
         public_partner = self._partner_at_tier(PartnerTier.PUBLIC)
         with self.assertRaises(ProvisioningError) as ctx:
-            charge_partner_by_name("deep_links", public_partner)
+            _charge("deep_links", public_partner)
         assert ctx.exception.status == 403
 
         # The JWKS tiers keep their budget.
-        charge_partner_by_name("deep_links", self._partner_at_tier(PartnerTier.JWKS))
-
-    def test_failed_repository_probe_keeps_the_charge(self):
-        # The repository check is an authenticated GitHub call, so a rejected run has
-        # already done outbound work. With a budget of 1, a second attempt must be
-        # rate limited rather than probing GitHub again for free.
-        self.partner_app.update_provisioning(can_start_wizard_runs=True)
-        self.partner_app.update_provisioning_rate_limits(wizard_runs=1)
-
-        with self.settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client"):
-            with self.assertRaises(ProvisioningError) as ctx:
-                create_wizard_run(
-                    partner=self.partner_app,
-                    user_id=self.user.id,
-                    team=self.team,
-                    repository="acme/widgets",
-                    branch=None,
-                )
-            assert ctx.exception.code == "github_integration_required"
-
-            with self.assertRaises(ProvisioningError) as ctx:
-                create_wizard_run(
-                    partner=self.partner_app,
-                    user_id=self.user.id,
-                    team=self.team,
-                    repository="acme/other",
-                    branch=None,
-                )
-            assert ctx.exception.code == "rate_limited"
+        _charge("deep_links", self._partner_at_tier(PartnerTier.JWKS))

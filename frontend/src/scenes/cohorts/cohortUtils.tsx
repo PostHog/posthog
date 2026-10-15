@@ -170,6 +170,7 @@ export function createCohortFormData(
                           ).filters.properties,
                           id: undefined,
                       },
+                      filterTestAccounts: cohort.filters.filterTestAccounts,
                   }
         ),
     }
@@ -689,20 +690,13 @@ export function createCohortDataNodeLogicKey(cohortId: number | 'new'): string {
 }
 
 export function urlForCohortWorkflow(cohort: CohortType): string {
-    return urlForNewWorkflowWithTrigger({
-        type: 'batch',
-        filters: {
-            properties: [
-                {
-                    key: 'id',
-                    type: PropertyFilterType.Cohort,
-                    value: cohort.id as number,
-                    operator: PropertyOperator.In,
-                    cohort_name: cohort.name,
-                },
-            ],
+    return urlForNewWorkflowWithTrigger(
+        {
+            type: 'batch',
+            filters: { properties: cohortAudienceProperties({ id: cohort.id as number, name: cohort.name }) },
         },
-    })
+        'cohort'
+    )
 }
 
 export const COHORT_MATCHING_DAYS = {
@@ -734,5 +728,12 @@ export function cohortBroadcastDisabledReason(cohort: CohortType): string | null
 }
 
 export function urlForCohortBroadcast(cohort: { id: number; name?: string }): string {
-    return messageAudienceUrl({ properties: cohortAudienceProperties(cohort), source: 'cohort' }, 'broadcast')
+    return messageAudienceUrl(
+        {
+            properties: cohortAudienceProperties(cohort),
+            source: 'cohort',
+            draftSource: { source: 'cohort', source_id: String(cohort.id) },
+        },
+        'broadcast'
+    )
 }

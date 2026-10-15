@@ -17,6 +17,7 @@ import httpx
 import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql.resolver import ResolverFactory
 
@@ -330,13 +331,16 @@ class TestCreateDataModelingJobActivity:
 
 
 class TestFailMaterializationActivity:
+    @pytest.mark.parametrize("node_deleted", [False, True])
     @pytest.mark.parametrize(
         "cancelled,expected_status",
         [(False, DataModelingJob.Status.FAILED), (True, DataModelingJob.Status.CANCELLED)],
     )
     async def test_marks_job_as_terminal(
-        self, activity_environment, ateam, anode, ajob, adag, cancelled, expected_status
+        self, activity_environment, ateam, anode, ajob, adag, cancelled, expected_status, node_deleted
     ):
+        if node_deleted:
+            await database_sync_to_async(Node.objects.filter(id=anode.id).delete)()
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
@@ -807,6 +811,10 @@ class TestNodeSuspension:
             "QueueEmpty: Application error",
             "Preempted: a new DAG run started before this job completed",
             "Not published: 2 data quality checks failed. The previous version keeps serving until the checks pass.",
+            "InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: 'garbage'",
+            "InvalidMessageFormat: Encapsulated IPC message format must begin with continuation bytes, received: 'b'",
+            "This model has been suspended after 5 consecutive failed materializations. "
+            "Error: InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: 'garbage'",
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -839,7 +847,16 @@ class TestNodeSuspension:
         for job in jobs:
             await database_sync_to_async(job.delete)()
 
-    @pytest.mark.parametrize("identifier", ["Preempted", "QueueEmpty", "ProxyConnectionError"])
+    @pytest.mark.parametrize(
+        "identifier",
+        [
+            "Preempted",
+            "QueueEmpty",
+            "ProxyConnectionError",
+            "InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: ",
+            "InvalidMessageFormat: Encapsulated IPC message format must begin with continuation bytes, received: ",
+        ],
+    )
     async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(
         self, ateam, anode, asaved_query, adag, identifier
     ):
@@ -1768,6 +1785,62 @@ class TestMaterializeViewActivity:
             )
             with pytest.raises(RuntimeError, match="boom"):
                 await activity_environment.run(materialize_view_activity, inputs)
+
+    @pytest.mark.parametrize(
+        "clickhouse_message,expects_delayed_retry",
+        [
+            (
+                "Code: 742. DB::Exception: Received DeltaLake kernel error GenericError: Generic delta kernel "
+                "error: No files in log segment (in snapshot). (DELTA_KERNEL_ERROR)",
+                True,
+            ),
+            ("Code: 241. DB::Exception: Memory limit (total) exceeded. (MEMORY_LIMIT_EXCEEDED)", False),
+        ],
+    )
+    async def test_delta_kernel_read_error_retries_after_a_delay(
+        self,
+        activity_environment,
+        ateam,
+        anode,
+        ajob,
+        bucket_name,
+        adag,
+        clickhouse_message,
+        expects_delayed_retry,
+    ):
+        def mock_hogql_table(*args, **kwargs):
+            raise ClickHouseError(clickhouse_message)
+
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+            ),
+        ):
+            inputs = MaterializeViewInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                node_id=str(anode.id),
+                job_id=str(ajob.id),
+            )
+            with pytest.raises(Exception) as raised:
+                await activity_environment.run(materialize_view_activity, inputs)
+
+        error = raised.value
+        assert clickhouse_message in str(error)
+        if expects_delayed_retry:
+            assert isinstance(error, ApplicationError)
+            assert error.type == "ClickHouseError"
+            assert not error.non_retryable
+            assert error.next_retry_delay is not None
+            assert error.next_retry_delay >= dt.timedelta(minutes=1)
+        else:
+            assert type(error) is ClickHouseError
 
 
 class _EmptyArrowClient:

@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, AwsGlueDataCatalogResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_GLUE_DATA_CATALOG|AWSGLUEDATACATALOG)_",),
+        npm=("@aws-sdk/client-glue",),
+        cargo=("aws-sdk-glue",),
+        go=("github.com/aws/aws-sdk-go-v2/service/glue",),
+        maven=("software.amazon.awssdk:glue", "com.amazonaws:aws-java-sdk-glue"),
+        rubygems=("aws-sdk-glue",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (GLUE_API_VERSION,)
     default_version = GLUE_API_VERSION
@@ -109,8 +119,11 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
             label="AWS Glue Data Catalog",
             caption=(
                 "Sync catalog metadata, job history, and crawlers from one AWS region. "
-                "Grant `glue:GetDatabases`, `glue:GetTables`, and `glue:GetPartitions` for catalog tables. "
-                "Grant `glue:GetJobs`, `glue:GetJobRuns`, and `glue:GetCrawlers` for jobs and crawlers. "
+                "Grant `glue:GetDatabases`, `glue:GetTables`, `glue:GetPartitions`, and `glue:GetTableVersions` "
+                "for catalog tables. "
+                "Grant `glue:GetJobs`, `glue:GetJobRuns`, `glue:GetCrawlers`, and `glue:ListCrawls` for jobs and crawlers. "
+                "Grant `glue:ListWorkflows` and `glue:GetWorkflowRuns` for workflow runs, "
+                "and `glue:ListDataQualityResults` for data quality results. "
                 "Lake Formation permissions can also restrict catalog access. "
                 "Enter the access key ID and secret access key. Add a session token for temporary credentials."
             ),

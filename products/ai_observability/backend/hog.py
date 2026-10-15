@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from posthog.cdp.validation import compile_hog
+from products.cdp.backend.validation import compile_hog
 
 AIObservabilityHogType = Literal["destination", "tagger"]
 

@@ -20,17 +20,27 @@ import {
  * names/maps — which config files do at module-eval time — does not transitively pull in
  * the Kafka producer machinery (and the logger → defaultConfig cycle behind it).
  */
-export function createIngestionProducerRegistry(kafkaClientRack: string | undefined) {
+function createIngestionProducerRegistry(kafkaClientRack: string | undefined) {
     return new KafkaProducerRegistryBuilder(kafkaClientRack)
         .register(INGESTION_UPSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP)
         .register(INGESTION_DOWNSTREAM_PRODUCER, INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP)
 }
 
-type ProducerRegistryConfig = Parameters<ReturnType<typeof createIngestionProducerRegistry>['build']>[0]
+type ProducerRegistryConfig = Parameters<ReturnType<typeof createIngestionProducerRegistry>['build']>[0] & {
+    INGESTION_OUTPUTS_DISABLED?: boolean
+}
+
+export async function buildIngestionProducerRegistry(
+    kafkaClientRack: string | undefined,
+    config: ProducerRegistryConfig
+): Promise<KafkaProducerRegistry<ProducerName>> {
+    const builder = createIngestionProducerRegistry(kafkaClientRack)
+    return config.INGESTION_OUTPUTS_DISABLED ? builder.buildBlackhole() : await builder.build(config)
+}
 
 /**
  * Lifecycle owner for the shared Kafka producer registry. `start()`
- * connects all registered producers; `stop()` disconnects them.
+ * builds the registry with `buildIngestionProducerRegistry`; `stop()` disconnects it.
  *
  * Builds the ingestion registry (the UPSTREAM/DOWNSTREAM slots), since its
  * only owners are the analytics-family servers and the client-warnings
@@ -43,7 +53,7 @@ export class KafkaProducerRegistryComponent {
     ) {}
 
     async start(): Promise<{ value: KafkaProducerRegistry<ProducerName>; stop: () => Promise<void> }> {
-        const registry = await createIngestionProducerRegistry(this.kafkaClientRack).build(this.config)
+        const registry = await buildIngestionProducerRegistry(this.kafkaClientRack, this.config)
         return {
             value: registry,
             stop: () => registry.disconnectAll(),

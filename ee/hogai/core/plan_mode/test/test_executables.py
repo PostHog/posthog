@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
+
 from langchain_core.messages import BaseMessage
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
@@ -27,7 +29,7 @@ class DummyChatAgentPromptBuilder(AgentPromptBuilder):
         return [BaseMessage(content="Dummy prompt")]
 
 
-class TestSupermodeReducer(BaseTest):
+class TestSupermodeReducer(SimpleTestCase):
     """Test the supermode reducer behavior."""
 
     def test_replace_if_not_none_ignores_none_values(self):

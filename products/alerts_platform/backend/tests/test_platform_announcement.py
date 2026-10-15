@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from posthog.clickhouse.client import sync_execute
 from posthog.models.scoping import team_scope
 
-from products.alerts_platform.backend.facade.contracts import AlertEventKind
+from products.alerts_platform.backend.facade.contracts import AlertEventKind, SourceKind
 from products.alerts_platform.backend.logic.platform_alert_events import (
     _INSERT_SQL,
     PlatformAlertEventRow,
@@ -34,6 +34,7 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
     def _row(self, **overrides) -> PlatformAlertEventRow:
         fields = {
             "team_id": self.team.id,
+            "source_kind": "logs",
             "configuration_id": self.configuration.id,
             "alert_id": self.configuration.id,
             "grouping_key": "",
@@ -57,7 +58,7 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
         return PlatformAlertEventRow(**fields)
 
     def _announcement(self, evaluation_key: str = "eval-1"):
-        return announcement(self.team.id, str(self.configuration.id), evaluation_key)
+        return announcement(self.team.id, str(self.configuration.id), evaluation_key, source=SourceKind.LOGS)
 
     def test_a_recorded_firing_comes_back_as_the_message_it_should_send(self) -> None:
         insert_events(self.team.id, [self._row()])
@@ -95,6 +96,7 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
             self.team.id,
             str(self.configuration.id),
             "eval-1",
+            source=SourceKind.LOGS,
             incident_grouping_keys=["checkout"],
         )
 

@@ -20,6 +20,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -518,7 +519,9 @@ def resolve_suggested_reviewers_with_diagnostics(
         return _empty_resolution("no_commit_hashes")
 
     try:
-        github = GitHubIntegration.first_for_team_repository(team_id, repository)
+        github = GitHubIntegration.first_for_team_repository(
+            team_id, repository, source="signals_reviewers", priority=Priority.CRITICAL
+        )
     except GitHubRateLimitError:
         # Suggested reviewers are an optional artefact — omit them rather than failing the report.
         logger.info("GitHub rate limited while probing %s, skipping reviewer resolution", repository)

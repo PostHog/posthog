@@ -1,6 +1,7 @@
 import re
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -41,6 +42,37 @@ _SITE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
 
 @SourceRegistry.register
 class ChargebeeSource(ResumableSource[ChargebeeSourceConfig, ChargebeeResumeConfig]):
+    codebase_detection = detect(
+        env=("^CHARGEBEE_",),
+        script_hosts=("js.chargebee.com", "app.retention.chargebee.com", "app.brightback.com"),
+        npm=(
+            "chargebee",
+            "@chargebee/chargebee-js-react-wrapper",
+            "@chargebee/chargebee-js-vue-wrapper",
+            "@chargebee/nextjs",
+            "@chargebee/chargebee-js-angular-wrapper",
+            "@chargebee/chargebee-js-types",
+            "@chargebee/react-native-chargebee",
+            "@chargebee/express",
+            "@chargebee/better-auth",
+            "@chargebee/entitlements",
+            "@chargebee/atomicpricing",
+            "@chargebee/cli",
+            "@chargebee/chargebee-apps",
+            "chargebee-init",
+            "chargebee-typescript",
+            "@openaudr/audr-sink-chargebee",
+        ),
+        pypi=("chargebee",),
+        cocoapods=("Chargebee",),
+        composer=("chargebee/chargebee-php", "chargebee/cashier"),
+        go=("github.com/chargebee/chargebee-go",),
+        maven=("com.chargebee:chargebee-java", "com.chargebee:chargebee-android", "com.chargebee:cb-partner-spi"),
+        pub=("chargebee_flutter",),
+        rubygems=("chargebee",),
+        swiftpm=("github.com/chargebee/chargebee-ios",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
