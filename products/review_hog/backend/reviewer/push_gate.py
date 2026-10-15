@@ -16,8 +16,9 @@ The rules, in order. The first rule that matches gives the reason:
    the compare of the last reviewed head and the push head. The rule matches only when the push head
    descends from the last reviewed head: after a rebase or a force-push the compare does not show the
    push's own change. After `SMALL_CHANGE_MAX_DEFERRALS` deferrals in a row the next small push runs the
-   review, so small pushes cannot pile up without a review. A push that any rule lets through to a review
-   sets the count back to 0. A push that a rule skips keeps the count, because nothing was reviewed.
+   review, so small pushes cannot pile up without a review. A push that every rule lets through to a review
+   sets the count back to 0. A push that a rule skips keeps the count, because nothing was reviewed. The
+   count is stored only after the last rule has decided, so a draft or throttle skip also keeps it.
 6. `system_one_below_threshold`: System One rates the new own commits below a threshold.
 7. `draft`: the PR is a draft and no rule above skips the push. A draft cannot merge, and marking it
    ready starts a turn that reviews everything since the last reviewed head. The rules above still run,
@@ -451,28 +452,26 @@ class PushGate:
             lines += additions + deletions
         return lines
 
-    def _small_change_deferrals(self, *, pr_number: int, head_sha: str, small: bool) -> int | None:
+    def _small_change_key(self, pr_number: int) -> str:
+        return f"reviewhog_small_change_deferrals:{self.repository}:{pr_number}"
+
+    def _small_change_streak_after(self, *, pr_number: int, head_sha: str, small: bool) -> int | None:
         """The small-change deferrals in a row after this push, or None when Redis is unavailable.
 
         A small push below the limit adds one. Any other push sets the count to 0, which also makes the
         push after `SMALL_CHANGE_MAX_DEFERRALS` deferrals run the review. A retried turn at the same head
         gets the count of its first attempt, so a retry does not count the push again.
         """
-        key = f"reviewhog_small_change_deferrals:{self.repository}:{pr_number}"
-        client = get_client()
         try:
-            stored = client.get(key)
-            stored_head, stored_count = stored.decode().split(":") if stored else ("", "0")
-            if stored_head == head_sha:
-                return int(stored_count)
-            if small and int(stored_count) < SMALL_CHANGE_MAX_DEFERRALS:
-                count = int(stored_count) + 1
-            else:
-                count = 0
-            client.set(key, f"{head_sha}:{count}", ex=_SMALL_CHANGE_DEFERRALS_TTL_SECONDS)
+            stored = get_client().get(self._small_change_key(pr_number))
         except RedisError:
             return None
-        return count
+        stored_head, stored_count = stored.decode().split(":") if stored else ("", "0")
+        if stored_head == head_sha:
+            return int(stored_count)
+        if small and int(stored_count) < SMALL_CHANGE_MAX_DEFERRALS:
+            return int(stored_count) + 1
+        return 0
 
     def _ask_system_one(self, code_files: list[_ChangedFile], own_commits: int, lines_known: bool) -> PushGateDecision:
         lines = sum(file.changes for file in code_files) if lines_known else None
@@ -546,7 +545,7 @@ class PushGate:
         # The count moves in shadow mode too, so the logged would_skip sequence follows what live mode would
         # do. In shadow mode the review still runs and moves the baseline, so net lines count from the
         # previous push and do not add up over the deferred pushes as they would in live mode.
-        deferrals = self._small_change_deferrals(pr_number=pr_number, head_sha=head_sha, small=small)
+        deferrals = self._small_change_streak_after(pr_number=pr_number, head_sha=head_sha, small=small)
         if small and deferrals is not None and deferrals > 0:
             return _matched(
                 "small_change",
@@ -561,7 +560,8 @@ class PushGate:
     def decide(self, *, previous_head_sha: str, head_sha: str, base_branch: str, pr_number: int) -> PushGateDecision:
         """Judge the push from `previous_head_sha`, the last automatically reviewed head, to `head_sha`.
 
-        Rules 1 to 6 only: `apply_draft_rule` adds rule 7 on top of the result.
+        Rules 1 to 6 only: `apply_draft_rule` adds rule 7 on top of the result. The decision carries the
+        small-change count, and `record_small_change_streak` stores it after the last rule has decided.
         """
         decision = self._judge(
             previous_head_sha=previous_head_sha, head_sha=head_sha, base_branch=base_branch, pr_number=pr_number
@@ -572,9 +572,27 @@ class PushGate:
         # The rule chain already counted this push.
         if decision.small_change_deferrals is not None:
             return decision
-        # The review runs and moves the baseline, so the small-change streak starts again.
-        deferrals = self._small_change_deferrals(pr_number=pr_number, head_sha=head_sha, small=False)
+        # If the review runs, it moves the baseline, so the small-change streak starts again.
+        deferrals = self._small_change_streak_after(pr_number=pr_number, head_sha=head_sha, small=False)
         return replace(decision, small_change_deferrals=deferrals)
+
+    def record_small_change_streak(self, decision: PushGateDecision, *, pr_number: int, head_sha: str) -> None:
+        """Store the small-change count of the final decision. Without Redis the next push counts again."""
+        # Apart from `decide`, because the draft and throttle rules run later and can still skip the review.
+        if decision.small_change_deferrals is None:
+            return
+        # A rule skipped the review, so the baseline did not move and the stored count stays.
+        if decision.skip and decision.reason != "small_change":
+            return
+        key = self._small_change_key(pr_number)
+        client = get_client()
+        try:
+            stored = client.get(key)
+            if stored and stored.decode().split(":")[0] == head_sha:
+                return
+            client.set(key, f"{head_sha}:{decision.small_change_deferrals}", ex=_SMALL_CHANGE_DEFERRALS_TTL_SECONDS)
+        except RedisError:
+            return
 
 
 def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDecision:

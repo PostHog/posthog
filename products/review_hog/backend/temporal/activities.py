@@ -2344,6 +2344,7 @@ def _pr_is_draft_now(repository: str, pr_number: int, *, token: str, installatio
 def _gate_push(input: GatePushInput) -> PushGateDecision:
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     draft = _pr_draft(current)
+    gate: PushGate | None = None
     if current is None:
         decision = PushGateDecision(skip=False, would_skip=False, reason="snapshot_unavailable")
     else:
@@ -2377,6 +2378,8 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
                 pr_lines=current.pr_metadata.additions + current.pr_metadata.deletions,
             )
     decision = apply_throttle(decision, report_id=input.report_id, head_sha=input.head_sha)
+    if gate is not None and current is not None:
+        gate.record_small_change_streak(decision, pr_number=current.pr_metadata.number, head_sha=input.head_sha)
     if decision.skip:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
     try:

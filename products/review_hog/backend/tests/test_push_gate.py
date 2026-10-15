@@ -109,18 +109,22 @@ def _decide(
     follow_up: int | None = None,
     pr_lines: int | None = None,
     head: str = "new",
+    record: bool = False,
 ) -> PushGateDecision:
+    gate = PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9")
     with (
         patch(f"{_MODULE}.github_api_request", side_effect=_github(responses)),
         patch(f"{_MODULE}.build_system_one_client", MagicMock(return_value=system_one or MagicMock())),
         patch(f"{_MODULE}.posthog_app_login", return_value="reviewhog[bot]"),
     ):
-        decision = PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9").decide(
-            previous_head_sha="old", head_sha=head, base_branch="master", pr_number=1
-        )
+        decision = gate.decide(previous_head_sha="old", head_sha=head, base_branch="master", pr_number=1)
     if draft:
-        return apply_draft_rule(decision, draft=True)
-    return apply_next_push_rule(decision, follow_up=follow_up, pr_lines=pr_lines)
+        decision = apply_draft_rule(decision, draft=True)
+    else:
+        decision = apply_next_push_rule(decision, follow_up=follow_up, pr_lines=pr_lines)
+    if record:
+        gate.record_small_change_streak(decision, pr_number=1, head_sha=head)
+    return decision
 
 
 def _system_one(probability: float) -> MagicMock:
@@ -364,7 +368,7 @@ def test_push_gate_skips_a_draft_push_and_keeps_the_system_one_answer(
     ) == expected
 
 
-# Autouse because every gate decision on a code push reads and writes the small-change counter.
+# Autouse because every gate decision on a code push reads the small-change counter.
 @pytest.fixture(autouse=True)
 def empty_redis() -> Iterator[None]:
     TEST_clear_clients()
@@ -551,7 +555,7 @@ def test_push_gate_reviews_the_small_push_after_two_deferrals() -> None:
     ]
     outcomes = []
     for head, net_files in pushes:
-        decision = _decide(_small_push(head, net_files), _system_one(0.8), head=head)
+        decision = _decide(_small_push(head, net_files), _system_one(0.8), head=head, record=True)
         outcomes.append((decision.reason, decision.small_change_deferrals))
 
     assert outcomes == [
@@ -588,6 +592,7 @@ def test_push_gate_reviews_a_small_push_when_redis_is_down() -> None:
                 own_commit_files=[_file("README.md")],
                 head="n3",
             ),
+            False,
             [("docs_only", 0), ("small_change", 1)],
         ),
         # A skipped push reviews nothing, so the streak stays and the next small push runs the review.
@@ -598,23 +603,34 @@ def test_push_gate_reviews_a_small_push_when_redis_is_down() -> None:
                 pr_files=[_file("posthog/billing.py", _BILLING_AFTER_MERGE)],
                 head="n3",
             ),
+            False,
             [("merge_only", None), ("system_one_above_threshold", 0)],
+        ),
+        # The forced review never ran, so the stored streak stays at 2 and the next small push runs the review.
+        (
+            "draft_skip_of_the_forced_review_keeps_streak",
+            _small_push("n3", [_net_file("posthog/billing.py", 3)]),
+            True,
+            [("draft", 0), ("system_one_above_threshold", 0)],
         ),
     ]
 )
 def test_push_gate_small_change_streak_after_a_push_another_rule_decides(
-    _name: str, middle_push: dict[str, dict[str, Any] | None], expected_tail: list[tuple[str, int | None]]
+    _name: str,
+    middle_push: dict[str, dict[str, Any] | None],
+    middle_draft: bool,
+    expected_tail: list[tuple[str, int | None]],
 ) -> None:
     small = [_net_file("posthog/billing.py", 3)]
     pushes = [
-        ("n1", _small_push("n1", small)),
-        ("n2", _small_push("n2", small)),
-        ("n3", middle_push),
-        ("n4", _small_push("n4", small)),
+        ("n1", _small_push("n1", small), False),
+        ("n2", _small_push("n2", small), False),
+        ("n3", middle_push, middle_draft),
+        ("n4", _small_push("n4", small), False),
     ]
     outcomes = []
-    for head, responses in pushes:
-        decision = _decide(responses, _system_one(0.8), head=head)
+    for head, responses, draft in pushes:
+        decision = _decide(responses, _system_one(0.8), draft=draft, head=head, record=True)
         outcomes.append((decision.reason, decision.small_change_deferrals))
 
     assert outcomes == [("small_change", 1), ("small_change", 2), *expected_tail]
