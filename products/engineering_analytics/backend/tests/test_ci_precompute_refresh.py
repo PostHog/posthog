@@ -8,7 +8,6 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import WAIT_TIMEOUT_ERROR
 from products.engineering_analytics.backend.logic import ci_precompute
 
 _MODULE = "products.engineering_analytics.backend.logic.ci_precompute"
@@ -18,8 +17,12 @@ class TestRefreshAfterLoad(SimpleTestCase):
     @parameterized.expand(
         [
             ("stored", SimpleNamespace(ready=True, errors=[]), True),
-            ("out_of_budget", SimpleNamespace(ready=False, errors=[WAIT_TIMEOUT_ERROR]), True),
-            ("insert_failed", SimpleNamespace(ready=False, errors=["Code: 241. Memory limit exceeded"]), False),
+            ("out_of_budget", SimpleNamespace(ready=False, errors=["timeout"], timed_out=True), True),
+            (
+                "insert_failed",
+                SimpleNamespace(ready=False, errors=["Code: 241. Memory limit exceeded"], timed_out=False),
+                False,
+            ),
             ("refresh_raised", RuntimeError("connection lost"), False),
         ]
     )

@@ -11,7 +11,6 @@ from posthog.dataclasses import frozen
 from products.engineering_analytics.backend.facade.contracts import DeliveryScopeKind
 from products.engineering_analytics.backend.logic._shared import _require_repo
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
-from products.engineering_analytics.backend.logic.queries._workflow_filters import CI_LOOKBACK as CI_LOOKBACK
 
 _FIELDS_BY_KIND = {
     DeliveryScopeKind.AUTHOR: {"author"},

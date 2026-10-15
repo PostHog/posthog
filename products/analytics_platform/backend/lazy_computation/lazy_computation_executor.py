@@ -68,9 +68,6 @@ DEFAULT_WAIT_TIMEOUT_SECONDS = 180  # 3 minutes
 DEFAULT_POLL_INTERVAL_SECONDS = 1.0  # Initial poll interval (doubles each iteration)
 DEFAULT_MAX_POLL_INTERVAL_SECONDS = 30.0  # Cap for exponential backoff
 DEFAULT_RETRIES = 1  # Maximum retry attempts for failed jobs
-# The entry in `LazyComputationResult.errors` for a call that ran out of its wait budget. A caller
-# compares against it to tell a call that needs more time from a call whose insert failed.
-WAIT_TIMEOUT_ERROR = "Timeout waiting for computation jobs"
 
 # How long to wait for another executor to insert a job, before we assume it has failed.
 # With CH heartbeat liveness, this mainly covers the gap between CH start marker and
@@ -624,6 +621,9 @@ class LazyComputationResult:
     # True if any insert failed with ClickHouse MEMORY_LIMIT_EXCEEDED. Lets callers react
     # to an OOM (e.g. cap a high-cardinality team's future inserts) without parsing errors.
     memory_exceeded: bool = False
+    # True when the call ran out of its wait budget before every job was ready. The inserts it
+    # started keep running, so a caller can wait again instead of treating this as a failure.
+    timed_out: bool = False
     # True when the returned job_ids include recently-expired jobs served under the
     # executor's serve-stale grace instead of recomputing inline. The data is complete
     # but up to (TTL + grace) old; the caller decides whether to surface that.
@@ -1194,9 +1194,9 @@ class LazyComputationExecutor:
         try:
             while True:
                 if time.monotonic() - start_time >= self.wait_timeout_seconds:
-                    errors.append(WAIT_TIMEOUT_ERROR)
+                    errors.append("Timeout waiting for computation jobs")
                     result = LazyComputationResult(
-                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded, timed_out=True
                     )
                     _log_execution("timeout", result)
                     return result
@@ -1270,9 +1270,9 @@ class LazyComputationExecutor:
                         # insert once the budget is spent rather than running the whole set
                         # back-to-back and blowing well past wait_timeout_seconds.
                         if time.monotonic() - start_time >= self.wait_timeout_seconds:
-                            errors.append(WAIT_TIMEOUT_ERROR)
+                            errors.append("Timeout waiting for computation jobs")
                             result = LazyComputationResult(
-                                ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                                ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded, timed_out=True
                             )
                             _log_execution("timeout", result)
                             return result

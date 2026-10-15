@@ -38,10 +38,12 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
 )
 
-from products.engineering_analytics.backend.logic.delivery_scope import CI_LOOKBACK
 from products.engineering_analytics.backend.logic.merge_queue import GATE_RUN_LOOKBACK, gate_attempt_expr
 from products.engineering_analytics.backend.logic.pr_timeline import MASTER_FAILURE_PROXIMITY
-from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    CI_LOOKBACK,
+    DECISIVE_FAILURE_CONCLUSIONS_SQL,
+)
 from products.engineering_analytics.backend.logic.sources import resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import (
     issue_events,

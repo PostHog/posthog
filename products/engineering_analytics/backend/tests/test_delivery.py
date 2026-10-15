@@ -25,7 +25,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.census import CENSUS_EVENT
 from products.engineering_analytics.backend.logic.comparison_teams import choose_comparison_teams
-from products.engineering_analytics.backend.logic.delivery_scope import CI_LOOKBACK, DeliveryScope, SummaryScope
+from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope, SummaryScope
 from products.engineering_analytics.backend.logic.merge_queue import GateAttempt
 from products.engineering_analytics.backend.logic.pr_timeline import (
     MasterFailureIndex,
@@ -36,6 +36,7 @@ from products.engineering_analytics.backend.logic.pr_timeline import (
     RunAttempt,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import CI_LOOKBACK
 from products.engineering_analytics.backend.logic.queries.delivery_comparison import query_delivery_comparison
 from products.engineering_analytics.backend.logic.queries.delivery_summary import (
     MergedPRFacts,

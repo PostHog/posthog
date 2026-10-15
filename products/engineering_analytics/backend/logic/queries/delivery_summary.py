@@ -26,10 +26,11 @@ from products.engineering_analytics.backend.facade.contracts import (
     ScopeRepoFigure,
 )
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
-from products.engineering_analytics.backend.logic.delivery_scope import CI_LOOKBACK, DeliveryScope, SummaryScope
+from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope, SummaryScope
 from products.engineering_analytics.backend.logic.merge_queue import GATE_RUN_LOOKBACK, GateAttempt, gate_attempts_sql
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, push_rows_select
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    CI_LOOKBACK,
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
     UNPAGED_SCAN_LIMIT,
     date_to_filter_clause,

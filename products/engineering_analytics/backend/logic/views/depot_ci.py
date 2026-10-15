@@ -291,13 +291,8 @@ def _whole_history_shell_scan(jobs_table: str, handoffs: str) -> _ShellScan:
     return _ShellScan(runs=f"id >= {first_run}", jobs=f"run_id >= {first_run}", handoff_jobs=handoff_jobs)
 
 
-def _windowed_shell_scan(window: CreatedWindow) -> _ShellScan:
-    # A job is created after its run, so the jobs of the runs in the window start at the window. The
-    # failure check reads the attempts of a re-run only as far as the window reaches after its end.
-    return _ShellScan(runs=window.rows(), jobs=window.rows_and_later(), handoff_jobs="1")
-
-
-def _github_shells(jobs_table: str, runs_table: str, handoffs: str, scan: _ShellScan) -> str:
+def _github_shells(jobs_table: str, runs_table: str, handoffs: str, scan: _ShellScan | None = None) -> str:
+    scan = scan or _whole_history_shell_scan(jobs_table, handoffs)
     handed_off = f"name = '{_GITHUB_HANDOFF_JOB}' AND conclusion = 'success' AND {scan.handoff_jobs}"
     relays = f"""
         SELECT run_id
@@ -362,10 +357,7 @@ def with_depot_runs(
     if depot is None:
         return f"({_github_runs(runs_table, optional_columns=optional_columns)})"
     handoffs = _handoff_workflows(depot)
-    where = "1"
-    if jobs_table:
-        scan = _whole_history_shell_scan(jobs_table, handoffs)
-        where = f"id NOT IN ({_github_shells(jobs_table, runs_table, handoffs, scan)})"
+    where = f"id NOT IN ({_github_shells(jobs_table, runs_table, handoffs)})" if jobs_table else "1"
     depot_runs = _runs(_executed_attempts(depot, handoffs, pull_requests_table))
     return f"({_github_runs(runs_table, where, optional_columns=optional_columns)} UNION ALL {depot_runs})"
 
@@ -391,29 +383,28 @@ def windowed_runs(
     """
     # The stored column is a plain string, so a run that has not started stores ''.
     raw_start = ", ifNull(run_started_at, '') AS run_started_at_raw"
-    if depot is None:
-        github_runs = _github_runs(
-            runs_table,
-            window.rows(),
-            optional_columns=optional_columns,
-            extra_columns=f"{raw_start}, 0 AS is_handoff_shell",
+    is_handoff_shell = "0"
+    depot_runs = ""
+    if depot is not None:
+        handoffs = _handoff_workflows(depot, window.rows_and_around("a.workflow_created_at"))
+        # A job is created after its run, so the jobs of the runs in the window start at the window.
+        # The failure check reads the attempts of a re-run only as far as the window reaches after
+        # its end.
+        scan = _ShellScan(runs=window.rows(), jobs=window.rows_and_later(), handoff_jobs="1")
+        is_handoff_shell = f"id IN ({_github_shells(jobs_table, runs_table, handoffs, scan)})"
+        depot_runs = " UNION ALL " + _runs(
+            _attempts(depot, pull_requests_table, window.rows("a.workflow_created_at")),
+            f""",
+            ifNull(any(workflow_started_at), '') AS run_started_at_raw,
+            github_run_id IN ({_declined_handoffs(handoffs)}) AS is_handoff_shell""",
         )
-        return f"({github_runs})"
-    handoffs = _handoff_workflows(depot, window.rows_and_around("a.workflow_created_at"))
-    shells = _github_shells(jobs_table, runs_table, handoffs, _windowed_shell_scan(window))
     github_runs = _github_runs(
         runs_table,
         window.rows(),
         optional_columns=optional_columns,
-        extra_columns=f"{raw_start}, id IN ({shells}) AS is_handoff_shell",
+        extra_columns=f"{raw_start}, {is_handoff_shell} AS is_handoff_shell",
     )
-    depot_runs = _runs(
-        _attempts(depot, pull_requests_table, window.rows("a.workflow_created_at")),
-        f""",
-            ifNull(any(workflow_started_at), '') AS run_started_at_raw,
-            github_run_id IN ({_declined_handoffs(handoffs)}) AS is_handoff_shell""",
-    )
-    return f"({github_runs} UNION ALL {depot_runs})"
+    return f"({github_runs}{depot_runs})"
 
 
 def windowed_jobs(jobs_table: str, depot: DepotJobAttempts | None, window: CreatedWindow) -> workflow_jobs.JobsTable:
@@ -451,8 +442,7 @@ def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, runs_table:
     if depot is None:
         return workflow_jobs.JobsTable.of(f"({_github_jobs(jobs_table)})")
     handoffs = _handoff_workflows(depot)
-    scan = _whole_history_shell_scan(jobs_table, handoffs)
-    where = f"run_id NOT IN ({_github_shells(jobs_table, runs_table, handoffs, scan)})"
+    where = f"run_id NOT IN ({_github_shells(jobs_table, runs_table, handoffs)})"
     depot_jobs = _jobs(_executed_attempts(depot, handoffs, pull_requests_table=None))
     every_depot_job = _jobs(_attempts(depot, pull_requests_table=None))
     return workflow_jobs.JobsTable(

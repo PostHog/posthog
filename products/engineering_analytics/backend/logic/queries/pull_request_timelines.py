@@ -24,7 +24,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestTimelines,
     RepoRef,
 )
-from products.engineering_analytics.backend.logic.delivery_scope import CI_LOOKBACK, DeliveryScope
+from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope
 from products.engineering_analytics.backend.logic.merge_queue import GATE_RUN_LOOKBACK, GateAttempt, gate_attempts_sql
 from products.engineering_analytics.backend.logic.pr_timeline import (
     MasterFailureIndex,
@@ -36,6 +36,7 @@ from products.engineering_analytics.backend.logic.pr_timeline import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, push_rows_select
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    CI_LOOKBACK,
     DECISIVE_FAILURE_CONCLUSIONS,
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
     date_to_filter_clause,

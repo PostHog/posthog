@@ -5,22 +5,10 @@ The lazy computation framework stores the parsed rows instead, one job for the r
 repository created on one day. A refresh after a data load computes only the days that are missing
 or too old, so its cost follows the new data and not the history.
 
-Each stored row depends only on raw rows created near its own day. That is why a job row carries its
-cost, which reads no run column, and not the attribution of its run: a re-run moves the start of a
-run, and a job row that copied it would keep the old value. A read joins the two tables.
-
-A job covers one source and one repository. A repository that two GitHub sources sync is stored once
-for each, with its Depot CI rows, and a read takes the rows of the one source it resolved.
-
 The stored days are what a page range of 30 days reads. A read reaches one more span before its
 range: a timeline also reads the CI from ``CI_LOOKBACK`` before it, and a comparison reads the
 previous period. Three more days cover the day a read floors below its window, the whole date of a
 floor, and the UTC day of a stored row. A longer range reads the warehouse tables.
-
-A refresh computes a day again once its rows pass the age of their band. Most rows stop changing
-within a day of their creation. A re-run or an expired run changes an older row, and the table shows
-it after that age. The older days are first stored together, so their ages are spread, or they would
-all expire in one refresh.
 """
 
 import time
@@ -36,13 +24,11 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
-from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
-    WAIT_TIMEOUT_ERROR,
     LazyComputationResult,
     LazyComputationTable,
     TtlSchedule,
@@ -90,18 +76,7 @@ _FAILED_REFRESH_PAUSE_SECONDS = 30 * 60
 _IN_USE_SECONDS = 60 * 60
 
 
-def _raw_day(moment: str) -> str:
-    return f"formatDateTime(toTimeZone({moment}, 'UTC'), '%Y-%m-%d')"
-
-
-_RERUN_SLACK_DAYS = JOB_FLOOR_SLACK_ON_RUN_STARTED.days
-
-_WINDOW = CreatedWindow(
-    start=_raw_day("{time_window_min}"),
-    end=_raw_day("{time_window_max}"),
-    earlier_start=_raw_day(f"{{time_window_min}} - INTERVAL {_RERUN_SLACK_DAYS} DAY"),
-    later_end=_raw_day(f"{{time_window_max}} + INTERVAL {_RERUN_SLACK_DAYS} DAY"),
-)
+_WINDOW = CreatedWindow(slack_days=JOB_FLOOR_SLACK_ON_RUN_STARTED.days)
 
 RUN_COLUMNS = (
     "id",
@@ -264,9 +239,8 @@ def refresh_after_load(team: Team) -> None:
     try:
         with tags_context(
             product=Product.ENGINEERING_ANALYTICS,
-            feature=Feature.PREAGGREGATION,
+            feature=Feature.CACHE_WARMUP,
             team_id=team.pk,
-            ch_user=ClickHouseUser.CACHE_WARMUP,
         ):
             failed = _refresh(team)
     finally:
@@ -314,5 +288,5 @@ def _refresh(team: Team) -> bool:
                     repository=source.repository,
                     errors=result.errors,
                 )
-                failed = failed or any(error != WAIT_TIMEOUT_ERROR for error in result.errors)
+                failed = failed or not result.timed_out
     return failed

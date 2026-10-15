@@ -12,22 +12,38 @@ ISO-8601 ``created_at`` strings, which is the one comparison that lets a warehou
 from posthog.dataclasses import frozen
 
 
+def _day(moment: str) -> str:
+    return f"formatDateTime(toTimeZone({moment}, 'UTC'), '%Y-%m-%d')"
+
+
 @frozen
 class CreatedWindow:
-    start: str
-    end: str
-    earlier_start: str
-    later_end: str
+    """The framework's span of whole days, from ``{time_window_min}`` to ``{time_window_max}``, with
+    ``slack_days`` of reach on either side."""
+
+    slack_days: int
 
     def rows(self, column: str = "created_at") -> str:
         """The rows the job stores."""
-        return f"{column} >= {self.start} AND {column} < {self.end}"
+        return self._between(column, "{time_window_min}", "{time_window_max}")
 
     def rows_and_earlier(self, column: str = "created_at") -> str:
-        return f"{column} >= {self.earlier_start} AND {column} < {self.end}"
+        return self._between(column, self._earlier_start, "{time_window_max}")
 
     def rows_and_later(self, column: str = "created_at") -> str:
-        return f"{column} >= {self.start} AND {column} < {self.later_end}"
+        return self._between(column, "{time_window_min}", self._later_end)
 
     def rows_and_around(self, column: str = "created_at") -> str:
-        return f"{column} >= {self.earlier_start} AND {column} < {self.later_end}"
+        return self._between(column, self._earlier_start, self._later_end)
+
+    @property
+    def _earlier_start(self) -> str:
+        return f"{{time_window_min}} - INTERVAL {self.slack_days} DAY"
+
+    @property
+    def _later_end(self) -> str:
+        return f"{{time_window_max}} + INTERVAL {self.slack_days} DAY"
+
+    @staticmethod
+    def _between(column: str, start: str, end: str) -> str:
+        return f"{column} >= {_day(start)} AND {column} < {_day(end)}"
