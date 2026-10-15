@@ -22,6 +22,10 @@ from products.alerts_platform.backend.facade.api import due_checks, list_configu
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
+    CheckFailure,
+    Grouping,
+    GroupingMode,
+    GroupOutcome,
     IncidentAction,
     PlatformAlertOutcome,
     PlatformConfigurationSnapshot,
@@ -31,13 +35,19 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.facade.lifecycle import AlertState
 from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
+from products.logs.backend.alert_check_query import (
+    BatchedBucketedResult,
+    BucketedCount,
+    GroupCounts,
+    GroupedRollingResult,
+)
 from products.logs.backend.alert_signal_emitter import PlatformAlertSignal, notified_alerts_for_platform
 from products.logs.backend.alert_source_cycle import (
     BATCH_QUERY_BUDGET_SECONDS,
     INFLIGHT_KEY,
     MAX_QUERY_SECONDS,
     evaluate_logs_batch,
+    grouping_key_of,
 )
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import backfill_platform_alert_configurations
@@ -161,7 +171,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
-        assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
+        assert [(g.kind, g.value) for o in evaluation.outcomes for g in o.groups] == [(AlertEventKind.FIRING, 500.0)]
         assert [(d.sends_messages, d.incident_actions, d.owned_by_platform) for d in evaluation.deliveries] == [
             (True, {"": IncidentAction.TRIGGER} if paged else {}, owner == "platform")
         ]
@@ -212,7 +222,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(copied)
 
-        assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
+        assert [(g.kind, g.value) for o in evaluation.outcomes for g in o.groups] == [(AlertEventKind.FIRING, 500.0)]
 
     def test_a_cohort_query_is_capped_below_the_batch_budget(self) -> None:
         _, query = self._run(self._configuration())
@@ -307,7 +317,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # firing reaching it, a FIRING alert does not fire again on its own and stays silent.
         unmuted, _ = self._run(configuration, now=datetime(2026, 9, 16, 12, 30, tzinfo=UTC))
 
-        assert [o.kind for o in unmuted.outcomes] == [AlertEventKind.FIRING]
+        assert [g.kind for o in unmuted.outcomes for g in o.groups] == [AlertEventKind.FIRING]
 
     def test_a_resolve_cooldown_holds_still_closes_the_incident(self) -> None:
         configuration = self._configuration(cooldown_minutes=60)
@@ -320,10 +330,92 @@ class TestLogsAlertEvaluation(APIBaseTest):
         later = datetime(2026, 9, 16, 10, 10, tzinfo=UTC)
         cleared, _ = self._run(configuration, now=later, count=0)
 
-        assert [o.kind for o in cleared.outcomes] == [AlertEventKind.CHECK]
+        assert [g.kind for o in cleared.outcomes for g in o.groups] == [AlertEventKind.CHECK]
         assert [(d.sends_messages, d.incident_actions) for d in cleared.deliveries] == [
             (False, {"": IncidentAction.RESOLVE})
         ]
+
+    def _run_grouped(
+        self, configuration: PlatformConfigurationSnapshot, counts: dict[str, int], *, now: datetime | None = None
+    ) -> SourceBatchEvaluation:
+        now = now or self.cutoff
+        groups = [
+            GroupCounts(labels={"service_name": service}, counts=[BucketedCount(timestamp=now, count=count)])
+            for service, count in counts.items()
+        ]
+        with (
+            patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
+            patch(f"{_MODULE}.GroupedAlertCheckQuery") as query,
+        ):
+            query.return_value.execute_rolling_checks.return_value = GroupedRollingResult(
+                groups=groups, period_starts=[now], query_duration_ms=1
+            )
+            return evaluate_logs_batch(self.team.id, slot_of(configuration.next_check_at, now), now)
+
+    def test_an_open_group_with_a_hashed_key_resolves_only_when_the_query_was_not_cut(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",), max_instances=1)
+        configuration = self._configuration(grouping=grouping.to_stored())
+        long_name = "checkout-" * 40
+        self._record(self._run_grouped(configuration, {long_name: 500}))
+
+        def run_after(counts: dict[str, int]) -> dict[str, AlertEventKind]:
+            with team_scope(self.team.id):
+                platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
+            (outcome,) = self._run_grouped(configuration, counts).outcomes
+            return {group.labels.get("service_name", group.grouping_key[:7]): group.kind for group in outcome.groups}
+
+        assert run_after({"api": 600, "web": 550}) == {}
+        assert run_after({"api": 600}) == {"sha256:": AlertEventKind.RESOLVED}
+
+    def test_a_grouped_alert_fires_per_group_resolves_a_vanished_one_and_reports_overflow(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",), max_instances=2)
+        configuration = self._configuration(grouping=grouping.to_stored())
+
+        first = self._run_grouped(configuration, {"api": 500, "web": 3, "worker": 400, "cron": 300})
+        self._record(first)
+
+        (outcome,) = first.outcomes
+        (delivery,) = first.deliveries
+        # The quiet group gets no row, and the cap admits the two worst of the three breaching.
+        assert [(group.labels["service_name"], group.kind) for group in outcome.groups] == [
+            ("api", AlertEventKind.FIRING),
+            ("worker", AlertEventKind.FIRING),
+        ]
+        assert delivery.overflowed == 1
+
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
+        second = self._run_grouped(configuration, {"api": 500})
+
+        (outcome,) = second.outcomes
+        assert {group.labels["service_name"]: group.kind for group in outcome.groups} == {
+            "api": AlertEventKind.CHECK,
+            "worker": AlertEventKind.RESOLVED,
+        }
+
+    def test_a_grouped_alert_switched_off_in_logs_keeps_its_open_groups(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",))
+        configuration = self._configuration(grouping=grouping.to_stored())
+        self._record(self._run_grouped(configuration, {"api": 500}))
+        LogsAlertConfiguration.objects.filter(id=self._legacy_ids[configuration.id]).update(enabled=False)
+
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
+        stopped = self._run_grouped(configuration, {})
+        self._record(stopped)
+
+        (outcome,) = stopped.outcomes
+        with team_scope(self.team.id):
+            (copy,) = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+            ).configurations
+            open_group = platform_testing.alert_for(
+                configuration.id, grouping_key=grouping_key_of({"service_name": "api"})
+            )
+            ungrouped = platform_testing.alert_for(configuration.id)
+        assert (outcome.groups, outcome.disable, copy.enabled) == ((), True, False)
+        assert open_group is not None and open_group.state == "firing"
+        assert ungrouped is None
 
     @parameterized.expand(
         [
@@ -331,10 +423,15 @@ class TestLogsAlertEvaluation(APIBaseTest):
             ("unknown_operator", {"condition": {**CONDITION, "threshold_operator": "equals"}}),
             ("zero_window", {"condition": {**CONDITION, "window_minutes": 0}}),
             ("null_filter_values", {"condition": CONDITION, "filterGroup": {"type": "AND", "values": None}}),
+            ("grouped_by_an_attribute", {"condition": CONDITION}, ("http.route",)),
+            ("grouped_below", {"condition": {**CONDITION, "threshold_operator": "below"}}, ("service_name",)),
         ]
     )
-    def test_a_broken_config_stops_being_discovered(self, _name: str, source_config: dict[str, Any]) -> None:
-        configuration = self._configuration(source_config=source_config)
+    def test_a_broken_config_stops_being_discovered(
+        self, _name: str, source_config: dict[str, Any], grouping_keys: tuple[str, ...] = ()
+    ) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=grouping_keys) if grouping_keys else Grouping()
+        configuration = self._configuration(source_config=source_config, grouping=grouping.to_stored())
         healthy = self._configuration(name="Healthy")
 
         evaluation, query = self._run(configuration, healthy)
@@ -343,19 +440,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
         queried = {check.id for call in query.call_args_list for check in call.kwargs["alerts"]}
         assert queried == {healthy.id}
         with team_scope(self.team.id):
-            alert = platform_testing.alert_for(configuration.id)
-            assert alert is not None
-        assert alert.state == AlertState.BROKEN
+            assert platform_testing.configuration(configuration.id).check_status == AlertState.BROKEN
         assert due_checks(self.team.id, SourceKind.LOGS.value, self._slot(), self.cutoff + timedelta(hours=1)) == ()
 
     @parameterized.expand(
         [
-            ("a_transient_error_holds_the_counter", ValueError("cluster busy"), 4, "not_firing"),
+            ("a_transient_error_holds_the_counter", ValueError("cluster busy"), 4, "ok"),
             ("an_invalid_query_escalates", ExposedHogQLError("unknown field"), 5, "broken"),
         ]
     )
     def test_a_failed_query_advances_the_schedule_instead_of_leaving_the_check_due(
-        self, _name: str, error: Exception, expected_failures: int, expected_state: str
+        self, _name: str, error: Exception, expected_failures: int, expected_status: str
     ) -> None:
         configuration = self._configuration(consecutive_failures=4)
 
@@ -364,10 +459,10 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         assert [o.consecutive_failures for o in evaluation.outcomes] == [expected_failures]
         with team_scope(self.team.id):
-            alert = platform_testing.alert_for(configuration.id)
-            assert alert is not None
+            # A failed check fails every group, so it writes the configuration and no instance.
+            assert platform_testing.alert_for(configuration.id) is None
             configuration = platform_testing.configuration(configuration.id)
-        assert alert.state == expected_state
+        assert configuration.check_status == expected_status
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
 
@@ -406,7 +501,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, query = self._run(configuration)
         self._record(evaluation)
 
-        assert [o.kind for o in evaluation.outcomes] == [AlertEventKind.CHECK]
+        assert [g.kind for o in evaluation.outcomes for g in o.groups] == [AlertEventKind.CHECK]
         assert query.called is still_runs
         with team_scope(self.team.id):
             (copy,) = list_configurations(
@@ -449,7 +544,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(unreadable, healthy)
 
-        states = {o.configuration_id: o.new_state for o in evaluation.outcomes}
+        states = {o.configuration_id: (o.failure or o.groups[0]).new_state for o in evaluation.outcomes}
         assert states == {unreadable.id: "broken", healthy.id: "firing"}
 
     def test_a_check_whose_copy_cannot_be_updated_evaluates_the_stored_copy(self) -> None:
@@ -460,7 +555,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         with patch(f"{_MODULE}.refresh_settings", side_effect=RuntimeError("database blip")):
             evaluation, _ = self._run(configuration)
 
-        assert [o.new_state for o in evaluation.outcomes] == ["firing"]
+        assert [g.new_state for o in evaluation.outcomes for g in o.groups] == ["firing"]
 
     def test_the_logs_product_rows_are_never_written(self) -> None:
         legacy = LogsAlertConfiguration.objects.create(
@@ -525,14 +620,27 @@ class TestEvaluationTimeoutLadder(SimpleTestCase):
 
 
 def _outcome(kind: AlertEventKind, *, notified: bool = True) -> PlatformAlertOutcome:
+    # A broken check is a failure, which the platform reports on the outcome with no groups.
+    if kind == AlertEventKind.BROKEN:
+        return PlatformAlertOutcome(
+            configuration_id=UUID("01936a2e-0000-7000-8000-000000000001"),
+            evaluation_key="slot:x|window:y",
+            consecutive_failures=5,
+            failure=CheckFailure(kind=kind, new_state="broken", notified=notified),
+        )
     return PlatformAlertOutcome(
         configuration_id=UUID("01936a2e-0000-7000-8000-000000000001"),
         evaluation_key="slot:x|window:y",
-        kind=kind,
-        new_state="firing",
-        notified=notified,
-        consecutive_failures=5 if kind == AlertEventKind.BROKEN else 0,
-        value=500.0 if kind == AlertEventKind.FIRING else None,
+        consecutive_failures=0,
+        groups=(
+            GroupOutcome(
+                grouping_key="",
+                kind=kind,
+                new_state="firing",
+                notified=notified,
+                value=500.0 if kind == AlertEventKind.FIRING else None,
+            ),
+        ),
     )
 
 
