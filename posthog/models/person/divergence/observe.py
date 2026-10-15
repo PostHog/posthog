@@ -126,8 +126,8 @@ def pg_person_states(team_id: int, person_uuids: Sequence[str]) -> dict[str, PgP
     """Live and tombstoned Postgres persons by uuid; absent uuids are left out."""
     uuids = list(person_uuids)
     live = {
-        person_uuid: PgPerson(id=None, version=version, is_deleted=False)
-        for person_uuid, version in lookups._live_person_versions(team_id, uuids, _OPERATION).items()
+        str(UUID(p.uuid)): PgPerson(id=int(p.id), version=int(p.version), is_deleted=False)
+        for p in lookups._live_persons(team_id, uuids, _OPERATION)
     }
     missing = [UUID(u) for u in uuids if u not in live]
     tombstoned = {
