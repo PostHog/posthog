@@ -29,6 +29,7 @@ from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Cli
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContentFilteredError,
+    ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
@@ -40,6 +41,7 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
+from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
 
 logger = structlog.get_logger(__name__)
 
@@ -54,9 +56,13 @@ LLM_TAGGER_RETRY_POLICY = RetryPolicy(
     backoff_coefficient=2.0,
 )
 
+# Same cap as the LLM judge (JUDGE_EVENT_MAX_CHARS).
+TAGGER_EVENT_MAX_CHARS = 150_000
+
 TAGGER_DISABLED_ERROR_TYPE = "tagger_disabled"
 TAGGER_PARSE_ERROR_TYPE = "tagger_parse_error"
 TAGGER_REQUEST_REJECTED_ERROR_TYPE = "tagger_request_rejected"
+TAGGER_CONTEXT_WINDOW_ERROR_TYPE = "tagger_context_window_exceeded"
 # model_resolution is shared with evaluations, so the tagger types its skip reasons on the way out.
 MODEL_RESOLUTION_SKIP_ERROR_TYPES = {
     "provider_key_required": "tagger_provider_key_required",
@@ -69,6 +75,7 @@ SKIPPED_RESULT_ERROR_TYPES = frozenset(
         TAGGER_DISABLED_ERROR_TYPE,
         TAGGER_PARSE_ERROR_TYPE,
         TAGGER_REQUEST_REJECTED_ERROR_TYPE,
+        TAGGER_CONTEXT_WINDOW_ERROR_TYPE,
         *MODEL_RESOLUTION_SKIP_ERROR_TYPES.values(),
     }
 )
@@ -283,6 +290,12 @@ def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
     user_prompt = f"""Input: {input_data}
 
 Output: {output_data}"""
+    if len(user_prompt) > TAGGER_EVENT_MAX_CHARS:
+        # Line-number first so the sampler's "gaps indicate omitted content" header is truthful,
+        # then hard-truncate to guarantee the cap for low-newline payloads the sampler leaves whole.
+        user_prompt = add_line_numbers(user_prompt)
+        user_prompt, _ = reduce_by_uniform_sampling(user_prompt, TAGGER_EVENT_MAX_CHARS)
+        user_prompt = user_prompt[:TAGGER_EVENT_MAX_CHARS]
 
     config = None
 
@@ -350,6 +363,14 @@ Output: {output_data}"""
             str(e),
             {"error_type": "request_rejected"},
             type=TAGGER_REQUEST_REJECTED_ERROR_TYPE,
+            non_retryable=True,
+        ) from e
+    except ContextWindowExceededError as e:
+        # Skip rather than retry: retrying can't fix an over-window prompt and just spams error tracking.
+        raise ApplicationError(
+            str(e),
+            {"error_type": "context_window_exceeded"},
+            type=TAGGER_CONTEXT_WINDOW_ERROR_TYPE,
             non_retryable=True,
         ) from e
     except (OutputTokenLimitError, StructuredOutputParseError, ContentFilteredError) as e:
@@ -684,6 +705,7 @@ class RunTaggerWorkflow(PostHogWorkflow):
                         "parse_error",
                         "no_default_model",
                         "request_rejected",
+                        "context_window_exceeded",
                     ):
                         if error_type in (
                             "provider_key_required",
