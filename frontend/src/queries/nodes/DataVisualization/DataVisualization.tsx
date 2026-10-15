@@ -43,6 +43,7 @@ import { getBIResultDimensions } from 'products/business_intelligence/frontend/b
 import { createBIMemberFormatter } from 'products/business_intelligence/frontend/biMemberAliases'
 import { BIPivotTable } from 'products/business_intelligence/frontend/BIPivotTable'
 import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
+import { BIScatterGraph } from 'products/business_intelligence/frontend/BIScatterGraph'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -281,6 +282,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         [showYearLabels, chartSettings.xAxisLabel]
     )
 
+    const columnNames = useMemo(() => columns.map((column) => column.name), [columns])
+
     const controlSize = query.kind === NodeKind.BIVisualizationNode ? 'xsmall' : 'small'
 
     const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
@@ -494,15 +497,29 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     } else if (effectiveVisualizationType === ChartDisplayType.ScatterPlot) {
         // Both axes are continuous, so a scatter reads the x column's own values rather than the
         // breakdown path's categorical labels (which dedupe x — fatal for a point cloud).
-        component = (
-            <SqlScatterGraph
-                className="p-3"
-                xData={xData}
-                yData={yData}
-                chartSettings={chartSettings}
-                presetChartHeight={presetChartHeight}
-            />
-        )
+        component =
+            query.kind === NodeKind.BIVisualizationNode ? (
+                <BIScatterGraph
+                    query={query}
+                    columns={columnNames}
+                    rows={'results' in response && Array.isArray(response.results) ? response.results : []}
+                    chartKey={dataVisualizationProps.key}
+                    onKeepOnly={props.editMode && !props.inSharedMode ? props.context?.onKeepBISelection : undefined}
+                    className="p-3"
+                    xData={xData}
+                    yData={yData}
+                    chartSettings={chartSettings}
+                    presetChartHeight={presetChartHeight}
+                />
+            ) : (
+                <SqlScatterGraph
+                    className="p-3"
+                    xData={xData}
+                    yData={yData}
+                    chartSettings={chartSettings}
+                    presetChartHeight={presetChartHeight}
+                />
+            )
     } else if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
         const rows = ('results' in response ? response.results : 'result' in response ? response.result : []) ?? []
         component = (

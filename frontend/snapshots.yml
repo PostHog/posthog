@@ -6722,6 +6722,18 @@ snapshots:
         hash: v1.k794b7964.b92a13e09ed110143b68de5e967f20864fae45eabdcf41f3e77284a412ecf2fb.9kqmJUDi_54LfCfI0Hqyjz1r16tSdhFCKz1jtY_9sr8
     products-business-intelligence-pivot-table--multiple-measures-and-hierarchies--light:
         hash: v1.k794b7964.f3a5839e83ddc9921b021426487c0f0db66fe969bc1369dd799c98bd83c91c19.e4TqncN8iN7TmyLw5M8lgUEjfSjD2LgrVykUPu1Ws48
+    products-business-intelligence-scatter--detail-and-color--dark:
+        hash: v1.k794b7964.ea7c48d10f05c3469c1532587993bd0554a3023cba09f4192a7b9aed831572b8.rFbxAgQde59azurOYBf1s-fZ0slk-cE_x47MLfxfbSA
+    products-business-intelligence-scatter--detail-and-color--light:
+        hash: v1.k794b7964.cefa152e63113b303d692533efb14bb2de2d9a3e741d728baab9a85e6872b06a.UEo_hWDx_kVM-k6jlwiaVZzzbQ2nJgUcApu4nEF25Kk
+    products-business-intelligence-scatter--narrow--dark:
+        hash: v1.k794b7964.c31725fbc5c0b2c9e5cd113f580c7693b92f73230b2bd13b053aeb840e439cd6.0nvX_0v-V-hA9i64ym7AZzNMMcvcbNBUMCy9xqxz3PE
+    products-business-intelligence-scatter--narrow--light:
+        hash: v1.k794b7964.d92d93d905d850641bd661c0dffcdbaa59115b11e6cd1a00b6ae9c915cbf6677.FHXHFMiZytwruI4rYyx0_ZQU4YAFPEEFbAQKAl36DsI
+    products-business-intelligence-scatter--read-only--dark:
+        hash: v1.k794b7964.5272d9fc095372492de4bc666a4fd7c995c2fb3de8c859a48ddbf7dae5094c8b.VCgPn7znPvjkY-Sx_PsctneSMhp8KtDuBPxFoGjYdPA
+    products-business-intelligence-scatter--read-only--light:
+        hash: v1.k794b7964.21cf4e3c6d31ac5d3653d176f876dbec5894d2569bd082e4fc5117a7dbe40af3.b-Dnoj2QTxOlUnZTMZuBqQGvSNk2lnMS0V6wnY_Aud0
     products-business-intelligence-worksheets--worksheets--dark:
         hash: v1.k794b7964.3998501a45652d1982a4ae8217c905e0482c6979a4f54642cbc8739d991730ef.x5TzvSg7zyGoyTdnBYKHG__tv6ytXrmifpxCAgkyItg
     products-business-intelligence-worksheets--worksheets--light:

@@ -84,7 +84,10 @@ it('keeps coincident members distinct and category colors stable across order, a
             },
         ],
     })
-    const build = (query: BIVisualizationNode, rows: unknown[][]): ReturnType<typeof buildBIScatterSeries> =>
+    const build = (
+        query: BIVisualizationNode,
+        rows: unknown[][]
+    ): NonNullable<ReturnType<typeof buildBIScatterSeries>> =>
         buildBIScatterSeries(
             query,
             columns,
@@ -99,7 +102,7 @@ it('keeps coincident members distinct and category colors stable across order, a
                     rows.map((row) => Number(row[3]))
                 ),
             ]
-        )
+        )!
     const series = build(colored, rows)
     expect(series).toHaveLength(4)
     expect(series.filter((series) => series.label === 'Same')).toHaveLength(2)
@@ -125,7 +128,7 @@ it('omits missing/non-numeric coordinates while retaining zero and negative valu
         axis('x', ['', 'bad', '0', '-2', '4']),
         [axis('y', [1, 2, 3, -4, null])]
     )
-    expect(series.flatMap(({ points }) => points.map(({ x, y }) => [x, y]))).toEqual([
+    expect(series!.flatMap(({ points }) => points.map(({ x, y }) => [x, y]))).toEqual([
         [0, 3],
         [-2, -4],
     ])
