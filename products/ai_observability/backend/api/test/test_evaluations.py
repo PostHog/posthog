@@ -389,27 +389,21 @@ class TestModelConfigurationSerializer(SimpleTestCase):
 
 
 class TestTargetConfigFieldSchema(SimpleTestCase):
-    def test_every_oneof_branch_requires_the_discriminator(self) -> None:
-        """Orval only emits a discriminated zod union (one that picks a branch by `strategy` alone,
-        without matching optional fields against it) when every `oneOf` branch requires `strategy`.
-        A branch missing it lets Orval fall through to a plain `zod.union`, which previously let a
-        session payload sending only `{"strategy": "inactivity"}` match the fixed_window branch and
-        silently drop the inactivity fields.
-        """
+    def test_schema_is_one_object_with_an_optional_strategy(self) -> None:
         schema = get_override(_TargetConfigField(), "field")
-        for branch in schema["oneOf"]:
-            self.assertIn("strategy", branch.get("required", []), branch["title"])
+        self.assertNotIn("oneOf", schema)
+        self.assertNotIn("strategy", schema.get("required", []))
+        self.assertEqual(schema["properties"]["strategy"]["enum"], ["fixed_window", "inactivity"])
 
-    def test_no_branch_declares_a_default_for_a_shared_field(self) -> None:
+    def test_no_field_declares_a_default(self) -> None:
         """window_seconds/quiet_period_seconds/max_age_seconds have no single correct default: it
         depends on `target`, which lives outside this schema. A `default` here would regenerate as
         a zod `.default(...)` that materializes the wrong target's value before the request ever
         reaches `validate_target_config`, which is exactly how session evals got trace timings.
         """
         schema = get_override(_TargetConfigField(), "field")
-        for branch in schema["oneOf"]:
-            for field_name, field_schema in branch["properties"].items():
-                self.assertNotIn("default", field_schema, f"{branch['title']}.{field_name}")
+        for field_name, field_schema in schema["properties"].items():
+            self.assertNotIn("default", field_schema, field_name)
 
 
 class TestEvaluationConfigsApi(APIBaseTest):
