@@ -97,12 +97,13 @@ VENDOR_REPORTS: dict[str, VendorReport] = {
     VENDOR_FORECASTS: VendorReport(
         report_type="GET_VENDOR_FORECASTING_REPORT", rows_key="forecastByAsin", options={"sellingProgram": "RETAIL"}
     ),
-    # Hourly, 14 days per request, 30 days back, requestable five minutes after the hour closes.
+    # Hourly, 30 days back, requestable five minutes after the hour closes. Amazon allows 14 days per
+    # request, but one day keeps a document small enough to parse in memory for a large catalog.
     VENDOR_REAL_TIME_SALES: VendorReport(
         report_type="GET_VENDOR_REAL_TIME_SALES_REPORT",
         rows_key="reportData",
         options={},
-        window=timedelta(days=14),
+        window=timedelta(days=1),
         lookback=timedelta(days=29),
         availability_delay=timedelta(minutes=5),
         hourly=True,

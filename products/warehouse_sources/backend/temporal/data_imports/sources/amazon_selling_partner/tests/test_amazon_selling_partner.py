@@ -613,6 +613,25 @@ class TestVendorReports:
         assert vendor.polls == {"r9": 1}
         assert [row["asin"] for row in result.rows] == ["B03"]
 
+    def test_resume_skips_rows_of_the_report_already_handed_on(self) -> None:
+        rows = [{"asin": f"B{index:05}", "startDate": "2026-10-01"} for index in range(4500)]
+        vendor = _ReportsVendor(["DONE"], [{"forecastByAsin": rows}])
+
+        result = _driver("ATVPDKIKX0DER").run(
+            "vendor_forecasts",
+            vendor,
+            resume_state=AmazonSellingPartnerResumeConfig(
+                marketplace_id="ATVPDKIKX0DER", report_id="r7", rows_done=2000
+            ),
+        )
+
+        assert result.raised is None
+        assert vendor.created == []
+        assert [row["asin"] for row in result.rows] == [row["asin"] for row in rows[2000:]]
+        assert result.saved_states[0] == AmazonSellingPartnerResumeConfig(
+            marketplace_id="ATVPDKIKX0DER", report_id="r7", rows_done=4000
+        )
+
     def test_forecasts_request_one_report_per_marketplace_without_a_date_range(self) -> None:
         vendor = _ReportsVendor(["CANCELLED"], [])
 
@@ -648,9 +667,13 @@ class TestVendorReports:
                 "reportType": "GET_VENDOR_REAL_TIME_SALES_REPORT",
                 "marketplaceIds": ["A1F83G8C2ARO7P"],
                 "reportOptions": {"currencyCode": "GBP"},
-                "dataStartTime": "2026-10-14T09:00:00Z",
-                "dataEndTime": "2026-10-15T11:00:00Z",
+                "dataStartTime": start,
+                "dataEndTime": end,
             }
+            for start, end in [
+                ("2026-10-14T09:00:00Z", "2026-10-15T09:00:00Z"),
+                ("2026-10-15T09:00:00Z", "2026-10-15T11:00:00Z"),
+            ]
         ]
 
     def test_a_fatal_report_raises_with_amazons_error_details(self) -> None:
@@ -711,7 +734,7 @@ class TestVendorReports:
         # A full refresh of a daily report starts at the oldest day Amazon keeps.
         ("vendor_sales", None, ("2022-10-17T00:00:00Z", "2022-10-31T23:59:59Z", 98)),
         # An hourly report stops at the last hour that closed five minutes before now.
-        ("vendor_real_time_sales", None, ("2026-09-16T12:00:00Z", "2026-09-30T12:00:00Z", 3)),
+        ("vendor_real_time_sales", None, ("2026-09-16T12:00:00Z", "2026-09-17T12:00:00Z", 29)),
         ("vendor_sales", datetime(2026, 10, 12, tzinfo=UTC), None),
     ],
 )
@@ -777,3 +800,15 @@ def test_probe_endpoint_permissions(
 
     assert permissions == expected
     assert [request.path for request in network.requests_log if request.path != TOKEN_PATH] == probed_paths
+
+
+def test_a_transient_marketplace_discovery_failure_leaves_inventory_access_unknown() -> None:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == TOKEN_PATH:
+            return TOKEN
+        return ScriptedResponse(status=400, json={"errors": [{"code": "InvalidInput"}]})
+
+    with scripted_network(respond):
+        permissions = probe_endpoint_permissions("na", "client", "secret", "Atzr|refresh", [], ["inventory_summaries"])
+
+    assert permissions == {"inventory_summaries": None}

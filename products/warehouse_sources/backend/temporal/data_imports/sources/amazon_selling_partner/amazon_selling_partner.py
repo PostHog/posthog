@@ -80,6 +80,7 @@ REPORT_POLL_BUDGET_SECONDS = 60 * 60
 REPORT_CREATE_ATTEMPTS = 5
 REPORT_CREATE_BACKOFF_SECONDS = 60
 REPORT_DOWNLOAD_TIMEOUT = (10.0, 300.0)
+REPORT_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 REPORT_ROWS_PER_BATCH = 2000
 # The document sits on presigned Amazon storage. Pinning the host keeps a tampered `url` from
 # sending the download anywhere else.
@@ -103,6 +104,8 @@ class AmazonSellingPartnerResumeConfig:
     rows_done: int = 0
     # The report of a vendor report walk, so a resume polls the report it created.
     report_id: str | None = None
+    # Rows of that report already handed on, so a resumed attempt skips them.
+    rows_done: int = 0
 
 
 class LwaAuth(OAuth2Auth):
@@ -562,19 +565,26 @@ class ReportsClient:
         # The presigned URL carries its own signature, so the download sends no LWA token.
         download = make_tracked_session(redact_values=presigned_secret_values(url), capture=False)
         # The stock error messages quote the whole URL, signature included, into the job's error and logs.
-        try:
-            content_response = download.get(url, timeout=REPORT_DOWNLOAD_TIMEOUT)
-        except requests.RequestException as e:
-            raise requests.ConnectionError(f"Amazon report document download failed: {type(e).__name__}") from None
-        if not content_response.ok:
-            raise requests.HTTPError(
-                f"Amazon report document download returned status={content_response.status_code}",
-                response=content_response,
-            )
-        content = content_response.content
-        if document.get("compressionAlgorithm") == "GZIP":
-            content = gzip.decompress(content)
-        return json.loads(content)
+        # The download goes to a temporary file in chunks, so the compressed copy never sits in memory.
+        with tempfile.TemporaryFile() as spool:
+            try:
+                with download.get(url, timeout=REPORT_DOWNLOAD_TIMEOUT, stream=True) as content_response:
+                    if not content_response.ok:
+                        raise requests.HTTPError(
+                            f"Amazon report document download returned status={content_response.status_code}",
+                            response=content_response,
+                        )
+                    for chunk in content_response.iter_content(chunk_size=REPORT_DOWNLOAD_CHUNK_BYTES):
+                        spool.write(chunk)
+            except requests.HTTPError:
+                raise
+            except requests.RequestException as e:
+                raise requests.ConnectionError(f"Amazon report document download failed: {type(e).__name__}") from None
+            spool.seek(0)
+            if document.get("compressionAlgorithm") == "GZIP":
+                with gzip.GzipFile(fileobj=spool) as unzipped:
+                    return json.load(unzipped)
+            return json.load(spool)
 
 
 def await_report_document(
@@ -643,7 +653,9 @@ def _vendor_report_rows(
 
         for index, window in enumerate(windows):
             window_start = window.data_start_time if window is not None else None
-            report_id = pending.report_id if pending is not None and pending.window_start == window_start else None
+            resuming = pending is not None and pending.window_start == window_start
+            report_id = pending.report_id if pending is not None and resuming else None
+            rows_done = pending.rows_done if pending is not None and resuming and report_id else 0
             pending = None
             if report_id is None:
                 body: dict[str, Any] = {"reportType": report.report_type, "marketplaceIds": [marketplace_id]}
@@ -686,17 +698,27 @@ def _vendor_report_rows(
                 )
                 manager.safe_point()
                 raise
-            rows = (document or {}).get(report.rows_key) or []
-            batches = list(batched(rows, REPORT_ROWS_PER_BATCH, strict=False))
-            if not batches:
+            all_rows = (document or {}).get(report.rows_key) or []
+            if rows_done >= len(all_rows):
                 manager.save_state(next_state)
                 manager.safe_point()
                 continue
-            for batch_index, batch in enumerate(batches):
-                if batch_index == len(batches) - 1:
-                    manager.save_state(next_state)
+            for batch in batched(all_rows[rows_done:], REPORT_ROWS_PER_BATCH, strict=False):
+                rows_done += len(batch)
+                # A resumed full refresh would append handed-on rows again, so the offset moves with each batch.
+                manager.save_state(
+                    next_state
+                    if rows_done >= len(all_rows)
+                    else AmazonSellingPartnerResumeConfig(
+                        completed_marketplaces=completed,
+                        marketplace_id=marketplace_id,
+                        window_start=window_start,
+                        report_id=report_id,
+                        rows_done=rows_done,
+                    )
+                )
                 yield [{"marketplaceId": marketplace_id, **row} for row in batch]
-        completed.append(marketplace_id)
+        completed = [*completed, marketplace_id]
 
 
 def amazon_selling_partner_source(
@@ -814,33 +836,46 @@ def probe_endpoint_permissions(
     base_url = _base_url(region)
     recent = to_iso8601(datetime.now(UTC) - timedelta(days=1))
 
-    def inventory_params() -> dict[str, Any] | None:
+    def probe_inventory() -> bool | None:
         marketplace_id = marketplace_ids[0] if marketplace_ids else None
         if marketplace_id is None:
             try:
                 discovered = list_marketplace_ids(region, auth)
+            except requests.HTTPError as e:
+                # Only an explicit rejection means the account is not a seller. Other failures stay unknown.
+                status = e.response.status_code if e.response is not None else None
+                return False if status in (401, 403) else None
             except (OAuth2AuthRequestError, requests.RequestException):
                 return None
-            marketplace_id = discovered[0] if discovered else None
-        if marketplace_id is None:
-            return None
-        return {"granularityType": "Marketplace", "granularityId": marketplace_id, "marketplaceIds": marketplace_id}
+            if not discovered:
+                return None
+            marketplace_id = discovered[0]
+        return _probe(
+            session,
+            auth,
+            f"{base_url}{INVENTORY_SUMMARIES_PATH}",
+            {"granularityType": "Marketplace", "granularityId": marketplace_id, "marketplaceIds": marketplace_id},
+        )
 
-    probes: dict[str, tuple[str, Callable[[], dict[str, Any] | None], str]] = {
+    def probe(path: str, params: dict[str, Any]) -> Callable[[], bool | None]:
+        return lambda: _probe(session, auth, f"{base_url}{path}", params)
+
+    probes: dict[str, tuple[Callable[[], bool | None], str]] = {
         ORDERS: (
-            ORDERS_PATH,
-            lambda: {
-                "maxResultsPerPage": 1,
-                "lastUpdatedAfter": recent,
-                "marketplaceIds": ",".join(marketplace_ids) or None,
-            },
+            probe(
+                ORDERS_PATH,
+                {
+                    "maxResultsPerPage": 1,
+                    "lastUpdatedAfter": recent,
+                    "marketplaceIds": ",".join(marketplace_ids) or None,
+                },
+            ),
             SELLER_ONLY_MESSAGE,
         ),
-        TRANSACTIONS: (TRANSACTIONS_PATH, lambda: {"postedAfter": recent}, SELLER_ONLY_MESSAGE),
-        INVENTORY_SUMMARIES: (INVENTORY_SUMMARIES_PATH, inventory_params, SELLER_ONLY_MESSAGE),
+        TRANSACTIONS: (probe(TRANSACTIONS_PATH, {"postedAfter": recent}), SELLER_ONLY_MESSAGE),
+        INVENTORY_SUMMARIES: (probe_inventory, SELLER_ONLY_MESSAGE),
         VENDOR_SALES: (
-            REPORTS_PATH,
-            lambda: {"reportTypes": VENDOR_REPORTS[VENDOR_SALES].report_type, "pageSize": 1},
+            probe(REPORTS_PATH, {"reportTypes": VENDOR_REPORTS[VENDOR_SALES].report_type, "pageSize": 1}),
             VENDOR_ONLY_MESSAGE,
         ),
     }
@@ -853,11 +888,9 @@ def probe_endpoint_permissions(
         if probe_name not in probes:
             permissions[endpoint] = None
             continue
-        path, params_for, message = probes[probe_name]
+        run_probe, message = probes[probe_name]
         if probe_name not in answers:
-            params = params_for()
-            # No marketplace to ask about means the Sellers API refused the account, so it is not a seller.
-            answers[probe_name] = _probe(session, auth, f"{base_url}{path}", params) if params is not None else False
+            answers[probe_name] = run_probe()
         if answers[probe_name] is False:
             permissions[endpoint] = message
         elif endpoint in VENDOR_REPORTS and not marketplace_ids:
