@@ -14,29 +14,45 @@ describe('LemonButton', () => {
     })
 
     it.each([
-        { desc: 'transition off', quill: false, popoverLevel: -1, sideAction: false, expectQuill: false },
-        { desc: 'transition on', quill: true, popoverLevel: -1, sideAction: false, expectQuill: true },
+        { desc: 'transition off', quill: false, popoverLevel: -1, props: {}, expectQuill: false, expectRow: false },
+        { desc: 'transition on', quill: true, popoverLevel: -1, props: {}, expectQuill: true, expectRow: false },
         {
-            desc: 'transition on, inside a popover',
-            quill: true,
-            popoverLevel: 0,
-            sideAction: false,
-            expectQuill: false,
-        },
-        {
-            desc: 'transition on, with a side action',
+            desc: 'transition on, unpadded',
             quill: true,
             popoverLevel: -1,
-            sideAction: true,
+            props: { noPadding: true },
             expectQuill: false,
+            expectRow: false,
         },
-    ])('renders quill only where supported — $desc', ({ quill, popoverLevel, sideAction, expectQuill }) => {
+        {
+            desc: 'transition on, button inside a popover',
+            quill: true,
+            popoverLevel: 0,
+            props: {},
+            expectQuill: true,
+            expectRow: false,
+        },
+        {
+            desc: 'transition on, full-width row inside a popover',
+            quill: true,
+            popoverLevel: 0,
+            props: { fullWidth: true },
+            expectQuill: true,
+            expectRow: true,
+        },
+        {
+            desc: 'transition on, full-width outside a popover',
+            quill: true,
+            popoverLevel: -1,
+            props: { fullWidth: true },
+            expectQuill: true,
+            expectRow: false,
+        },
+    ])('renders quill where supported — $desc', ({ quill, popoverLevel, props, expectQuill, expectRow }) => {
         rtlRender(
             <QuillTransitionContext.Provider value={quill}>
                 <PopoverOverlayContext.Provider value={[true, popoverLevel]}>
-                    <LemonButton sideAction={sideAction ? { icon: <span />, 'aria-label': 'More' } : undefined}>
-                        Go
-                    </LemonButton>
+                    <LemonButton {...props}>Go</LemonButton>
                 </PopoverOverlayContext.Provider>
             </QuillTransitionContext.Provider>
         )
@@ -44,6 +60,22 @@ describe('LemonButton', () => {
         const button = screen.getByRole('button', { name: 'Go' })
         expect(button.hasAttribute('data-quill')).toBe(expectQuill)
         expect(button.classList.contains('LemonButton')).toBe(!expectQuill)
+        expect(button.classList.contains('quill-button--size-row')).toBe(expectRow)
+    })
+
+    it.each([
+        ['LemonUI', false],
+        ['quill', true],
+    ])('renders both halves of a split button with %s', (_name, quill) => {
+        rtlRender(
+            <QuillTransitionContext.Provider value={quill}>
+                <LemonButton sideAction={{ icon: <span />, 'aria-label': 'More' }}>Go</LemonButton>
+            </QuillTransitionContext.Provider>
+        )
+
+        for (const name of ['Go', 'More']) {
+            expect(screen.getByRole('button', { name }).hasAttribute('data-quill')).toBe(quill)
+        }
     })
 
     describe.each([

@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import React, { useContext } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
+import { ButtonGroup, ButtonGroupSeparator } from '@posthog/quill'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { INTERACTIVE_CLOSE_DELAY_MS } from '../LemonInput/LemonInput'
@@ -186,15 +187,16 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             const [, parentPopoverLevel] = useContext(PopoverOverlayContext)
             const within3000PageHeader = useContext(WithinPageHeaderContext)
             const quillTransition = useContext(QuillTransitionContext)
-            // Rows inside popovers, split buttons and inline unpadded buttons keep LemonUI until quill covers them.
-            const renderAsQuill = quillTransition && parentPopoverLevel === -1 && !sideAction && !noPadding
+            // Inline unpadded buttons keep LemonUI: quill has no unpadded button.
+            const renderAsQuill = quillTransition && !noPadding
+            const quillRow = renderAsQuill && parentPopoverLevel !== -1 && !!fullWidth
 
             if (!active && popoverVisibility) {
                 active = true
             }
 
             const usingSideActionDivider = sideAction && (sideAction.divider ?? !fullWidth)
-            if (sideAction) {
+            if (sideAction && !renderAsQuill) {
                 // Bogus `sideIcon` div prevents overflow under the side button.
                 sideIcon = (
                     <span
@@ -287,6 +289,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                     disableClientSideRouting={disableClientSideRouting}
                     linkTo={to && !disabled ? to : undefined}
                     iconOnly={!children}
+                    row={quillRow}
                     onClick={handleClick}
                     {...buttonProps}
                     data-attr-id={buttonProps['data-attr-id'] ?? buttonProps['data-attr']}
@@ -350,7 +353,25 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 )
             }
 
-            if (sideAction) {
+            if (sideAction && renderAsQuill) {
+                const { dropdown: sideDropdown, divider: _, ...sideActionRest } = sideAction
+                const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton
+
+                workingButton = (
+                    <ButtonGroup onMouseEnter={buttonProps.onMouseEnter} className={clsx(fullWidth && 'w-full')}>
+                        {workingButton}
+                        {usingSideActionDivider ? <ButtonGroupSeparator /> : null}
+                        <SideComponent
+                            type={type}
+                            size={size}
+                            status={status}
+                            dropdown={sideDropdown as LemonButtonDropdown}
+                            active={active}
+                            {...sideActionRest}
+                        />
+                    </ButtonGroup>
+                )
+            } else if (sideAction) {
                 const { dropdown: sideDropdown, divider: _, ...sideActionRest } = sideAction
                 const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton
 

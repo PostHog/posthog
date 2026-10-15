@@ -23,9 +23,14 @@ const ICON_SIZES: Record<QuillTextSize, QuillButtonSize> = {
 
 export function quillButtonVariant(
     type: LemonButtonPropsBase['type'],
-    status: LemonButtonPropsBase['status']
+    status: LemonButtonPropsBase['status'],
+    row: boolean
 ): QuillButtonVariant {
     const danger = status === 'danger'
+    if (row) {
+        // Matches quill's destructive DropdownMenuItem
+        return danger ? 'destructive' : 'default'
+    }
     if (type === 'primary') {
         return danger ? 'destructive' : 'primary'
     }
@@ -35,7 +40,10 @@ export function quillButtonVariant(
     return 'default'
 }
 
-export function quillButtonSize(size: LemonButtonPropsBase['size'], iconOnly: boolean): QuillButtonSize {
+export function quillButtonSize(size: LemonButtonPropsBase['size'], iconOnly: boolean, row: boolean): QuillButtonSize {
+    if (row && !iconOnly) {
+        return 'row'
+    }
     const textSize = TEXT_SIZES[size ?? 'medium']
     return iconOnly ? ICON_SIZES[textSize] : textSize
 }

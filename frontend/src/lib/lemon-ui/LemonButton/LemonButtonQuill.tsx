@@ -25,6 +25,7 @@ type LemonButtonQuillOwnProps = Pick<
     /** Navigation target. Leave empty when the button is disabled, so it renders a button and not a link. */
     linkTo?: string
     iconOnly: boolean
+    row?: boolean
     onClick: (event: React.MouseEvent<HTMLElement>) => void
     children: React.ReactNode
 }
@@ -52,19 +53,24 @@ export const LemonButtonQuill = React.forwardRef<HTMLButtonElement, LemonButtonQ
         disableClientSideRouting,
         linkTo,
         iconOnly,
+        row = false,
         onClick,
         children,
         ...elementProps
     },
     ref
 ): JSX.Element {
-    const variant = quillButtonVariant(type, status)
-    const quillSize = quillButtonSize(size, iconOnly)
-    const left = !!fullWidth && !center
+    const variant = quillButtonVariant(type, status, row)
+    const quillSize = quillButtonSize(size, iconOnly, row)
+    const left = row || (!!fullWidth && !center)
     const extraClassName = clsx(
         fullWidth && 'w-full',
+        // quill buttons center text, so multi-line content would center each line under the left-aligned icon
+        left && 'text-start',
+        // Rows can hold a title and a description line, so they grow past the fixed row height
+        row && 'h-auto min-h-7',
         // The quill bridge scopes `text-destructive-foreground` to descendants of `[data-quill]`, not to the element itself
-        type === 'tertiary' && status === 'danger' && 'text-[var(--destructive-foreground)]',
+        !row && type === 'tertiary' && status === 'danger' && 'text-[var(--destructive-foreground)]',
         className
     )
     const sharedProps = {
