@@ -311,14 +311,16 @@ class LoopCursorPaginator(BasePaginator):
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         cursor = next_cursor(response, link_key="next_page_url")
-        if cursor is not None and cursor != self._previous_cursor:
+        if cursor is not None and cursor == self._previous_cursor:
+            # These tables are full refresh, so ending early would publish a truncated snapshot.
+            raise ValueError(f"Loop Returns pagination is not advancing (repeated cursor {cursor!r})")
+
+        if cursor is not None:
             self._previous_cursor = cursor
             self._cursor = cursor
             self._has_next_page = True
             return
 
-        if cursor is not None:
-            logger.warning("Loop Returns pagination is not advancing; treating the page as the last one")
         self._has_next_page = False
 
     def update_request(self, request: Request) -> None:
@@ -549,6 +551,7 @@ def loop_returns_source(
         name=endpoint,
         items=lambda: resource,
         primary_keys=list(config.primary_keys),
+        supports_resume=resumable,
         # Loop documents no ordering within a window, so a mid-sync watermark write could skip rows
         # the run never reached. "desc" defers that write to a successful job end
         # (finalize_desc_sort_incremental_value); the next run re-reads from the old watermark and

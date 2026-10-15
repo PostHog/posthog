@@ -225,11 +225,10 @@ class TestLoopReturnsSource:
         ("label", "last_next_page_url"),
         [
             ("null_next_link", None),
-            ("repeated_cursor", "https://api.loopreturns.com/api/v1/orders?cursor=c1"),
             ("next_link_without_cursor", "https://api.loopreturns.com/api/v1/orders?limit=250"),
         ],
     )
-    def test_a_cursor_endpoint_walks_pages_until_the_next_link_stops_advancing(
+    def test_a_cursor_endpoint_walks_pages_until_the_next_link_ends(
         self, label: str, last_next_page_url: str | None
     ) -> None:
         result = self._driver().run(
@@ -253,6 +252,20 @@ class TestLoopReturnsSource:
         assert result.params("limit") == ["250", "250"]
         assert result.params("sort_order") == ["asc", "asc"]
         assert result.saved_states == [LoopReturnsResumeConfig(cursor="c1")]
+
+    def test_a_cursor_endpoint_fails_when_the_cursor_repeats(self) -> None:
+        link = "https://api.loopreturns.com/api/v1/orders?cursor=c1"
+        result = self._driver().run(
+            "orders",
+            [
+                ScriptedResponse(json={"orders": [{"id": 1}], "next_page_url": link}),
+                ScriptedResponse(json={"orders": [{"id": 2}], "next_page_url": link}),
+            ],
+            api_version=API_VERSION,
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert "not advancing" in str(result.raised)
 
     def test_a_resumed_cursor_endpoint_starts_at_the_saved_cursor(self) -> None:
         result = self._driver().run(
