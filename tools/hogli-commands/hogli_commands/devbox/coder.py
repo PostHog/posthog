@@ -1499,8 +1499,14 @@ def stop_workspace(name: str, *, verbose: bool = False) -> None:
 
 
 def restart_workspace(name: str, *, verbose: bool = False) -> None:
-    """Restart a running workspace."""
-    result = _run_build(["coder", "restart", name, "--yes"], verbose=verbose)
+    """Restart a running workspace.
+
+    With automatic updates on, a restart of an outdated workspace is a template
+    update, and Coder prompts for any new parameter. ``_run_build`` captures the
+    output, so the prompt would hang unseen; ``--use-parameter-defaults`` takes
+    the template default instead.
+    """
+    result = _run_build(["coder", "restart", name, "--use-parameter-defaults", "--yes"], verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 

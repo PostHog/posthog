@@ -353,8 +353,10 @@ def _workspace_start_parameters(extra: dict[str, str] | None = None) -> dict[str
 def _start_with_parameters(name: str, workspace: dict[str, Any], parameters: dict[str, str], *, verbose: bool) -> None:
     """Start a non-running workspace and apply ``parameters`` in the same build.
 
-    `coder start` keeps an outdated workspace on its old template version, so an
-    outdated one goes through `coder update`, which starts it on the active version.
+    `coder start` moves an outdated workspace to the active template version only
+    when its automatic updates are on, and boxes created before that default
+    have them off. So an outdated one goes through `coder update`, which starts
+    it on the active version either way.
     """
     if workspace.get("outdated"):
         update_workspace(name, parameters=parameters, verbose=verbose)
