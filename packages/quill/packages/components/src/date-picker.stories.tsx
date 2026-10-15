@@ -17,7 +17,9 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-const initialValue = subDays(new Date(), 3)
+// A fixed date keeps snapshots stable from one day to the next.
+const referenceDate = new Date(2026, 0, 15, 12, 0)
+const initialValue = subDays(referenceDate, 3)
 
 const baseArgs = {
     value: initialValue,
@@ -86,8 +88,8 @@ export const MinAndMaxDate: Story = {
             <DatePicker
                 value={value}
                 onApply={setValue}
-                minDate={subDays(new Date(), 30)}
-                maxDate={subDays(new Date(), 1)}
+                minDate={subDays(referenceDate, 30)}
+                maxDate={subDays(referenceDate, 1)}
             />
         )
     },
