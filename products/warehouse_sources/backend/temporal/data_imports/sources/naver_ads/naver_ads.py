@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.naverads import (
     NaverAdsSourceConfig,
@@ -166,9 +167,9 @@ def stats_window(
     inputs: SourceInputs,
     resume: NaverAdsResumeConfig | None,
     today: date,
-) -> tuple[date, date]:
+) -> SyncWindow[date]:
     if resume is not None and resume.window_start and resume.window_end:
-        return date.fromisoformat(resume.window_start), date.fromisoformat(resume.window_end)
+        return SyncWindow(start=date.fromisoformat(resume.window_start), end=date.fromisoformat(resume.window_end))
 
     earliest = today - timedelta(days=MAX_HISTORY_DAYS)
     watermark = _to_date(inputs.db_incremental_field_last_value) if inputs.should_use_incremental_field else None
@@ -178,7 +179,7 @@ def stats_window(
         start = inputs.history_start.astimezone(ZoneInfo(STATS_TIMEZONE)).date()
     else:
         start = today - timedelta(days=endpoint.history_days or MAX_HISTORY_DAYS)
-    return min(max(start, earliest), today), today
+    return SyncWindow(start=min(max(start, earliest), today), end=today)
 
 
 def fetch_stats(client: RESTClient, ids: list[str], day: date) -> Rows:
@@ -211,7 +212,8 @@ def stats_rows(
     Bulk `ids` requests return per-entity totals for the range, not daily rows, so each day is a separate request.
     """
     resume = manager.load_state() if manager.can_resume() else None
-    start, end = stats_window(endpoint, inputs, resume, today)
+    window = stats_window(endpoint, inputs, resume, today)
+    start, end = window.start, window.end
     resume_day = date.fromisoformat(resume.stat_date) if resume is not None and resume.stat_date else None
     resume_after = resume.after_id if resume is not None else None
 
