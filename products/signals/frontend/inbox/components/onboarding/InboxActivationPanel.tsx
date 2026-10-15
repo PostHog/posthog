@@ -45,8 +45,8 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
                         {generalScout?.enabled && <LemonTag type="success">General scout</LemonTag>}
                     </div>
                     <p className="m-0 text-sm text-secondary">
-                        Your sources find things worth investigating. Scouts explore your data and use your code to
-                        understand the impact. Reports appear here with evidence and next steps.
+                        Sources find issues as they appear. Scouts explore your code and data to uncover issues and
+                        connect patterns across sources. Reports arrive with evidence and next steps.
                     </p>
                     {!hasReports && (
                         <p className="m-0 text-sm" aria-live="polite">
@@ -95,9 +95,11 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
                 <section className="flex flex-col gap-2 border-t border-primary pt-3">
                     <h4 className="m-0">Recommended for your product</h4>
                     <p className="m-0 text-sm text-secondary">Choose what you’d like to investigate next.</p>
-                    {suggestions.map((item) => (
-                        <ScoutSuggestionCard key={item.id} item={item} surface="onboarding" />
-                    ))}
+                    <div className="divide-y divide-primary">
+                        {suggestions.map((item) => (
+                            <ScoutSuggestionCard key={item.id} item={item} surface="onboarding" />
+                        ))}
+                    </div>
                     <ScoutSuggestionCreateHost surface="onboarding" />
                 </section>
             ) : !pollingExpired &&

@@ -55,13 +55,9 @@ export function InboxQuickSetupAction(): JSX.Element {
                     showPersonalConnectionHelp={false}
                     showManageButton={false}
                     integrationSuffix={<></>}
-                    connectDescription="Choose which repositories PostHog can use to investigate your product."
+                    connectDescription=""
                 />
             )}
-            <p className="m-0 text-sm text-secondary">
-                We’ll enable your available sources and a general scout, then take you to your Inbox. You can adjust
-                them there.
-            </p>
             {error && (
                 <LemonBanner type="error">
                     {error}
