@@ -33,11 +33,6 @@ export const scene: SceneExport = {
     emptyState: engineeringAnalyticsEmptyState,
 }
 
-function CIDataAsOf(): JSX.Element | null {
-    const { ciDataAsOf } = useValues(engineeringAnalyticsLogic)
-    return ciDataAsOf ? <CIDataAsOfLabel asOf={ciDataAsOf} /> : null
-}
-
 function RefreshButton({ extraLoading = false }: { extraLoading?: boolean }): JSX.Element {
     const logic = engineeringAnalyticsLogic()
     const { anyLoading } = useValues(logic)
@@ -88,7 +83,7 @@ function EngineeringAnalyticsTabs(): JSX.Element {
 
 export function EngineeringAnalyticsScene(): JSX.Element {
     const { activeView } = useValues(engineeringAnalyticsSceneLogic)
-    const { scopeRepo } = useValues(engineeringAnalyticsLogic)
+    const { scopeRepo, ciDataAsOf } = useValues(engineeringAnalyticsLogic)
 
     return (
         <BindLogic logic={engineeringAnalyticsLogic} props={{}}>
@@ -113,7 +108,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
                                 <DeploysRefreshButton />
                             ) : (
                                 <>
-                                    <CIDataAsOf />
+                                    {ciDataAsOf && <CIDataAsOfLabel asOf={ciDataAsOf} />}
                                     <RefreshButton />
                                 </>
                             )}

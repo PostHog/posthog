@@ -412,17 +412,14 @@ class StoredCiReader:
     def refreshed_at(self) -> datetime | None:
         """When the stored days of today and yesterday were last computed, the older of the tables that
         reads can take, or None when every read takes the raw tables. A read of jobs needs the stored
-        runs too, so without them no read takes the stored rows. A refresh computes these days every
-        15 minutes. Older days rarely change, so a refresh computes them less often, and their age does
-        not count here."""
+        runs too, so without them no read takes the stored rows."""
         runs = self._computed_at(STORED_RUNS)
         jobs = self._computed_at(STORED_JOBS) if runs else None
         return min(runs, jobs) if runs and jobs else runs
 
     def _computed_at(self, stored: StoredRows) -> datetime | None:
-        yesterday = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
         start = self._history_start(stored)
-        result = self._check(stored, since=max(yesterday, start)) if start else None
+        result = self._check(stored, since=max(datetime.now(UTC) - timedelta(days=1), start)) if start else None
         return result.computed_at if result and result.ready else None
 
     def runs(self, floor: str | None) -> str | None:

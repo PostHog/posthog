@@ -46,7 +46,7 @@ export function CIExplorerScene(): JSX.Element {
         activePush,
         pullRequestUrl,
         locationUrl,
-        dataAsOf,
+        freshness,
         freshnessLoading,
         refreshing,
     } = useValues(ciExplorerLogic)
@@ -118,8 +118,8 @@ export function CIExplorerScene(): JSX.Element {
                             data-attr="ci-explorer-views"
                         />
                         <div className="flex items-center gap-2 pb-1 text-xs text-secondary">
-                            {dataAsOf ? (
-                                <CIDataAsOfLabel asOf={dataAsOf} />
+                            {freshness?.as_of ? (
+                                <CIDataAsOfLabel asOf={freshness.as_of} />
                             ) : (
                                 <span>{freshnessLoading ? 'Checking update time' : 'Update time unknown'}</span>
                             )}

@@ -136,7 +136,6 @@ export interface ciExplorerLogicValues {
     commits: CIActivityCommit[]
     currentHeadSha: string | null
     currentView: CIExplorerView
-    dataAsOf: string | null
     drawerOpen: boolean
     drawerTab: CIExplorerDrawerTab
     failedJobRuns: WorkflowRun[]
@@ -369,7 +368,6 @@ export interface ciExplorerLogicMeta {
         workflows: (workflowRuns: WorkflowRun[], jobsByRun: Record<string, WorkflowJobApi[]>) => CIExplorerWorkflow[]
         summary: (workflows: CIExplorerWorkflow[]) => CIExplorerSummary
         activity: (lifecycle: PRLifecycleApi | null, commits: CIActivityCommit[]) => CIActivityDay[]
-        dataAsOf: (freshness: CIDataFreshnessApi | null) => string | null
         totalJobSeconds: (workflows: CIExplorerWorkflow[]) => number
         shareLevels: (workflows: CIExplorerWorkflow[], focusedNodeId: string | null) => CIExplorerShareLevel[]
         focusLevels: (workflows: CIExplorerWorkflow[], focusedNodeId: string | null) => CIExplorerFocusLevel[]
@@ -732,10 +730,6 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
             (s) => [s.lifecycle, s.commits],
             (lifecycle: PRLifecycleApi | null, commits: CIActivityCommit[]): CIActivityDay[] =>
                 activityDays(lifecycle, commits),
-        ],
-        dataAsOf: [
-            (s) => [s.freshness],
-            (freshness: CIDataFreshnessApi | null): string | null => freshness?.as_of ?? null,
         ],
         totalJobSeconds: [
             (s) => [s.workflows],
