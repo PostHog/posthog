@@ -298,9 +298,11 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     # Retried individually, not via `with_internal_db_retries` on the whole function, because the
     # LLM call further down is expensive and must not be repeated for a blip reaching our own database.
     team = retry_internal_db_operation(
-        lambda: Team.objects.select_related("organization")
-        .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
-        .get(id=team_id)
+        lambda: (
+            Team.objects.select_related("organization")
+            .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
+            .get(id=team_id)
+        )
     )
 
     # Context accumulated as we learn it; shared by the "started" and "completed" analytics events.
@@ -317,9 +319,11 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         return {"status": "skipped", "reason": "ai_data_processing_not_approved"}
 
     schema = retry_internal_db_operation(
-        lambda: ExternalDataSchema.objects.select_related("source", "table")
-        .filter(team_id=team_id, deleted=False)
-        .get(id=schema_id)
+        lambda: (
+            ExternalDataSchema.objects.select_related("source", "table")
+            .filter(team_id=team_id, deleted=False)
+            .get(id=schema_id)
+        )
     )
     table = schema.table
     event_props["source_type"] = schema.source.source_type

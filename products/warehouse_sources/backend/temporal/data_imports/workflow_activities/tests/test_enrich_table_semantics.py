@@ -484,7 +484,11 @@ class TestEnrichTableSemanticsSync:
         # A DNS blip resolving PostHog's own database must be retried, not raised straight through -
         # it would otherwise reach error tracking as an unactionable OperationalError on every sync.
         team = _team()
-        schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
+        schema, table = _make_schema(
+            team,
+            columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}],
+            description="Stripe charges",
+        )
         canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
 
         attempts = 0
