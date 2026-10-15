@@ -1201,7 +1201,7 @@ class BigQueryClient:
 
         await self._wait_for_load_job(load_job, poll_interval=poll_interval)
 
-        return await asyncio.to_thread(load_job.result)
+        return load_job.result()  # Non-blocking: Job is done.
 
     async def _wait_for_load_job(self, load_job: bigquery.LoadJob, poll_interval: float) -> None:
         """Poll a LoadJob until it is done.
