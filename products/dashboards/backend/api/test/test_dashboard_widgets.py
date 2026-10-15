@@ -2,7 +2,7 @@ from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, MagicMock, PropertyMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.db import connection
 from django.test import override_settings
@@ -1474,11 +1474,7 @@ class TestDashboardWidgetsBatchUpdate(APIBaseTest):
         _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
         tile = dashboard_json["tiles"][0]
 
-        with patch(
-            "posthog.user_permissions.UserDashboardPermissions.can_edit",
-            new_callable=PropertyMock,
-            return_value=False,
-        ):
+        with patch.object(UserAccessControl, "check_access_level_for_object", return_value=False):
             response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 9}}])
 
         assert response.status_code == status.HTTP_403_FORBIDDEN

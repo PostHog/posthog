@@ -23,10 +23,8 @@ from rest_framework import serializers
 from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models.user import User
-from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.facade.enums import PrivilegeLevel
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -207,13 +205,12 @@ def hide_tiles_for_insights(insight_ids: Collection[int]) -> None:
     DashboardTile.objects_including_soft_deleted.filter(insight_id__in=insight_ids).update(deleted=True)
 
 
-def restore_tiles_for_insights(insight_ids: Collection[int], *, user_permissions: UserPermissions) -> None:
+def restore_tiles_for_insights(insight_ids: Collection[int], *, user_access_control: UserAccessControl) -> None:
     """Re-activate soft-deleted tiles of these insights, on live dashboards the requester may edit.
 
     Run inside the caller's transaction: it is one half of restoring the insights themselves.
-    Mirrors the per-dashboard CAN_EDIT check membership updates apply, so a restore can't force an
-    insight back onto a dashboard the requester can only view. Tiles removed before the delete may
-    also reappear; acceptable for the immediate-undo case this backs.
+    Tiles removed before the delete may also reappear; acceptable for the immediate-undo case
+    this backs.
     """
     candidate_tiles = DashboardTile.objects_including_soft_deleted.filter(
         insight_id__in=insight_ids, deleted=True, dashboard__deleted=False
@@ -221,7 +218,7 @@ def restore_tiles_for_insights(insight_ids: Collection[int], *, user_permissions
     restorable_tile_ids = [
         tile.id
         for tile in candidate_tiles
-        if user_permissions.dashboard(tile.dashboard).effective_privilege_level == PrivilegeLevel.CAN_EDIT
+        if user_access_control.check_access_level_for_object(tile.dashboard, "editor")
     ]
     if restorable_tile_ids:
         DashboardTile.objects_including_soft_deleted.filter(id__in=restorable_tile_ids).update(deleted=False)
@@ -257,7 +254,6 @@ def plan_insight_tile_placement(
     team_id: int,
     query: Any,
     user: User,
-    user_permissions: UserPermissions,
     user_access_control: UserAccessControl | None,
 ) -> InsightTilePlacement:
     """Check that an insight carrying `query` may be placed on these dashboards.
@@ -270,12 +266,13 @@ def plan_insight_tile_placement(
     found = {dashboard.id: dashboard for dashboard in Dashboard.objects.filter(id__in=dashboard_ids)}
     dashboards = [found[dashboard_id] for dashboard_id in dict.fromkeys(dashboard_ids) if dashboard_id in found]
     for dashboard in dashboards:
-        # Adding a tile is an edit of the dashboard, so a restricted dashboard the requester
-        # can't edit must not be writable here either.
-        if user_permissions.dashboard(dashboard).effective_privilege_level != PrivilegeLevel.CAN_EDIT:
-            raise CannotAddToDashboard(dashboard.id)
         if dashboard.team_id != team_id:
             raise DashboardNotFound
+        # Adding a tile is an edit of the dashboard.
+        if user_access_control is not None and not user_access_control.check_access_level_for_object(
+            dashboard, "editor"
+        ):
+            raise CannotAddToDashboard(dashboard.id)
         # The dashboard's public link must not expose a query the editor can't run.
         check_can_add_insight_to_shared_dashboard(user, dashboard, query, user_access_control)
     return InsightTilePlacement(dashboards)
@@ -287,7 +284,6 @@ def update_insight_dashboard_membership(
     dashboard_ids: Sequence[int],
     query: Any,
     user: User,
-    user_permissions: UserPermissions,
     user_access_control: UserAccessControl | None,
 ) -> MembershipChange | None:
     """Move an insight on and off dashboards until it sits on exactly `dashboard_ids`.
@@ -318,13 +314,13 @@ def update_insight_dashboard_membership(
     added_dashboard_ids: list[int] = []
     # nosemgrep: idor-lookup-without-team (team check after lookup)
     for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
-        # Does the requester have permission to add to this dashboard? If it is restricted, the
-        # patch would otherwise make the insight restricted too.
-        if user_permissions.dashboard(dashboard).effective_privilege_level != PrivilegeLevel.CAN_EDIT:
-            raise CannotAddToDashboard(dashboard.id)
-
         if dashboard.team != insight.team:
             raise DashboardNotFound
+
+        if user_access_control is not None and not user_access_control.check_access_level_for_object(
+            dashboard, "editor"
+        ):
+            raise CannotAddToDashboard(dashboard.id)
 
         # The dashboard's public link must not expose a query the editor can't run.
         check_can_add_insight_to_shared_dashboard(user, dashboard, query, user_access_control)
@@ -340,7 +336,9 @@ def update_insight_dashboard_membership(
     if ids_to_remove:
         # nosemgrep: idor-lookup-without-team (team check after lookup)
         for dashboard in Dashboard.objects.filter(id__in=ids_to_remove):
-            if user_permissions.dashboard(dashboard).effective_privilege_level != PrivilegeLevel.CAN_EDIT:
+            if user_access_control is not None and not user_access_control.check_access_level_for_object(
+                dashboard, "editor"
+            ):
                 raise CannotRemoveFromDashboard(dashboard.id)
 
         # Capture the still-active tiles before soft-deleting so the caller can report one

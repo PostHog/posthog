@@ -1213,7 +1213,6 @@ rules:
                           (?x)(
                               AccountAuditCredential
                               |CommunitySkillVote
-                              |DashboardPrivilege
                               |GitHubInstallRequest
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
@@ -1271,7 +1270,6 @@ rules:
                     (?x)(
                         AccountAuditCredential
                         |CommunitySkillVote
-                        |DashboardPrivilege
                         |GitHubInstallRequest
                         |PersonalAPIKey
                         |ScoreDefinitionVersion

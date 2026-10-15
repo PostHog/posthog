@@ -161,7 +161,6 @@ from products.dashboards.backend.facade.api import (
     unknown_dashboard_ids,
     update_insight_dashboard_membership,
 )
-from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.exports.backend.facade.api import delete_insight_subscriptions
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
@@ -560,8 +559,6 @@ class InsightSerializer(InsightBasicSerializer):
     is_cached = serializers.SerializerMethodField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
-    effective_restriction_level = serializers.SerializerMethodField()
-    effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
     dashboards = DashboardIdsField(  # type: ignore[assignment]
@@ -635,8 +632,6 @@ class InsightSerializer(InsightBasicSerializer):
             "last_modified_at",
             "last_modified_by",
             "is_sample",
-            "effective_restriction_level",
-            "effective_privilege_level",
             "user_access_level",
             "timezone",
             "is_cached",
@@ -660,8 +655,6 @@ class InsightSerializer(InsightBasicSerializer):
             "short_id",
             "updated_at",
             "is_sample",
-            "effective_restriction_level",
-            "effective_privilege_level",
             "user_access_level",
             "timezone",
             "refreshing",
@@ -787,7 +780,6 @@ class InsightSerializer(InsightBasicSerializer):
                     team_id=team_id,
                     query=validated_data.get("query"),
                     user=request.user,
-                    user_permissions=self.user_permissions,
                     user_access_control=self.user_access_control,
                 )
             except CannotAddToDashboard as error:
@@ -922,8 +914,6 @@ class InsightSerializer(InsightBasicSerializer):
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
-        self.user_permissions.reset_insights_dashboard_cached_results()
-
         return updated_insight
 
     def _log_insight_update(
@@ -992,7 +982,6 @@ class InsightSerializer(InsightBasicSerializer):
                 dashboard_ids=dashboard_ids,
                 query=query,
                 user=self.context["request"].user,
-                user_permissions=self.user_permissions,
                 user_access_control=self.user_access_control,
             )
         except CannotAddToDashboard as error:
@@ -1184,18 +1173,6 @@ class InsightSerializer(InsightBasicSerializer):
 
         resolved_layers = resolve_filter_layers_by_priority(dashboard_filters, tile_filters_override)
         return {key: value or None for key, value in resolved_layers.items()}
-
-    @extend_schema_field(serializers.ChoiceField(choices=RestrictionLevel.choices))
-    def get_effective_restriction_level(self, insight: Insight) -> RestrictionLevel:
-        if self.context.get("is_shared"):
-            return RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        return self.user_permissions.insight(insight).effective_restriction_level
-
-    @extend_schema_field(serializers.ChoiceField(choices=PrivilegeLevel.choices))
-    def get_effective_privilege_level(self, insight: Insight) -> PrivilegeLevel:
-        if self.context.get("is_shared"):
-            return PrivilegeLevel.CAN_VIEW
-        return self.user_permissions.insight(insight).effective_privilege_level
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
@@ -1876,18 +1853,6 @@ class InsightViewSet(
             span.set_attribute("insight.search.empty", results_len == 0)
         return response
 
-    def paginate_queryset(self, queryset):
-        page = super().paginate_queryset(queryset)
-        if (
-            page is not None
-            and getattr(self, "action", None) == "list"
-            and not self._is_basic_request()
-            and not isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
-        ):
-            tiles = [tile for insight in page for tile in insight.dashboard_tiles.all()]
-            self.user_permissions.set_preloaded_dashboard_tiles(tiles)
-        return page
-
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self._is_basic_request():
             return InsightBasicSerializer
@@ -2495,8 +2460,6 @@ When set, the specified dashboard's filters and date range override will be appl
                         )
                 bulk_log_activity(activity_log_entries)
 
-            self.user_permissions.reset_insights_dashboard_cached_results()
-
         return Response({"deleted": deleted, "skipped": skipped})
 
     @validated_request(
@@ -2524,7 +2487,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 Insight.objects_including_soft_deleted.filter(
                     id__in=insight_ids, team__project_id=self.team.project_id
                 ).update(deleted=False, last_modified_at=now(), last_modified_by=current_user)
-                restore_tiles_for_insights(insight_ids, user_permissions=self.user_permissions)
+                restore_tiles_for_insights(insight_ids, user_access_control=self.user_access_control)
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:
@@ -2544,8 +2507,6 @@ When set, the specified dashboard's filters and date range override will be appl
                             )
                         )
                 bulk_log_activity(activity_log_entries)
-
-            self.user_permissions.reset_insights_dashboard_cached_results()
 
         return Response({"restored": restored, "skipped": skipped})
 
@@ -2601,9 +2562,6 @@ When set, the specified dashboard's filters and date range override will be appl
             for key, count in self._set_test_account_filter_on_batch(batch, enabled=enabled).items():
                 totals[key] += count
 
-        if totals["updated"]:
-            self.user_permissions.reset_insights_dashboard_cached_results()
-
         # Reported even when nothing changed: a run that finds no insights to flip still tells us
         # someone reached for this, and the no-op rate is the signal for whether it's discoverable.
         report_user_action(
@@ -2629,10 +2587,6 @@ When set, the specified dashboard's filters and date range override will be appl
         Access has to be resolved one insight at a time. `filter_queryset_by_access_level` answers whether an
         insight is visible rather than whether it can be edited, so filtering in the query would let insights
         the caller only has `viewer` on through to the write.
-
-        EE's `CanEditInsight` needs no counterpart here. It refuses insights on dashboards the caller can only
-        view, but `can_edit` short-circuits for anyone who `can_restrict`, which is every project admin, and the
-        action already requires project admin. Relaxing that requirement would have to bring the check back.
         """
         if not self.user_access_control:
             return insights, 0
