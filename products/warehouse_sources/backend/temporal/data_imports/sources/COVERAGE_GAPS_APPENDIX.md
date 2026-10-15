@@ -5832,7 +5832,7 @@ Diffed against: <https://docs.hetzner.cloud/cloud.spec.json>
 - [x] `GET /pricing` — lookup table of hourly/monthly prices per server type, volume, load balancer and location — the only way to cost the servers we already sync (high)
 - [x] `GET /servers/{id}/metrics` — cpu, disk and network time series per server, the headline analytical data in the API (high)
 - [x] `GET /zones` — DNS zones, now part of the Cloud API and not exposed at all today (medium)
-- [ ] `GET /zones/{id_or_name}/rrsets` — DNS records per zone — the actual queryable rows behind zones (medium)
+- [x] `GET /zones/{id_or_name}/rrsets` — DNS records per zone — the actual queryable rows behind zones (medium)
 - [x] `GET /load_balancers/{id}/metrics` — connections, throughput and requests per load balancer for capacity analysis (medium)
 - [x] `GET /networks/{id}/members` — servers and load balancers attached to each network, with their private IP and attach status (medium)
 
