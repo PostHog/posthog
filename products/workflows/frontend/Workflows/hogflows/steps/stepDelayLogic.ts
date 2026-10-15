@@ -193,6 +193,9 @@ export interface stepDelayLogicActions {
                   reason?: string | undefined
               }
             | {
+                  type: 'api'
+              }
+            | {
                   type: 'schedule'
               }
             | {
@@ -496,6 +499,9 @@ export interface stepDelayLogicActions {
               }
             | {
                   reason?: string | undefined
+              }
+            | {
+                  type: 'api'
               }
             | {
                   type: 'schedule'

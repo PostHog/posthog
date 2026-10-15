@@ -834,6 +834,9 @@ export interface workflowLogicActions {
                       | {
                             config:
                                 | {
+                                      type: 'api'
+                                  }
+                                | {
                                       type: 'schedule'
                                   }
                                 | {
@@ -1109,6 +1112,9 @@ export interface workflowLogicActions {
                   tags: string[]
                   team_id: number
                   trigger?:
+                      | {
+                            type: 'api'
+                        }
                       | {
                             type: 'schedule'
                         }
@@ -1699,6 +1705,9 @@ export interface workflowLogicActions {
                       | {
                             config:
                                 | {
+                                      type: 'api'
+                                  }
+                                | {
                                       type: 'schedule'
                                   }
                                 | {
@@ -1975,6 +1984,9 @@ export interface workflowLogicActions {
                   team_id: number
                   trigger?:
                       | {
+                            type: 'api'
+                        }
+                      | {
                             type: 'schedule'
                         }
                       | {
@@ -2161,6 +2173,9 @@ export interface workflowLogicActions {
               }
             | {
                   reason?: string | undefined
+              }
+            | {
+                  type: 'api'
               }
             | {
                   type: 'schedule'
@@ -2552,6 +2567,9 @@ export interface workflowLogicActions {
               }
             | {
                   reason?: string | undefined
+              }
+            | {
+                  type: 'api'
               }
             | {
                   type: 'schedule'
@@ -2965,6 +2983,9 @@ export interface workflowLogicMeta {
             triggerAction:
                 | ({
                       config:
+                          | {
+                                type: 'api'
+                            }
                           | {
                                 type: 'schedule'
                             }
