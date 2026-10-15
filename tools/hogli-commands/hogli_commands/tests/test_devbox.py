@@ -27,6 +27,11 @@ from hogli_commands.devbox import (
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def agent_ready_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(devbox_cli, "wait_for_agent_ready", lambda name: "ready")
+
+
 @pytest.fixture
 def devbox_config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     config_path = tmp_path / "hogli_devbox.json"
@@ -1311,6 +1316,57 @@ class TestTemplatePresetResolution:
             assert "Warning" in output
         else:
             assert "Warning" not in output
+
+
+def _running_build(agent: dict[str, str]) -> dict[str, object]:
+    return {"status": "running", "resources": [{"agents": [agent]}]}
+
+
+class TestWaitForAgentReady:
+    @pytest.mark.parametrize(
+        "builds, expected",
+        [
+            ([_running_build({"lifecycle_state": "starting"}), _running_build({"lifecycle_state": "ready"})], "ready"),
+            (
+                [_running_build({"lifecycle_state": "starting"}), _running_build({"lifecycle_state": "start_error"})],
+                "start_error",
+            ),
+            (
+                [_running_build({"lifecycle_state": "created"}), _running_build({"lifecycle_state": "start_timeout"})],
+                "start_timeout",
+            ),
+            ([_running_build({"lifecycle_state": "starting"}), {"status": "stopped", "resources": []}], "stopped"),
+            ([{"status": "failed", "resources": []}], "build_failed"),
+            ([_running_build({"lifecycle_state": "created", "status": "timeout"})], "agent_timeout"),
+            ([_running_build({"lifecycle_state": "starting"}), None], "unavailable"),
+            ([_running_build({"lifecycle_state": "starting"})] * 10, "wait_timeout"),
+        ],
+        ids=[
+            "ready",
+            "script-failed",
+            "script-timed-out",
+            "stopped",
+            "build-failed",
+            "agent-never-connected",
+            "box-gone",
+            "never-ready",
+        ],
+    )
+    def test_returns_when_startup_scripts_settle(
+        self, monkeypatch: pytest.MonkeyPatch, builds: list[dict[str, object] | None], expected: str
+    ) -> None:
+        polls = iter(builds)
+        clock = iter(range(0, 1000, 5))
+
+        def list_workspaces(*, timeout: float | None = None) -> list[dict[str, object]]:
+            build = next(polls)
+            return [] if build is None else [{"name": "devbox-test-user", "latest_build": build}]
+
+        monkeypatch.setattr(coder, "_list_workspaces", list_workspaces)
+        monkeypatch.setattr(coder.time, "monotonic", lambda: next(clock))
+        monkeypatch.setattr(coder.time, "sleep", lambda seconds: None)
+
+        assert coder.wait_for_agent_ready("devbox-test-user", timeout=50) == expected
 
 
 class TestResolveWorkspaceName:

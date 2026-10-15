@@ -88,6 +88,7 @@ from .coder import (
     update_workspace,
     upsert_user_secret,
     user_secret_exists,
+    wait_for_agent_ready,
 )
 from .config import (
     DevboxConfig,
@@ -270,6 +271,33 @@ def _workspace_arg_suffix(name: str) -> str:
     return f" {label}" if label else ""
 
 
+_NOT_READY_REASONS = {
+    "start_error": "A startup script failed, so some setup may be missing.",
+    "start_timeout": "A startup script ran past its time limit, so some setup may be missing.",
+    "wait_timeout": "Its startup scripts are still running.",
+    "build_failed": "Its latest build failed.",
+    "stopped": "It stopped before its startup scripts finished.",
+    "agent_timeout": "Its agent did not connect to Coder.",
+    "unavailable": "hogli could not read its status from Coder.",
+}
+
+
+def _wait_until_ready(name: str) -> None:
+    """Hold the command until startup scripts finish, warning if they did not."""
+    click.echo("Waiting for startup scripts...")
+    state = wait_for_agent_ready(name)
+    telemetry.add_command_properties(devbox_agent_lifecycle=state)
+    if state == "ready":
+        return
+    click.echo(
+        click.style(
+            f"Devbox '{name}' may not be ready. {_NOT_READY_REASONS[state]} "
+            f"Check `hogli devbox:logs{_workspace_arg_suffix(name)}`.",
+            fg="yellow",
+        )
+    )
+
+
 def _get_workspace_or_fail(name: str, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Return a workspace or exit with a consistent message when missing."""
     workspace = get_workspace(name, workspaces)
@@ -346,6 +374,7 @@ def _start_existing_workspace(
         else:
             click.echo(f"Starting devbox '{name}'...")
             start_workspace(name, verbose=verbose)
+        _wait_until_ready(name)
         click.echo("Started.")
         _print_connection_info(name)
         return
@@ -353,6 +382,7 @@ def _start_existing_workspace(
     click.echo(f"Devbox '{name}' is in state: {status}")
     click.echo("Attempting to start...")
     start_workspace(name, verbose=verbose)
+    _wait_until_ready(name)
     _print_connection_info(name)
 
 
@@ -1470,6 +1500,7 @@ def devbox_start(
         start_app=start_app,
         verbose=verbose,
     )
+    _wait_until_ready(name)
     click.echo("Created.")
     _print_connection_info(name)
 
@@ -1552,6 +1583,7 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
         template=template,
         verbose=verbose,
     )
+    _wait_until_ready(target_name)
     click.echo("Cloned.")
     _print_connection_info(target_name)
 
@@ -1585,6 +1617,7 @@ def devbox_restart(workspace: str | None, verbose: bool) -> None:
     _get_workspace_or_fail(name, workspaces)
     click.echo(f"Restarting '{name}'...")
     restart_workspace(name, verbose=verbose)
+    _wait_until_ready(name)
     click.echo("Restarted.")
     _print_connection_info(name)
 
@@ -1602,6 +1635,7 @@ def devbox_update(workspace: str | None, verbose: bool) -> None:
         return
     click.echo(f"Updating '{name}' to the latest template...")
     update_workspace(name, verbose=verbose)
+    _wait_until_ready(name)
     click.echo("Updated.")
     click.echo(
         "Note: if your local lockfiles differ from the new AMI's baked versions, "
