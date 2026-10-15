@@ -506,7 +506,45 @@
             "layout": {
                 "x": 0,
                 "y": 21,
-                "w": 12,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "process_cpu_percent_by_process",
+            "title": "Process CPU percent by process",
+            "description": "CPU each process uses. 100% is one fully busy core, so a process using several cores goes above 100%.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "service.name"
+                            },
+                            {
+                                "key": "service.instance.id"
+                            }
+                        ],
+                        "metricName": "process.cpu.time",
+                        "aggregation": "rate"
+                    }
+                ],
+                "formula": "a * 100",
+                "display": {
+                    "type": "line",
+                    "unit": "%",
+                    "legendCalcs": ["mean", "max"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 21,
+                "w": 6,
                 "h": 4
             }
         },
