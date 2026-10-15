@@ -2,12 +2,14 @@ import json
 from datetime import timedelta
 from typing import Any
 
+import pytest
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from celery.exceptions import SoftTimeLimitExceeded
 from confluent_kafka import KafkaException
 from parameterized import parameterized
 
@@ -171,7 +173,6 @@ class TestEmitInboxReportReadyEvent(BaseTest):
 
         with patch.object(workflow_events, "_release_stale_claim", side_effect=settle_then_release):
             self._sweep_after(timedelta(minutes=16))
-        self._sweep_after(timedelta(minutes=32))
 
         assert len(self._produced_events()) == 2
 
@@ -185,3 +186,51 @@ class TestEmitInboxReportReadyEvent(BaseTest):
         self._sweep_after(timedelta(hours=1))
 
         assert len(self._produced_events()) == 3
+
+    def _strand_ready_reports(self, count: int) -> list[str]:
+        first_claimed_at = timezone.now() - timedelta(minutes=30)
+        return [
+            str(
+                SignalReport.objects.create(
+                    team=self.team,
+                    status=SignalReport.Status.READY,
+                    title=f"Stranded report {index}",
+                    signal_count=1,
+                    total_weight=1.0,
+                    ready_event_emitted_at=first_claimed_at + timedelta(seconds=index),
+                    ready_event_source_products=["error_tracking"],
+                ).id
+            )
+            for index in range(count)
+        ]
+
+    @parameterized.expand(
+        [
+            ("within_the_time_budget", timedelta(minutes=4), 5, 3),
+            ("past_the_time_budget", timedelta(0), 2, 1),
+        ]
+    )
+    def test_the_sweep_sends_batch_after_batch_with_one_flush_each(
+        self, _name: str, time_budget: timedelta, expected_sends: int, expected_flushes: int
+    ) -> None:
+        stranded = self._strand_ready_reports(5)
+
+        with (
+            patch.object(workflow_events, "_RECONCILE_BATCH_SIZE", 2),
+            patch.object(workflow_events, "_SWEEP_TIME_BUDGET", time_budget),
+            patch.object(workflow_events, "flush_internal_events_producer", return_value=0) as flush,
+        ):
+            reconcile_stranded_ready_events()
+
+        sent = [event.properties["report_id"] for event in self._produced_events()]
+        assert sent == stranded[:expected_sends]
+        assert flush.call_count == expected_flushes
+        delivered = SignalReport.objects.filter(id__in=sent, ready_event_delivered_at__isnull=False).count()
+        assert delivered == expected_sends
+
+    def test_the_sweep_stops_at_the_task_soft_time_limit(self) -> None:
+        self._strand_ready_reports(1)
+        self.produce.side_effect = SoftTimeLimitExceeded()
+
+        with pytest.raises(SoftTimeLimitExceeded):
+            reconcile_stranded_ready_events()
