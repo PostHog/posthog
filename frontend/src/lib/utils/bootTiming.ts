@@ -1,7 +1,10 @@
 import type { PostHog } from 'posthog-js'
 
+import { hashCodeForString } from 'lib/utils/strings'
+
 // pinned: analytics event and property names. Boot performance insights read them.
 const BOOT_TIMING_EVENT = 'app boot timing'
+const SAMPLE_RATE = 0.05
 
 export type BootPhase = 'entry' | 'app_modules_loaded' | 'app_ready' | 'scene_loaded' | 'scene_rendered'
 
@@ -20,8 +23,19 @@ function getNavigationType(): string | null {
     return navigation?.type ?? null
 }
 
+function isInSample(posthog: PostHog): boolean {
+    // Not `$device_id`: posthog-js gives it a new value on each page load of a user bootstrapped with
+    // `identity_distinct_id`. The distinct ID changes only at login, so a user stays in or out across page loads.
+    const distinctId = posthog.get_distinct_id()
+    // hashCodeForString returns 0 for an empty string, which would put every such page load in the sample.
+    return !!distinctId?.trim() && hashCodeForString(distinctId) % 100 < SAMPLE_RATE * 100
+}
+
 function sendBootTiming(posthog: PostHog): void {
     sent = true
+    if (!isInSample(posthog)) {
+        return
+    }
     const durations = Object.fromEntries(
         Object.entries(phaseTimes).map(([phase, time]) => [`${phase}_ms`, Math.round(time)])
     )
@@ -30,12 +44,14 @@ function sendBootTiming(posthog: PostHog): void {
         ...context,
         navigation_type: getNavigationType(),
         page_was_hidden: pageWasHidden,
+        sample_rate: SAMPLE_RATE,
     })
 }
 
 /**
  * Records the first time a full page load reaches a boot phase, as a `performance.mark` and as ms since
- * navigation start. The first scene render sends all phases as one event. Later SPA navigations change nothing.
+ * navigation start. The first scene render sends all phases as one event, for a 5% sample of users. Later SPA
+ * navigations change nothing.
  */
 export function markBootPhase(phase: BootPhase, phaseContext?: BootContext): void {
     // Only the app entry script marks `entry`. Without it, this code runs in tests, storybook or the exporter.

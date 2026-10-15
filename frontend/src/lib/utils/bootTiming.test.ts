@@ -3,8 +3,13 @@ import type posthogType from 'posthog-js'
 import type { markBootPhase as markBootPhaseType } from './bootTiming'
 
 describe('bootTiming', () => {
+    // Hash buckets 0 and 26 of 100, so one sits inside the 5% sample and one sits outside it.
+    const IN_SAMPLE_ID = 'user-93'
+    const OUT_OF_SAMPLE_ID = 'user-0'
+
     let markBootPhase: typeof markBootPhaseType
     let capture: jest.SpyInstance
+    let getDistinctId: jest.SpyInstance
     let now: number
     let nowSpy: jest.SpyInstance
 
@@ -16,6 +21,7 @@ describe('bootTiming', () => {
         markBootPhase = require('./bootTiming').markBootPhase
         const posthog: typeof posthogType = require('posthog-js').default
         capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        getDistinctId = jest.spyOn(posthog, 'get_distinct_id').mockReturnValue(IN_SAMPLE_ID)
     })
 
     afterEach(() => {
@@ -54,8 +60,24 @@ describe('bootTiming', () => {
                 scene: 'Insight',
                 logged_in: true,
                 page_was_hidden: false,
+                sample_rate: 0.05,
             })
         )
+    })
+
+    it.each([
+        { distinctId: IN_SAMPLE_ID, sends: true },
+        { distinctId: OUT_OF_SAMPLE_ID, sends: false },
+        // An empty ID hashes to bucket 0, so without a guard every such page load would land in the sample.
+        { distinctId: '', sends: false },
+        { distinctId: undefined, sends: false },
+    ])('samples on distinct ID $distinctId (sends: $sends)', async ({ distinctId, sends }) => {
+        getDistinctId.mockReturnValue(distinctId)
+        markAt(50, 'entry')
+        markAt(900, 'scene_rendered')
+        await flushSend()
+
+        expect(capture).toHaveBeenCalledTimes(sends ? 1 : 0)
     })
 
     it.each([
