@@ -65,7 +65,7 @@ The suite uses these existing scorers:
 | `sql_result_message_alignment`       | Numeric, minimum 0 and maximum 1 |
 
 The harness loads the repo-root `.env` automatically; shell values take precedence.
-For CI, store the key as the `POSTHOG_OFFLINE_EVAL_API_KEY` GitHub Actions secret and expose it to the eval step under the same environment variable name.
+For CI, store the key as the `POSTHOG_OFFLINE_EVAL_API_KEY` [organization Actions secret](https://github.com/organizations/PostHog/settings/secrets/actions), grant access to the selected repository `PostHog/posthog`, and expose it to the eval step under the same environment variable name.
 No project ID or scorer mapping environment variables are required.
 
 ```bash
@@ -77,6 +77,21 @@ Without an API key, the SQL run reports that offline uploads are disabled.
 Invalid configuration produces a warning and skips this destination; Braintrust and legacy event reporting continue.
 An upload failure also warns without changing the evaluation's score gate.
 The final summary retains the legacy PostHog results link alongside the offline upload status until an offline experiment URL is available.
+
+### Manual CI pilot
+
+The temporary [Radu evals test workflow](../../.github/workflows/ci-radu-evals-test.yml) runs only `sql/eval_sql::eval_sql`, the suite currently enrolled in offline publishing.
+It has a manual `workflow_dispatch` trigger; labels, pushes, and PR updates do not start it.
+Once the workflow is on `master`, open **Actions → Radu evals test → Run workflow**, choose a branch, and optionally supply a SQL case name substring and the number of trials per case.
+An empty case filter runs all SQL cases; the default trial count is one.
+
+The workflow requires `POSTHOG_OFFLINE_EVAL_API_KEY` plus the existing `BRAINTRUST_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` organization secrets.
+It fails before setup if a required secret is unavailable.
+It runs one Docker sandbox at a time and puts the final harness summary, including the PostHog link or upload status, in the Actions run summary.
+Publishing failures remain warnings, so check the upload status even when the workflow is green.
+The harness sets the SDK's `run_source` to `ci` when `CI` is set, including manual Actions runs, and to `local` otherwise.
+
+### Published results
 
 Each case and trial becomes a separate item, with one result per configured scorer.
 Boolean scores convert `0` and `1` to `false` and `true`; numeric scores retain their values.

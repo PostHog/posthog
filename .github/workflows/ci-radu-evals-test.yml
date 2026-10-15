@@ -1,0 +1,146 @@
+name: Radu evals test
+
+on:
+    workflow_dispatch:
+        inputs:
+            case_filter:
+                description: 'SQL case name substring (leave empty to run all SQL cases)'
+                default: ''
+                type: string
+            trials:
+                description: 'Trials per case'
+                default: 1
+                type: number
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    sql-evals:
+        name: SQL evals with PostHog offline publishing
+        timeout-minutes: 90
+        # One sandbox allows 16 GB, alongside the local PostHog services.
+        runs-on: depot-ubuntu-24.04-8
+        env:
+            COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+            COMPOSE_PROFILES: temporal
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+        steps:
+            - name: Check required secrets and inputs
+              env:
+                  POSTHOG_OFFLINE_EVAL_API_KEY: ${{ secrets.POSTHOG_OFFLINE_EVAL_API_KEY }}
+                  BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  TRIALS: ${{ inputs.trials }}
+              shell: bash
+              run: |
+                  missing=""
+                  for name in POSTHOG_OFFLINE_EVAL_API_KEY BRAINTRUST_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY; do
+                      [ -n "${!name}" ] || missing="$missing $name"
+                  done
+                  if [ -n "$missing" ]; then
+                      echo "::error::Missing organization Actions secrets (grant PostHog/posthog access):$missing"
+                      exit 1
+                  fi
+                  if [[ ! "$TRIALS" =~ ^[1-9][0-9]*$ ]]; then
+                      echo "::error::Trials must be a positive integer"
+                      exit 1
+                  fi
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Log in to Docker Hub
+              if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Configure local services
+              run: |
+                  cp .env.example .env
+                  echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage temporal" | sudo tee -a /etc/hosts
+
+            - name: Start stack with Docker Compose
+              run: bin/ci-wait-for-docker launch --down
+
+            - name: Wait for Docker services
+              run: bin/ci-wait-for-docker wait temporal objectstorage
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: pyproject.toml
+
+            - name: Install uv
+              uses: ./.github/actions/setup-uv
+              with:
+                  save-cache: false
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT="$pythonLocation" uv sync --frozen --dev
+
+            - name: Install the local LLM gateway
+              working-directory: services/llm-gateway
+              run: uv sync --frozen
+
+            - name: Install MCP dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
+
+            - name: Install sqlx-cli
+              uses: ./.github/actions/setup-sqlx-cli
+
+            - name: Run SQL evals and publish to PostHog
+              shell: bash
+              env:
+                  POSTHOG_OFFLINE_EVAL_API_KEY: ${{ secrets.POSTHOG_OFFLINE_EVAL_API_KEY }}
+                  BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+                  LLM_GATEWAY_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  CASE_FILTER: ${{ inputs.case_filter }}
+                  TRIALS: ${{ inputs.trials }}
+              run: |
+                  python -m products.posthog_ai.eval_harness.harness sql/eval_sql::eval_sql \
+                      --provider docker --max-sandboxes 1 \
+                      --eval "$CASE_FILTER" --trials "$TRIALS" 2>&1 | tee /tmp/radu-evals-output.log
+
+            - name: Write run summary
+              if: always()
+              shell: bash
+              run: |
+                  {
+                      echo '## Radu evals test'
+                      echo
+                      echo 'SQL suite only. PostHog offline experiments are tagged CI.'
+                      echo 'Check the PostHog upload status below: an upload warning does not fail the eval score gate.'
+                      echo
+                      echo '```text'
+                      if [ -f /tmp/radu-evals-output.log ]; then
+                          if grep -q '^Sandboxed eval summary' /tmp/radu-evals-output.log; then
+                              sed -n '/^Sandboxed eval summary/,$p' /tmp/radu-evals-output.log
+                          else
+                              echo 'The harness exited before producing a summary. Check the eval step log.'
+                          fi
+                      else
+                          echo 'The eval step did not start. Check the failed setup step.'
+                      fi
+                      echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"
