@@ -28,6 +28,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, Trigger
 from posthog.models.user import User
 from posthog.permissions import is_service_auth
 from posthog.storage.object_storage import ObjectStorageError
+from posthog.temporal.oauth import request_is_sandbox_authenticated
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.canvas.backend.facade import api as canvas_api
@@ -60,7 +61,6 @@ from products.canvas.backend.facade.contracts import (
     CanvasViewer,
 )
 from products.canvas.backend.facade.enums import CANVAS_BUILD_STATUS_READY, CANVAS_KIND_GRID, CANVAS_KINDS, CanvasAccess
-from products.canvas.backend.logic import visibility
 from products.canvas.backend.presentation.serializers import (
     CanvasActionInvokeSerializer,
     CanvasActionResultSerializer,
@@ -319,7 +319,7 @@ class CanvasAccessMixin(TeamAndOrgViewSetMixin):
 
     @staticmethod
     def _is_sandbox_authenticated(request: Request) -> bool:
-        return visibility.request_is_sandboxed(request)
+        return request_is_sandbox_authenticated(request)
 
     def _validate_sandbox_channel(self, channel_id: UUID, task_id: UUID | None) -> None:
         if not self._is_sandbox_authenticated(self.request):

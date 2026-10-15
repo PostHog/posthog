@@ -16,7 +16,7 @@ from posthog.models.user import User
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.canvas.backend.models import Canvas
-from products.tasks.backend.models import Channel, ChannelMembership
+from products.tasks.backend.models import Channel
 
 
 class TestCanvasFileSystem(BaseTest):
@@ -126,7 +126,7 @@ class TestCanvasFileSystemVisibility(APIBaseTest):
         private_channel = Channel.objects.create(
             team=self.team, name="team-private", channel_type=Channel.ChannelType.PRIVATE, created_by=self.other
         )
-        ChannelMembership.objects.create(team=self.team, channel=private_channel, user=self.user)
+        private_channel.memberships.create(team=self.team, user=self.user)
         private_canvas = Canvas.objects.create(
             team=self.team, channel=private_channel, name="Private plan", created_by=self.other
         )
