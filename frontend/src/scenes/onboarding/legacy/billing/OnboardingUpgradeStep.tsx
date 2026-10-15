@@ -7,9 +7,9 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { PlatformAddonComparison } from 'scenes/billing/PlatformAddonComparison'
+import { reportOnboardingStepCompleted, reportOnboardingStepSkipped } from 'scenes/onboarding/onboardingUsage'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { type BillingProductV2Type, OnboardingStepKey } from '~/types'
@@ -27,7 +27,6 @@ type OnboardingUpgradeStepProps = {
 export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgradeStepProps> = ({ product }) => {
     const { billing, billingLoading } = useValues(billingLogic)
     const { goToNextStep } = useActions(onboardingLogic)
-    const { reportOnboardingStepSkipped, reportOnboardingStepCompleted } = useActions(eventUsageLogic)
 
     if (billingLoading) {
         return (

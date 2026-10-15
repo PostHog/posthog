@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { OnboardingStepKey } from '~/types'
 
@@ -12,7 +11,6 @@ import { OnboardingStep } from '../OnboardingStep'
 
 export const OnboardingDataWarehouseSourcesStep: OnboardingStepComponentType = () => {
     const { goToNextStep } = useActions(onboardingLogic)
-    const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
     const { availableSourcesLoading } = useValues(availableSourcesLogic)
     return (
         <OnboardingStep
