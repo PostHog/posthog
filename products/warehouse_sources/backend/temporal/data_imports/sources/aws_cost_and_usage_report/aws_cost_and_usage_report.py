@@ -20,6 +20,9 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    normalize_column_name as pipeline_column_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_and_usage_report.settings import (
     BILLING_PERIOD_DIRECTORY,
     BILLING_PERIOD_INPUT,
@@ -394,35 +397,25 @@ def _parse_boolean(value: str) -> bool:
     return value.strip().lower() == "true"
 
 
-def csv_converter(declared_type: str) -> Optional[Callable[[str], Any]]:
-    """How to read a CSV cell of a declared column type. None keeps the text."""
+@dataclasses.dataclass(frozen=True)
+class CsvColumnType:
+    convert: Callable[[str], Any]
+    arrow_type: pa.DataType
+
+
+def csv_column_type(declared_type: str) -> Optional[CsvColumnType]:
+    """How to read a CSV cell of a declared column type, and the Arrow type it lands as. None keeps the text."""
     if declared_type in ("double", "float", "real") or declared_type.startswith("decimal"):
-        return float
+        return CsvColumnType(float, pa.float64())
     if declared_type in ("bigint", "int", "integer", "smallint", "tinyint", "long"):
-        return int
+        return CsvColumnType(int, pa.int64())
     if declared_type.startswith("timestamp") or declared_type == "datetime":
-        return _parse_timestamp
+        return CsvColumnType(_parse_timestamp, pa.timestamp("us", tz="UTC"))
     if declared_type == "date":
-        return dt.date.fromisoformat
+        return CsvColumnType(dt.date.fromisoformat, pa.date32())
     if declared_type in ("boolean", "bool"):
-        return _parse_boolean
+        return CsvColumnType(_parse_boolean, pa.bool_())
     return None
-
-
-def csv_arrow_type(declared_type: Optional[str]) -> pa.DataType:
-    """The Arrow type a CSV column lands as, matching what `csv_converter` produces for it."""
-    converter = csv_converter(declared_type) if declared_type else None
-    if converter is float:
-        return pa.float64()
-    if converter is int:
-        return pa.int64()
-    if converter is _parse_timestamp:
-        return pa.timestamp("us", tz="UTC")
-    if converter is dt.date.fromisoformat:
-        return pa.date32()
-    if converter is _parse_boolean:
-        return pa.bool_()
-    return pa.string()
 
 
 def convert_csv_rows(rows: list[dict[str, Any]], converters: dict[str, Callable[[str], Any]]) -> None:
@@ -464,13 +457,20 @@ def iter_data_file(client: S3Client, key: str, period: dt.date, delivery: Delive
             return
 
         period_start = dt.datetime(period.year, period.month, 1, tzinfo=dt.UTC)
-        declared = {normalize_column_name(name): kind for name, kind in delivery.column_types.items()}
-        converters = {
-            name: converter for name, kind in declared.items() if (converter := csv_converter(kind)) is not None
+        # The CSV reader lowercases headers (`BilledCost` becomes `billedcost`), but the pipeline
+        # snake-cases Parquet columns (`billed_cost`). The manifest keeps the original names, so CSV
+        # columns take the Parquet name and an export that changes format keeps one column per measure.
+        column_names = {normalize_column_name(name): pipeline_column_name(name) for name in delivery.column_types}
+        column_types = {
+            pipeline_column_name(name): column_type
+            for name, kind in delivery.column_types.items()
+            if (column_type := csv_column_type(kind)) is not None
         }
-        for rows in iter_file_rows(destination, resolve_file_format(key), key, chunk_size=ROWS_PER_BATCH):
-            if not rows:
+        converters = {name: column_type.convert for name, column_type in column_types.items()}
+        for file_rows in iter_file_rows(destination, resolve_file_format(key), key, chunk_size=ROWS_PER_BATCH):
+            if not file_rows:
                 continue
+            rows = [{column_names.get(name, name): value for name, value in row.items()} for row in file_rows]
             convert_csv_rows(rows, converters)
             for row in rows:
                 row[BILLING_PERIOD_COLUMN] = period_start
@@ -480,7 +480,7 @@ def iter_data_file(client: S3Client, key: str, period: dt.date, delivery: Delive
                         name,
                         pa.timestamp("us", tz="UTC")
                         if name == BILLING_PERIOD_COLUMN
-                        else csv_arrow_type(declared.get(name)),
+                        else (column_types[name].arrow_type if name in column_types else pa.string()),
                     )
                     for name in rows[0]
                 ]

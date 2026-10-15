@@ -232,16 +232,19 @@ class TestSync:
 
         assert str(nothing.raised).startswith("AWS Cost and Usage Report request failed: NoManifest")
 
-    def test_gzip_csv_cells_take_the_types_the_manifest_declares(self) -> None:
+    def test_gzip_csv_cells_take_the_names_and_types_a_parquet_file_would_have(self) -> None:
+        # A FOCUS export names columns in PascalCase. The pipeline snake-cases Parquet columns, so CSV
+        # columns must land under the same names or one measure splits across two columns.
         key = f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.csv.gz"
         manifest = {
             "dataFiles": [key],
             "columns": [
-                {"name": "bill_payer_account_id", "type": "string"},
-                {"name": "line_item_unblended_cost", "type": "double"},
-                {"name": "line_item_usage_amount", "type": "decimal(38,10)"},
-                {"name": "pricing_lease_contract_length", "type": "bigint"},
-                {"name": "line_item_usage_start_date", "type": "timestamp"},
+                {"name": "BillingAccountId", "type": "string"},
+                {"name": "BilledCost", "type": "double"},
+                {"name": "ConsumedQuantity", "type": "decimal(38,10)"},
+                {"name": "x_LeaseContractLength", "type": "bigint"},
+                {"name": "ChargePeriodStart", "type": "timestamp"},
+                {"name": "x_UsageDate", "type": "date"},
             ],
         }
         result = SourceDriver(AwsCostAndUsageReportSource(), config()).run(
@@ -251,10 +254,9 @@ class TestSync:
                 {
                     f"{BASE}/metadata/BILLING_PERIOD=2024-03/my-export-Manifest.json": ScriptedResponse(json=manifest),
                     key: csv_gz_file(
-                        "bill_payer_account_id,line_item_unblended_cost,line_item_usage_amount,"
-                        "pricing_lease_contract_length,line_item_usage_start_date\n"
-                        "012345678901,1.5,24,3,2024-03-01T00:00:00Z\n"
-                        "012345678901,,not-a-number,,\n"
+                        "BillingAccountId,BilledCost,ConsumedQuantity,x_LeaseContractLength,ChargePeriodStart,x_UsageDate\n"
+                        "012345678901,1.5,24,3,2024-03-01T00:00:00Z,2024-03-01\n"
+                        "012345678901,,not-a-number,,,\n"
                     ),
                 },
             ),
@@ -263,19 +265,21 @@ class TestSync:
         assert result.raised is None
         assert table_rows(result.items) == [
             {
-                "bill_payer_account_id": "012345678901",
-                "line_item_unblended_cost": 1.5,
-                "line_item_usage_amount": 24.0,
-                "pricing_lease_contract_length": 3,
-                "line_item_usage_start_date": MARCH,
+                "billing_account_id": "012345678901",
+                "billed_cost": 1.5,
+                "consumed_quantity": 24.0,
+                "x_lease_contract_length": 3,
+                "charge_period_start": MARCH,
+                "x_usage_date": dt.date(2024, 3, 1),
                 "billing_period": MARCH,
             },
             {
-                "bill_payer_account_id": "012345678901",
-                "line_item_unblended_cost": None,
-                "line_item_usage_amount": None,
-                "pricing_lease_contract_length": None,
-                "line_item_usage_start_date": None,
+                "billing_account_id": "012345678901",
+                "billed_cost": None,
+                "consumed_quantity": None,
+                "x_lease_contract_length": None,
+                "charge_period_start": None,
+                "x_usage_date": None,
                 "billing_period": MARCH,
             },
         ]
