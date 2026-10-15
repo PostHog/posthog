@@ -1,4 +1,4 @@
-from dataclasses import field
+from dataclasses import field, replace
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -55,16 +55,7 @@ _PROJECT_FANOUT = DependentEndpointConfig(
 )
 
 # Lists that have no archived records of their own take no archive filter.
-_PROJECT_FANOUT_NO_ARCHIVE_FILTER = DependentEndpointConfig(
-    parent_name="projects",
-    resolve_param="project_id",
-    resolve_field="id",
-    include_from_parent=["id"],
-    parent_field_renames={"id": "project_id"},
-    parent_params={"include_archived": "true", **_CURSOR},
-    child_params=dict(_CURSOR),
-    child_response_actions=[{"status_code": 404, "action": "ignore"}],
-)
+_PROJECT_FANOUT_NO_ARCHIVE_FILTER = replace(_PROJECT_FANOUT, child_params=dict(_CURSOR))
 
 ENDPOINTS: dict[str, PlaneEndpointConfig] = {
     "projects": PlaneEndpointConfig(
