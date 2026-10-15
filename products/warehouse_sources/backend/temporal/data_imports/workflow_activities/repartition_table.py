@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     clear_repartition_checkpoint_if_claimed,
     release_repartition_hold_if_claimed,
+    save_repartition_checkpoint_if_claimed,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import import_replaces_table
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
@@ -65,6 +66,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     MAX_REPARTITION_ATTEMPTS,
     base_event_props,
     capture_repartition_event,
+    is_repartition_hold_enabled,
     maybe_flag_for_repartition,
     needs_pre_extraction_detection,
     pre_extraction_measurement_is_redundant,
@@ -169,6 +171,57 @@ def _rewrite_deadline(activity_started: float) -> float | None:
     if budget <= 0:
         return None
     return activity_started + budget
+
+
+# Each slice pays for a resume, which lists the live table and the temp table again.
+MIN_REWRITE_SLICE = dt.timedelta(minutes=30)
+
+
+def _rewrite_slice_end(
+    schema: ExternalDataSchema,
+    pending: dict[str, Any] | None,
+    trigger_reason: str,
+    *,
+    activity_started: float,
+    deadline: float | None,
+) -> float | None:
+    """Monotonic time at which the rewrite stops so that this sync can import, or None for no slice.
+
+    The rewrite runs before the import, so a rewrite that takes the whole activity budget keeps the
+    table stale for that long on every sync. A slice of one sync interval keeps the table about as
+    fresh as its schedule, and the checkpoint carries the rewrite on to the next sync.
+
+    No slice for an operator target, because the operator wants that rewrite done first. No slice
+    when the schema holds its imports for the rewrite, because the import would not run anyway.
+    """
+    if trigger_reason == "admin" or (pending or {}).get("slice_disabled"):
+        return None
+    interval = schema.sync_frequency_interval
+    if interval is None:
+        return None
+    slice_end = activity_started + max(interval, MIN_REWRITE_SLICE).total_seconds()
+    if deadline is not None and slice_end >= deadline:
+        return None
+    try:
+        if is_repartition_hold_enabled(schema):
+            return None
+    except Exception:
+        # The import runs when the hold flag cannot be read, so the slice still pays off.
+        pass
+    return slice_end
+
+
+def _mark_rewrite_sliced(schema: ExternalDataSchema, claim_token: str, logger: FilteringBoundLogger) -> None:
+    """Tag the checkpoint, so a resume that has to discard it turns slicing off for this target."""
+    try:
+        schema.refresh_from_db(fields=["sync_type_config"])
+        checkpoint = schema.repartition_rewrite
+        if checkpoint is not None:
+            save_repartition_checkpoint_if_claimed(
+                schema, claim_token=claim_token, checkpoint={**checkpoint, "sliced": True}
+            )
+    except Exception:
+        logger.warning("repartition: could not mark the rewrite checkpoint as sliced", exc_info=True)
 
 
 def _is_transient_infra_error(error: Exception) -> bool:
@@ -524,6 +577,13 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # attempt and is not charged, the same reason the give-up above exempts it.
     charged_attempts = None if swap is not None else _charge_attempt(schema, pending, inputs.job_id, logger)
 
+    deadline = _rewrite_deadline(activity_started)
+    rewrite_stop_at = (
+        None
+        if swap is not None
+        else _rewrite_slice_end(schema, pending, trigger_reason, activity_started=activity_started, deadline=deadline)
+    )
+
     start = time.monotonic()
     try:
         # HeartbeaterSync heartbeats on a background thread while the (possibly long) rewrite streams,
@@ -554,8 +614,9 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 target=target,
                 logger=logger,
                 claim_token=claim_token,
-                deadline=_rewrite_deadline(activity_started),
+                deadline=deadline,
                 should_stop=lambda: shutdown_monitor.is_worker_shutdown() or _activity_cancelled(),
+                rewrite_stop_at=rewrite_stop_at,
             )
     except RepartitionStoppedError as e:
         # The rewrite stopped at a commit, or the swap between two groups of files. Temp and its
@@ -565,6 +626,17 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             logger.info(f"repartition: stopped for activity cancellation: {e}")
             _refund_attempt(schema, charged_attempts, logger)
             raise asyncio.CancelledError() from e
+        if not shutdown_monitor.is_worker_shutdown():
+            # The slice ended. The import runs now, and the next sync resumes the rewrite.
+            logger.info(
+                f"repartition: rewrite slice ended, resuming on the next sync rows_written={e.rows_written}",
+                rows_written=e.rows_written,
+            )
+            DELTA_REPARTITION_TOTAL.labels(outcome="sliced").inc()
+            _mark_rewrite_sliced(schema, claim_token, logger)
+            _refund_attempt(schema, charged_attempts, logger)
+            _capture_stood_down(schema, inputs, trigger_reason, "sync_slice_ended", logger)
+            return
         logger.info(
             f"repartition: stopped at a commit for worker shutdown, handing off rows_written={e.rows_written}: {e}",
             rows_written=e.rows_written,

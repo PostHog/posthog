@@ -1058,6 +1058,18 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             )
         )
 
+    def disable_repartition_slicing(self) -> None:
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        def _write(config: dict[str, Any]) -> None:
+            pending = config.get("repartition_pending")
+            if isinstance(pending, dict):
+                pending["slice_disabled"] = True
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
+        )
+
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)
         self._save_sync_type_config()

@@ -1388,6 +1388,7 @@ async def repartition_table_in_place(
     claim_token: str | None = None,
     deadline: float | None = None,
     should_stop: Callable[[], bool] | None = None,
+    rewrite_stop_at: float | None = None,
 ) -> dict[str, Any]:
     """Rewrite the schema's Delta table under `target`'s finer partition scheme, in place, from S3.
 
@@ -1414,6 +1415,10 @@ async def repartition_table_in_place(
     True the rewrite stops after its next commit and the swap stops after its current group of files.
     Both raise `RepartitionStoppedError` and keep what the next attempt needs to resume (see
     `_rewrite_into_temp` and `_swap_temp_into_live`).
+
+    `rewrite_stop_at` (a `time.monotonic()` value) stops the rewrite the same way, so the sync can
+    import between two parts of a long rewrite. It never stops the swap, because a staged swap holds
+    the import until it lands.
     """
     live_uri = await table_ref.get_table_uri()
     storage_options = table_ref.get_storage_options()
@@ -1616,6 +1621,10 @@ async def repartition_table_in_place(
                     schema_id=str(schema.id),
                     reason=blocker,
                 )
+                if (rewrite_checkpoint or {}).get("sliced"):
+                    # The import between two slices changed a file the rewrite had copied, so a
+                    # sliced rewrite of this table restarts after every slice and never finishes.
+                    await asyncio.to_thread(schema.disable_repartition_slicing)
                 await asyncio.to_thread(schema.clear_repartition_rewrite)
                 resuming_rewrite = False
                 temp_uri = _temp_uri_for(live_uri, claim_token)
@@ -1680,7 +1689,10 @@ async def repartition_table_in_place(
                 deadline=deadline,
                 total_rows=old_row_count,
                 copied_files=copied,
-                should_stop=should_stop,
+                should_stop=lambda: (
+                    (should_stop is not None and should_stop())
+                    or (rewrite_stop_at is not None and time.monotonic() >= rewrite_stop_at)
+                ),
             )
         except RepartitionBudgetExceededError as e:
             # Only a checkpoint this attempt could build on marks a restart. One the resume path
