@@ -166,8 +166,8 @@ def test_find_trusts_only_push_runs_on_master(monkeypatch: pytest.MonkeyPatch, r
                     }
                 ]
             )
-        if args[:2] == ("run", "show"):
-            return json.dumps({"run_id": "run-master", "ref": ref})
+        if args[:2] == ("workflow", "show"):
+            return json.dumps({"org_id": "org", "run": {"trigger": "push", "ref": ref}, "jobs": []})
         if args[:2] == ("artifacts", "list"):
             return json.dumps({"artifacts": [{"artifact_id": "a", "name": "migrated-schema", "created_at": "x"}]})
         raise AssertionError(args)

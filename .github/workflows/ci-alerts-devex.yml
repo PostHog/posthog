@@ -18,12 +18,13 @@ name: Master CI Alerts
 # state to race or lose). See .github/scripts/ci-alerts-devex.js.
 
 on:
-    # Reconcile soon after a master push's GitHub workflows finish; GitHub throttles the cron below
-    # to ~hourly under load. Backend CI runs on Depot CI and has no GitHub run to hook, and its
-    # push run outlives Python CI, so that lane settles on the cron.
+    # Reconcile soon after master CI finishes; GitHub throttles the cron below to ~hourly under load.
+    # A reconcile reads all gating workflows anyway, so one hook on the long pole suffices. Backend CI
+    # runs on Depot CI and has no GitHub run to hook, so the hook is on Security, the slowest GitHub
+    # workflow that runs on every master push.
     # branches:[master] skips PR completions; cron stays a backstop.
     workflow_run:
-        workflows: ['Python CI']
+        workflows: ['Security']
         types: [completed]
         branches: [master]
     schedule:

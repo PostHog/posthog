@@ -111,8 +111,8 @@ def master_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str
     return sorted(workflows, key=lambda w: w["created_at"], reverse=True)
 
 
-def run_ref(run_id: str) -> str:
-    return str((json.loads(depot("run", "show", run_id, "--output", "json") or "null") or {}).get("ref") or "")
+def show(workflow_id: str) -> ShownWorkflow:
+    return cast(ShownWorkflow, json.loads(depot("workflow", "show", workflow_id, "--output", "json")))
 
 
 def artifacts(run_id: str) -> list[Artifact]:
@@ -137,16 +137,15 @@ def find(
         if workflow["created_at"] < cutoff:
             break
         try:
-            # A branch can add itself to the push trigger in its own copy of the workflow, so a
-            # push run is trusted only when it ran on master.
-            if trigger == "push" and run_ref(workflow["run_id"]) != MASTER_REF:
+            names = {a["name"] for a in artifacts(workflow["run_id"]) if a["name"].startswith(prefix)}
+            sys.stderr.write(f"Run {workflow['run_id']} has {len(names)} {prefix}* artifacts\n")
+            # Only a candidate push run pays for the extra CLI call that reads its ref.
+            if len(names) >= min_artifacts and trigger == "push" and not ran_on_master(show(workflow["workflow_id"])):
                 sys.stderr.write(f"Run {workflow['run_id']} did not run on master, skipping it\n")
                 continue
-            names = {a["name"] for a in artifacts(workflow["run_id"]) if a["name"].startswith(prefix)}
         except (subprocess.SubprocessError, json.JSONDecodeError) as error:
-            sys.stderr.write(f"Run {workflow['run_id']}: could not list artifacts, skipping it: {error!r}\n")
+            sys.stderr.write(f"Run {workflow['run_id']}: could not read it, skipping it: {error!r}\n")
             continue
-        sys.stderr.write(f"Run {workflow['run_id']} has {len(names)} {prefix}* artifacts\n")
         if len(names) >= min_artifacts:
             found.append(workflow)
             if len(found) >= limit:
@@ -199,7 +198,7 @@ def ran_on_master(shown: ShownWorkflow) -> bool:
 
 def gate_run(listed: ListedWorkflow) -> GateRun | None:
     """One workflow as a GitHub-shaped run. A workflow whose gate job has not ended is not completed."""
-    shown = cast(ShownWorkflow, json.loads(depot("workflow", "show", listed["workflow_id"], "--output", "json")))
+    shown = show(listed["workflow_id"])
     if not ran_on_master(shown):
         return None
     gate = next((job for job in shown.get("jobs") or [] if job.get("job_key") == GATE_JOB_KEY), None)

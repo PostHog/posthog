@@ -19,7 +19,7 @@ concurrency:
 
 permissions:
     contents: read
-    actions: read # the cache listing that says whether a dump is already mirrored
+    actions: read # the artifact and cache listings that say whether a dump is already mirrored
 
 jobs:
     mirror:
@@ -110,13 +110,28 @@ jobs:
                   key: ${{ steps.dump.outputs.migration_key }}
 
             - name: Record the mirrored dump
+              id: record
               if: steps.source.outputs.run_id != ''
               env:
+                  GH_TOKEN: ${{ github.token }}
                   SHA: ${{ steps.source.outputs.sha }}
-              run: echo "$SHA" > mirrored
+                  MIGRATION_KEY: ${{ steps.dump.outputs.migration_key }}
+              run: |
+                  # actions/cache/save only warns when a save fails, so a dump is recorded only once
+                  # both entries exist. An unrecorded dump is retried on the next tick.
+                  for key in "posthog-schema-master-$SHA" ${MIGRATION_KEY:+"$MIGRATION_KEY"}; do
+                      saved=$(gh api "repos/$GITHUB_REPOSITORY/actions/caches?key=$key&ref=refs/heads/master" \
+                          --jq "[.actions_caches[] | select(.key == \"$key\")] | length")
+                      if [ "$saved" = "0" ]; then
+                          echo "::warning::Cache entry $key is missing, so the next tick retries this dump"
+                          exit 0
+                      fi
+                  done
+                  echo "$SHA" > mirrored
+                  echo "recorded=true" >> "$GITHUB_OUTPUT"
 
             - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: steps.source.outputs.run_id != ''
+              if: steps.record.outputs.recorded == 'true'
               with:
                   name: migrated-schema-mirrored-${{ steps.source.outputs.sha }}
                   path: mirrored

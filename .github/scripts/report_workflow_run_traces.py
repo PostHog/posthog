@@ -580,14 +580,16 @@ def _depot_workflows_since(
 ) -> tuple[list[depot_backend_runs.ListedWorkflow], bool]:
     """The workflows created since the floor, and whether the listing reached the floor at all."""
     kept: list[depot_backend_runs.ListedWorkflow] = []
-    listed = depot_backend_runs.master_workflows(sorted(depot_backend_runs.ENDED), 200, repo=repo, trigger=trigger)
+    listed = depot_backend_runs.master_workflows(
+        sorted(depot_backend_runs.ENDED), depot_backend_runs.MAX_LISTED, repo=repo, trigger=trigger
+    )
     for workflow in listed:
         created = parse_iso_utc(workflow["created_at"])
         if created is not None and created < created_floor:
             return kept, True
         kept.append(workflow)
-    # The CLI caps a listing at 200, so a window that fills it may continue past what was listed.
-    return kept, len(listed) < 200
+    # The CLI caps a listing, so a window that fills it may continue past what was listed.
+    return kept, len(listed) < depot_backend_runs.MAX_LISTED
 
 
 def _read_depot_run(workflow: depot_backend_runs.ListedWorkflow, since: datetime) -> WorkflowRun | None:
