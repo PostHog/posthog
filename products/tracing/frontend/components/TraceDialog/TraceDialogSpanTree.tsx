@@ -209,7 +209,14 @@ export function TraceDialogSpanTree(): JSX.Element {
                                 <button
                                     type="button"
                                     className="truncate font-mono text-primary hover:underline"
-                                    onClick={() => selectSpan(node.span.span_id)}
+                                    onClick={() => {
+                                        selectSpan(node.span.span_id)
+                                        // Selecting an already selected span changes nothing the scroll effect watches.
+                                        listRef.current?.scrollToRow({
+                                            index: spanRows.indexOf(ancestor),
+                                            align: 'smart',
+                                        })
+                                    }}
                                     translate="no"
                                 >
                                     {rowLabel(ancestor)}
