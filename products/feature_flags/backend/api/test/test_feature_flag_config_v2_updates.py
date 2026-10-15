@@ -793,6 +793,13 @@ class TestWriterOnlyRules(AdmittedV2TestCase):
         flag.refresh_from_db()
         assert (flag.filters, flag.version) == (replacement, 4)
 
+    def test_a_stored_null_value_can_be_enabled(self) -> None:
+        flag = self.flag(string_config("null", "null"), active=False)
+        response = self.patch_flag(flag, {"version": 3, "active": True})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.active, flag.version) == (True, 4)
+
     def test_a_stored_reserved_value_can_be_disabled(self) -> None:
         flag = self.flag(string_config("$false", None), active=True)
         response = self.patch_flag(flag, {"version": 3, "active": False})
