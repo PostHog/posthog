@@ -59,7 +59,7 @@ type DecimalInput = decimal.Decimal | float | str | tuple[int, Sequence[int], in
 
 
 class BillingLimitsWillBeReachedException(NonReportableError):
-    """The sync was intentionally halted because the account will cross its Data Warehouse billing
+    """The sync was intentionally halted because the account will cross its Sources billing
     limit. Expected control flow, not a defect: the workflow marks the job BILLING_LIMIT_TOO_LOW,
     and subclassing NonReportableError keeps it out of error tracking."""
 
