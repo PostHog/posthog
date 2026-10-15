@@ -1,0 +1,96 @@
+[
+    {
+        "name": "order-completed",
+        "event": {
+            "uuid": "01920000-0000-7000-8000-000000000001",
+            "event": "order_completed",
+            "distinct_id": "example-distinct-id",
+            "timestamp": "2025-01-01T00:00:00.000Z",
+            "elements_chain": "",
+            "properties": {
+                "$current_url": "https://example.com/pricing?utm_source=newsletter",
+                "$pathname": "/pricing",
+                "$host": "example.com",
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "203.0.113.10",
+                "$lib": "web",
+                "$session_id": "01920000-0000-7000-8000-000000000002",
+                "email": "ada@example.com",
+                "order_id": "order-1001",
+                "ticket_id": "01920000-0000-7000-8000-000000000004",
+                "revenue": 42.5,
+                "price": 42.5,
+                "currency": "USD",
+                "products": [{ "product_id": "sku-1", "name": "Example product", "price": 42.5, "quantity": 1 }]
+            }
+        },
+        "person": {
+            "id": "01920000-0000-7000-8000-000000000003",
+            "name": "Ada Example",
+            "properties": {
+                "email": "ada@example.com",
+                "name": "Ada Example",
+                "first_name": "Ada",
+                "last_name": "Example",
+                "phone": "+15555550100",
+                "$geoip_country_code": "US",
+                "$geoip_city_name": "Springfield"
+            }
+        },
+        "groups": {
+            "company": {
+                "id": "example-company",
+                "type": "company",
+                "index": 0,
+                "properties": { "name": "Example Inc", "domain": "example.com" }
+            }
+        }
+    },
+    {
+        "name": "anonymous-pageview",
+        "event": {
+            "uuid": "01920000-0000-7000-8000-000000000011",
+            "event": "$pageview",
+            "distinct_id": "01920000-0000-7000-8000-000000000012",
+            "timestamp": "2025-01-02T08:30:00.000Z",
+            "elements_chain": "",
+            "properties": {
+                "$current_url": "https://example.com/",
+                "$pathname": "/",
+                "$host": "example.com",
+                "$ip": "198.51.100.7",
+                "$lib": "web",
+                "title": "Home"
+            }
+        },
+        "person": {
+            "id": "01920000-0000-7000-8000-000000000013",
+            "name": "01920000-0000-7000-8000-000000000012",
+            "properties": {}
+        },
+        "groups": {}
+    },
+    {
+        "name": "identify",
+        "event": {
+            "uuid": "01920000-0000-7000-8000-000000000021",
+            "event": "$identify",
+            "distinct_id": "grace@example.com",
+            "timestamp": "2025-01-03T12:00:00.000Z",
+            "elements_chain": "",
+            "properties": {
+                "$anon_distinct_id": "01920000-0000-7000-8000-000000000022",
+                "$set": { "email": "grace@example.com", "name": "Grace Example", "plan": "scale" },
+                "$ip": "192.0.2.44",
+                "$lib": "posthog-python"
+            }
+        },
+        "person": {
+            "id": "01920000-0000-7000-8000-000000000023",
+            "name": "Grace Example",
+            "properties": { "email": "grace@example.com", "name": "Grace Example", "plan": "scale" }
+        },
+        "groups": {}
+    }
+]

@@ -1,6 +1,10 @@
+import { readFileSync } from 'fs'
+import path from 'path'
+
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { parseJSON } from '~/common/utils/json-parse'
 import * as requestModule from '~/common/utils/request'
 import { FetchOptions, FetchResponse } from '~/common/utils/request'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -19,6 +23,7 @@ import { RecipientTokensService } from '../../services/messaging/recipient-token
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
+    GroupType,
     HogFunctionInputSchemaType,
     HogFunctionInvocationGlobals,
     HogFunctionMappingTemplate,
@@ -53,7 +58,22 @@ export type ResponseScenario = {
 export type RunOptions = {
     /** Turns on every boolean input whose key mentions debug, so templates print what they send. */
     debug?: boolean
+    entry?: CorpusEntry
 }
+
+/** One event with the person and groups it belongs to. Plain JSON, so a recorded corpus can replace the invented one. */
+export type CorpusEntry = {
+    name: string
+    event: Omit<HogFunctionInvocationGlobals['event'], 'url'>
+    person?: Omit<NonNullable<HogFunctionInvocationGlobals['person']>, 'url'>
+    groups?: Record<string, Omit<GroupType, 'url'>>
+}
+
+export const INVENTED_CORPUS_PATH = path.join(__dirname, 'corpus', 'invented-events.json')
+
+export const loadCorpus = (corpusPath: string): CorpusEntry[] => parseJSON(readFileSync(corpusPath, 'utf-8'))
+
+const INVENTED_CORPUS = loadCorpus(INVENTED_CORPUS_PATH)
 
 export type PipelineRun = {
     invocationErrors: string[]
@@ -169,6 +189,10 @@ export class TemplatePipeline {
         return pipeline
     }
 
+    get teamId(): number {
+        return this.team.id
+    }
+
     async stop(): Promise<void> {
         jest.restoreAllMocks()
         await closeHub(this.hub)
@@ -179,7 +203,7 @@ export class TemplatePipeline {
         this.response = response
 
         const { hogFunction, integrationCredentials } = await this.createHogFunction(templateCase, options)
-        const globals = this.representativeGlobals(templateCase)
+        const globals = this.globalsFor(templateCase, options.entry ?? INVENTED_CORPUS[0])
         const sensitiveValues = [...this.sensitiveInputValues(hogFunction), ...integrationCredentials]
 
         if (hogFunction.type === 'transformation') {
@@ -338,60 +362,27 @@ export class TemplatePipeline {
             .filter((value): value is string => typeof value === 'string')
     }
 
-    private representativeGlobals(templateCase: TemplateCase): HogFunctionInvocationGlobals {
+    private globalsFor(templateCase: TemplateCase, entry: CorpusEntry): HogFunctionInvocationGlobals {
         const projectUrl = `https://us.posthog.com/project/${this.team.id}`
-        const eventName = eventNameFor(templateCase)
+        const eventName = eventNameFor(templateCase, entry)
         return {
             project: { id: this.team.id, name: 'Example project', url: projectUrl },
             event: {
-                uuid: '01920000-0000-7000-8000-000000000001',
+                ...entry.event,
                 event: eventName,
-                distinct_id: 'example-distinct-id',
-                elements_chain: '',
-                timestamp: '2025-01-01T00:00:00.000Z',
-                url: `${projectUrl}/events/01920000-0000-7000-8000-000000000001`,
-                properties: {
-                    $current_url: 'https://example.com/pricing?utm_source=newsletter',
-                    $pathname: '/pricing',
-                    $host: 'example.com',
-                    $browser: 'Chrome',
-                    $os: 'Mac OS X',
-                    $ip: '203.0.113.10',
-                    $lib: 'web',
-                    $session_id: '01920000-0000-7000-8000-000000000002',
-                    email: 'ada@example.com',
-                    order_id: 'order-1001',
-                    ticket_id: '01920000-0000-7000-8000-000000000004',
-                    revenue: 42.5,
-                    price: 42.5,
-                    currency: 'USD',
-                    products: [{ product_id: 'sku-1', name: 'Example product', price: 42.5, quantity: 1 }],
-                    ...SYSTEM_EVENT_PROPERTIES[eventName],
-                },
+                url: `${projectUrl}/events/${entry.event.uuid}`,
+                properties: { ...entry.event.properties, ...SYSTEM_EVENT_PROPERTIES[eventName] },
             },
-            person: {
-                id: '01920000-0000-7000-8000-000000000003',
-                name: 'Ada Example',
-                url: `${projectUrl}/person/example-distinct-id`,
-                properties: {
-                    email: 'ada@example.com',
-                    name: 'Ada Example',
-                    first_name: 'Ada',
-                    last_name: 'Example',
-                    phone: '+15555550100',
-                    $geoip_country_code: 'US',
-                    $geoip_city_name: 'Springfield',
-                },
+            person: entry.person && {
+                ...entry.person,
+                url: `${projectUrl}/person/${entry.event.distinct_id}`,
             },
-            groups: {
-                company: {
-                    id: 'example-company',
-                    type: 'company',
-                    index: 0,
-                    url: `${projectUrl}/groups/0/example-company`,
-                    properties: { name: 'Example Inc', domain: 'example.com' },
-                },
-            },
+            groups: Object.fromEntries(
+                Object.entries(entry.groups ?? {}).map(([key, group]) => [
+                    key,
+                    { ...group, url: `${projectUrl}/groups/${group.index}/${group.id}` },
+                ])
+            ),
         }
     }
 }
@@ -432,7 +423,7 @@ const SYSTEM_EVENT_PROPERTIES: Record<string, Record<string, unknown>> = {
 const HOGQL_EVENT_NAME = /\bevent\s*(?:in\s*\(|=)\s*'([^']+)'/
 
 // Mapping filters name their event either as the event id or in a HogQL property such as `event in ('$pageview')`.
-const eventNameFor = ({ mapping }: TemplateCase): string => {
+const eventNameFor = ({ mapping }: TemplateCase, entry: CorpusEntry): string => {
     const firstEvent = mapping?.filters?.events?.[0]
     if (typeof firstEvent?.id === 'string') {
         return firstEvent.id
@@ -443,7 +434,7 @@ const eventNameFor = ({ mapping }: TemplateCase): string => {
             return match[1]
         }
     }
-    return 'order_completed'
+    return entry.event.event
 }
 
 // Secrets whose format the template checks before it sends anything.
