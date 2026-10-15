@@ -238,9 +238,13 @@ def classify_alert_destinations(
     )
 
 
-def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[str]) -> tuple[UUID, ...]:
-    """Enabled functions that take a source's alert events without being bound to one alert."""
-    return destination_eligibility.unbound_alert_destinations(team_id=team_id, allowed_event_ids=allowed_event_ids)
+def unbound_alert_destinations(
+    *, team_id: int, allowed_event_ids: Collection[str], include_disabled: bool = False
+) -> tuple[UUID, ...]:
+    """Functions that take a source's alert events without being bound to one alert, enabled ones only by default."""
+    return destination_eligibility.unbound_alert_destinations(
+        team_id=team_id, allowed_event_ids=allowed_event_ids, include_disabled=include_disabled
+    )
 
 
 def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:

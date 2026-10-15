@@ -24,7 +24,7 @@ from products.logs.backend.platform_cutover import CutoverSkip, cut_over_team
 
 NOW = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
 State = LogsAlertConfiguration.State
-LEGACY_BODY_FLAG = "products.alerts_platform.backend.delivery.evaluation.posthoganalytics.feature_enabled"
+LEGACY_BODY_FLAG = "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled"
 STOCK_HOG = "return event"
 WEBHOOK_INPUTS: dict[str, Any] = {
     "url": {"value": "https://hooks.example.com/hook"},
@@ -208,6 +208,22 @@ class TestPlatformCutover(APIBaseTest):
                 None,
                 (DestinationBucket.STOCK, GateRefusal.WEBHOOK_BODY_UNKNOWN),
             ),
+            (
+                "header_native_delivery_drops",
+                "template-webhook",
+                WEBHOOK_INPUTS,
+                {"inputs": {**WEBHOOK_INPUTS, "headers": {"value": {"Host": "internal.example.com"}}}},
+                True,
+                (DestinationBucket.STATIC_HEADERS, GateRefusal.NOT_READY),
+            ),
+            (
+                "secret_header",
+                "template-webhook",
+                WEBHOOK_INPUTS,
+                {"encrypted_inputs": {"secret_headers": {"value": {"Authorization": "Bearer not-a-real-token"}}}},
+                True,
+                (DestinationBucket.STATIC_HEADERS, GateRefusal.NOT_READY),
+            ),
         ]
     )
     def test_a_destination_native_delivery_cannot_send_yet_keeps_the_whole_team(
@@ -233,9 +249,10 @@ class TestPlatformCutover(APIBaseTest):
             LogsAlertConfiguration.objects.filter(id__in=[held.id, quiet.id]).values_list("owner", flat=True)
         ) == {"source"}
 
-    def test_an_unbound_destination_keeps_the_whole_team(self) -> None:
+    @parameterized.expand([("enabled", True), ("disabled", False)])
+    def test_an_unbound_destination_keeps_the_whole_team(self, _name: str, enabled: bool) -> None:
         self._alert()
-        function = self._destination(None, "template-slack", SLACK_INPUTS)
+        function = self._destination(None, "template-slack", SLACK_INPUTS, {"enabled": enabled})
 
         with self.assertRaises(CutoverRefused) as raised:
             cut_over_team(self.team.id, now=NOW)

@@ -26,11 +26,11 @@ from products.alerts_platform.backend.facade.delivery import keeps_legacy_webhoo
 from products.logs.backend.alert_destinations import LOGS_ALERT_EVENT_IDS
 from products.logs.backend.models import LogsAlertConfiguration
 
-# Native delivery sends these as the team configured them. Static headers pass through since
-# native webhooks send a destination's added headers.
+# Native delivery sends these as the team configured them. Added headers that native webhooks send
+# already classify as stock, so STATIC_HEADERS holds only headers native delivery drops.
 # Do not add PORTABLE without a check for edited code: a destination re-saved before revisions were
 # recorded buckets as PORTABLE through `untracked_edit`, and its code may be edited.
-_READY_BUCKETS = frozenset({DestinationBucket.STOCK, DestinationBucket.STATIC_HEADERS})
+_READY_BUCKETS = frozenset({DestinationBucket.STOCK})
 
 
 class GateRefusal(StrEnum):
@@ -78,7 +78,7 @@ def destination_refusals(team_id: int, *, code_ready: Collection[str]) -> tuple[
     refusals: list[DestinationRefusal] = []
     webhook_template_id = destination_template_id(DestinationType.WEBHOOK)
     ready_webhooks: list[tuple[DestinationEligibility, UUID]] = []
-    unbound = unbound_alert_destinations(team_id=team_id, allowed_event_ids=LOGS_ALERT_EVENT_IDS)
+    unbound = unbound_alert_destinations(team_id=team_id, allowed_event_ids=LOGS_ALERT_EVENT_IDS, include_disabled=True)
     # Disabled alerts and disabled destinations count too, because a person can enable either after the move.
     alert_ids = LogsAlertConfiguration.objects.filter(team_id=team_id).order_by("created_at", "id")
     for alert_id in alert_ids.values_list("id", flat=True):
