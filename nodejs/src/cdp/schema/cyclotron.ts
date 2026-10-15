@@ -129,11 +129,11 @@ export const CyclotronInvocationQueueParametersFetchAwsSigV4Schema = z.object({
 // differ between two deliveries, including two in the same invocation.
 export const CyclotronInvocationQueueParametersFetchStandardWebhooksSchema = z.object({
     secret_input: z.string(),
-    webhook_id: z.string(),
+    webhook_id: z.string().min(1),
 })
 
 export const CyclotronInvocationQueueParametersFetchSchema = z.object({
-    type: z.literal('fetch'),
+    type: z.enum(['fetch', 'mcp_event']),
     url: z.string(),
     method: z.string(),
     body: z.union([z.string(), z.null()]).optional(),
@@ -141,6 +141,9 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     headers: z.record(z.string(), z.string()).optional(),
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
     standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
+    mcp_event_subscription: z
+        .object({ id: z.string().uuid(), generation: z.string().uuid(), filter_bytecode: z.array(z.any()) })
+        .optional(),
     // An input-key reference, like the `*_input` fields above, so credential header values stay out of the fetch parameters.
     secret_headers_input: z.string().optional(),
 })

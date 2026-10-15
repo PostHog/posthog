@@ -39,13 +39,14 @@ jest.mock('~/common/utils/request', () => {
     const original = jest.requireActual('~/common/utils/request')
     return {
         ...original,
+        internalFetch: jest.fn().mockImplementation(original.internalFetch),
         fetch: jest.fn().mockImplementation((url, options) => {
             return original.fetch(url, options)
         }),
     }
 })
 
-import { fetch, SecureRequestError } from '~/common/utils/request'
+import { fetch, internalFetch, SecureRequestError } from '~/common/utils/request'
 
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
@@ -120,6 +121,14 @@ describe('Hog Executor', () => {
         // Ensure any spies (e.g., execHog, Math.random, Date.now) are restored between tests
         jest.restoreAllMocks()
         await closeHub(hub)
+    })
+
+    it('fails closed when MCP destination code reaches a worker without MCP delivery support', async () => {
+        const code = "mcpEventFetch('https://example.com/callback', {'body': {'eventId': 'event-123'}});"
+        const invocation = createExampleInvocation(createHogFunction({ hog: code, bytecode: await compileHog(code) }))
+        const result = await executor.hogExecutor.execute(invocation, { asyncFunctionsNames: ['fetch'] })
+        expect(result.error).toBeDefined()
+        expect(result.invocation.queueParameters).toBeUndefined()
     })
 
     describe('getSensitiveValues', () => {
@@ -1568,6 +1577,100 @@ describe('Hog Executor', () => {
                 expect(result.error.message).toContain('AWS SigV4 signing failed')
                 expect(result.error.message).toContain('aws_access_key_id')
                 expect(result.error.message).toContain('aws_secret_access_key')
+            })
+        })
+
+        describe('MCP event delivery', () => {
+            const subscription = {
+                id: '2de35c02-f8b8-4222-a777-cb4ac56edc13',
+                generation: '80bc1fd7-4a99-4aef-bdac-fc15f0970c3a',
+                filter_bytecode: ['_H', 1],
+            }
+            const pendingBody = JSON.stringify({ eventId: 'event-123', data: { properties: { secret: 'hidden' } } })
+            const authorizedBody = JSON.stringify({ eventId: 'event-123', data: { properties: {} } })
+
+            const mcpInvocation = async (): Promise<CyclotronJobInvocationHogFunction> => {
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: pendingBody,
+                    mcp_event_subscription: subscription,
+                })
+                invocation.queueParameters!.type = 'mcp_event'
+                invocation.hogFunction.encrypted_inputs = {
+                    mcp_credential: { value: 'phx_test_mcp_delivery' },
+                }
+                return invocation
+            }
+
+            afterEach(() => {
+                ;(internalFetch as jest.Mock).mockReset()
+                ;(internalFetch as jest.Mock).mockImplementation(
+                    jest.requireActual('~/common/utils/request').internalFetch
+                )
+            })
+
+            it.each([403, 429, 500])('blocks external sending when authorization returns %s', async (status) => {
+                ;(internalFetch as jest.Mock).mockResolvedValue({
+                    status,
+                    dump: jest.fn(),
+                    headers: { 'retry-after': '45' },
+                })
+                mockRequest.mockClear()
+                const invocation = await mcpInvocation()
+                invocation.state.timings = []
+                const result = await executor.executeFetch(invocation)
+                expect(mockRequest).not.toHaveBeenCalled()
+                expect(result.invocation.state.timings.some((timing) => timing.kind === 'async_function')).toBe(true)
+                if (status === 500 || status === 429) {
+                    expect(result.finished).toBe(false)
+                    expect(
+                        result.invocation.queueScheduledAt!.toMillis() - DateTime.utc().toMillis()
+                    ).toBeGreaterThanOrEqual(45_000)
+                } else {
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBeDefined()
+                }
+            })
+
+            it('rejects an ordinary fetch carrying managed metadata', async () => {
+                const invocation = await mcpInvocation()
+                invocation.queueParameters!.type = 'fetch'
+                const result = await executor.executeFetch(invocation)
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeDefined()
+                expect(mockRequest).not.toHaveBeenCalled()
+            })
+
+            it('sends the authorized bytes and blocks a retry after revocation', async () => {
+                ;(internalFetch as jest.Mock)
+                    .mockResolvedValueOnce({
+                        status: 200,
+                        text: jest.fn().mockResolvedValue(
+                            JSON.stringify({
+                                body: authorizedBody,
+                                headers: { 'webhook-id': 'event-123', 'webhook-signature': 'v1,test-signature' },
+                            })
+                        ),
+                    })
+                    .mockResolvedValueOnce({ status: 403, dump: jest.fn() })
+                const receivedBody: Buffer[] = []
+                mockRequest.mockClear()
+                mockRequest.mockImplementation((req, res) => {
+                    req.on('data', (chunk: Buffer) => receivedBody.push(chunk))
+                    req.on('end', () => {
+                        expect(Buffer.concat(receivedBody).toString()).toBe(authorizedBody)
+                        expect(req.headers['webhook-id']).toBe('event-123')
+                        res.writeHead(500)
+                        res.end('retry')
+                    })
+                })
+                let result = await executor.executeFetch(await mcpInvocation())
+                expect(result.invocation.queueScheduledAt).toBeDefined()
+                result = await executor.executeFetch(result.invocation)
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeDefined()
+                expect(mockRequest).toHaveBeenCalledTimes(1)
             })
         })
 
