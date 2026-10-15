@@ -956,7 +956,6 @@ export interface DismissalArtefact extends SignalReportArtefactBase {
 }
 
 export interface DismissalContent {
-  state?: "resolved" | "suppressed" | "potential" | null;
   reason: ReportStateReason;
   /** Optional free-form detail provided alongside the reason. */
   note: string;
