@@ -242,8 +242,10 @@ The compile adds that table even when the org flag hides it from queries.
 The queue fill reads the uuids of the rows with no copy in `sharded_events` that the compiled predicate matches, shard-locally and in 7-day windows, and queues them with the rest.
 A row read this way already existed when its uuid was queued, so the drain's `inserted_at` bound cannot skip it.
 The check for an events copy reads `sharded_events` only.
-A flag row can keep a copy in `sharded_events_json` after its `sharded_events` copy is gone, when an earlier immediate request matched the two events tables differently.
-The compiled predicate then decides for that row, and the drain deletes its `sharded_events_json` copy too, even when the native-JSON compile of the predicate excludes it.
+In production, `sharded_events_json` holds no `$feature_flag_called` rows: the deployed ingestion view and the backfill both leave the event out, so a flag row has no copy there.
+The view this repo defines (`EVENTS_JSON_TABLE_MV_SQL`) still writes the event, so local, CI and self-hosted deployments do keep a copy.
+There, a flag row can keep its `sharded_events_json` copy after its `sharded_events` copy is gone, when an earlier immediate request matched the two events tables differently.
+The compiled predicate then decides for that row, and the drain deletes the `sharded_events_json` copy too, even when the native-JSON compile of the predicate excludes it.
 The check does not read `sharded_events_json`, because that table can sit on another cluster.
 A shard-local subquery cannot reach it there, and the `events_json` proxy can read an empty table.
 
