@@ -3,6 +3,8 @@ import threading
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import aclosing, asynccontextmanager, nullcontext
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -25,7 +27,7 @@ from posthog.clickhouse.query_router.test.fakes import router_settings
 from posthog.clickhouse.query_tagging import Feature, Product, QueryTags, tags_context
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Organization, Team
-from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
+from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseError, get_client
 from posthog.temporal.data_modeling.activities.materialize_view import LOGGER, hogql_table
 
 
@@ -306,6 +308,133 @@ class TestAsyncAdmission(SimpleTestCase):
             self.assertEqual(count, 2 if outcome == "complete" else 1)
         self.assertTrue(closed)
         self.assertEqual(self.running(), 0)
+
+    @parameterized.expand(
+        [("early_close",), ("consumer_failure",), ("cancelled",), ("repeated_cancellation",), ("before_headers",)]
+    )
+    async def test_abandoned_http_query_is_cancelled_before_admission_release(self, outcome: str) -> None:
+        password_file = Path(self.enterContext(TemporaryDirectory())) / "token"
+        password_file.write_text("synthetic-original")
+        client = ClickHouseClient(
+            query_router_pool=Pool.OFFLINE,
+            user="warehouse-test",
+            password="synthetic-password",
+            password_file=str(password_file),
+        )
+        response = MagicMock(status=200)
+        response.content.is_eof.return_value = False
+        cleanup_started = asyncio.Event()
+        finish_cleanup = asyncio.Event()
+        query_ids: list[str] = []
+        cleanup_clients: list[ClickHouseClient] = []
+
+        @asynccontextmanager
+        async def post(**kwargs: Any) -> AsyncIterator[MagicMock]:
+            query_ids.append(kwargs["params"].get("query_id"))
+            password_file.write_text("synthetic-rotated")
+            if outcome == "before_headers":
+                raise asyncio.CancelledError()
+            yield response
+
+        async def cancel(cancellation_client: ClickHouseClient, query_id: str, *, wait: bool = False) -> None:
+            cleanup_clients.append(cancellation_client)
+            self.assertEqual(self.running(), 1)
+            self.assertEqual(query_id, query_ids[0])
+            self.assertTrue(wait)
+            self.assertIsNone(cancellation_client.query_router_pool)
+            self.assertEqual(cancellation_client._request_headers()["X-ClickHouse-User"], "warehouse-test")
+            self.assertEqual(cancellation_client._credentials.password_file, str(password_file))
+            self.assertEqual(cancellation_client._request_headers()["X-ClickHouse-Key"], "synthetic-rotated")
+            cleanup_started.set()
+            await finish_cleanup.wait()
+
+        async def query() -> None:
+            async with client.apost_query("SELECT 1", query_parameters=None, query_id=None):
+                if outcome in ("cancelled", "repeated_cancellation"):
+                    raise asyncio.CancelledError()
+                if outcome == "consumer_failure":
+                    raise ValueError("sink failed")
+
+        client.session = MagicMock()
+        client.session.post = post
+        with (
+            patch("posthog.temporal.common.clickhouse.get_query_router", return_value=self.router),
+            patch.object(ClickHouseClient, "acancel_query", autospec=True, side_effect=cancel),
+        ):
+            task = asyncio.create_task(query())
+            try:
+                await asyncio.wait_for(cleanup_started.wait(), timeout=1)
+                self.assertIsNotNone(query_ids[0])
+                self.assertEqual(self.running(), 1)
+                if outcome == "repeated_cancellation":
+                    task.cancel()
+                    await asyncio.sleep(0)
+                    task.cancel()
+                self.assertFalse(task.done())
+            finally:
+                finish_cleanup.set()
+            error_context = (
+                self.assertRaises(asyncio.CancelledError)
+                if outcome in ("cancelled", "repeated_cancellation", "before_headers")
+                else self.assertRaisesRegex(ValueError, "sink failed")
+                if outcome == "consumer_failure"
+                else nullcontext()
+            )
+            with error_context:
+                await task
+        self.assertEqual(len(cleanup_clients), 1)
+        self.assertEqual(self.running(), 0)
+
+    @parameterized.expand([("timeout", TimeoutError()), ("server_failure", ClickHouseError("kill unavailable"))])
+    async def test_failed_cancellation_leaves_unrenewed_slot_to_expire(self, _name: str, error: Exception) -> None:
+        client = ClickHouseClient(query_router_pool=Pool.OFFLINE)
+        response = MagicMock(status=200)
+        response.content.is_eof.return_value = False
+
+        @asynccontextmanager
+        async def post(**kwargs: Any) -> AsyncIterator[MagicMock]:
+            yield response
+
+        async def cancel(*args: Any, **kwargs: Any) -> None:
+            if isinstance(error, TimeoutError):
+                await asyncio.Event().wait()
+            raise error
+
+        client.session = MagicMock()
+        client.session.post = post
+        with (
+            patch("posthog.temporal.common.clickhouse.get_query_router", return_value=self.router),
+            patch("posthog.temporal.common.clickhouse._QUERY_ROUTER_CANCEL_TIMEOUT_SECONDS", 0.01),
+            patch.object(ClickHouseClient, "acancel_query", side_effect=cancel),
+        ):
+            async with client.apost_query("SELECT 1", query_parameters=None, query_id="failed-cancellation"):
+                original_slots = self.redis.zrange(
+                    running_key(Pool.OFFLINE, QueryClass.BACKGROUND), 0, -1, withscores=True
+                )
+        self.assertEqual(self.running(), 1)
+        await asyncio.to_thread(self.router.renew_slots)
+        self.assertEqual(
+            self.redis.zrange(running_key(Pool.OFFLINE, QueryClass.BACKGROUND), 0, -1, withscores=True), original_slots
+        )
+
+    async def test_synchronous_cancellation_reads_and_checks_server_acknowledgement(self) -> None:
+        client = ClickHouseClient()
+        response = MagicMock(status=200)
+        response.text = AsyncMock(return_value='{"status":0,"num_hosts_remaining":0}\n')
+
+        @asynccontextmanager
+        async def post(**kwargs: Any) -> AsyncIterator[MagicMock]:
+            self.assertIn(b"SYNC", kwargs["data"])
+            self.assertIn(b"JSONEachRow", kwargs["data"])
+            yield response
+
+        client.session = MagicMock()
+        client.session.post = post
+        await client.acancel_query("query-to-cancel", wait=True)
+        response.text.assert_awaited_once()
+        response.text.return_value = '{"status":1,"num_hosts_remaining":0}\n'
+        with self.assertRaises(ClickHouseError):
+            await client.acancel_query("query-to-cancel", wait=True)
 
     async def test_release_failure_stops_renewing_and_expires(self) -> None:
 

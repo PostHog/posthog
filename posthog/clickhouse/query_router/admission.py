@@ -486,9 +486,14 @@ class QueryRouter:
         query_class: QueryClass,
         team_id: int | None = None,
         cancellation_key: str | None = None,
+        release_on_exit: Callable[[], bool] | None = None,
     ) -> AsyncIterator[Admission]:
         steps = self._admit_steps(
-            pool=pool, query_class=query_class, team_id=team_id, cancellation_key=cancellation_key
+            pool=pool,
+            query_class=query_class,
+            team_id=team_id,
+            cancellation_key=cancellation_key,
+            release_on_exit=release_on_exit,
         )
         step: asyncio.Task[float | Admission] | None = None
         try:
@@ -550,6 +555,7 @@ class QueryRouter:
         query_class: QueryClass,
         team_id: int | None,
         cancellation_key: str | None,
+        release_on_exit: Callable[[], bool] | None = None,
     ) -> Generator[float | Admission]:
         settings = config.get_settings()
         mode = settings.mode_for(pool, query_class)
@@ -576,7 +582,8 @@ class QueryRouter:
             if holds_slot:
                 with self._held_slots_lock:
                     self._held_slots.remove(slot)
-                self._release(slot, admitted_at=admitted_at)
+                if release_on_exit is None or release_on_exit():
+                    self._release(slot, admitted_at=admitted_at)
 
     def renew_slots(self) -> None:
         with self._held_slots_lock:

@@ -25,7 +25,7 @@ from posthog.hogql.escape_sql import backquote_clickhouse_identifier
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials, ClickHouseUser
-from posthog.clickhouse.query_router.admission import AdmissionOutcome, get_query_router
+from posthog.clickhouse.query_router.admission import Admission, AdmissionOutcome, get_query_router
 from posthog.clickhouse.query_router.classify import classify_query
 from posthog.clickhouse.query_router.config import Pool
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
@@ -35,6 +35,8 @@ if typing.TYPE_CHECKING:
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
 
 LOGGER = get_logger(__name__)
+
+_QUERY_ROUTER_CANCEL_TIMEOUT_SECONDS = 5
 
 
 def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
@@ -527,24 +529,31 @@ class ClickHouseClient:
 
     @contextlib.asynccontextmanager
     async def _query_router_slot(
-        self, params: dict[str, typing.Any], tag_param: str, tags: QueryTags
-    ) -> collections.abc.AsyncIterator[None]:
+        self,
+        params: dict[str, typing.Any],
+        tag_param: str,
+        tags: QueryTags,
+        release_on_exit: collections.abc.Callable[[], bool],
+    ) -> collections.abc.AsyncIterator[Admission | None]:
         if self.query_router_pool is None:
-            yield
+            yield None
             return
         query_class = classify_query(tags, ClickHouseUser.DEFAULT)
         if query_class is None:
-            yield
+            yield None
             return
         async with get_query_router().aadmit(
-            pool=self.query_router_pool, query_class=query_class, team_id=self.query_router_team_id
+            pool=self.query_router_pool,
+            query_class=query_class,
+            team_id=self.query_router_team_id,
+            release_on_exit=release_on_exit,
         ) as admission:
             if admission.outcome != AdmissionOutcome.OFF:
                 tags.query_router_class = query_class.name.lower()
                 if admission.outcome == AdmissionOutcome.ADMITTED_AFTER_WAIT:
                     tags.query_router_wait_ms = admission.waited_ms
                 params[tag_param] = tags.to_json()
-            yield
+            yield admission
 
     @contextlib.asynccontextmanager
     async def apost_query(
@@ -586,6 +595,8 @@ class ClickHouseClient:
             params["input_format_json_named_tuples_as_objects"] = "0"
         if settings is not None:
             params.update(settings)
+        if query_id is None and self.query_router_pool is not None:
+            query_id = str(uuid.uuid4())
         if query_id is not None:
             params["query_id"] = query_id
 
@@ -622,19 +633,61 @@ class ClickHouseClient:
         else:
             client_timeout = None
 
+        release_slot = True
         try:
-            async with self._query_router_slot(params, tag_param, tags):
-                async with self.session.post(
-                    url=self.url,
-                    params=params,
-                    headers=self._request_headers(),
-                    data=request_data,
-                    timeout=client_timeout,
-                ) as response:
-                    await self.acheck_response(response, query)
-                    yield response
+            async with self._query_router_slot(params, tag_param, tags, lambda: release_slot) as admission:
+                response: aiohttp.ClientResponse | None = None
+                try:
+                    async with self.session.post(
+                        url=self.url,
+                        params=params,
+                        headers=self._request_headers(),
+                        data=request_data,
+                        timeout=client_timeout,
+                    ) as response:
+                        await self.acheck_response(response, query)
+                        yield response
+                finally:
+                    holds_slot = admission is not None and admission.outcome not in (
+                        AdmissionOutcome.OFF,
+                        AdmissionOutcome.ERROR,
+                    )
+                    if holds_slot and query_id is not None and (response is None or not response.content.is_eof()):
+                        release_slot = False
+                        cleanup = asyncio.create_task(self._cancel_routed_query(query_id))
+                        interrupted = False
+                        while not cleanup.done():
+                            try:
+                                await asyncio.shield(cleanup)
+                            except asyncio.CancelledError:
+                                interrupted = True
+                        release_slot = cleanup.result()
+                        if interrupted:
+                            raise asyncio.CancelledError()
         except TimeoutError:
             raise ClickHouseClientTimeoutError(query, query_id)
+
+    async def _cancel_routed_query(self, query_id: str) -> bool:
+        try:
+            async with asyncio.timeout(_QUERY_ROUTER_CANCEL_TIMEOUT_SECONDS):
+                # Cancellation must bypass admission and use the same user's rotating credentials.
+                async with ClickHouseClient(
+                    url=self.url,
+                    user=self._credentials.user,
+                    password=self._credentials.password,
+                    password_file=self._credentials.password_file,
+                    database=self.params.get("database", "default"),
+                    ssl=self.ssl,
+                ) as client:
+                    await client.acancel_query(query_id, wait=True)
+            return True
+        except Exception:
+            # Keep the unrenewed lease until its TTL, as for a lost worker, instead of immediately
+            # admitting a replacement while the server may still be running this query.
+            self.logger.warning(
+                "Could not confirm routed query cancellation; leaving lease to expire", query_id=query_id, exc_info=True
+            )
+            return False
 
     @contextlib.contextmanager
     def post_query(
@@ -953,19 +1006,34 @@ class ClickHouseClient:
         result = resp.decode("utf-8").strip()
         return result == "1"
 
-    async def acancel_query(self, query_id: str) -> None:
+    async def acancel_query(self, query_id: str, *, wait: bool = False) -> None:
         """Cancel a running query in ClickHouse.
 
         Arguments:
             query_id: The ID of the query to cancel.
+            wait: Wait for every cluster host to acknowledge synchronous cancellation.
         """
         query = f"KILL QUERY ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE query_id = {{{{query_id:String}}}}"
 
-        await self.execute_query(
-            query,
-            query_parameters={"query_id": query_id},
-            query_id=f"{query_id}-KILL",
-        )
+        if wait:
+            async with self.apost_query(
+                query + " SYNC FORMAT JSONEachRow",
+                query_parameters={"query_id": query_id},
+                query_id=f"{query_id}-KILL",
+            ) as response:
+                acknowledgements = [json.loads(row) for row in (await response.text()).splitlines()]
+                if (
+                    not acknowledgements
+                    or any(row.get("status") != 0 for row in acknowledgements)
+                    or acknowledgements[-1].get("num_hosts_remaining") != 0
+                ):
+                    raise ClickHouseError("ClickHouse could not confirm cancellation", query_id=query_id)
+        else:
+            await self.execute_query(
+                query,
+                query_parameters={"query_id": query_id},
+                query_id=f"{query_id}-KILL",
+            )
 
         self.logger.info("Cancelled query", query_id=query_id)
 
