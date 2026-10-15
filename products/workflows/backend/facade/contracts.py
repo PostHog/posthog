@@ -29,6 +29,13 @@ class WorkflowSummary:
 
 
 @frozen
+class CohortDependentWorkflow:
+    id: str
+    name: str
+    status: str
+
+
+@frozen
 class RecentWorkflow:
     id: str
     name: str
