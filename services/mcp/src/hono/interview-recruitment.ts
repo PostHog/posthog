@@ -406,7 +406,11 @@ export class InterviewRecruitment {
                 ? z.object({ elicitation: z.object({ url: z.object({}) }) }).safeParse(capabilities).success
                 : null,
             formSupported: capabilitiesAvailable
-                ? z.object({ elicitation: z.object({ form: z.object({}) }) }).safeParse(capabilities).success
+                ? z
+                      .object({
+                          elicitation: z.union([z.object({ form: z.object({}) }), z.object({}).strict()]),
+                      })
+                      .safeParse(capabilities).success
                 : null,
             ...(state.interviewRecruitmentConfig ? { campaignId: state.interviewRecruitmentConfig.campaign_id } : {}),
         }

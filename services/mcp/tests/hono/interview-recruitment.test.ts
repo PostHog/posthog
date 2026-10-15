@@ -286,22 +286,20 @@ describe('MCP interview recruitment', () => {
         expect((await call(dispatcher)).result?.resultType).toBe('input_required')
     })
 
-    it.each([{}, { elicitation: {} }, { elicitation: { form: {} } }, { elicitation: false }])(
-        'skips clients without URL support: %j',
-        async (capabilities) => {
-            expect((await call(dispatcher, callParams(capabilities))).result).toMatchObject(toolResult)
-            expect(state.interviewRecruitmentDiagnostics).toMatchObject({
-                reason: 'url_unsupported',
-                urlSupported: false,
-                formSupported:
-                    'elicitation' in capabilities &&
-                    typeof capabilities.elicitation === 'object' &&
-                    capabilities.elicitation !== null &&
-                    'form' in capabilities.elicitation,
-            })
-            expect(storage.entries.size).toBe(0)
-        }
-    )
+    it.each([
+        [{}, false],
+        [{ elicitation: {} }, true],
+        [{ elicitation: { form: {} } }, true],
+        [{ elicitation: false }, false],
+    ] as const)('skips clients without URL support: %j', async (capabilities, formSupported) => {
+        expect((await call(dispatcher, callParams(capabilities))).result).toMatchObject(toolResult)
+        expect(state.interviewRecruitmentDiagnostics).toMatchObject({
+            reason: 'url_unsupported',
+            urlSupported: false,
+            formSupported,
+        })
+        expect(storage.entries.size).toBe(0)
+    })
 
     it.each(['disabled', 'missing', 'impersonated', 'suppressed', 'invalid-payload'])(
         'skips recruitment when %s',
