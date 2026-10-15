@@ -54,7 +54,7 @@ export function InboxSummaryPullRequestsPopover({
                 onMouseLeave={() => setVisible(false)}
                 onClick={() => setVisible(!visible)}
             >
-                {count.toLocaleString()} {count === 1 ? 'PR' : 'PRs'}
+                <span>{`${count.toLocaleString()} ${count === 1 ? 'PR' : 'PRs'}`}</span>
             </button>
         </Popover>
     )

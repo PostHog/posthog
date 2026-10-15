@@ -7,8 +7,10 @@ from django.utils.dateparse import parse_datetime
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user_integration import UserGitHubIntegration
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.models import SignalReportPullRequest, SignalReportTask
@@ -80,6 +82,47 @@ def human_participant(user: object) -> GitHubParticipant | None:
     return GitHubParticipant(id=user_id, login=login)
 
 
+def github_for_generated_pull_request(*, team_id: int, repository: str, pr_number: int) -> GitHubIntegrationBase | None:
+    verified_url = f"https://github.com/{repository.lower()}/pull/{pr_number}"
+    implementations = (
+        SignalReportTask.objects.filter(
+            team_id=team_id,
+            relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+            task__team_id=team_id,
+            task__runs__team_id=team_id,
+        )
+        .alias(
+            verified_urls=Cast(Lower(Cast("task__runs__state__verified_pr_urls", TextField())), JSONField()),
+        )
+        .filter(verified_urls__contains=[verified_url])
+        .select_related("task__github_integration", "task__github_user_integration", "task__team")
+        .order_by("task_id")
+    )
+    seen_task_ids: set[str] = set()
+    for implementation in implementations.iterator():
+        task = implementation.task
+        task_id = str(task.id)
+        if task_id in seen_task_ids:
+            continue
+        seen_task_ids.add(task_id)
+        personal = task.github_user_integration
+        if (
+            personal is not None
+            and personal.kind == "github"
+            and personal.user_id == task.created_by_id
+            and OrganizationMembership.objects.filter(
+                user_id=personal.user_id, organization_id=task.team.organization_id
+            ).exists()
+        ):
+            return UserGitHubIntegration(personal, source="signals_inbox_summary", priority=Priority.BATCH)
+        integration = task.github_integration
+        if integration is not None and integration.kind == "github" and integration.team_id == team_id:
+            return GitHubIntegration(integration, source="signals_inbox_summary", priority=Priority.BATCH)
+    return GitHubIntegration.first_for_team_repository(
+        team_id, repository, source="signals_inbox_summary", priority=Priority.BATCH
+    )
+
+
 def sync_pull_request_participants(*, team_id: int, repository: str, pr_number: int) -> None:
     pr = (
         generated_pull_requests(team_id).filter(repository=repository.lower(), number=pr_number, state="merged").first()
@@ -89,9 +132,7 @@ def sync_pull_request_participants(*, team_id: int, repository: str, pr_number: 
     SignalReportPullRequest.objects.for_team(team_id).filter(id=pr.id).update(
         participant_ids=None, participant_logins=None, participants_synced_at=None
     )
-    github = GitHubIntegration.first_for_team_repository(
-        team_id, pr.repository, source="signals_inbox_summary", priority=Priority.BATCH
-    )
+    github = github_for_generated_pull_request(team_id=team_id, repository=pr.repository, pr_number=pr.number)
     if github is None:
         return
     snapshot = github.get_pull_request(pr.repository, pr.number)

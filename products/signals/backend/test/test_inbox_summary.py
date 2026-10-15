@@ -15,6 +15,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
+from posthog.models.user_integration import UserIntegration
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.inbox_summary import sync_pull_request_participants
@@ -215,6 +216,27 @@ class TestInboxSummary(APIBaseTest):
         assert pr.participant_ids == [10, 20]
         assert pr.participant_logins == ["example-merger", "renamed-approver"]
         assert pr.participants_synced_at == NOW
+
+    def test_sync_uses_the_attributed_tasks_personal_github_integration(self) -> None:
+        pr = self.make_pr(merged_at=None)
+        personal = UserIntegration.objects.create(user=self.user, kind="github", integration_id="123")
+        task = Task.objects.get(team=self.team)
+        task.created_by = self.user
+        task.github_user_integration = personal
+        task.save(update_fields=["created_by", "github_user_integration", "updated_at"])
+        github = self.github()
+        with (
+            patch(
+                "products.signals.backend.inbox_summary.UserGitHubIntegration", return_value=github
+            ) as personal_github,
+            patch("products.signals.backend.inbox_summary.GitHubIntegration.first_for_team_repository") as team_github,
+        ):
+            sync_pull_request_participants(team_id=self.team.id, repository="example/app", pr_number=1)
+        personal_github.assert_called_once_with(personal, source="signals_inbox_summary", priority=Priority.BATCH)
+        team_github.assert_not_called()
+        pr.refresh_from_db()
+        assert pr.participant_ids == [10]
+        assert pr.participant_logins == ["example-merger"]
 
     @parameterized.expand([("missing_merger",), ("missing_review_page",), ("invalid_approval_time",)])
     def test_incomplete_github_data_does_not_store_partial_people(self, failure: str) -> None:
