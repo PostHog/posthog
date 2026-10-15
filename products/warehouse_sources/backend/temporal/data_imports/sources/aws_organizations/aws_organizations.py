@@ -341,13 +341,12 @@ def _list_rows(
     )
 
 
-def _policy_rows(
-    client: AwsOrganizationsClient,
-    endpoint_config: AwsOrganizationsEndpointConfig,
+def _per_policy_type(
     resumable_source_manager: ResumableSourceManager[AwsOrganizationsResumeConfig],
     logger: FilteringBoundLogger,
+    rows_for_policy_type: Callable[[str, Optional[str]], Iterator[list[dict[str, Any]]]],
 ) -> Iterator[list[dict[str, Any]]]:
-    """One walk per policy type, since `Filter` is required and takes a single type."""
+    """One walk per policy type, since `ListPolicies` requires `Filter` and takes a single type."""
     filters = list(POLICY_FILTERS)
     start_token: Optional[str] = None
 
@@ -364,6 +363,24 @@ def _policy_rows(
         logger.debug(f"Resuming policies from a saved policy type. policy_type={resumed_filter}")
 
     for policy_filter in filters:
+        try:
+            yield from rows_for_policy_type(policy_filter, start_token)
+        except AwsOrganizationsError as error:
+            if is_policy_type_unavailable(error):
+                logger.debug(f"Skipping unavailable policy type. policy_type={policy_filter}")
+                start_token = None
+                continue
+            raise
+        start_token = None
+
+
+def _policy_rows(
+    client: AwsOrganizationsClient,
+    endpoint_config: AwsOrganizationsEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AwsOrganizationsResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    def rows_for_policy_type(policy_filter: str, start_token: Optional[str]) -> Iterator[list[dict[str, Any]]]:
         pages = iter_pages(
             client,
             endpoint_config.operation,
@@ -372,20 +389,189 @@ def _policy_rows(
             logger,
             start_token=start_token,
         )
-        try:
-            yield from _checkpointed_rows(
-                pages,
-                lambda items: [normalize_row(endpoint_config, item) for item in items],
-                resumable_source_manager,
-                work_key=policy_filter,
+        return _checkpointed_rows(
+            pages,
+            lambda items: [normalize_row(endpoint_config, item) for item in items],
+            resumable_source_manager,
+            work_key=policy_filter,
+        )
+
+    yield from _per_policy_type(resumable_source_manager, logger, rows_for_policy_type)
+
+
+def _fan_out_rows(
+    parent_pages: Iterator[Page],
+    child_pages: Callable[[dict[str, Any]], Iterator[list[dict[str, Any]]]],
+    resumable_source_manager: ResumableSourceManager[AwsOrganizationsResumeConfig],
+    work_key: Optional[str] = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Child rows for every parent, resumable on the parent walk's page token.
+
+    One child page is held back, so the token for the next parent page is staged before the
+    yield of the last rows it covers.
+    """
+    for parent_page in parent_pages:
+        held: list[dict[str, Any]] = []
+        for parent in parent_page.items:
+            for rows in child_pages(parent):
+                if held:
+                    yield held
+                else:
+                    resumable_source_manager.safe_point()
+                held = rows
+        resumable_source_manager.save_state(
+            AwsOrganizationsResumeConfig(next_token=parent_page.next_token, work_key=work_key)
+        )
+        if held:
+            yield held
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _child_pages(
+    client: AwsOrganizationsClient,
+    endpoint_config: AwsOrganizationsEndpointConfig,
+    payload: dict[str, Any],
+    parent_columns: dict[str, Any],
+    skip_codes: frozenset[str],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    try:
+        for child_page in iter_pages(
+            client,
+            endpoint_config.operation,
+            {**payload, "MaxResults": endpoint_config.page_size},
+            result_key(endpoint_config),
+            logger,
+        ):
+            yield [{**normalize_row(endpoint_config, item), **parent_columns} for item in child_page.items]
+    except AwsOrganizationsError as error:
+        if error.code in skip_codes:
+            logger.debug(f"Skipping parent removed mid-sync. endpoint={endpoint_config.name} parent={parent_columns}")
+            return
+        raise
+
+
+def _resume_token(resumable_source_manager: ResumableSourceManager[AwsOrganizationsResumeConfig]) -> Optional[str]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    return resume.next_token if resume is not None else None
+
+
+def _account_parent_rows(
+    client: AwsOrganizationsClient,
+    endpoint_config: AwsOrganizationsEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AwsOrganizationsResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    def parents_of(account: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
+        account_id = account.get("Id")
+        if not isinstance(account_id, str) or not account_id:
+            return
+        for rows in _child_pages(
+            client,
+            endpoint_config,
+            {"ChildId": account_id},
+            {"account_id": account_id},
+            frozenset({"ChildNotFoundException"}),
+            logger,
+        ):
+            yield [
+                {"account_id": row["account_id"], "parent_id": row.get("id"), "parent_type": row.get("type")}
+                for row in rows
+            ]
+
+    accounts = iter_pages(
+        client,
+        "ListAccounts",
+        {"MaxResults": MAX_RESULTS},
+        "Accounts",
+        logger,
+        start_token=_resume_token(resumable_source_manager),
+    )
+    yield from _fan_out_rows(accounts, parents_of, resumable_source_manager)
+
+
+def _policy_target_rows(
+    client: AwsOrganizationsClient,
+    endpoint_config: AwsOrganizationsEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AwsOrganizationsResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    def rows_for_policy_type(policy_filter: str, start_token: Optional[str]) -> Iterator[list[dict[str, Any]]]:
+        def targets_of(policy: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
+            policy_id = policy.get("Id")
+            if not isinstance(policy_id, str) or not policy_id:
+                return iter(())
+            return _child_pages(
+                client,
+                endpoint_config,
+                {"PolicyId": policy_id},
+                {"policy_id": policy_id, "policy_type": policy_filter},
+                frozenset({"PolicyNotFoundException"}),
+                logger,
             )
-        except AwsOrganizationsError as error:
-            if is_policy_type_unavailable(error):
-                logger.debug(f"Skipping unavailable policy type. policy_type={policy_filter}")
-                start_token = None
-                continue
-            raise
-        start_token = None
+
+        policies = iter_pages(
+            client,
+            "ListPolicies",
+            {"Filter": policy_filter, "MaxResults": MAX_RESULTS},
+            "Policies",
+            logger,
+            start_token=start_token,
+        )
+        return _fan_out_rows(policies, targets_of, resumable_source_manager, work_key=policy_filter)
+
+    yield from _per_policy_type(resumable_source_manager, logger, rows_for_policy_type)
+
+
+def _delegated_service_rows(
+    client: AwsOrganizationsClient,
+    endpoint_config: AwsOrganizationsEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AwsOrganizationsResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    def services_of(administrator: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
+        account_id = administrator.get("Id")
+        if not isinstance(account_id, str) or not account_id:
+            return iter(())
+        return _child_pages(
+            client,
+            endpoint_config,
+            {"AccountId": account_id},
+            {"account_id": account_id},
+            # The account was deregistered or left the organization after it was listed.
+            frozenset({"AccountNotRegisteredException", "AccountNotFoundException"}),
+            logger,
+        )
+
+    administrators = iter_pages(
+        client,
+        "ListDelegatedAdministrators",
+        {"MaxResults": MAX_RESULTS},
+        "DelegatedAdministrators",
+        logger,
+        start_token=_resume_token(resumable_source_manager),
+    )
+    yield from _fan_out_rows(administrators, services_of, resumable_source_manager)
+
+
+WALKS_BY_ENDPOINT: dict[
+    str,
+    Callable[
+        [
+            AwsOrganizationsClient,
+            AwsOrganizationsEndpointConfig,
+            ResumableSourceManager[AwsOrganizationsResumeConfig],
+            FilteringBoundLogger,
+        ],
+        Iterator[list[dict[str, Any]]],
+    ],
+] = {
+    "account_parents": _account_parent_rows,
+    "delegated_services": _delegated_service_rows,
+    "policies": _policy_rows,
+    "policy_targets": _policy_target_rows,
+}
 
 
 # Named fields instead of a 2/3-tuple return: semgrep's tuple-return-prefer-dataclass
@@ -546,8 +732,9 @@ def get_rows(
         yield from _resource_tag_rows(client, endpoint_config, logger)
         return
 
-    if endpoint == "policies":
-        yield from _policy_rows(client, endpoint_config, resumable_source_manager, logger)
+    resumable_rows = WALKS_BY_ENDPOINT.get(endpoint)
+    if resumable_rows is not None:
+        yield from resumable_rows(client, endpoint_config, resumable_source_manager, logger)
     else:
         yield from _list_rows(client, endpoint_config, resumable_source_manager, logger)
 
@@ -564,6 +751,22 @@ def _permission_reason(error: AwsOrganizationsError) -> Optional[str]:
     if error.code in CREDENTIAL_ERROR_CODES:
         return "AWS rejected the access key. Please check the access key ID and secret access key."
     return None
+
+
+def _probe_first_child(
+    client: AwsOrganizationsClient,
+    parent_operation: str,
+    parent_payload: dict[str, Any],
+    parent_key: str,
+    child_operation: str,
+    child_param: str,
+) -> None:
+    parents = client.request(parent_operation, {**parent_payload, "MaxResults": 1})
+    for parent in parents.get(parent_key) or []:
+        parent_id = parent.get("Id") if isinstance(parent, dict) else None
+        if isinstance(parent_id, str):
+            client.request(child_operation, {child_param: parent_id, "MaxResults": 1})
+        break
 
 
 def endpoint_permission_reason(client: AwsOrganizationsClient, endpoint: str) -> Optional[str]:
@@ -588,6 +791,26 @@ def endpoint_permission_reason(client: AwsOrganizationsClient, endpoint: str) ->
                 break
         elif endpoint == "policies":
             client.request("ListPolicies", {"Filter": POLICY_FILTERS[0], "MaxResults": 1})
+        elif endpoint == "account_parents":
+            _probe_first_child(client, "ListAccounts", {}, "Accounts", "ListParents", "ChildId")
+        elif endpoint == "policy_targets":
+            _probe_first_child(
+                client,
+                "ListPolicies",
+                {"Filter": POLICY_FILTERS[0]},
+                "Policies",
+                "ListTargetsForPolicy",
+                "PolicyId",
+            )
+        elif endpoint == "delegated_services":
+            _probe_first_child(
+                client,
+                "ListDelegatedAdministrators",
+                {},
+                "DelegatedAdministrators",
+                "ListDelegatedServicesForAccount",
+                "AccountId",
+            )
         elif endpoint == "resource_tags":
             accounts = client.request("ListAccounts", {"MaxResults": 1})
             for account in accounts.get("Accounts") or []:
