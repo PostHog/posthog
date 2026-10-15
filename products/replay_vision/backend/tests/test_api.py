@@ -5624,7 +5624,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         scanner = self._create_scanner(name="m")
         dismissed = self._succeeded_observation(scanner, "dismissed-sess", 1, self._monitor_result("yes"))
         self._succeeded_observation(scanner, "kept-sess", 2, self._monitor_result("yes"))
-        dismissal_url = f"{self.observations_url(scanner.id)}{dismissed.id}/feed_dismissal/"
+        dismissal_url = f"/api/projects/{self.team.id}/vision/observations/{dismissed.id}/feed_dismissal/"
 
         def feed_sessions() -> list[str]:
             return [item["observation"]["session_id"] for item in self.client.get(self.feed_url).json()["results"]]

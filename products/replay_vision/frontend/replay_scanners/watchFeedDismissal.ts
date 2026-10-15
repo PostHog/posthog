@@ -69,7 +69,6 @@ export async function dismissFeedItem({
     restore,
 }: DismissFeedItemArgs): Promise<void> {
     const observationId = item.observation.id
-    posthog.capture('replay_vision_watch_clip_dismissed', { ...properties, dismissal_reason: reason })
     try {
         await visionObservationsFeedDismissalCreate(String(teamId), observationId, { reason })
     } catch {
@@ -77,6 +76,7 @@ export async function dismissFeedItem({
         lemonToast.error("Couldn't hide this session. Try again.")
         return
     }
+    posthog.capture('replay_vision_watch_clip_dismissed', { ...properties, dismissal_reason: reason })
     lemonToast.success('Hidden from your feed', {
         button: {
             label: 'Undo',

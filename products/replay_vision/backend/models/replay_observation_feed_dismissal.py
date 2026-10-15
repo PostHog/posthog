@@ -14,8 +14,9 @@ class FeedDismissalReason(models.TextChoices):
 class ReplayObservationFeedDismissal(TeamScopedRootMixin, UUIDModel):
     """One user marked this observation not useful in What to watch. Per user, like `ReplayObservationView`."""
 
+    # The unique constraint leads with observation_id, so a separate index on it would only slow writes.
     observation = models.ForeignKey(
-        "replay_vision.ReplayObservation", on_delete=models.CASCADE, related_name="feed_dismissals"
+        "replay_vision.ReplayObservation", on_delete=models.CASCADE, related_name="feed_dismissals", db_index=False
     )
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)

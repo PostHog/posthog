@@ -21,6 +21,7 @@ function WatchGrid({
     ranked: boolean
     surface: 'top_10' | 'more'
 }): JSX.Element | null {
+    const { picksLoad } = useValues(watchPicksLogic)
     if (items.length === 0) {
         return null
     }
@@ -30,7 +31,7 @@ function WatchGrid({
             <div className={GRID_CLASS_NAME}>
                 {items.map((item, index) => (
                     <WatchPickRankedCard
-                        key={item.observation.id}
+                        key={`${picksLoad?.feedLoadId}-${item.observation.id}`}
                         item={item}
                         position={ranked ? index : TOP_PICKS_COUNT + index}
                         surface={surface}

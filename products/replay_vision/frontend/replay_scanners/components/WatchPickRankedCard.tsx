@@ -1,8 +1,9 @@
 import { useActions } from 'kea'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
+import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
@@ -12,7 +13,7 @@ import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type { WatchFeedItemApi } from '../../generated/api.schemas'
 import { citedTextToPlainText } from '../../utils/citations'
 import { SCANNER_TYPE_TAG_TYPE } from '../types'
-import { useCardImpression } from '../useCardImpression'
+import { CARD_SEEN_DWELL_MS } from '../watchFeedTelemetry'
 import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
 import { watchFeedRowWhy } from './WatchFeedCard'
@@ -33,8 +34,7 @@ export function WatchPickRankedCard({ item, position, surface, rank }: WatchPick
     const [hasOpenedPreview, setHasOpenedPreview] = useState(false)
     const { watchPick, cardSeen, dismissItem } = useActions(watchPicksLogic)
     const { observation, reason } = item
-    const cardRef = useRef<HTMLDivElement>(null)
-    useCardImpression(cardRef, () => cardSeen(item, position))
+    const cardRef = useAutoMarkRead(true, () => cardSeen(item, position, surface), CARD_SEEN_DWELL_MS)
     const { title, scannerName, scannerType } = watchPickSummary(observation)
     const signalsCount = reason.signals_count ?? 0
     const notability = typeof reason.notability === 'number' ? reason.notability : null

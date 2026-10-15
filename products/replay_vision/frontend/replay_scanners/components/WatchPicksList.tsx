@@ -9,7 +9,7 @@ import { WatchPicksEmptyState } from './WatchPicksEmptyState'
 const LIST_TOP_COUNT = 5
 
 export function WatchPicksList(): JSX.Element {
-    const { picks, picksLoading, picksFailed, activeSessionId } = useValues(watchPicksLogic)
+    const { picks, picksLoad, picksLoading, picksFailed, activeSessionId } = useValues(watchPicksLogic)
     const { loadPicks } = useActions(watchPicksLogic)
 
     return (
@@ -38,7 +38,7 @@ export function WatchPicksList(): JSX.Element {
                     <div className="flex flex-col gap-0.5 p-1">
                         {picks.map((item, index) => (
                             <WatchPickRow
-                                key={item.observation.id}
+                                key={`${picksLoad?.feedLoadId}-${item.observation.id}`}
                                 item={item}
                                 position={index}
                                 surface="list"

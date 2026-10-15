@@ -80,10 +80,12 @@ export interface watchPicksLogicValues {
 export interface watchPicksLogicActions {
     cardSeen: (
         item: WatchFeedItemApi,
-        position: number
+        position: number,
+        surface: WatchPickSurface
     ) => {
         item: WatchFeedItemApi
         position: number
+        surface: WatchPickSurface
     }
     dismissItem: (
         item: WatchFeedItemApi,
@@ -190,7 +192,11 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
         setActiveSessionId: (sessionId: string | null) => ({ sessionId }),
         markPickViewed: (observationId: string) => ({ observationId }),
         setPicksLoad: (load: WatchFeedLoad) => ({ load }),
-        cardSeen: (item: WatchFeedItemApi, position: number) => ({ item, position }),
+        cardSeen: (item: WatchFeedItemApi, position: number, surface: WatchPickSurface) => ({
+            item,
+            position,
+            surface,
+        }),
         dismissItem: (
             item: WatchFeedItemApi,
             position: number,
@@ -213,7 +219,7 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                         limit: PICKS_LIMIT,
                     })
                     breakpoint()
-                    actions.setPicksLoad(newWatchFeedLoad(response.ranker))
+                    actions.setPicksLoad(newWatchFeedLoad(response.ranker, response.results))
                     return response.results
                 },
             },
@@ -303,7 +309,6 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
             picksShownCount.set(shownCount)
             posthog.capture('replay_vision_watch_picks_shown', {
                 ...servedListProperties(values.picksLoad, values.picks),
-                ranker: values.picksLoad?.ranker ?? null,
                 view,
                 entry: props.playlistLogicProps
                     ? undefined
@@ -323,19 +328,20 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
             setPicksLoad: ({ load }) => {
                 cache.impressions.start(load)
             },
-            cardSeen: ({ item, position }) => {
-                cache.impressions.add(item, position)
+            cardSeen: ({ item, position, surface }) => {
+                cache.impressions.add(item, position, surface)
             },
             dismissItem: async ({ item, position, surface, reason }) => {
                 if (!values.currentTeamId) {
                     return
                 }
+                const loadId = values.picksLoad?.feedLoadId
                 await dismissFeedItem({
                     teamId: values.currentTeamId,
                     item,
                     reason,
                     properties: cardProperties(values.picksLoad, item, position, surface),
-                    restore: () => actions.restoreItem(item, position),
+                    restore: () => values.picksLoad?.feedLoadId === loadId && actions.restoreItem(item, position),
                 })
             },
             setListMode: ({ mode }) => {

@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { useRef } from 'react'
 
 import { IconFlag } from '@posthog/icons'
 import { LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
 import { colonDelimitedDuration } from 'lib/utils/durations'
@@ -23,9 +23,8 @@ import type {
 import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { citedTextToPlainText } from '../../utils/citations'
 import { SCANNER_TYPE_TAG_TYPE, ScannerType } from '../types'
-import { useCardImpression } from '../useCardImpression'
 import { watchFeedLogic } from '../watchFeedLogic'
-import { cardProperties } from '../watchFeedTelemetry'
+import { CARD_SEEN_DWELL_MS, cardProperties } from '../watchFeedTelemetry'
 import { WatchFeedDismissButton } from './WatchFeedDismissButton'
 
 /** Reason kinds that say nothing about the session. The backend returns these only to pad a near-empty
@@ -345,8 +344,7 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
     const { observation, reason } = item
     const { feedLoad } = useValues(watchFeedLogic)
     const { cardSeen, dismissItem } = useActions(watchFeedLogic)
-    const rowRef = useRef<HTMLElement>(null)
-    useCardImpression(rowRef, () => cardSeen(item, position))
+    const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS)
     const result = readResult(observation)
     // Fall back to the result's own scanner_type when the snapshot is absent, like watchCardHeadline.
     const scannerType =

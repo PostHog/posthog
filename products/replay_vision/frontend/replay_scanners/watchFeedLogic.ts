@@ -293,7 +293,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                     // Drop out-of-order responses — the most recent filter change owns the feed.
                     breakpoint()
                     actions.setFeedRanker(response.ranker ?? 'weighted-score', response.ranker_variant ?? null)
-                    actions.setFeedLoad(newWatchFeedLoad(response.ranker))
+                    actions.setFeedLoad(newWatchFeedLoad(response.ranker, response.results))
                     return response.results
                 },
             },
@@ -403,12 +403,13 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
             if (!teamId) {
                 return
             }
+            const loadId = values.feedLoad?.feedLoadId
             await dismissFeedItem({
                 teamId,
                 item,
                 reason,
                 properties: cardProperties(values.feedLoad, item, position, 'feed_tab'),
-                restore: () => actions.restoreItem(item, position),
+                restore: () => values.feedLoad?.feedLoadId === loadId && actions.restoreItem(item, position),
             })
         },
         setDateRange: () => {
