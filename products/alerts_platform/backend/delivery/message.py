@@ -152,6 +152,7 @@ def build_message(
     *,
     team_id: int,
     incident_action: IncidentAction | None = None,
+    source_alert_url: str | None = None,
 ) -> AlertMessage:
     """The message for one transition.
 
@@ -183,7 +184,7 @@ def build_message(
         configuration_id=announcement.configuration_id,
         alert_name=announcement.alert_name,
         source=announcement.source,
-        alert_url=alert_url(project_id, announcement.configuration_id),
+        alert_url=source_alert_url or alert_url(project_id, announcement.configuration_id),
         transition=transition,
         context=description.context,
         data_link=description.data_link,

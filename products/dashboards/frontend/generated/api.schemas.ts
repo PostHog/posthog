@@ -9533,6 +9533,7 @@ export interface BIFieldApi {
     datePart?: DatePartApi | null
     expression: string
     id: string
+    label?: string | null
     localDefinition?: BILocalFieldDefinition1Api | BILocalFieldDefinition2Api | BILocalFieldDefinition3Api | null
     localFieldId?: string | null
     name: string

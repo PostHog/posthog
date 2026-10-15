@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Final
 
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from posthog.models import Team
 
@@ -93,6 +93,39 @@ def suppressed() -> Exists:
     )
 
 
+def _due(team_id: int, source_kind: str, cutoff: datetime) -> QuerySet[PlatformAlertConfiguration]:
+    return (
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(enabled=True, source_kind=source_kind)
+        .filter(due_q(cutoff))
+        .exclude(suppressed())
+    )
+
+
+def due_check_ids(
+    team_id: int, source_kind: str, slot: str, cutoff: datetime, *, exclude: Collection[str] = (), limit: int
+) -> tuple[str, ...]:
+    """The first `limit` due ids of one batch key, in id order, without reading their runtime rows.
+
+    For a source that admits ids in rounds. A round reads only ids, so a large batch does not
+    reload every configuration and its alert row each time a check finishes.
+    """
+    rows = (
+        _due(team_id, source_kind, cutoff)
+        .exclude(id__in=list(exclude))
+        .order_by("id")
+        .values_list("id", "next_check_at")
+    )
+    ids: list[str] = []
+    for configuration_id, next_check_at in rows.iterator():
+        if slot_of(next_check_at, cutoff) != slot:
+            continue
+        ids.append(str(configuration_id))
+        if len(ids) == limit:
+            break
+    return tuple(ids)
+
+
 def due_checks(
     team_id: int, source_kind: str, slot: str, cutoff: datetime, *, configuration_ids: Collection[str] | None = None
 ) -> tuple[PlatformAlertCheckInput, ...]:
@@ -101,12 +134,7 @@ def due_checks(
     `configuration_ids` narrows the batch to those rows, for a source that evaluates one check at
     a time and must still read nothing the batch would not.
     """
-    due = (
-        PlatformAlertConfiguration.objects.for_team(team_id)
-        .filter(enabled=True, source_kind=source_kind)
-        .filter(due_q(cutoff))
-        .exclude(suppressed())
-    )
+    due = _due(team_id, source_kind, cutoff)
     if configuration_ids is not None:
         due = due.filter(id__in=list(configuration_ids))
     # Ordered so a retried attempt keeps the same alerts under any downstream cap.

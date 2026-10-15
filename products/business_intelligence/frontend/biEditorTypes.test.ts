@@ -63,6 +63,30 @@ const countryField: BIField = {
 }
 
 describe('BI editor query generation', () => {
+    test.each(['month', 'quarter', 'day_of_week'] as const)(
+        'uses numeric %s date parts for scatter axes',
+        (datePart) => {
+            const result = buildBIQuery({
+                ...DEFAULT_BI_CONFIG,
+                source: timestampField.source,
+                rows: [{ ...timestampField, datePart }],
+                chartType: ChartDisplayType.ScatterPlot,
+            })!
+            expect(result.node.chartSettings?.xAxis?.column).not.toBe('count')
+            expect(result.node.chartSettings?.yAxis).toEqual([{ column: 'count' }])
+            expect(
+                getBIChartFit(
+                    {
+                        ...DEFAULT_BI_CONFIG,
+                        source: timestampField.source,
+                        rows: [{ ...timestampField, datePart }],
+                        chartType: ChartDisplayType.ScatterPlot,
+                    },
+                    ChartDisplayType.ScatterPlot
+                ).fits
+            ).toBe(true)
+        }
+    )
     it.each(['month', 'quarter', 'year'] as const)(
         'aligns %s comparison buckets with calendar arithmetic',
         (dateBucket) => {
@@ -150,6 +174,10 @@ describe('BI editor query generation', () => {
         expect(result.node.source.filters?.dateRange?.date_from).toBe('-30d')
     })
     test.each<{ filter: BIFilter; expected: string | null }>([
+        { filter: { field: eventField, operator: 'equals', value: '', values: [''] }, expected: "event = ''" },
+        { filter: { field: eventField, operator: 'not_equals', value: '', values: [''] }, expected: "event != ''" },
+        { filter: { field: eventField, operator: 'equals', value: '', values: [] }, expected: null },
+        { filter: { field: eventField, operator: 'equals', value: '' }, expected: null },
         {
             filter: { field: eventField, operator: 'in', value: '', values: ["sign'up", 'a,b', ''] },
             expected: "event IN ('sign\\'up', 'a,b', '')",
@@ -314,6 +342,12 @@ describe('BI editor query generation', () => {
                     yAxis: [{ column: 'sum_revenue' }],
                     xAxisLabel: 'event',
                     leftYAxisSettings: { label: 'SUM(revenue)' },
+                },
+                tableSettings: {
+                    columns: [
+                        { column: 'event', settings: { display: { label: 'event' } } },
+                        { column: 'sum_revenue' },
+                    ],
                 },
             },
         })
@@ -650,6 +684,9 @@ describe('BI editor query generation', () => {
         ['id', 'integer', 'count'],
         ['uuid', 'string', 'count'],
         ['events_id', 'integer', 'count'],
+        ['person_id', 'string', 'count'],
+        ['distinct_id', 'string', 'count'],
+        ['user_id', 'integer', 'count'],
         ['revenue', 'float', 'sum'],
         ['event', 'string', 'count_distinct'],
     ] as const)('uses %s fields with type %s as a %s value', (name, type, aggregation) => {
@@ -772,13 +809,13 @@ describe('BI editor query generation', () => {
     const userIdField: BIField = { ...revenueField, id: 'warehouse:events:user_id', name: 'user_id', type: 'integer' }
 
     test.each([
-        ['userId', false],
-        ['accountId', false],
-        ['userID', false],
-        ['accountUuid', false],
-        ['accountUUID', false],
-        ['USER_ID', false],
-        ['UUID', false],
+        ['userId', true],
+        ['accountId', true],
+        ['userID', true],
+        ['accountUuid', true],
+        ['accountUUID', true],
+        ['USER_ID', true],
+        ['UUID', true],
         ['grid', true],
         ['paid', true],
     ])('classifies numeric field %s as a measure: %s', (name, isMeasure) => {
@@ -819,7 +856,7 @@ describe('BI editor query generation', () => {
         ['a measure dropped on rows becomes a value', revenueField, 'rows', revenueField, 'values'],
         ['a measure dropped on columns becomes a value', revenueField, 'columns', revenueField, 'values'],
         ['a measure dropped on filters stays a filter', revenueField, 'filters', revenueField, 'filters'],
-        ['a numeric identifier stays a dimension', userIdField, 'rows', userIdField, 'rows'],
+        ['a numeric identifier becomes a measure', userIdField, 'rows', userIdField, 'values'],
         [
             'a timestamp on rows is bucketed by day',
             timestampField,

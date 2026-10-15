@@ -16,6 +16,7 @@ same set of checks.
 """
 
 import time
+from collections.abc import Collection
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Final
@@ -37,7 +38,7 @@ from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts_platform.backend.facade.api import due_checks, slot_of
+from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -115,29 +116,44 @@ def is_evaluated_on_the_platform(alert: AlertConfiguration) -> bool:
     return not alert.detector_config and alert.calculation_interval in EVALUATED_INTERVALS
 
 
-def plan_insight_batch(team_id: int, slot: str, cutoff: datetime, *, expires_at: float) -> tuple[str, ...]:
+def plan_insight_batch(
+    team_id: int, slot: str, cutoff: datetime, *, expires_at: float, exclude: Collection[str] = ()
+) -> tuple[str, ...]:
     """Admits the batch's checks into the pool, in id order, while it has room, and returns the
     ids it admitted.
 
     The checks left out keep their due time, so a later tick finds them again. `expires_at` comes
     from the workflow rather than the clock, so a retried attempt gets back the same admitted ids.
+
+    `exclude` names the checks the workflow already started. A running check holds its slot under
+    the same expiry, and a finished one stays due until the workflow records its outcome. Without
+    `exclude`, a later round would admit either one again.
     """
-    checks = due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff)
-    if not checks:
+    # The pool admits at most its size per round, so more candidates than that only add reads.
+    candidates = due_check_ids(
+        team_id,
+        SourceKind.INSIGHT.value,
+        slot,
+        cutoff,
+        exclude=exclude,
+        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
+    )
+    if not candidates:
         return ()
     admitted = admit_evaluation_slots(
-        [str(check.id) for check in checks],
+        list(candidates),
         limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
         expires_at=expires_at,
         key=INFLIGHT_KEY,
     )
-    if len(admitted) < len(checks):
+    # Only on a batch's first round, because later rounds of a full pool would repeat it every few seconds.
+    if len(admitted) < len(candidates) and not exclude:
         logger.info(
             "Deferred platform insight checks over the pool limit",
             team_id=team_id,
             slot=slot,
             admitted=len(admitted),
-            deferred=len(checks) - len(admitted),
+            deferred=len(candidates) - len(admitted),
         )
     return tuple(admitted)
 
