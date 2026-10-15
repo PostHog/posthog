@@ -66,6 +66,7 @@ def test_repo_files_pass_through_unmerged() -> None:
     [
         pytest.param("size_gate: [unclosed", id="malformed_yaml"),
         pytest.param("- just\n- a\n- list\n", id="non_mapping_root"),
+        pytest.param("", id="empty_file"),
     ],
 )
 def test_overlay_unusable_repo_policy_fails_closed(repo_policy: str) -> None:
@@ -153,6 +154,7 @@ def test_review_payload_command_wipes_optional_paths_from_pr_head() -> None:
     assert ".stamphog/steering.md" in wipe
     assert ".stamphog/policy.yml" in wipe
     assert "rm -rf tools/pr-approval-agent tools/owners" in wipe
+    assert "rm -rf tools/.stamphog" in wipe
     assert extract
 
 

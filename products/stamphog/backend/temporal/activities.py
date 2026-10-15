@@ -2179,9 +2179,9 @@ def _effective_policy_files(repo: str, policy_files: dict[str, str]) -> dict[str
         activity.logger.info(f"Policy files for {repo} using shipped defaults: {defaulted}")
 
     effective = {
-        path: text
+        path: policy_files[path]
         for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS)
-        if (text := policy_files.get(path))
+        if path in policy_files
     }
     if STAMPHOG_POLICY_ENTRYPOINT in effective:
         effective[STAMPHOG_POLICY_ENTRYPOINT] = _checked_repo_policy_yaml(repo, effective[STAMPHOG_POLICY_ENTRYPOINT])
@@ -2231,8 +2231,15 @@ def _review_payload_command() -> str:
     """
     repo_dir = shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)
     policy_paths = " ".join(shlex.quote(path) for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS))
+    # The engine takes the nearest `.stamphog/` above its own directory as the repository root, so a
+    # PR-head copy in a directory between the checkout root and the engine would shadow the trusted one.
+    planted_roots = " ".join(
+        shlex.quote(f"{parent}/.stamphog")
+        for parent in PurePosixPath(_ENGINE_RELATIVE_DIR).parents
+        if str(parent) != "."
+    )
     return (
-        f"cd {repo_dir} && rm -f {policy_paths} && "
+        f"cd {repo_dir} && rm -f {policy_paths} && rm -rf {planted_roots} && "
         f"rm -rf {shlex.quote(_ENGINE_RELATIVE_DIR)} {shlex.quote(_OWNERS_RELATIVE_DIR)} && "
         f"tar -xzf {shlex.quote(STAMPHOG_SANDBOX_PAYLOAD_PATH)} --no-same-owner && "
         f"rm -f {shlex.quote(STAMPHOG_SANDBOX_PAYLOAD_PATH)}"
