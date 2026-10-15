@@ -119,10 +119,16 @@ def runtime_by_legacy_id(
         PlatformAlertConfiguration.objects.for_team(team_id)
         .filter(legacy_configuration_id__in=list(legacy_configuration_ids), owner=PlatformAlertOwner.PLATFORM)
         .annotate(
-            _state=Subquery(ungrouped.values("state")[:1]),
-            _last_notified_at=Subquery(ungrouped.values("last_notified_at")[:1]),
+            instance_state=Subquery(ungrouped.values("state")[:1]),
+            instance_last_notified_at=Subquery(ungrouped.values("last_notified_at")[:1]),
         )
-        .values_list("legacy_configuration_id", "_state", "_last_notified_at", "consecutive_failures", "next_check_at")
+        .values_list(
+            "legacy_configuration_id",
+            "instance_state",
+            "instance_last_notified_at",
+            "consecutive_failures",
+            "next_check_at",
+        )
     )
     return {
         legacy_id: PlatformAlertRuntime(
@@ -132,4 +138,5 @@ def runtime_by_legacy_id(
             next_check_at=next_check_at,
         )
         for legacy_id, state, last_notified_at, consecutive_failures, next_check_at in rows
+        if legacy_id is not None
     }

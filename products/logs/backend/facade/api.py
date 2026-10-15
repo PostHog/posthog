@@ -10,6 +10,7 @@ from products.logs.backend.natural_language_query import (
     is_valid_date,
     translate_natural_language_query,
 )
+from products.logs.backend.platform_alert_backfill import logs_state_of_platform
 
 __all__ = [
     "NaturalLanguageQueryFailed",
@@ -17,6 +18,7 @@ __all__ = [
     "close_incident_before_delete",
     "close_incident_on_commit",
     "is_valid_date",
+    "logs_state_of_platform",
     "next_allowed_check_at",
     "translate_natural_language_query",
 ]
