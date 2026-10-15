@@ -119,26 +119,39 @@ export const BlankEnumApi = {
 } as const
 
 /**
- * @nullable
+ * The user a ticket is assigned to.
  */
-export type TicketAssignmentApiUser = { [key: string]: string } | null
+export interface TicketAssignmentUserApi {
+    /** Numeric user id. Send this value back as the assignee id. */
+    id: number
+    /** Email address of the assigned user. */
+    email: string
+    /** Name of the assigned user, for display. The email address when the user has no name. */
+    name: string
+}
 
 /**
- * @nullable
+ * The role a ticket is assigned to.
  */
-export type TicketAssignmentApiRole = { [key: string]: string } | null
+export interface TicketAssignmentRoleApi {
+    /** Role uuid. Send this value back as the assignee id. */
+    id: string
+    /** Name of the assigned role. */
+    name: string
+}
 
 /**
  * Serializer for ticket assignment (user or role).
  */
 export interface TicketAssignmentApi {
-    /** @nullable */
-    readonly id: string | null
+    /** The numeric user id for a user assignee, the role uuid for a role assignee. */
+    readonly id: number | string | null
+    /** Kind of assignee that holds the ticket: 'user' or 'role'. */
     readonly type: string
-    /** @nullable */
-    readonly user: TicketAssignmentApiUser
-    /** @nullable */
-    readonly role: TicketAssignmentApiRole
+    /** The assigned user. Null when a role holds the ticket. */
+    readonly user: TicketAssignmentUserApi | null
+    /** The assigned role. Null when a user holds the ticket. */
+    readonly role: TicketAssignmentRoleApi | null
 }
 
 export type TicketPersonApiProperties = { [key: string]: unknown }

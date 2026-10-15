@@ -1277,6 +1277,7 @@ class TestTicketAssignment(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["assignee"]["id"], str(self.role.id))
         self.assertEqual(response.json()["assignee"]["type"], "role")
+        self.assertEqual(response.json()["assignee"]["role"], {"id": str(self.role.id), "name": "Support Team"})
 
         self.assertEqual(TicketAssignment.objects.count(), 1)
         assignment = TicketAssignment.objects.get(ticket=self.ticket)
@@ -1317,6 +1318,9 @@ class TestTicketAssignment(APIBaseTest):
 
     def test_serialization_returns_correct_format(self):
         """Test that assignee serialization returns correct {id, type} format."""
+        self.user.first_name = "Robin"
+        self.user.last_name = "Hale"
+        self.user.save(update_fields=["first_name", "last_name"])
         TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
@@ -1325,6 +1329,10 @@ class TestTicketAssignment(APIBaseTest):
         self.assertIn("assignee", response.json())
         self.assertEqual(response.json()["assignee"]["id"], self.user.id)
         self.assertEqual(response.json()["assignee"]["type"], "user")
+        self.assertEqual(
+            response.json()["assignee"]["user"],
+            {"id": self.user.id, "email": self.user.email, "name": "Robin Hale"},
+        )
 
     def test_unassigned_ticket_returns_null_assignee(self):
         """Test that unassigned ticket returns null for assignee."""
