@@ -9,12 +9,11 @@
       "targeting": {
         "properties": []
       },
-      "experiment_id": null,
       "paused": false,
       "rollout_percentage": 100,
       "on_rollout_miss": "continue",
       "assignment_algorithm": "sha1_60_v1",
-      "seed": "standalone-split",
+      "seed": "holdout-id-field",
       "variants": [
         {
           "key": "control",

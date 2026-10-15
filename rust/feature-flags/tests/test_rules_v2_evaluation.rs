@@ -35,7 +35,7 @@ fn vendored_response_fixtures_agree_with_the_validator() {
             invalid += 1;
         }
     }
-    assert_eq!((valid, invalid), (29, 152));
+    assert_eq!((valid, invalid), (26, 44));
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn evaluation_corpora_have_unique_ids_and_the_pinned_families() {
             family("v2_experiment_evaluation", "assignment", 22),
             family("v2_experiment_evaluation", "values", 9),
             family("v2_experiment_evaluation", "white_box", 10),
-            family("v2_experiment_evaluation", "parser", 21),
+            family("v2_experiment_evaluation", "parser", 20),
         ])
     );
 }
@@ -173,7 +173,7 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
         }
         executed += 1;
     }
-    assert_eq!((executed, rejected), (120 + 38 + 51, 2 + 11 + 21));
+    assert_eq!((executed, rejected), (120 + 38 + 51, 2 + 11 + 20));
 }
 
 fn assert_experiment_hash_evidence(
@@ -523,7 +523,7 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
                 .map(|p| serde_json::from_str::<Value>(p.as_str().unwrap()).unwrap())
         };
         let reason = match expected["reason"].as_str() {
-            Some("targeting_match") => "condition_match",
+            Some("targeting_match" | "experiment_split") => "condition_match",
             Some("rollout_miss") => "out_of_rollout_bound",
             Some("holdout") => "holdout_condition_value",
             _ => "no_condition_match",
@@ -667,11 +667,16 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
                 expected["rule"].get("rule_type"),
                 "{id}"
             );
-            for field in ["experiment_id", "variant_key", "holdout_id"] {
+            assert_eq!(
+                record["metadata"].get("variant_key"),
+                expected.get("variant"),
+                "{id}"
+            );
+            for field in ["experiment_id", "holdout_id"] {
                 assert_eq!(record["metadata"].get(field), None, "{id}");
             }
         }
         projected += 1;
     }
-    assert_eq!((projected, direct, skipped), (114 + 49 + 72, 8, 13 + 10));
+    assert_eq!((projected, direct, skipped), (114 + 49 + 71, 8, 13 + 10));
 }

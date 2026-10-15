@@ -2106,7 +2106,9 @@ impl FeatureFlagMatcher {
         })?;
         // The detailed v2 record keeps the v1 reason vocabulary; v3 carries the v2 code.
         let reason = match evaluation {
-            Evaluation::TargetingMatch { .. } => FeatureFlagMatchReason::ConditionMatch,
+            Evaluation::TargetingMatch { .. } | Evaluation::ExperimentSplit { .. } => {
+                FeatureFlagMatchReason::ConditionMatch
+            }
             Evaluation::RolloutMiss { .. } => FeatureFlagMatchReason::OutOfRolloutBound,
             Evaluation::Holdout { .. } => FeatureFlagMatchReason::HoldoutConditionValue,
             Evaluation::ExperimentPaused { .. } | Evaluation::NoRuleMatch { .. } => {

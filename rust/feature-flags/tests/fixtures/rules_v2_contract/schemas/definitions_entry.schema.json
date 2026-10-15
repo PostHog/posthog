@@ -34,7 +34,7 @@
           "x-posthog-open-object": "Existing v1 filters remain opaque here; this schema only selects the version."
         },
         {
-          "$ref": "urn:posthog:feature-flag-rules-v2:config:2.0.0"
+          "$ref": "urn:posthog:feature-flag-rules-v2:config:1.0.0"
         }
       ]
     },

@@ -18,8 +18,7 @@
           }
         ]
       },
-      "description": "Split checkout layouts without an experiment.",
-      "experiment_id": null,
+      "description": "Split checkout layouts with a holdout that belongs to this rule.",
       "paused": false,
       "rollout_percentage": 80.5,
       "on_rollout_miss": "return_default",
@@ -44,7 +43,6 @@
         }
       ],
       "holdout": {
-        "id": null,
         "seed": "checkout-layout-holdout",
         "exclusion_percentage": 10
       }

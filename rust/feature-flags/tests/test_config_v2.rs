@@ -590,15 +590,6 @@ fn unsupported_members_reject_the_whole_flag_and_debug_redacts_config() {
         result(&read(document)).as_ref().unwrap_err(),
         &ParseError::Unsupported("aggregation_group_type_index")
     );
-    let mut document = config();
-    document["rules"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"rule_type": "experiment", "experiment_id": 42, "holdout": {"seed": "private-holdout"}}));
-    assert_eq!(
-        result(&read(document)).as_ref().unwrap_err(),
-        &ParseError::Unsupported("experiment_id")
-    );
     for version in [json!(2), json!(3), json!("private-version")] {
         let mut document = config();
         document["version"] = version;
@@ -699,7 +690,7 @@ fn experiment() -> Value {
         "version": 2, "return_type": "string", "default_value": "standard",
         "rules": [{
             "id": "11111111-1111-4111-8111-111111111111", "rule_type": "experiment",
-            "targeting": {"properties": []}, "experiment_id": null, "paused": false,
+            "targeting": {"properties": []}, "paused": false,
             "rollout_percentage": 80.5, "on_rollout_miss": "return_default",
             "assignment_algorithm": "sha1_60_v1", "seed": "example-seed", "assign_by": "person",
             "variants": [
@@ -707,13 +698,13 @@ fn experiment() -> Value {
                 {"key": "test", "weight": 33.33, "value": "compact"},
                 {"key": "test-copy", "weight": 33.34, "value": "compact"}
             ],
-            "holdout": {"id": null, "seed": "example-holdout", "exclusion_percentage": 10.25}
+            "holdout": {"seed": "example-holdout", "exclusion_percentage": 10.25}
         }]
     })
 }
 
 #[test]
-fn experiment_rules_without_an_experiment_parse_into_a_weighted_split() {
+fn experiment_rules_parse_into_a_weighted_split() {
     let document = experiment();
     let flag = read(document.clone());
     let parsed = result(&flag).as_ref().unwrap();
@@ -784,22 +775,7 @@ fn experiment_rule_contract_violations_reject_the_whole_flag() {
         (
             "/rules/0/experiment_id",
             json!(42),
-            ParseError::Unsupported("experiment_id"),
-        ),
-        (
-            "/rules/0/experiment_id",
-            json!(42.0),
-            ParseError::Unsupported("experiment_id"),
-        ),
-        (
-            "/rules/0/experiment_id",
-            json!(4.5),
-            ParseError::Malformed("experiment_id"),
-        ),
-        (
-            "/rules/0/experiment_id",
-            json!("42"),
-            ParseError::Malformed("experiment_id"),
+            ParseError::Malformed("rule"),
         ),
         (
             "/rules/0/paused",
@@ -809,7 +785,12 @@ fn experiment_rule_contract_violations_reject_the_whole_flag() {
         (
             "/rules/0/holdout/id",
             json!(7),
-            ParseError::Malformed("holdout.id"),
+            ParseError::Malformed("holdout"),
+        ),
+        (
+            "/rules/0/holdout/id",
+            Value::Null,
+            ParseError::Malformed("holdout"),
         ),
         (
             "/rules/0/holdout/seed",
@@ -915,13 +896,9 @@ fn experiment_rule_contract_violations_reject_the_whole_flag() {
         assert_eq!(serde_json::to_value(&flag).unwrap()["filters"], document);
     }
     for (pointer, expected) in [
-        (
-            "/rules/0/experiment_id",
-            ParseError::Malformed("experiment_id"),
-        ),
         ("/rules/0/paused", ParseError::Malformed("paused")),
         ("/rules/0/variants", ParseError::Malformed("variants")),
-        ("/rules/0/holdout/id", ParseError::Malformed("id")),
+        ("/rules/0/holdout/seed", ParseError::Malformed("seed")),
     ] {
         let mut document = experiment();
         let (parent, key) = pointer.rsplit_once('/').unwrap();
