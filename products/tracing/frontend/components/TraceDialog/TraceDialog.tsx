@@ -8,7 +8,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
-import { TRACE_DIALOG_MAX_SPANS, traceDialogLogic } from './traceDialogLogic'
+import { traceDialogLogic } from './traceDialogLogic'
 import { TraceDialogSpanTree } from './TraceDialogSpanTree'
 
 export function TraceDialog(): JSX.Element | null {
@@ -62,8 +62,8 @@ export function TraceDialog(): JSX.Element | null {
             <div className="flex flex-col gap-2 h-[65vh]">
                 {traceSpans?.truncated && (
                     <LemonBanner type="info">
-                        Showing the first {TRACE_DIALOG_MAX_SPANS.toLocaleString()} spans. Open this trace in Tracing to
-                        see all of them.
+                        Showing the first {summary.spanCount.toLocaleString()} spans. Open this trace in Tracing to see
+                        all of them.
                     </LemonBanner>
                 )}
                 {traceSpansLoading ? (

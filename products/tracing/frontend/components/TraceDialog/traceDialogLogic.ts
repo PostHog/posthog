@@ -5,6 +5,7 @@ import type { LocationChangedPayload } from 'kea-router/lib/types'
 
 import api from 'lib/api'
 import type { TraceLinkParams } from 'lib/components/ViewTraceButton/traceUrl'
+import { usableId } from 'lib/components/ViewTraceButton/usableId'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,16 +15,17 @@ import { resolveTraceLookupRange } from 'products/tracing/frontend/traceLinks'
 import { buildServiceColorMap } from 'products/tracing/frontend/TraceWaterfallView'
 import type { Span } from 'products/tracing/frontend/types'
 
-// Matches the trace endpoint's page size. The dialog stops paging at the cap, and bigger traces open in
+// The trace endpoint pages at 2,000 spans, so this caps the dialog at 10,000. Bigger traces open in
 // Tracing, which pages in on scroll.
-const TRACE_PAGE_SIZE = 2_000
 const TRACE_DIALOG_MAX_PAGES = 5
-export const TRACE_DIALOG_MAX_SPANS = TRACE_PAGE_SIZE * TRACE_DIALOG_MAX_PAGES
 
 // The trace API returns hex span ids in uppercase, and logs and metrics carry them in lowercase. The
 // dialog matches the opened span against the loaded spans exactly, so it keeps the API's case.
 function inApiCase(spanId: string | null | undefined): string | null {
-    return spanId ? (/^[0-9a-f]+$/i.test(spanId) ? spanId.toUpperCase() : spanId) : null
+    if (!spanId) {
+        return null
+    }
+    return usableId(spanId) ? spanId.toUpperCase() : spanId
 }
 
 export interface TraceDialogSpans {
