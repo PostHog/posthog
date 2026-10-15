@@ -97,7 +97,6 @@ export const AGENT_USE_CASE_SCOPES = [
     'marketing_analytics:write',
     'mcp_analytics:read',
     'mcp_analytics:write',
-    'mcp_event_subscription:write',
     'mcp_registry:read',
     'metrics:read',
     'notebook:read',
