@@ -1,13 +1,19 @@
-import json
-from typing import Any, Optional
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
-
-from requests import Response
+from unittest.mock import MagicMock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.worldbank import (
+    WorldBankSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.source import WorldBankSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import (
     DATA_SELECTOR,
     MAX_INDICATOR_CODES,
@@ -15,23 +21,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank
     WorldBankResumeConfig,
     check_indicator_codes,
     validate_credentials,
-    world_bank_source,
 )
-
-SESSION_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 
 
 def _payload(rows: Any, pages: Any = 1, page: Any = 1) -> list[Any]:
     return [{"page": page, "pages": pages, "per_page": "1000", "total": 1}, rows]
-
-
-def _http_response(body: Any, status_code: int = 200) -> Response:
-    response = Response()
-    response.status_code = status_code
-    response._content = json.dumps(body).encode()
-    response.headers["Content-Type"] = "application/json"
-    response.url = "https://api.worldbank.org/v2/country"
-    return response
 
 
 def _meta_response(pages: Any) -> MagicMock:
@@ -123,82 +117,49 @@ class TestRequiredDataSelector:
 
 
 class TestWorldBankSourceTransport:
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        indicator_codes: Optional[list[str]] = None,
-    ) -> tuple[list[dict[str, Any]], list[str], list[list[dict[str, Any]]]]:
-        sent_params: list[dict[str, Any]] = []
-        sent_urls: list[str] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            sent_urls.append(request.url)
-            return next(response_iter)
-
-        with patch(SESSION_PATH) as MockSession:
-            session = MockSession.return_value
-            session.headers = {}
-            session.prepare_request.side_effect = lambda request: request
-            session.send.side_effect = fake_send
-
-            pages = list(
-                world_bank_source(
-                    endpoint=endpoint,
-                    indicator_codes=indicator_codes or [],
-                    api_version="v2",
-                    team_id=123,
-                    job_id="job-id",
-                    resumable_source_manager=manager,
-                )
-            )
-
-        return sent_params, sent_urls, pages
+    @staticmethod
+    def _driver(indicator_codes: str = "") -> SourceDriver:
+        return SourceDriver(WorldBankSource(), WorldBankSourceConfig(indicator_codes=indicator_codes))
 
     def test_indicator_data_checkpoints_the_next_code_when_one_finishes(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        self._drive(
+        result = self._driver("A\nB").run(
             "indicator_data",
-            manager,
             [
-                _http_response(
-                    _payload([{"indicator": {"id": "A"}, "country": {"id": "US"}, "date": "2024"}], pages=2)
+                ScriptedResponse(
+                    json=_payload([{"indicator": {"id": "A"}, "country": {"id": "US"}, "date": "2024"}], pages=2)
                 ),
-                _http_response(
-                    _payload([{"indicator": {"id": "A"}, "country": {"id": "US"}, "date": "2023"}], pages=2, page=2)
+                ScriptedResponse(
+                    json=_payload(
+                        [{"indicator": {"id": "A"}, "country": {"id": "US"}, "date": "2023"}], pages=2, page=2
+                    )
                 ),
-                _http_response(_payload([{"indicator": {"id": "B"}, "country": {"id": "US"}, "date": "2024"}])),
+                ScriptedResponse(json=_payload([{"indicator": {"id": "B"}, "country": {"id": "US"}, "date": "2024"}])),
             ],
-            indicator_codes=["A", "B"],
         )
 
         # Mid-code checkpoints carry the next page; finishing a code moves to the next one so a
         # restart doesn't re-walk codes that already completed.
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [
+        assert result.saved_states == [
             WorldBankResumeConfig(page=2, indicator_index=0),
             WorldBankResumeConfig(page=1, indicator_index=1),
             WorldBankResumeConfig(page=1, indicator_index=2),
         ]
 
     def test_indicator_data_resume_skips_completed_codes(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = WorldBankResumeConfig(page=3, indicator_index=1)
-
-        sent_params, sent_urls, _ = self._drive(
+        result = self._driver("A\nB").run(
             "indicator_data",
-            manager,
-            [_http_response(_payload([{"indicator": {"id": "B"}, "country": {"id": "US"}, "date": "2024"}], pages=3))],
-            indicator_codes=["A", "B"],
+            [
+                ScriptedResponse(
+                    json=_payload([{"indicator": {"id": "B"}, "country": {"id": "US"}, "date": "2024"}], pages=3)
+                )
+            ],
+            resume_state=WorldBankResumeConfig(page=3, indicator_index=1),
         )
 
-        assert sent_urls == ["https://api.worldbank.org/v2/country/all/indicator/B"]
-        assert [params["page"] for params in sent_params] == [3]
+        assert [request.origin + request.path for request in result.requests] == [
+            "https://api.worldbank.org/v2/country/all/indicator/B"
+        ]
+        assert result.params("page") == ["3"]
 
     @pytest.mark.parametrize(
         "indicator_codes",
@@ -209,22 +170,17 @@ class TestWorldBankSourceTransport:
     ) -> None:
         # Validation runs at source-create, but a config saved before the cap existed (or through
         # anything but the form) would otherwise fan out unbounded on every refresh.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver("\n".join(indicator_codes)).run("indicator_data", [])
 
-        with pytest.raises(ValueError) as excinfo:
-            self._drive("indicator_data", manager, [], indicator_codes=indicator_codes)
-
-        assert "World Bank source misconfigured" in str(excinfo.value)
-        manager.load_state.assert_not_called()
+        assert isinstance(result.raised, ValueError)
+        assert "World Bank source misconfigured" in str(result.raised)
+        assert result.requests == []
 
 
 class TestValidateCredentials:
-    def _validate(self, codes: list[str], responses: list[Response]) -> tuple[bool, Optional[str]]:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.side_effect = responses
+    @staticmethod
+    def _validate(codes: list[str], responses: list[ScriptedResponse]) -> tuple[bool, str | None]:
+        with scripted_network(responses):
             return validate_credentials(codes, "v2")
 
     def test_rejects_an_empty_code_list(self) -> None:
@@ -243,7 +199,7 @@ class TestValidateCredentials:
 
     def test_accepts_known_codes(self) -> None:
         ok, error = self._validate(
-            ["SP.POP.TOTL"], [_http_response(_payload([{"id": "SP.POP.TOTL", "name": "Population, total"}]))]
+            ["SP.POP.TOTL"], [ScriptedResponse(json=_payload([{"id": "SP.POP.TOTL", "name": "Population, total"}]))]
         )
 
         assert (ok, error) == (True, None)
@@ -254,8 +210,8 @@ class TestValidateCredentials:
         ok, error = self._validate(
             ["SP.POP.TOTL", "NOT.A.CODE"],
             [
-                _http_response(_payload([{"id": "SP.POP.TOTL"}])),
-                _http_response([{"message": [{"id": "120", "key": "Invalid value"}]}]),
+                ScriptedResponse(json=_payload([{"id": "SP.POP.TOTL"}])),
+                ScriptedResponse(json=[{"message": [{"id": "120", "key": "Invalid value"}]}]),
             ],
         )
 
@@ -264,18 +220,15 @@ class TestValidateCredentials:
 
     @pytest.mark.parametrize("status_code", [403, 429, 500, 503])
     def test_reports_an_unreachable_api(self, status_code: int) -> None:
-        ok, error = self._validate(["SP.POP.TOTL"], [_http_response([], status_code=status_code)])
+        with scripted_network(always(ScriptedResponse(status=status_code, json=[]))):
+            ok, error = validate_credentials(["SP.POP.TOTL"], "v2")
 
         assert ok is False
         assert error == "Could not reach the World Bank Indicators API. Please try again."
 
     def test_reports_a_non_json_response(self) -> None:
         # The World Bank fronts the API with a WAF that answers HTML on a block.
-        html = Response()
-        html.status_code = 200
-        html._content = b"<!DOCTYPE html><html></html>"
-
-        ok, error = self._validate(["SP.POP.TOTL"], [html])
+        ok, error = self._validate(["SP.POP.TOTL"], [ScriptedResponse(body=b"<!DOCTYPE html><html></html>")])
 
         assert ok is False
         assert error == "The World Bank Indicators API returned an unexpected response. Please try again."

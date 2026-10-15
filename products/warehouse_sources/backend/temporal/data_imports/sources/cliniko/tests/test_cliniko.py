@@ -1,24 +1,27 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.cliniko import (
     ClinikoResumeConfig,
     _to_iso8601,
     base_url,
-    cliniko_source,
     get_resource,
     shard_from_api_key,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.source import ClinikoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cliniko import (
+    ClinikoSourceConfig,
+)
 
 
 class TestShardDetection:
@@ -69,140 +72,78 @@ class TestGetResource:
         assert q_filter["convert"](datetime(2024, 1, 1, tzinfo=UTC)) == "updated_at:>2024-01-01T00:00:00Z"
 
 
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
 class TestClinikoSourceResumeBehavior:
-    """End-to-end resume behaviour of ``cliniko_source`` via ``rest_api_resource``."""
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(ClinikoSource(), ClinikoSourceConfig(api_key="test-key-au1"))
 
-    def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response], should_use_incremental_field: bool = False
-    ) -> tuple[list[str], list[dict[str, Any]]]:
-        """Drive ``cliniko_source`` with a mocked HTTP session.
-
-        Returns ``(sent_urls, sent_params)`` captured at send-time — the underlying Request
-        object is mutated in-place by the paginator between pages.
-        """
-        sent_urls: list[str] = []
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_urls.append(request.url)
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        # `_client_config` now passes an explicit `capture=False` session (see the module docstring
-        # on why), so the session comes from cliniko's own `make_tracked_session` import rather than
-        # `RESTClient`'s internal default.
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.cliniko.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            source_response = cliniko_source(
-                api_key="test-key-au1",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=None,
-            )
-            list(cast(Iterable[Any], source_response.items()))
-            return sent_urls, sent_params
+    @staticmethod
+    def _page(endpoint: str, rows: list[dict[str, str]], next_url: str | None = None) -> ScriptedResponse:
+        return ScriptedResponse(json={endpoint: rows, "links": {"next": next_url} if next_url else {}})
 
     def test_fresh_run_follows_links_next_and_saves_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(
-                {
-                    "patients": [{"id": "1"}],
-                    "links": {"next": "https://api.au1.cliniko.com/v1/patients?page=2"},
-                }
-            ),
-            _make_http_response(
-                {
-                    "patients": [{"id": "2"}],
-                    "links": {"next": "https://api.au1.cliniko.com/v1/patients?page=3"},
-                }
-            ),
-            _make_http_response({"patients": [{"id": "3"}], "links": {}}),
-        ]
-        sent_urls, sent_params = self._drive("patients", manager, responses)
+        result = self._driver().run(
+            "patients",
+            [
+                self._page("patients", [{"id": "1"}], "https://api.au1.cliniko.com/v1/patients?page=2"),
+                self._page("patients", [{"id": "2"}], "https://api.au1.cliniko.com/v1/patients?page=3"),
+                self._page("patients", [{"id": "3"}]),
+            ],
+        )
 
         # The first request is built from the endpoint config (path + params); the
         # paginator only takes over the URL once a `links.next` has been seen.
-        assert sent_urls == [
-            "https://api.au1.cliniko.com/v1/patients",
+        assert result.paths == ["/v1/patients"] * 3
+        assert result.urls[0].startswith("https://api.au1.cliniko.com/v1/patients?")
+        assert result.urls[1:] == [
             "https://api.au1.cliniko.com/v1/patients?page=2",
             "https://api.au1.cliniko.com/v1/patients?page=3",
         ]
-        assert sent_params[0] == {"per_page": 100, "sort": "created_at:asc"}
+        assert result.queries[0] == {"per_page": ("100",), "sort": ("created_at:asc",)}
         # Subsequent requests carry no separate params — the next-page URL is self-contained.
-        assert sent_params[1] == {}
-        assert sent_params[2] == {}
+        assert result.queries[1:] == [{"page": ("2",)}, {"page": ("3",)}]
 
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert result.rows == [{"id": "1"}, {"id": "2"}, {"id": "3"}]
+        assert result.raised is None
+        assert result.saved_states == [
             ClinikoResumeConfig(next_url="https://api.au1.cliniko.com/v1/patients?page=2"),
             ClinikoResumeConfig(next_url="https://api.au1.cliniko.com/v1/patients?page=3"),
         ]
 
     def test_resume_seeds_paginator_with_saved_next_url(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = ClinikoResumeConfig(next_url="https://api.au1.cliniko.com/v1/patients?page=5")
+        result = self._driver().run(
+            "patients",
+            [self._page("patients", [{"id": "resumed"}])],
+            resume_state=ClinikoResumeConfig(next_url="https://api.au1.cliniko.com/v1/patients?page=5"),
+        )
 
-        responses = [_make_http_response({"patients": [{"id": "resumed"}], "links": {}})]
-        sent_urls, _ = self._drive("patients", manager, responses)
-
-        assert sent_urls == ["https://api.au1.cliniko.com/v1/patients?page=5"]
-        manager.load_state.assert_called_once()
+        assert result.urls == ["https://api.au1.cliniko.com/v1/patients?page=5"]
+        assert result.rows == [{"id": "resumed"}]
+        assert result.raised is None
 
     def test_incremental_run_sends_updated_at_filter(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "invoices",
+            [self._page("invoices", [{"id": "1"}])],
+            should_use_incremental_field=True,
+        )
 
-        responses = [_make_http_response({"invoices": [{"id": "1"}], "links": {}})]
-        _, sent_params = self._drive("invoices", manager, responses, should_use_incremental_field=True)
-
-        assert sent_params[0]["q[]"] == "updated_at:>1970-01-01T00:00:00Z"
-        assert sent_params[0]["sort"] == "updated_at:asc"
+        assert result.requests[0].param("q[]") == "updated_at:>1970-01-01T00:00:00Z"
+        assert result.requests[0].param("sort") == "updated_at:asc"
+        assert result.raised is None
 
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(("status_code", "expected"), [(200, True), (401, False), (403, False), (429, False)])
     def test_status_code_maps_to_validity(self, status_code: int, expected: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.cliniko.make_tracked_session"
-        ) as mock_make_session:
-            mock_session = mock_make_session.return_value
-            mock_session.get.return_value = MagicMock(status_code=status_code)
-
+        with scripted_network(always(ScriptedResponse(status=status_code))):
             assert validate_credentials("test-key-au1") is expected
 
     def test_request_carries_required_headers_and_shard_url(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.cliniko.make_tracked_session"
-        ) as mock_make_session:
-            mock_session = mock_make_session.return_value
-            mock_session.get.return_value = MagicMock(status_code=200)
-
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials("test-key-uk1")
 
-            args, kwargs = mock_session.get.call_args
-            assert args[0] == "https://api.uk1.cliniko.com/v1/patients?per_page=1"
-            assert kwargs["headers"]["Accept"] == "application/json"
-            assert "PostHog" in kwargs["headers"]["User-Agent"]
-            assert kwargs["headers"]["Authorization"].startswith("Basic ")
+        assert network.requests_log[0].url == "https://api.uk1.cliniko.com/v1/patients?per_page=1"
+        assert network.requests_log[0].headers["accept"] == "application/json"
+        assert "PostHog" in network.requests_log[0].headers["user-agent"]
+        assert network.requests_log[0].headers["authorization"].startswith("Basic ")

@@ -47,6 +47,7 @@ import {
     MCPToolResultError,
     PostHogApiError,
     PostHogRateLimitError,
+    PostHogTransportError,
     PostHogValidationError,
     ToolInputValidationError,
     wrapError,
@@ -526,6 +527,35 @@ describe('ToolExecutor metrics', () => {
             )
 
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'execute-sql', error_type: 'rate_limited' })
+        })
+
+        it.each([
+            ['a transport error', (error: Error): Error => error],
+            [
+                'a transport error wrapped in a cause chain',
+                (error: Error): Error => wrapError('Failed to get insight', error),
+            ],
+        ])('classifies a request deadline on %s as timeout', async (_label, wrap) => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('insight-query', async () => {
+                    throw wrap(
+                        new PostHogTransportError({
+                            url: 'https://us.posthog.com/api/environments/2/insights/1/',
+                            method: 'GET',
+                            attempts: 1,
+                            retryable: true,
+                            cause: new DOMException('No response within 120 seconds', 'TimeoutError'),
+                        })
+                    )
+                }) as any
+            )
+
+            await executor.handleToolCall(
+                { name: 'insight-query', arguments: {} },
+                makeToolExecutorState([{ name: 'insight-query' }])
+            )
+
+            expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'insight-query', error_type: 'timeout' })
         })
 
         it('records validation_error without starting a timer', async () => {

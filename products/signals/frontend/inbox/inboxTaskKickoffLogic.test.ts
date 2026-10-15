@@ -515,6 +515,13 @@ describe('inboxTaskKickoffLogic', () => {
 
             expect(panel.values.historyExpanded).toBe(false)
             expect(panel.values.activeCreation).toBeNull()
+            // The run keeps working after Back, so the composer must still be able to lead back to it.
+            logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            expect(logic.values.lastReportRun).toEqual({
+                reportId: report.id,
+                taskId: 'report-task',
+                runId: 'report-run',
+            })
         })
     })
 

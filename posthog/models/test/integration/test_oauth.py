@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import jwt
 import requests
@@ -1645,7 +1645,7 @@ class TestPardotIntegrationModel(BaseTest):
     YOUTUBE_ANALYTICS_APP_CLIENT_ID="youtube-client-id",
     YOUTUBE_ANALYTICS_APP_CLIENT_SECRET="youtube-client-secret",
 )
-class TestYouTubeAnalyticsIntegrationModel(BaseTest):
+class TestYouTubeAnalyticsIntegrationModel(SimpleTestCase):
     def test_oauth_config(self):
         config = OauthIntegration.oauth_config_for_kind("youtube-analytics")
 

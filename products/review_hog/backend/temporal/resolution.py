@@ -38,9 +38,10 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.review_hog.backend.facade.enums import ReviewRequestRefusal
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
-from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal
+from products.review_hog.backend.review_request_rules import ResolutionGate
 from products.review_hog.backend.reviewer.artefact_content import ResolutionRunArtefact, ThreadVerdictArtefact
 from products.review_hog.backend.reviewer.constants import (
     MAX_THREADS_PER_RUN,

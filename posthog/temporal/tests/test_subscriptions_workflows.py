@@ -1205,9 +1205,11 @@ async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(t
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="delrec01", name="Delivery record")
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
     context_dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Context dashboard")
-    await sync_to_async(SubscriptionContext.objects.for_team(team.id).create)(
-        team_id=team.id, subscription=subscription, dashboard=context_dashboard
-    )
+    await sync_to_async(
+        lambda: SubscriptionContext.objects.for_team(team.id).create(
+            team_id=team.id, subscription=subscription, dashboard=context_dashboard
+        )
+    )()
 
     env = ActivityEnvironment()
     inputs = CreateDeliveryRecordInputs(

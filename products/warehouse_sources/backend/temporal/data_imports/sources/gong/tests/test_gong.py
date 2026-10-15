@@ -1,78 +1,28 @@
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
-from urllib.parse import unquote
 
-import pytest
 import time_machine
-from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gong import GongSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong import (
     GONG_BASE_URL,
     GongResumeConfig,
     _format_datetime,
     _to_datetime,
-    get_rows,
-    gong_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.gong.source import GongSource
 
 
-class _FakeResponse:
-    def __init__(self, status_code: int = 200, json_data: dict | None = None, text: str = ""):
-        self.status_code = status_code
-        self._json_data = json_data or {}
-        self.text = text
-
-    @property
-    def ok(self) -> bool:
-        return self.status_code < 400
-
-    def json(self) -> dict:
-        return self._json_data
-
-    def raise_for_status(self) -> None:
-        if not self.ok:
-            raise Exception(f"{self.status_code} Client Error for url: {GONG_BASE_URL}")
-
-
-class _FakeSession:
-    """Records requested URLs (and POST bodies) and replays a queue of responses."""
-
-    def __init__(self, responses: list[_FakeResponse]):
-        self._responses = list(responses)
-        self.requested_urls: list[str] = []
-        self.posted_bodies: list[dict | None] = []
-
-    def get(self, url: str, headers: dict | None = None, timeout: int | None = None) -> _FakeResponse:
-        self.requested_urls.append(url)
-        return self._responses.pop(0)
-
-    def post(
-        self, url: str, headers: dict | None = None, json: dict | None = None, timeout: int | None = None
-    ) -> _FakeResponse:
-        self.requested_urls.append(url)
-        self.posted_bodies.append(json)
-        return self._responses.pop(0)
-
-
-class _FakeResumableManager(ResumableSourceManager[GongResumeConfig]):
-    """In-memory stand-in for the Redis-backed manager (no `super().__init__`)."""
-
-    def __init__(self, resume_state: GongResumeConfig | None = None):
-        self._resume_state = resume_state
-        self.saved_states: list[GongResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._resume_state is not None
-
-    def load_state(self) -> GongResumeConfig | None:
-        return self._resume_state
-
-    def save_state(self, data: GongResumeConfig) -> None:
-        self.saved_states.append(data)
+def _driver() -> SourceDriver:
+    return SourceDriver(GongSource(), GongSourceConfig(access_key="key", access_key_secret="secret"))
 
 
 class TestFormatDatetime:
@@ -119,46 +69,30 @@ class TestValidateCredentials:
     def test_validate_credentials(
         self, _name: str, status_code: int, schema_name: str | None, expected_valid: bool, expected_message: str | None
     ) -> None:
-        session = _FakeSession([_FakeResponse(status_code=status_code)])
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
             is_valid, message = validate_credentials("key", "secret", schema_name)
 
         assert is_valid is expected_valid
         assert message == expected_message
-        assert session.requested_urls == [f"{GONG_BASE_URL}/v2/workspaces"]
+        assert [request.url for request in network.requests_log] == [f"{GONG_BASE_URL}/v2/workspaces"]
 
 
 class TestWindowedCalls:
     def test_cursor_within_window(self) -> None:
         last_value = datetime.now(UTC) - timedelta(days=5)
-        responses = [
-            _FakeResponse(json_data={"calls": [{"id": "c1"}], "records": {"cursor": "page2"}}),
-            _FakeResponse(json_data={"calls": [{"id": "c2"}]}),
-        ]
-        session = _FakeSession(responses)
-        manager = _FakeResumableManager()
+        result = _driver().run(
+            "calls",
+            [
+                ScriptedResponse(json={"calls": [{"id": "c1"}], "records": {"cursor": "page2"}}),
+                ScriptedResponse(json={"calls": [{"id": "c2"}]}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
+        )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    "key",
-                    "secret",
-                    "calls",
-                    mock.MagicMock(),
-                    manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=last_value,
-                )
-            )
-
-        assert batches == [[{"id": "c1"}], [{"id": "c2"}]]
-        assert "cursor=page2" in session.requested_urls[1]
+        assert result.raised is None
+        assert result.items == [[{"id": "c1"}], [{"id": "c2"}]]
+        assert result.params("cursor") == [None, "page2"]
 
     @parameterized.expand(
         [
@@ -179,61 +113,40 @@ class TestWindowedCalls:
     )
     def test_404_handling(self, _name: str, body: str, should_raise: bool) -> None:
         last_value = datetime.now(UTC) - timedelta(days=100)
-        responses = [
-            _FakeResponse(status_code=404, text=body),
-            _FakeResponse(json_data={"calls": [{"id": "c1"}]}),
-        ]
-        session = _FakeSession(responses)
-        manager = _FakeResumableManager()
+        result = _driver().run(
+            "calls",
+            [
+                ScriptedResponse(status=404, body=body.encode()),
+                ScriptedResponse(json={"calls": [{"id": "c1"}]}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
+        )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            rows = get_rows(
-                "key",
-                "secret",
-                "calls",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=last_value,
-            )
-            if should_raise:
-                with pytest.raises(Exception):
-                    list(rows)
-                return
-            batches = list(rows)
-
+        if should_raise:
+            assert isinstance(result.raised, Exception)
+            assert result.paths == ["/v2/calls"]
+            return
         # The empty window yields nothing but does not abort the sync; both windows run.
-        assert batches == [[{"id": "c1"}]]
-        assert len(session.requested_urls) == 2
-        assert len(manager.saved_states) == 2
+        assert result.raised is None
+        assert result.items == [[{"id": "c1"}]]
+        assert len(result.requests) == 2
+        assert len(result.saved_states) == 2
 
     def test_resume_uses_saved_window_start(self) -> None:
         last_value = datetime.now(UTC) - timedelta(days=80)
         resume_start = datetime.now(UTC) - timedelta(days=10)
-        session = _FakeSession([_FakeResponse(json_data={"calls": [{"id": "c1"}]})])
-        manager = _FakeResumableManager(resume_state=GongResumeConfig(window_start=_format_datetime(resume_start)))
+        result = _driver().run(
+            "calls",
+            [ScriptedResponse(json={"calls": [{"id": "c1"}]})],
+            resume_state=GongResumeConfig(window_start=_format_datetime(resume_start)),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
+        )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            list(
-                get_rows(
-                    "key",
-                    "secret",
-                    "calls",
-                    mock.MagicMock(),
-                    manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=last_value,
-                )
-            )
-
+        assert result.raised is None
         # The first request starts from the resumed window, not the DB cursor value.
-        assert f"fromDateTime={_format_datetime(resume_start)}" in unquote(session.requested_urls[0])
+        assert result.requests[0].param("fromDateTime") == _format_datetime(resume_start)
 
 
 class TestGongSource:
@@ -257,8 +170,10 @@ class TestGongSource:
     def test_source_response_shape(
         self, endpoint: str, primary_keys: list[str], partition_key: str | None, sort_mode: str
     ) -> None:
-        response = gong_source("key", "secret", endpoint, mock.MagicMock(), _FakeResumableManager())
+        result = _driver().run(endpoint, [])
+        response = result.response
 
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
@@ -321,10 +236,11 @@ class TestExtensiveCalls:
         expected_columns: dict[str, Any],
     ) -> None:
         last_value = datetime.now(UTC) - timedelta(days=5)
-        session = _FakeSession(
+        result = _driver().run(
+            endpoint,
             [
-                _FakeResponse(
-                    json_data={
+                ScriptedResponse(
+                    json={
                         "calls": [
                             {
                                 "metaData": {"id": "c1", "title": "Discovery", "started": "2026-03-01T00:00:00Z"},
@@ -333,71 +249,44 @@ class TestExtensiveCalls:
                         ]
                     }
                 )
-            ]
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
         )
-        manager = _FakeResumableManager()
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    "key",
-                    "secret",
-                    endpoint,
-                    mock.MagicMock(),
-                    manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=last_value,
-                )
-            )
-
+        assert result.raised is None
         # metaData is lifted to the top level; only the blocks this table asked for ride along.
-        assert batches == [[{"id": "c1", "title": "Discovery", "started": "2026-03-01T00:00:00Z", **expected_columns}]]
+        assert result.items == [
+            [{"id": "c1", "title": "Discovery", "started": "2026-03-01T00:00:00Z", **expected_columns}]
+        ]
         # A single POST to the extensive endpoint with no query string.
-        assert session.requested_urls == [f"{GONG_BASE_URL}/v2/calls/extensive"]
-        body = session.posted_bodies[0]
-        assert body is not None
+        assert result.paths == ["/v2/calls/extensive"]
+        assert result.requests[0].method == "POST"
+        body = result.requests[0].json()
         assert body["contentSelector"] == expected_selector
         assert body["filter"]["fromDateTime"] == _format_datetime(last_value)
         assert "cursor" not in body
 
     def test_cursor_travels_in_body(self) -> None:
         last_value = datetime.now(UTC) - timedelta(days=5)
-        session = _FakeSession(
+        result = _driver().run(
+            "calls_extensive",
             [
-                _FakeResponse(json_data={"calls": [{"metaData": {"id": "c1"}}], "records": {"cursor": "page2"}}),
-                _FakeResponse(json_data={"calls": [{"metaData": {"id": "c2"}}]}),
-            ]
+                ScriptedResponse(json={"calls": [{"metaData": {"id": "c1"}}], "records": {"cursor": "page2"}}),
+                ScriptedResponse(json={"calls": [{"metaData": {"id": "c2"}}]}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
         )
-        manager = _FakeResumableManager()
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    "key",
-                    "secret",
-                    "calls_extensive",
-                    mock.MagicMock(),
-                    manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=last_value,
-                )
-            )
-
-        assert batches == [
+        assert result.raised is None
+        assert result.items == [
             [{"id": "c1", "parties": None, "context": None}],
             [{"id": "c2", "parties": None, "context": None}],
         ]
         # The cursor is sent in the second request's body, never as a query param.
-        second_body = session.posted_bodies[1]
-        assert second_body is not None
-        assert second_body["cursor"] == "page2"
-        assert all("?" not in url for url in session.requested_urls)
+        assert result.requests[1].json()["cursor"] == "page2"
+        assert result.params("cursor") == [None, None]
 
     @parameterized.expand(
         [
@@ -417,74 +306,55 @@ class TestExtensiveCalls:
     def test_response_body_capture_per_endpoint(
         self, endpoint: str, payloads: list[dict], expected_capture: bool
     ) -> None:
-        session = _FakeSession([_FakeResponse(json_data=payload) for payload in payloads])
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json=payload) for payload in payloads],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime.now(UTC) - timedelta(days=5),
+        )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ) as session_factory:
-            list(
-                get_rows(
-                    "key",
-                    "secret",
-                    endpoint,
-                    mock.MagicMock(),
-                    _FakeResumableManager(),
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=datetime.now(UTC) - timedelta(days=5),
-                )
-            )
-
-        assert session_factory.call_args.kwargs["capture"] is expected_capture
+        assert result.raised is None
+        assert result.session_options
+        assert all(options["capture"] is expected_capture for options in result.session_options)
 
 
 class TestTranscripts:
     def test_drives_from_calls_and_stamps_each_transcript_with_its_call_start(self) -> None:
         last_value = datetime.now(UTC) - timedelta(days=5)
-        session = _FakeSession(
+        result = _driver().run(
+            "transcripts",
             [
-                _FakeResponse(
-                    json_data={
+                ScriptedResponse(
+                    json={
                         "calls": [{"id": "c1", "started": "2026-03-01T00:00:00Z"}],
                         "records": {"cursor": "calls-page2"},
                     }
                 ),
-                _FakeResponse(json_data={"callTranscripts": [{"callId": "c1", "transcript": [{"speakerId": "u1"}]}]}),
-                _FakeResponse(json_data={"calls": [{"id": "c2", "started": "2026-03-02T00:00:00Z"}]}),
-                _FakeResponse(json_data={"callTranscripts": [{"callId": "c2", "transcript": []}]}),
-            ]
+                ScriptedResponse(json={"callTranscripts": [{"callId": "c1", "transcript": [{"speakerId": "u1"}]}]}),
+                ScriptedResponse(json={"calls": [{"id": "c2", "started": "2026-03-02T00:00:00Z"}]}),
+                ScriptedResponse(json={"callTranscripts": [{"callId": "c2", "transcript": []}]}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
         )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    "key",
-                    "secret",
-                    "transcripts",
-                    mock.MagicMock(),
-                    _FakeResumableManager(),
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=last_value,
-                )
-            )
-
+        assert result.raised is None
         # `started` comes from the call the transcript belongs to — the transcript response has no
         # date of its own, so without it the table can't sync incrementally or partition.
-        assert batches == [
+        assert result.items == [
             [{"callId": "c1", "transcript": [{"speakerId": "u1"}], "started": "2026-03-01T00:00:00Z"}],
             [{"callId": "c2", "transcript": [], "started": "2026-03-02T00:00:00Z"}],
         ]
         # Every page of the calls walk drives its own transcript request, so a second page of calls
         # isn't dropped.
-        assert f"fromDateTime={_format_datetime(last_value)}" in unquote(session.requested_urls[0])
-        assert session.requested_urls[1] == f"{GONG_BASE_URL}/v2/calls/transcript"
-        assert "cursor=calls-page2" in session.requested_urls[2]
-        assert session.requested_urls[3] == f"{GONG_BASE_URL}/v2/calls/transcript"
+        assert result.paths == ["/v2/calls", "/v2/calls/transcript", "/v2/calls", "/v2/calls/transcript"]
+        assert result.requests[0].param("fromDateTime") == _format_datetime(last_value)
+        assert result.requests[2].param("cursor") == "calls-page2"
         # Each request asks only for the ids on the page that drove it.
-        assert [body["filter"]["callIds"] for body in session.posted_bodies if body] == [["c1"], ["c2"]]
+        assert [request.json()["filter"]["callIds"] for request in result.requests if request.method == "POST"] == [
+            ["c1"],
+            ["c2"],
+        ]
 
     @parameterized.expand(
         [
@@ -501,70 +371,42 @@ class TestTranscripts:
     def test_unstampable_transcript_stops_the_sync(
         self, _name: str, calls: list[dict], transcripts: list[dict]
     ) -> None:
-        session = _FakeSession(
-            [
-                _FakeResponse(json_data={"calls": calls}),
-                _FakeResponse(json_data={"callTranscripts": transcripts}),
-            ]
+        result = _driver().run(
+            "transcripts",
+            [ScriptedResponse(json={"calls": calls}), ScriptedResponse(json={"callTranscripts": transcripts})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime.now(UTC) - timedelta(days=5),
         )
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            rows = get_rows(
-                "key",
-                "secret",
-                "transcripts",
-                mock.MagicMock(),
-                _FakeResumableManager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime.now(UTC) - timedelta(days=5),
-            )
-            # Writing the row with `started=None` would bury it in the fallback partition and keep
-            # it out of the watermark, so no later run would ever correct it.
-            with pytest.raises(ValueError):
-                list(rows)
+        # Writing the row with `started=None` would bury it in the fallback partition and keep
+        # it out of the watermark, so no later run would ever correct it.
+        assert isinstance(result.raised, ValueError)
 
 
 class TestDateFilteredStats:
     @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
     def test_interaction_stats_request_one_day_at_a_time_and_stamp_the_day(self) -> None:
-        session = _FakeSession(
+        result = _driver().run(
+            "interaction_stats",
             [
-                _FakeResponse(json_data={"peopleInteractionStats": [{"userId": "u1"}]}),
-                _FakeResponse(
-                    status_code=404,
-                    text='{"errors":["No users found corresponding to the provided filters"]}',
+                ScriptedResponse(json={"peopleInteractionStats": [{"userId": "u1"}]}),
+                ScriptedResponse(
+                    status=404, body=b'{"errors":["No users found corresponding to the provided filters"]}'
                 ),
-                _FakeResponse(json_data={"peopleInteractionStats": [{"userId": "u1"}, {"userId": "u2"}]}),
-            ]
+                ScriptedResponse(json={"peopleInteractionStats": [{"userId": "u1"}, {"userId": "u2"}]}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 3, 7),
         )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    "key",
-                    "secret",
-                    "interaction_stats",
-                    mock.MagicMock(),
-                    _FakeResumableManager(),
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=date(2026, 3, 7),
-                )
-            )
-
+        assert result.raised is None
         # Gong aggregates over the whole range it is asked for, so one-day windows are what make
         # each row one user's stats for one day.
-        assert [body["filter"] for body in session.posted_bodies if body] == [
+        assert [request.json()["filter"] for request in result.requests] == [
             {"fromDate": "2026-03-06", "toDate": "2026-03-07"},
             {"fromDate": "2026-03-07", "toDate": "2026-03-08"},
             {"fromDate": "2026-03-08", "toDate": "2026-03-09"},
         ]
-        assert batches == [
+        assert result.items == [
             [{"userId": "u1", "day": "2026-03-06"}],
             [{"userId": "u1", "day": "2026-03-08"}, {"userId": "u2", "day": "2026-03-08"}],
         ]
@@ -572,32 +414,23 @@ class TestDateFilteredStats:
     @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
     def test_unchanged_cursor_stops_the_sync(self) -> None:
         page = {"answeredScorecards": [{"answeredScorecardId": 1}], "records": {"cursor": "same"}}
-        session = _FakeSession([_FakeResponse(json_data=page), _FakeResponse(json_data=page)])
+        result = _driver().run(
+            "answered_scorecards",
+            [ScriptedResponse(json=page), ScriptedResponse(json=page)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-03-05T18:30:00Z",
+        )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            rows = get_rows(
-                "key",
-                "secret",
-                "answered_scorecards",
-                mock.MagicMock(),
-                _FakeResumableManager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2026-03-05T18:30:00Z",
-            )
-            with pytest.raises(ValueError):
-                list(rows)
-
-        assert len(session.requested_urls) == 2
+        assert isinstance(result.raised, ValueError)
+        assert len(result.requests) == 2
 
     @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
     def test_daily_activity_turns_each_users_days_into_rows(self) -> None:
-        session = _FakeSession(
+        result = _driver().run(
+            "daily_activity",
             [
-                _FakeResponse(
-                    json_data={
+                ScriptedResponse(
+                    json={
                         "usersDetailedActivities": [
                             {
                                 "userId": "u1",
@@ -611,27 +444,16 @@ class TestDateFilteredStats:
                         ]
                     }
                 ),
-            ]
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-03-07T08:00:00Z",
         )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    "key",
-                    "secret",
-                    "daily_activity",
-                    mock.MagicMock(),
-                    _FakeResumableManager(),
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value="2026-03-07T08:00:00Z",
-                )
-            )
-
-        assert session.posted_bodies == [{"filter": {"fromDate": "2026-03-06", "toDate": "2026-03-09"}}]
-        assert batches == [
+        assert result.raised is None
+        assert [request.json() for request in result.requests] == [
+            {"filter": {"fromDate": "2026-03-06", "toDate": "2026-03-09"}}
+        ]
+        assert result.items == [
             [
                 {
                     "userId": "u1",
@@ -651,33 +473,27 @@ class TestDateFilteredStats:
 
 class TestFanOut:
     def test_library_folder_calls_are_stamped_with_their_folder_and_an_emptied_folder_is_skipped(self) -> None:
-        session = _FakeSession(
+        result = _driver().run(
+            "library_folder_calls",
             [
-                _FakeResponse(json_data={"folders": [{"id": "f1"}, {"id": "f2"}]}),
-                _FakeResponse(status_code=404, text='{"errors":["No folders found for the specified period"]}'),
-                _FakeResponse(json_data={"id": "f2", "calls": [{"id": "c1", "created": "2026-01-01T00:00:00Z"}]}),
-            ]
+                ScriptedResponse(json={"folders": [{"id": "f1"}, {"id": "f2"}]}),
+                ScriptedResponse(status=404, body=b'{"errors":["No folders found for the specified period"]}'),
+                ScriptedResponse(json={"id": "f2", "calls": [{"id": "c1", "created": "2026-01-01T00:00:00Z"}]}),
+            ],
         )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(get_rows("key", "secret", "library_folder_calls", mock.MagicMock(), _FakeResumableManager()))
-
-        assert session.requested_urls == [
-            f"{GONG_BASE_URL}/v2/library/folders",
-            f"{GONG_BASE_URL}/v2/library/folder-content?folderId=f1",
-            f"{GONG_BASE_URL}/v2/library/folder-content?folderId=f2",
-        ]
-        assert batches == [[{"id": "c1", "created": "2026-01-01T00:00:00Z", "folderId": "f2"}]]
+        assert result.raised is None
+        assert result.paths == ["/v2/library/folders", "/v2/library/folder-content", "/v2/library/folder-content"]
+        assert result.params("folderId") == [None, "f1", "f2"]
+        assert result.items == [[{"id": "c1", "created": "2026-01-01T00:00:00Z", "folderId": "f2"}]]
 
     def test_flows_are_listed_per_active_user_and_kept_once(self) -> None:
         company_flow = {"id": "company", "visibility": "Company"}
-        session = _FakeSession(
+        result = _driver().run(
+            "flows",
             [
-                _FakeResponse(
-                    json_data={
+                ScriptedResponse(
+                    json={
                         "users": [
                             {"id": "u1", "emailAddress": "one@example.com", "active": True},
                             {"id": "u2", "emailAddress": "gone@example.com", "active": False},
@@ -685,24 +501,21 @@ class TestFanOut:
                         "records": {"cursor": "users2"},
                     }
                 ),
-                _FakeResponse(json_data={"flows": [company_flow, {"id": "mine", "visibility": "Personal"}]}),
-                _FakeResponse(json_data={"users": [{"id": "u3", "emailAddress": "three@example.com", "active": True}]}),
-                _FakeResponse(json_data={"flows": [company_flow], "records": {"cursor": "flows2"}}),
-                _FakeResponse(json_data={"flows": [{"id": "shared", "visibility": "Shared"}]}),
-            ]
+                ScriptedResponse(json={"flows": [company_flow, {"id": "mine", "visibility": "Personal"}]}),
+                ScriptedResponse(json={"users": [{"id": "u3", "emailAddress": "three@example.com", "active": True}]}),
+                ScriptedResponse(json={"flows": [company_flow], "records": {"cursor": "flows2"}}),
+                ScriptedResponse(json={"flows": [{"id": "shared", "visibility": "Shared"}]}),
+            ],
         )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(get_rows("key", "secret", "flows", mock.MagicMock(), _FakeResumableManager()))
-
-        assert [unquote(url) for url in session.requested_urls] == [
-            f"{GONG_BASE_URL}/v2/users",
-            f"{GONG_BASE_URL}/v2/flows?flowOwnerEmail=one@example.com",
-            f"{GONG_BASE_URL}/v2/users?cursor=users2",
-            f"{GONG_BASE_URL}/v2/flows?flowOwnerEmail=three@example.com",
-            f"{GONG_BASE_URL}/v2/flows?flowOwnerEmail=three@example.com&cursor=flows2",
+        assert result.raised is None
+        assert result.paths == ["/v2/users", "/v2/flows", "/v2/users", "/v2/flows", "/v2/flows"]
+        assert result.params("flowOwnerEmail") == [
+            None,
+            "one@example.com",
+            None,
+            "three@example.com",
+            "three@example.com",
         ]
-        assert [row["id"] for batch in batches for row in batch] == ["company", "mine", "shared"]
+        assert result.params("cursor") == [None, None, "users2", None, "flows2"]
+        assert [row["id"] for row in result.rows] == ["company", "mine", "shared"]

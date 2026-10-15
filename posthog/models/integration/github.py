@@ -306,6 +306,7 @@ class GitHubIntegration(GitHubIntegrationBase):
             source="integration",
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         if user_response.status_code != 200:
             logger.warning("GitHubIntegration: /user request failed", status_code=user_response.status_code)
@@ -333,8 +334,8 @@ class GitHubIntegration(GitHubIntegrationBase):
         team_id: int,
         repository: str,
         *,
-        source: str | None = None,
-        priority: Priority | None = None,
+        source: str,
+        priority: Priority,
     ) -> "GitHubIntegration | None":
         """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``).
 
@@ -365,16 +366,12 @@ class GitHubIntegration(GitHubIntegrationBase):
             raise exhausted
         return None
 
-    def __init__(
-        self, integration: model.Integration, *, source: str | None = None, priority: Priority | None = None
-    ) -> None:
+    def __init__(self, integration: model.Integration, *, source: str, priority: Priority) -> None:
         if integration.kind != "github":
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
-        if source is not None:
-            self.source = source
-        if priority is not None:
-            self.priority = priority
+        self.source = source
+        self.priority = priority
 
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         logger.warning(f"Failed to refresh token for {self}", response=response.text)

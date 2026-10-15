@@ -3,6 +3,10 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.source import ClockodoSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockodo import (
     ClockodoSourceConfig,
 )
@@ -15,13 +19,11 @@ def _config() -> ClockodoSourceConfig:
 class TestClockodoSource:
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])
     def test_validate_credentials(self, _name: str, probe_result: bool, expected_ok: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.source.validate_clockodo_credentials",
-            return_value=probe_result,
-        ):
+        with scripted_network([ScriptedResponse(status=200 if probe_result else 401)]) as network:
             ok, error = ClockodoSource().validate_credentials(_config(), team_id=1)
         assert ok is expected_ok
         assert (error is None) is expected_ok
+        assert [request.path for request in network.requests_log] == ["/api/v3/users"]
 
     @parameterized.expand([("unpinned", None, "v3"), ("legacy_pin", "v2", "v2"), ("new_pin", "v3", "v3")])
     def test_source_for_pipeline_threads_resolved_api_version(

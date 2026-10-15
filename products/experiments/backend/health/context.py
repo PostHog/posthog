@@ -57,6 +57,8 @@ class HealthContext:
     is_paused: bool
     archived: bool
     flag: FlagState | None
+    # The baseline set in the experiment's settings. None when unset: the analysis then picks a variant of the flag.
+    baseline_variant_key: str | None
     primary_metric_count: int
     secondary_metric_count: int
     exposures: ExposureTotals | None
@@ -131,6 +133,12 @@ def _load_flag_state(experiment: Experiment) -> FlagState | None:
     )
 
 
+def _configured_baseline_variant_key(stats_config: object) -> str | None:
+    # An empty key counts as unset, as in `get_baseline_variant_key`.
+    key = stats_config.get("baseline_variant_key") if isinstance(stats_config, dict) else None
+    return key if isinstance(key, str) and key else None
+
+
 def load_health_context(experiment: Experiment, exposures: ExposureTotals | None = None) -> HealthContext:
     shared_metric_roles = [saved_metric_link_role(link) for link in saved_metric_links(experiment)]
     return HealthContext(
@@ -140,6 +148,7 @@ def load_health_context(experiment: Experiment, exposures: ExposureTotals | None
         is_paused=experiment.is_paused,
         archived=experiment.archived,
         flag=_load_flag_state(experiment),
+        baseline_variant_key=_configured_baseline_variant_key(experiment.stats_config),
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
         secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),
         exposures=exposures,

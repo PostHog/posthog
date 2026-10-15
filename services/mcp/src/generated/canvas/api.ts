@@ -24,6 +24,7 @@ export const CanvasesListParams = () => zod.object({
 
 export const CanvasesListQueryParams = () => zod.object({
     channel: zod.string().optional().describe('Only return canvases in this channel.'),
+    created_by: zod.string().optional().describe('Only return canvases created by the user with this UUID.'),
     kind: zod
         .enum(['component', 'freeform', 'grid'])
         .optional()

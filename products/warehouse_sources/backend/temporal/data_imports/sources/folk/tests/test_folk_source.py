@@ -1,10 +1,13 @@
-from unittest import mock
-from unittest.mock import MagicMock
-
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.folk import source as folk_source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.folk.source import FolkSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.folk import FolkSourceConfig
 
 
 class TestFolkValidateCredentials:
@@ -25,12 +28,18 @@ class TestFolkValidateCredentials:
     def test_status_mapping(
         self, _name: str, probe_status: int | None, schema_name: str | None, expected_ok: bool
     ) -> None:
-        with mock.patch.object(folk_source_module, "probe_credentials", return_value=probe_status):
+        answer = ConnectionError("connection failed") if probe_status is None else ScriptedResponse(status=probe_status)
+        with scripted_network(always(answer)) as network:
             ok, error = FolkSource().validate_credentials(
-                MagicMock(api_key="folk_test"), team_id=1, schema_name=schema_name
+                FolkSourceConfig(api_key="folk_test"), team_id=1, schema_name=schema_name
             )
+
         assert ok is expected_ok
         assert (error is None) is expected_ok
+        expected_path = "/v1/people" if schema_name else "/v1/users/me"
+        assert {request.path for request in network.requests_log} == {expected_path}
+        if schema_name:
+            assert {request.param("limit") for request in network.requests_log} == {"1"}
 
 
 class TestFolkNonRetryableErrors:
@@ -76,15 +85,13 @@ class TestFolkResumableAndPipeline:
         expected_keys: list[str] | None,
         expected_mode: str | None,
     ) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = endpoint
-        inputs.should_use_incremental_field = False
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-        response = FolkSource().source_for_pipeline(
-            MagicMock(api_key="folk_test"), resumable_source_manager=manager, inputs=inputs
+        result = SourceDriver(FolkSource(), FolkSourceConfig(api_key="folk_test")).run(
+            endpoint, [ScriptedResponse(json={"data": {"items": [], "pagination": {}}})]
         )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == expected_keys
-        assert response.partition_mode == expected_mode
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == ["id"]
+        assert result.response.partition_keys == expected_keys
+        assert result.response.partition_mode == expected_mode

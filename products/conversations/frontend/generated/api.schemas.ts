@@ -658,8 +658,11 @@ export interface ComposeTicketApi {
      * @maxLength 500
      */
     email_subject?: string
-    /** ID of the EmailChannel to send from. */
-    email_config_id: string
+    /**
+     * ID of the support email channel to send from. Omit it to send from the team's default support channel.
+     * @nullable
+     */
+    email_config_id?: string | null
     /**
      * Message content in markdown.
      * @maxLength 5000

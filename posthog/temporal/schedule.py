@@ -119,8 +119,9 @@ from products.growth.backend.temporal.signup_enrichment.schedule import (
     create_harmonic_status_poll_schedule,
     create_icp_reenrichment_sweep_schedule,
 )
-from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
+from products.logs.backend.facade.temporal import disable_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
+from products.metrics.backend.facade.temporal import create_suggested_dashboards_discovery_schedule
 from products.product_analytics.backend.facade.temporal import UpgradeQueriesWorkflowInputs
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
@@ -132,7 +133,7 @@ from products.replay_vision.backend.temporal.read_meter import create_replay_vis
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
-from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
+from products.review_hog.backend.facade.temporal import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.ranking.schedule import create_inbox_ranking_scoring_schedule
@@ -165,6 +166,12 @@ async def create_run_quota_limiting_schedule(client: Client):
 
     This schedule runs every 15 minutes.
     """
+    # Quota limiting queries AI credit usage, which requires a cloud region.
+    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV"):
+        if await a_schedule_exists(client, "run-quota-limiting-schedule"):
+            await a_delete_schedule(client, "run-quota-limiting-schedule")
+        return
+
     run_quota_limiting_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "run-quota-limiting",
@@ -966,7 +973,7 @@ schedules = [
     create_data_catalog_weekly_digest_schedule,
     create_alerts_platform_tick_schedule,
     create_logs_alert_check_schedule,
-    create_logs_volume_tick_schedule,
+    disable_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
@@ -994,6 +1001,7 @@ schedules = [
     create_reconcile_metric_schedules_schedule,
     create_warehouse_suggestions_schedule,
     create_sync_access_rules_schedule,
+    create_suggested_dashboards_discovery_schedule,
 ]
 
 # AI observability summarization and clustering call the cloud-only guard in

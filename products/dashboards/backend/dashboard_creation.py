@@ -72,6 +72,9 @@ class NewDashboard:
     # so a retried job cannot leave two copies of the same dashboard.
     idempotency_key: str
     date_from: str | None = None
+    # An unlisted dashboard stays out of the dashboard list, and its insights stay out of the saved insights list.
+    # The product that created it opens it by id.
+    unlisted: bool = False
 
 
 @frozen
@@ -81,6 +84,18 @@ class CreatedDashboard:
     text_tile_count: int
     # In the order of `NewDashboard.tiles`.
     tile_ids: tuple[int, ...] = ()
+
+
+@frozen
+class DashboardTileSnapshot:
+    """One live tile of a dashboard: an insight tile has a query, a text tile has a body."""
+
+    tile_id: int
+    layout: TileLayout | None
+    name: str = ""
+    description: str = ""
+    query: dict[str, Any] | None = None
+    body: str | None = None
 
 
 def _insight_short_id(idempotency_key: str, index: int) -> str:
@@ -118,6 +133,7 @@ def create_dashboard_with_tiles(*, team_id: int, user_id: int, dashboard: NewDas
             description=dashboard.description,
             created_by=user,
             filters={"date_from": dashboard.date_from} if dashboard.date_from else {},
+            creation_mode=Dashboard.CreationMode.UNLISTED if dashboard.unlisted else Dashboard.CreationMode.DEFAULT,
         )
         for index, tile in enumerate(dashboard.tiles):
             if isinstance(tile, NewInsightTile):
@@ -129,6 +145,7 @@ def create_dashboard_with_tiles(*, team_id: int, user_id: int, dashboard: NewDas
                     description=tile.description,
                     query=tile.query,
                     revive_deleted=False,
+                    saved=not dashboard.unlisted,
                 )
                 if not was_created:
                     raise ValueError("A dashboard was already created with this idempotency key.")
@@ -172,3 +189,48 @@ def move_dashboard_tiles(*, team_id: int, user_id: int, dashboard_id: int, layou
             tile.save(update_fields=["layouts"])
             moved += 1
     return moved
+
+
+def _snapshot_layout(layouts: object) -> TileLayout | None:
+    box = layouts.get("sm") if isinstance(layouts, dict) else None
+    if not isinstance(box, dict):
+        return None
+    try:
+        return TileLayout(x=int(box["x"]), y=int(box["y"]), w=int(box["w"]), h=int(box["h"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def read_dashboard_tiles(*, team_id: int, dashboard_id: int) -> tuple[DashboardTileSnapshot, ...]:
+    """The live insight and text tiles of a dashboard, top to bottom. Other tile kinds are left out."""
+    tiles = (
+        DashboardTile.objects.filter(team_id=team_id, dashboard_id=dashboard_id)
+        .select_related("insight", "text")
+        .order_by("id")
+    )
+    snapshots: list[DashboardTileSnapshot] = []
+    for tile in tiles:
+        layout = _snapshot_layout(tile.layouts)
+        if tile.insight is not None and not tile.insight.deleted:
+            snapshots.append(
+                DashboardTileSnapshot(
+                    tile_id=tile.id,
+                    layout=layout,
+                    name=tile.insight.name or tile.insight.derived_name or "",
+                    description=tile.insight.description or "",
+                    query=tile.insight.query,
+                )
+            )
+        elif tile.text is not None:
+            snapshots.append(DashboardTileSnapshot(tile_id=tile.id, layout=layout, body=tile.text.body or ""))
+    return tuple(
+        sorted(snapshots, key=lambda snapshot: (snapshot.layout.y, snapshot.layout.x) if snapshot.layout else (0, 0))
+    )
+
+
+def delete_unlisted_dashboard(*, team_id: int, dashboard_id: int) -> bool:
+    """Soft-delete an unlisted dashboard that a product created. Returns False when there is no such dashboard."""
+    deleted = Dashboard.objects.filter(
+        team_id=team_id, id=dashboard_id, creation_mode=Dashboard.CreationMode.UNLISTED, deleted=False
+    ).update(deleted=True)
+    return deleted > 0

@@ -17,6 +17,7 @@ def _context(**changes: Any) -> HealthContext:
         "is_paused": False,
         "archived": False,
         "flag": None,
+        "baseline_variant_key": None,
         "primary_metric_count": 0,
         "secondary_metric_count": 0,
         "exposures": None,

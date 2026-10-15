@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -60,6 +61,58 @@ def _credential_fields() -> list[FieldType]:
 
 @SourceRegistry.register
 class KafkaSource(SimpleSource[KafkaSourceConfig], CursorSource[KafkaCursor]):
+    codebase_detection = detect(
+        env=("^KAFKA_",),
+        npm=("kafkajs", "@confluentinc/kafka-javascript", "node-rdkafka"),
+        pypi=("kafka-python", "confluent-kafka", "aiokafka"),
+        cargo=("rdkafka", "librdkafka-sys", "rdkafka-sys"),
+        go=(
+            "github.com/segmentio/kafka-go",
+            "github.com/IBM/sarama",
+            "github.com/confluentinc/confluent-kafka-go",
+            "github.com/twmb/franz-go",
+        ),
+        hex=("brod", "kafka_ex"),
+        maven=(
+            "org.apache.kafka:kafka-clients",
+            "org.apache.kafka:kafka-coordinator-common",
+            "org.apache.kafka:kafka-group-coordinator",
+            "org.apache.kafka:kafka-group-coordinator-api",
+            "org.apache.kafka:kafka-hadoop-consumer",
+            "org.apache.kafka:kafka-hadoop-producer",
+            "org.apache.kafka:kafka-log4j-appender",
+            "org.apache.kafka:kafka-metadata",
+            "org.apache.kafka:kafka-perf_2.10",
+            "org.apache.kafka:kafka-perf_2.8.0",
+            "org.apache.kafka:kafka-perf_2.8.2",
+            "org.apache.kafka:kafka-perf_2.9.1",
+            "org.apache.kafka:kafka-perf_2.9.2",
+            "org.apache.kafka:kafka-raft",
+            "org.apache.kafka:kafka-server",
+            "org.apache.kafka:kafka-server-common",
+            "org.apache.kafka:kafka-share-coordinator",
+            "org.apache.kafka:kafka-shell",
+            "org.apache.kafka:kafka-storage",
+            "org.apache.kafka:kafka-storage-api",
+            "org.apache.kafka:kafka-streams",
+            "org.apache.kafka:kafka-streams-scala_2.11",
+            "org.apache.kafka:kafka-streams-scala_2.12",
+            "org.apache.kafka:kafka-streams-scala_2.13",
+            "org.apache.kafka:kafka-tools",
+            "org.apache.kafka:kafka-tools-api",
+            "org.apache.kafka:kafka-transaction-coordinator",
+            "org.apache.kafka:kafka_2.10",
+            "org.apache.kafka:kafka_2.11",
+            "org.apache.kafka:kafka_2.12",
+            "org.apache.kafka:kafka_2.13",
+            "org.apache.kafka:kafka_2.8.0",
+            "org.apache.kafka:kafka_2.8.2",
+            "org.apache.kafka:kafka_2.9.1",
+            "org.apache.kafka:kafka_2.9.2",
+        ),
+        rubygems=("ruby-kafka", "rdkafka", "karafka", "jt-kafka", "karafka-rdkafka"),
+    )
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.KAFKA
