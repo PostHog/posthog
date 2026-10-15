@@ -167,25 +167,6 @@ async fn run_pipeline(
         );
     }
 
-    // Import mode opts out of the global rate limiter entirely — historical
-    // backfills must never be throttled — so it's skipped even if one were wired.
-    //
-    // DIVERGENCE from legacy (`events::analytics`), intentional and out of scope
-    // to reconcile here — a future routing refactor must not assume parity:
-    //   1. Ordering: v1 runs this GRL step AFTER burst overflow stamping (above);
-    //      legacy runs its GRL BEFORE overflow stamping. The pass order differs,
-    //      but the observable outcome does not: both reroute only
-    //      AnalyticsMain/Destination::AnalyticsOverflow, and both drop the partition key
-    //      once person processing is off, so a key the GRL wanted spread stays
-    //      spread on either path even when the burst limiter preserves locality.
-    //      `crate::overflow_parity` pins that across the whole matrix.
-    //   2. Lane assignment is assign-then-reroute in v1 versus a single
-    //      `DataType::from_event_name` match in legacy.
-    // Both paths charge the same shared limiter for every non-dropped event,
-    // including events whose person processing is already off, so per-key counts
-    // are identical regardless of which pipeline serves the key.
-    // Import is unaffected by both: the GRL never runs (guard below) and no
-    // overflowable lane is reachable, so behavior is identical across paths.
     if state.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
             let _ = apply_token_distinct_id_limits(
