@@ -521,10 +521,7 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
     displayType: DisplayType | None = Field(
         default=None,
         description=(
-            "Override how this individual series is rendered, independent of the"
-            " chart-level `display` type. Use this to mix series types — e.g. plot one"
-            " series as `bar` and overlay another as `line`. `auto` follows the"
-            " chart-level display type."
+            "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type."
         ),
     )
     label: str | None = Field(
@@ -4074,6 +4071,11 @@ class AssistantElementPropertyFilter5(BaseModel):
             ' Up", operator: "exact" }`'
         ),
     )
+
+
+class AssistantEventsQuery(BaseModel):
+    kind: Literal["EventsQuery"] = "EventsQuery"
+    select: list[str] = Field(..., description="Event columns as HogQL expressions.")
 
 
 class AssistantForm(BaseModel):
@@ -10229,6 +10231,11 @@ class AssistantBehavioralPropertyFilter(BaseModel):
     value: InlineBehavioralType
 
 
+class AssistantDataTableNode(BaseModel):
+    kind: Literal["DataTableNode"] = "DataTableNode"
+    source: AssistantEventsQuery
+
+
 class AssistantDataVisualizationNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10240,18 +10247,13 @@ class AssistantDataVisualizationNode(BaseModel):
     display: AssistantDataVisualizationDisplayType | None = Field(
         default=None,
         description=(
-            "Visualization type. Defaults to `ActionsTable` when"
-            " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
-            " row) → `BoldNumber`.\n- Headline number with its change over time (KPI,"
-            " scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Parts of one whole → `ActionsPie`, `ActionsDonut`"
-            " or `ActionsProportionBar`.\n- Categorical comparison → `ActionsBar` or"
-            " `ActionsStackedBar`.\n- Ranking of categories by one value (top N,"
-            " horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation →"
-            " `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures,"
-            " one point per row → `ScatterPlot`.\n- Distribution summaries from"
-            " pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n-"
-            " Otherwise → `ActionsTable`."
+            "Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` ="
+            " KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie`"
+            " / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` /"
+            " `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal"
+            " rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two"
+            " measures; `BoxPlot` = distribution summaries with"
+            " `chartSettings.boxPlot`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
@@ -19023,10 +19025,22 @@ class InsightActorsQueryBase(BaseModel):
 
 class InsightQuery(
     RootModel[
-        AssistantInsightVizNode | AssistantDataVisualizationNode | AssistantBareInsightQuery | AssistantBareHogQLQuery
+        AssistantDataTableNode
+        | AssistantInsightVizNode
+        | AssistantDataVisualizationNode
+        | AssistantBareInsightQuery
+        | AssistantBareHogQLQuery
+        | AssistantEventsQuery
     ]
 ):
-    root: AssistantInsightVizNode | AssistantDataVisualizationNode | AssistantBareInsightQuery | AssistantBareHogQLQuery
+    root: (
+        AssistantDataTableNode
+        | AssistantInsightVizNode
+        | AssistantDataVisualizationNode
+        | AssistantBareInsightQuery
+        | AssistantBareHogQLQuery
+        | AssistantEventsQuery
+    )
 
 
 class IsolationForestDetectorConfig(BaseModel):
