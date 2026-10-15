@@ -12,6 +12,32 @@ import * as zod from 'zod'
 /**
  * Handle ticket updates including assignee changes.
  */
+export const conversationsTicketsUpdateBodyTicketBriefOneAskMax = 400
+
+export const conversationsTicketsUpdateBodyTicketBriefOneAreaMax = 80
+
+export const conversationsTicketsUpdateBodyTicketBriefOneQuestionsItemMax = 200
+
+export const conversationsTicketsUpdateBodyTicketBriefOneQuestionsMax = 6
+
+export const conversationsTicketsUpdateBodyTicketBriefOneAffectedItemsItemUrlMax = 2000
+
+export const conversationsTicketsUpdateBodyTicketBriefOneAffectedItemsItemLabelMax = 120
+
+export const conversationsTicketsUpdateBodyTicketBriefOneReplayUrlMax = 2000
+
+export const conversationsTicketsUpdateBodyTicketBriefOneScreenshotUrlsItemMax = 2000
+
+export const conversationsTicketsUpdateBodyTicketBriefOneScreenshotUrlsMax = 5
+
+export const conversationsTicketsUpdateBodyTicketBriefOneFactsItemMax = 160
+
+export const conversationsTicketsUpdateBodyTicketBriefOneFactsMax = 5
+
+export const conversationsTicketsUpdateBodyTicketBriefOneTriedItemMax = 160
+
+export const conversationsTicketsUpdateBodyTicketBriefOneTriedMax = 5
+
 export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
     .object({
         status: zod
@@ -60,8 +86,107 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
         tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
+        ticket_brief: zod
+            .object({
+                ask: zod
+                    .string()
+                    .max(conversationsTicketsUpdateBodyTicketBriefOneAskMax)
+                    .describe('What the customer needs from PostHog, in one or two sentences. The line to read first.'),
+                area: zod
+                    .string()
+                    .max(conversationsTicketsUpdateBodyTicketBriefOneAreaMax)
+                    .describe("Product area the ticket is about, such as 'Feature flags' or 'Session replay'."),
+                questions: zod
+                    .array(zod.string().max(conversationsTicketsUpdateBodyTicketBriefOneQuestionsItemMax))
+                    .max(conversationsTicketsUpdateBodyTicketBriefOneQuestionsMax)
+                    .describe(
+                        'Each question the customer asks, as one short line. Empty when the customer asks nothing explicit.'
+                    ),
+                affected_items: zod
+                    .array(
+                        zod.object({
+                            kind: zod
+                                .enum([
+                                    'dashboard',
+                                    'experiment',
+                                    'feature_flag',
+                                    'insight',
+                                    'project',
+                                    'replay',
+                                    'survey',
+                                    'other',
+                                ])
+                                .describe(
+                                    '\* `dashboard` - Dashboard\n\* `experiment` - Experiment\n\* `feature_flag` - Feature flag\n\* `insight` - Insight\n\* `project` - Project\n\* `replay` - Replay\n\* `survey` - Survey\n\* `other` - Other'
+                                )
+                                .describe(
+                                    'What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, or other.\n\n\* `dashboard` - Dashboard\n\* `experiment` - Experiment\n\* `feature_flag` - Feature flag\n\* `insight` - Insight\n\* `project` - Project\n\* `replay` - Replay\n\* `survey` - Survey\n\* `other` - Other'
+                                ),
+                            url: zod
+                                .url()
+                                .max(conversationsTicketsUpdateBodyTicketBriefOneAffectedItemsItemUrlMax)
+                                .describe('Link to the item in PostHog, so the engineer can open it without a search.'),
+                            label: zod
+                                .string()
+                                .max(conversationsTicketsUpdateBodyTicketBriefOneAffectedItemsItemLabelMax)
+                                .describe('Name of the item as the customer would recognize it.'),
+                        })
+                    )
+                    .optional()
+                    .describe('The PostHog items the ticket is about, with a link to each one.'),
+                replay_url: zod
+                    .url()
+                    .max(conversationsTicketsUpdateBodyTicketBriefOneReplayUrlMax)
+                    .nullish()
+                    .describe('Replay of the session the ticket came from. Null when the ticket has no session.'),
+                screenshot_urls: zod
+                    .array(zod.url().max(conversationsTicketsUpdateBodyTicketBriefOneScreenshotUrlsItemMax))
+                    .max(conversationsTicketsUpdateBodyTicketBriefOneScreenshotUrlsMax)
+                    .optional()
+                    .describe('Images the customer attached, in the order they sent them.'),
+                facts: zod
+                    .array(zod.string().max(conversationsTicketsUpdateBodyTicketBriefOneFactsItemMax))
+                    .max(conversationsTicketsUpdateBodyTicketBriefOneFactsMax)
+                    .optional()
+                    .describe(
+                        'Details the engineer needs to act on, such as region, plan, versions, and ids. One per line.'
+                    ),
+                tried: zod
+                    .array(zod.string().max(conversationsTicketsUpdateBodyTicketBriefOneTriedItemMax))
+                    .max(conversationsTicketsUpdateBodyTicketBriefOneTriedMax)
+                    .optional()
+                    .describe('What the customer says they already did to fix or diagnose the problem.'),
+            })
+            .optional()
+            .describe('Structured summary of the ticket for the support engineer. Replaces the whole brief.'),
     })
     .describe('Fields accepted when updating a ticket.')
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneAskMax = 400
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneAreaMax = 80
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneQuestionsItemMax = 200
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneQuestionsMax = 6
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneAffectedItemsItemUrlMax = 2000
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneAffectedItemsItemLabelMax = 120
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneReplayUrlMax = 2000
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneScreenshotUrlsItemMax = 2000
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneScreenshotUrlsMax = 5
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneFactsItemMax = 160
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneFactsMax = 5
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneTriedItemMax = 160
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneTriedMax = 5
 
 export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -111,6 +236,79 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
         tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
+        ticket_brief: zod
+            .object({
+                ask: zod
+                    .string()
+                    .max(conversationsTicketsPartialUpdateBodyTicketBriefOneAskMax)
+                    .describe('What the customer needs from PostHog, in one or two sentences. The line to read first.'),
+                area: zod
+                    .string()
+                    .max(conversationsTicketsPartialUpdateBodyTicketBriefOneAreaMax)
+                    .describe("Product area the ticket is about, such as 'Feature flags' or 'Session replay'."),
+                questions: zod
+                    .array(zod.string().max(conversationsTicketsPartialUpdateBodyTicketBriefOneQuestionsItemMax))
+                    .max(conversationsTicketsPartialUpdateBodyTicketBriefOneQuestionsMax)
+                    .describe(
+                        'Each question the customer asks, as one short line. Empty when the customer asks nothing explicit.'
+                    ),
+                affected_items: zod
+                    .array(
+                        zod.object({
+                            kind: zod
+                                .enum([
+                                    'dashboard',
+                                    'experiment',
+                                    'feature_flag',
+                                    'insight',
+                                    'project',
+                                    'replay',
+                                    'survey',
+                                    'other',
+                                ])
+                                .describe(
+                                    '\* `dashboard` - Dashboard\n\* `experiment` - Experiment\n\* `feature_flag` - Feature flag\n\* `insight` - Insight\n\* `project` - Project\n\* `replay` - Replay\n\* `survey` - Survey\n\* `other` - Other'
+                                )
+                                .describe(
+                                    'What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, or other.\n\n\* `dashboard` - Dashboard\n\* `experiment` - Experiment\n\* `feature_flag` - Feature flag\n\* `insight` - Insight\n\* `project` - Project\n\* `replay` - Replay\n\* `survey` - Survey\n\* `other` - Other'
+                                ),
+                            url: zod
+                                .url()
+                                .max(conversationsTicketsPartialUpdateBodyTicketBriefOneAffectedItemsItemUrlMax)
+                                .describe('Link to the item in PostHog, so the engineer can open it without a search.'),
+                            label: zod
+                                .string()
+                                .max(conversationsTicketsPartialUpdateBodyTicketBriefOneAffectedItemsItemLabelMax)
+                                .describe('Name of the item as the customer would recognize it.'),
+                        })
+                    )
+                    .optional()
+                    .describe('The PostHog items the ticket is about, with a link to each one.'),
+                replay_url: zod
+                    .url()
+                    .max(conversationsTicketsPartialUpdateBodyTicketBriefOneReplayUrlMax)
+                    .nullish()
+                    .describe('Replay of the session the ticket came from. Null when the ticket has no session.'),
+                screenshot_urls: zod
+                    .array(zod.url().max(conversationsTicketsPartialUpdateBodyTicketBriefOneScreenshotUrlsItemMax))
+                    .max(conversationsTicketsPartialUpdateBodyTicketBriefOneScreenshotUrlsMax)
+                    .optional()
+                    .describe('Images the customer attached, in the order they sent them.'),
+                facts: zod
+                    .array(zod.string().max(conversationsTicketsPartialUpdateBodyTicketBriefOneFactsItemMax))
+                    .max(conversationsTicketsPartialUpdateBodyTicketBriefOneFactsMax)
+                    .optional()
+                    .describe(
+                        'Details the engineer needs to act on, such as region, plan, versions, and ids. One per line.'
+                    ),
+                tried: zod
+                    .array(zod.string().max(conversationsTicketsPartialUpdateBodyTicketBriefOneTriedItemMax))
+                    .max(conversationsTicketsPartialUpdateBodyTicketBriefOneTriedMax)
+                    .optional()
+                    .describe('What the customer says they already did to fix or diagnose the problem.'),
+            })
+            .optional()
+            .describe('Structured summary of the ticket for the support engineer. Replaces the whole brief.'),
     })
     .describe('Fields accepted when updating a ticket.')
 

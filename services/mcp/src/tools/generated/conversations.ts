@@ -354,6 +354,9 @@ const conversationsTicketsUpdate = (): ToolBase<
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
+        if (params.ticket_brief !== undefined) {
+            body['ticket_brief'] = params.ticket_brief
+        }
         const result = await context.api.request<Schemas.Ticket>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/`,
