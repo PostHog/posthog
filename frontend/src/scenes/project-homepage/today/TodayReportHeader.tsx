@@ -6,7 +6,6 @@ import { Badge, Button, Heading, IconStack, IconStackItem, Text, cn } from '@pos
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { SHEET_PARTS } from '~/layout/today/todayMenuParts'
@@ -15,7 +14,6 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { hasOpenImplementationPr } from 'products/signals/frontend/inbox/utils/reportActions'
-import { displayConventionalCommitTitle } from 'products/signals/frontend/inbox/utils/reportPresentation'
 
 import { TodayActionButton } from './TodayActionButton'
 import { itemStateLabel } from './todayBriefingItems'
@@ -206,7 +204,7 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
             </div>
             <div className="flex flex-col gap-2">
                 <Heading size="xl" render={<h1 />} className="leading-snug text-balance">
-                    {capitalizeFirstLetter(displayConventionalCommitTitle(report.title, 'Untitled report'))}
+                    {reportTitle(report)}
                 </Heading>
                 {lead && (
                     <div data-today-figures>

@@ -43,7 +43,12 @@ from posthog.models.activity_logging.activity_page import ActivityLogPaginatedRe
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import get_authenticator_scoped_team_ids, is_service_auth, posthog_feature_flag_enabled
+from posthog.permissions import (
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+    is_service_auth,
+    posthog_feature_flag_enabled,
+)
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -56,6 +61,7 @@ from posthog.rate_limit import (
     SessionEventDeltasBurstRateThrottle,
     SessionEventDeltasSustainedRateThrottle,
 )
+from posthog.scopes import scopes_not_covered
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
@@ -69,6 +75,7 @@ from products.access_control.backend.presentation.access_control import AccessCo
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
 from products.experiments.backend.facade.api import get_experiment_health_findings
+from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
     migrate_experiment as migrate_legacy_experiment,
@@ -901,12 +908,40 @@ class EnterpriseExperimentsViewSet(
         Health check findings for this experiment: problems in its configuration and its feature flag
         that keep it from producing trustworthy results, each with a fix.
 
-        The checks here read the experiment, its flag and its linked metrics. The checks that read
-        exposures come with the exposure query.
+        The checks here read the experiment, its flag, its linked metrics, and the changes of the
+        flag's variant split since launch. The checks that read exposure counts come with the
+        exposure query. The split-change check compares the split changes with the exposures only
+        for exposure criteria that name an event without property filters. When the split changed
+        after launch and the criteria have filters or an action, or an API key lacks `query:read`,
+        it returns an info finding with the subcode `not_checked` and the cause in
+        `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
+        flag and, with an API key, `activity_log:read`) gets that finding for every running
+        experiment, because the changes are not read.
         """
         experiment: Experiment = self.get_object()
-        findings = get_experiment_health_findings(team_id=self.team_id, experiment_id=experiment.id)
+        findings = get_experiment_health_findings(
+            team_id=self.team_id,
+            experiment_id=experiment.id,
+            reader_access=self._health_reader_access(request, experiment),
+        )
         return Response(ExperimentHealthSerializer({"findings": findings}).data)
+
+    def _health_reader_access(self, request: Request, experiment: Experiment) -> ExperimentHealthReaderAccess:
+        # The split history is flag history, which `activity` keeps behind the flag's own access controls and
+        # `activity_log:read`. It also queries events, which a scoped token reaches only with `query:read`.
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        missing_scopes = (
+            set()
+            if scopes is None or "*" in scopes
+            else set(scopes_not_covered(scopes, ["activity_log:read", "query:read"]))
+        )
+        can_view_flag = experiment.feature_flag_id is None or self.user_access_control.check_access_level_for_object(
+            experiment.feature_flag, required_level="viewer"
+        )
+        return ExperimentHealthReaderAccess(
+            can_read_flag_history=bool(can_view_flag) and "activity_log:read" not in missing_scopes,
+            can_query_events="query:read" not in missing_scopes,
+        )
 
     @validated_request(
         query_serializer=ExperimentActivityQuerySerializer,

@@ -23,6 +23,7 @@ import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { markBootPhase } from 'lib/utils/bootTiming'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -804,6 +805,10 @@ export const sceneLogic = kea<sceneLogicType>([
             await cache.homepageSave
         },
         setScene: ({ sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
+            if (exportedScene) {
+                markBootPhase('scene_loaded', { scene: sceneId })
+            }
+
             const {
                 sceneId: lastSceneId,
                 sceneKey: lastSceneKey,
