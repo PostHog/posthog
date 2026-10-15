@@ -45,9 +45,9 @@ class Command(BaseCommand):
             self.stdout.write(f"{query.query_type}: {query.stored_rows} stored, {query.raw_rows} raw rows")
             if query.raw_error:
                 self.stdout.write(f"  the raw read failed: {query.raw_error}")
-            elif not query.equal:
-                self.stdout.write(f"  {query.only_stored} rows only stored, for example {query.sample_only_stored}")
-                self.stdout.write(f"  {query.only_raw} rows only raw, for example {query.sample_only_raw}")
+            for side, rows in (("stored", query.only_stored), ("raw", query.only_raw)):
+                if rows:
+                    self.stdout.write(f"  {len(rows)} rows only {side}, for example {rows[0]}")
         differing = sum(not query.equal for query in parity.queries)
         if differing:
             raise CommandError(f"{differing} of {len(parity.queries)} stored reads differ from the raw tables.")

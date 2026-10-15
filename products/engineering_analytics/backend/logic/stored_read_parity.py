@@ -6,7 +6,6 @@ by the rows that changed between the last refresh and now. So a difference is a 
 proof of a bug: read it next to the age of the stored rows.
 """
 
-import threading
 from collections import Counter
 from collections.abc import Callable, Sequence
 from decimal import Decimal
@@ -38,15 +37,13 @@ class QueryParity:
     query_type: str
     stored_rows: int
     raw_rows: int
-    only_stored: int
-    only_raw: int
-    sample_only_stored: str | None
-    sample_only_raw: str | None
+    only_stored: tuple[str, ...]
+    only_raw: tuple[str, ...]
     raw_error: str | None
 
     @property
     def equal(self) -> bool:
-        return self.raw_error is None and not self.only_stored and not self.only_raw
+        return self.raw_error is None and not (self.only_stored or self.only_raw)
 
 
 def _normalized(value: Any) -> Any:
@@ -61,10 +58,10 @@ def _normalized(value: Any) -> Any:
     return value
 
 
-def _differing_rows(rows: Sequence[Sequence[Any]], other: Sequence[Sequence[Any]]) -> Counter[str]:
+def _row_counts(rows: Sequence[Sequence[Any]]) -> Counter[str]:
     # Row order is compared only where the query fixes it, and a LIMIT can cut tied rows either way,
     # so the rows are compared as multisets.
-    return Counter(repr(_normalized(row)) for row in rows) - Counter(repr(_normalized(row)) for row in other)
+    return Counter(repr(_normalized(row)) for row in rows)
 
 
 @frozen
@@ -82,46 +79,32 @@ class ParityCheckedGitHubSource(CuratedGitHubSource):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._parity_lock = threading.Lock()
-        # Concurrent reads of one request run in threads, and each run asks whether its own read was answered.
-        self._answered = threading.local()
         self.queries: list[QueryParity] = []
         self.raw_reads: list[str] = []
-
-    def run(
-        self,
-        sql: str,
-        *,
-        query_type: str,
-        placeholders: dict[str, ast.Expr] | None = None,
-        workload: Workload = Workload.DEFAULT,
-    ) -> HogQLQueryResponse:
-        self._answered.value = False
-        response = super().run(sql, query_type=query_type, placeholders=placeholders, workload=workload)
-        if not self._answered.value and self._with_raw_ci_sources(sql) != sql:
-            with self._parity_lock:
-                self.raw_reads.append(query_type)
-        return response
 
     def read_through[V](
         self, *, sql: str, keys: Sequence[int], load: Callable[[list[int]], dict[int, V]], ttl_seconds: int
     ) -> dict[int, V]:
         return load(list(keys))
 
-    def _stored_read_answered(
+    def _ci_read_done(
         self,
         sql: str,
         response: HogQLQueryResponse,
         *,
         query_type: str,
         placeholders: dict[str, ast.Expr] | None,
+        stored: bool,
     ) -> None:
-        self._answered.value = True
-        stored = response.results or []
-        raw: list[Any] = []
+        if not stored:
+            if self._with_raw_ci_sources(sql) != sql:
+                self.raw_reads.append(query_type)
+            return
+        stored_rows = response.results or []
+        raw_rows: list[Any] = []
         raw_error = None
         try:
-            raw = (
+            raw_rows = (
                 self._execute(
                     self._with_raw_ci_sources(sql),
                     query_type=query_type,
@@ -132,21 +115,17 @@ class ParityCheckedGitHubSource(CuratedGitHubSource):
             )
         except Exception as error:
             raw_error = repr(error)
-        only_stored = _differing_rows(stored, raw)
-        only_raw = _differing_rows(raw, stored)
-        with self._parity_lock:
-            self.queries.append(
-                QueryParity(
-                    query_type=query_type,
-                    stored_rows=len(stored),
-                    raw_rows=len(raw),
-                    only_stored=only_stored.total(),
-                    only_raw=only_raw.total(),
-                    sample_only_stored=next(iter(only_stored), None),
-                    sample_only_raw=next(iter(only_raw), None),
-                    raw_error=raw_error,
-                )
+        stored_counts, raw_counts = _row_counts(stored_rows), _row_counts(raw_rows)
+        self.queries.append(
+            QueryParity(
+                query_type=query_type,
+                stored_rows=len(stored_rows),
+                raw_rows=len(raw_rows),
+                only_stored=tuple((stored_counts - raw_counts).elements()),
+                only_raw=tuple((raw_counts - stored_counts).elements()),
+                raw_error=raw_error,
             )
+        )
 
 
 def compare_stored_reads(*, team: Team, source_id: str | None, repo: str | None, days: int) -> StoredReadParity:

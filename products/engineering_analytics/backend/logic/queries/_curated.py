@@ -890,21 +890,24 @@ class CuratedGitHubSource:
                     raise
                 self._abandon_stored_reads("engineering_analytics_stored_read_failed", query_type)
             else:
-                self._stored_read_answered(sql, response, query_type=query_type, placeholders=placeholders)
+                self._ci_read_done(sql, response, query_type=query_type, placeholders=placeholders, stored=True)
                 return response
-        return self._execute(
+        response = self._execute(
             self._with_raw_ci_sources(sql), query_type=query_type, placeholders=placeholders, workload=workload
         )
+        self._ci_read_done(sql, response, query_type=query_type, placeholders=placeholders, stored=False)
+        return response
 
-    def _stored_read_answered(
+    def _ci_read_done(
         self,
         sql: str,
         response: HogQLQueryResponse,
         *,
         query_type: str,
         placeholders: dict[str, ast.Expr] | None,
+        stored: bool,
     ) -> None:
-        """Called after the stored rows answered ``sql``. A parity check overrides it."""
+        """Called after ``sql`` ran, on the stored rows or on the raw tables. A parity check overrides it."""
 
     def _execute(
         self, sql: str, *, query_type: str, placeholders: dict[str, ast.Expr] | None, workload: Workload
