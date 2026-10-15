@@ -992,6 +992,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     let results: MatchedRecordingEvent[] = []
                     let failure: unknown = null
                     try {
+                        // nosemgrep: prefer-codegen-api-namespaced-replay
                         results = (await api.recordings.getMatchingEvents(toParams(params))).results
                     } catch (error) {
                         // Highlights are optional, so the recording plays on without them.
