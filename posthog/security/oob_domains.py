@@ -21,14 +21,16 @@ def oob_domains() -> frozenset[str]:
     try:
         raw = json.loads(_DOMAINS_PATH.read_text())
         return frozenset(domain.lower() for domain in raw["domains"])
-    except Exception as error:
+    except (OSError, ValueError, KeyError, TypeError) as error:
         logger.exception("security.oob_domains_unavailable", error=str(error))
         return frozenset()
 
 
 def matched_oob_domain(host: str) -> str | None:
     """The listed domain this host belongs to, or None."""
-    if not host:
+    if not host or "@" in host or "/" in host:
+        # The guards hand us a parsed hostname. Anything else is a raw URL or a credential, and
+        # matching it would put that string in the log line.
         return None
     canonical = canonicalize_host(host)
     for domain in oob_domains():

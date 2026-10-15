@@ -973,3 +973,40 @@ class TestOOBDomainDetectionOnThePinnedPath(SimpleTestCase):
 
         stages = [call.args[3] for call in log_host_check.call_args_list]
         assert "oob_domain" in stages
+
+
+class TestOOBDomainDetectionDetail(SimpleTestCase):
+    def test_the_two_call_sites_are_distinguishable(self):
+        with (
+            patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
+            patch(f"{_MIXINS_MODULE}._host_check_exemption", return_value="team_allowlist"),
+            patch(f"{_MIXINS_MODULE}._log_host_check") as log_host_check,
+        ):
+            resolve_safe_host("abc.oast.live", 2)
+            check_resolved_addresses("abc.oast.live", ["93.184.216.34"], 2)
+
+        stages = [call.args[3] for call in log_host_check.call_args_list if call.args[3].startswith("oob_domain")]
+        assert stages == ["oob_domain", "oob_domain_resolved"]
+
+    def test_a_host_with_userinfo_is_not_matched(self):
+        with (
+            patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
+            patch(f"{_MIXINS_MODULE}._log_host_check") as log_host_check,
+        ):
+            resolve_safe_host("user:secret@abc.oast.live", 2)
+
+        stages = [call.args[3] for call in log_host_check.call_args_list]
+        assert "oob_domain" not in stages
+
+    def test_the_real_team_allowlist_does_not_swallow_the_detection(self):
+        with (
+            patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True),
+            patch(f"{_MIXINS_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_MIXINS_MODULE}._log_host_check") as log_host_check,
+        ):
+            resolution = resolve_safe_host("abc.oast.live", 2)
+
+        stages = [call.args[3] for call in log_host_check.call_args_list]
+        assert stages[0] == "oob_domain"
+        assert "team_allowlist" in stages
+        assert resolution.connect_host is not None

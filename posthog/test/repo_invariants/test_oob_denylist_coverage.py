@@ -17,18 +17,25 @@ REGENERATE = "python posthog/test/repo_invariants/test_oob_denylist_coverage.py"
 SCANNED_ROOTS = ("posthog", "products", "ee", "common", "nodejs/src", "rust")
 SCANNED_SUFFIXES = (".py", ".ts", ".rs")
 RESOLUTION_MARKERS = (
-    "socket.getaddrinfo(",
+    # Python
+    "getaddrinfo(",
     "gethostbyname",
     "dns.resolver",
-    "resolver.resolve(",
+    "dns.asyncresolver",
+    # TypeScript
     "dns.lookup",
     "dns/promises",
-    "new Resolver(",
+    "node:dns",
     "resolveMx(",
     "resolve4(",
+    # Rust
     "to_socket_addrs(",
     "lookup_host(",
+    "TokioAsyncResolver",
+    "hickory",
+    "trust_dns",
 )
+
 CHECK_MARKERS = ("matched_oob_domain", "note_oob_domain", "OOB_DOMAINS", "oob_domains")
 SKIPPED_PARTS = ("node_modules", "__pycache__", "target", "dist", "migrations")
 
@@ -36,6 +43,11 @@ SKIPPED_PARTS = ("node_modules", "__pycache__", "target", "dist", "migrations")
 def _is_test(path: Path) -> bool:
     name = path.name
     return name.startswith("test_") or name.endswith(("_test.py", ".test.ts", ".spec.ts")) or "tests" in path.parts
+
+
+def _resolves_hostnames(text: str) -> bool:
+    """Whether the file resolves a hostname and never names the out-of-band check."""
+    return any(marker in text for marker in RESOLUTION_MARKERS) and not any(marker in text for marker in CHECK_MARKERS)
 
 
 def collect() -> list[str]:
@@ -46,10 +58,7 @@ def collect() -> list[str]:
                 continue
             if any(part in SKIPPED_PARTS for part in path.parts) or _is_test(path):
                 continue
-            text = path.read_text(errors="ignore")
-            if any(marker in text for marker in RESOLUTION_MARKERS) and not any(
-                marker in text for marker in CHECK_MARKERS
-            ):
+            if _resolves_hostnames(path.read_text(errors="ignore")):
                 found.add(str(path.relative_to(REPO_ROOT)))
     return sorted(found)
 

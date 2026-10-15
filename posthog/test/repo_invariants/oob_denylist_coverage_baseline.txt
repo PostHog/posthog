@@ -9,14 +9,11 @@ posthog/models/organization_domain.py
 posthog/psycopg_helpers.py
 posthog/temporal/proxy_service/create.py
 posthog/temporal/proxy_service/monitor.py
-products/desktop/packages/ui/src/features/deep-links/useNewTaskDeepLink.ts
-products/notifications/backend/logic.py
-products/stamphog/packages/pr-approval-agent/gates.py
+products/desktop/apps/code/src/main/bootstrap.ts
+products/desktop/packages/workspace-server/src/serve.ts
 products/tasks/backend/logic/services/agent_command.py
+products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/destinations_load/writers/postgres.py
 products/warehouse_sources/backend/temporal/data_imports/sources/salesforce/auth.py
 products/workflows/backend/providers/ses.py
-rust/cohort-stream-processor/src/workers/stage2_path.rs
 rust/common/dns/src/lib.rs
 rust/cymbal/src/modes/processing/stages/resolution/remote/dns.rs
-rust/property-defs-rs/src/app_context.rs
-rust/usage-ingestion/src/service.rs

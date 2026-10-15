@@ -32,6 +32,7 @@ from urllib3.exceptions import InvalidHeader, MaxRetryError, ResponseError
 from urllib3.util.retry import Retry
 
 from posthog.cloud_utils import is_cloud
+from posthog.security.oob_domains import matched_oob_domain
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import record_request
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
@@ -197,12 +198,15 @@ def _note_oob_domain(request: PreparedRequest) -> None:
     if not is_cloud():
         return
 
-    from posthog.security.oob_domains import (
-        matched_oob_domain,  # noqa: PLC0415 — keeps the Django security module off the worker import path
-    )
+    try:
+        host = urlparse(request.url or "").hostname
+        oob_domain = matched_oob_domain(host) if host else None
+    except Exception:
+        # Detection never fails a request: a malformed URL is the connection's problem to report.
+        logger.exception("security.oob_domain_check_failed", url=request.url)
+        return
 
-    host = urlparse(request.url or "").hostname
-    if host and (oob_domain := matched_oob_domain(host)) is not None:
+    if oob_domain is not None:
         logger.info("security.oob_domain_seen", host=host, domain=oob_domain, guard="warehouse_http")
 
 

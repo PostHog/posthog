@@ -129,13 +129,26 @@ class TestOOBDomainDetection:
         assert events[0][1]["guard"] == "warehouse_http"
 
     def test_logs_a_redirect_hop_to_a_listed_host(self, mocker):
-        events = self._record(mocker)
-        adapter = transport.make_tracked_adapter()
+        events: list[tuple[str, dict]] = []
+        mocker.patch.object(transport, "is_cloud", return_value=True)
+        mocker.patch.object(
+            transport.logger, "info", side_effect=lambda event, **fields: events.append((event, fields))
+        )
+        session = transport.make_tracked_session()
+        start = session.prepare_request(requests.Request("GET", "https://example.com/start"))
+        redirect = requests.Response()
+        redirect.status_code = 302
+        redirect.headers["Location"] = "https://abc.oast.live/hop"
+        redirect.url = "https://example.com/start"
+        redirect.request = start
+        final = requests.Response()
+        final.status_code = 200
+        final.url = "https://abc.oast.live/hop"
+        mocker.patch("requests.adapters.HTTPAdapter.send", side_effect=[redirect, final])
 
-        adapter.send(requests.Request("GET", "https://example.com/start").prepare())
-        adapter.send(requests.Request("GET", "https://abc.oast.live/hop").prepare())
+        session.send(start, allow_redirects=True)
 
-        assert [event for event, _ in events] == ["security.oob_domain_seen"]
+        assert [fields["host"] for _, fields in events] == ["abc.oast.live"]
 
     def test_does_not_log_an_unlisted_host(self, mocker):
         events = self._record(mocker)
@@ -146,9 +159,21 @@ class TestOOBDomainDetection:
         assert events == []
 
     def test_a_request_with_no_hostname_does_not_raise(self, mocker):
-        self._record(mocker)
+        events = self._record(mocker)
         adapter = transport.make_tracked_adapter()
         request = requests.Request("GET", "https://example.com/x").prepare()
         request.url = "/relative/path"
 
         adapter.send(request)
+
+        assert events == []
+
+    def test_a_malformed_ipv6_url_does_not_raise(self, mocker):
+        events = self._record(mocker)
+        adapter = transport.make_tracked_adapter()
+        request = requests.Request("GET", "https://example.com/x").prepare()
+        request.url = "https://[::1/x"
+
+        adapter.send(request)
+
+        assert events == []
