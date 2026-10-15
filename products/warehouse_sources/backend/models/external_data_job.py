@@ -13,10 +13,17 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.types import ExternalDataJobPipelineVersion, ExternalDataJobStatus
 
 
+class ExternalDataJobPhase(models.TextChoices):
+    EXTRACTING = "extracting"
+    LOADING = "loading"
+    POST_ACTIONS = "post_actions"
+
+
 class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     # Kept on the model so the nested names stay unchanged.
     Status = ExternalDataJobStatus
     PipelineVersion = ExternalDataJobPipelineVersion
+    Phase = ExternalDataJobPhase
 
     # Overridden from CreatedMetaFields. Import workflows create every job row, so the column is
     # always NULL, and its index only cost a write per insert. With no index, a user delete would
@@ -42,6 +49,8 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
 
     pipeline_version = models.CharField(max_length=400, choices=PipelineVersion.choices, null=True, blank=True)
+    # Set only by queue-run jobs. Null for every Temporal run.
+    phase = models.CharField(max_length=16, choices=Phase.choices, null=True, blank=True)
     billable = models.BooleanField(default=True, null=True, blank=True)
     # The destinations this run delivers to, snapshotted when the run started so a config
     # change mid-run cannot alter where an in-flight run lands or what it bills. Empty means
