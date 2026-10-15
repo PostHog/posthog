@@ -288,7 +288,7 @@ def main():
                     delete_pod(pod_name, namespace=namespace, context=selected_context)
         sys.exit(rc)
     except KeyboardInterrupt:
-        print("\n👋 Goodbye! \n \n Did something not work as expected? Ask in #team-infrastructure")  # noqa: T201
+        print("\n👋 Goodbye! \n \n Did something not work as expected? Ask in #support-infrastructure")  # noqa: T201
         # POSIX convention: SIGINT exits 128 + signum (130). sys.exit(0) here
         # would mask Ctrl-C as a clean success to any wrapper checking $?, and
         # is inconsistent with the SIGTERM/SIGHUP handlers which already use 128 + signum.

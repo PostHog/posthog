@@ -252,8 +252,8 @@ def mint_refusal(
         refusal = _posthog_code_refusal(team_id, model, distinct_id)
         if refusal:
             return refusal
-    # The Pi harness reads only LLM_GATEWAY_URL.
-    if runtime == "pi":
+    # Pi reaches Go only for posthog_code.
+    elif runtime == "pi":
         return "pi_runtime"
     # The gateway denies an off-pin model with no fallback.
     if not model_allowed_by_product_pin(ai_product, model):

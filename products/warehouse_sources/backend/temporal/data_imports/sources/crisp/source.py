@@ -54,7 +54,7 @@ class CrispSource(ResumableSource[CrispSourceConfig, CrispResumeConfig]):
         pub=("crisp_chat",),
         rubygems=("crisp-api",),
         swiftpm=("github.com/crisp-im/crisp-sdk-ios",),
-        competes_with=(ProductKey.CONVERSATIONS,),
+        alternative_to=(ProductKey.CONVERSATIONS,),
     )
 
     lists_tables_without_credentials = True
@@ -92,6 +92,8 @@ class CrispSource(ResumableSource[CrispSourceConfig, CrispResumeConfig]):
             ENDPOINTS,
             {name: endpoint.incremental_fields for name, endpoint in ENDPOINTS.items()},
             names,
+            # An append sync of a child table writes every message of a changed conversation again.
+            merge_only=[name for name, endpoint in ENDPOINTS.items() if endpoint.fanout is not None],
             should_sync_default={name: endpoint.should_sync_default for name, endpoint in ENDPOINTS.items()},
         )
         for schema in schemas:

@@ -54,6 +54,24 @@ EXPECTED = ScorerTrialStats(
     "results, trials, expected",
     [
         pytest.param(
+            [
+                replace(result, error="Scorer errors: other", error_kind="scorer")
+                for result in _trials({"stable": [1, 1, 1], "flaky": [1, 0, 1]})
+            ],
+            3,
+            EXPECTED,
+            id="successful_scores_survive_other_scorer_failures",
+        ),
+        pytest.param(
+            [
+                *_trials({"stable": [1, 1, 1], "flaky": [1, 0, 1]}),
+                replace(_result("stable", 0), error="task failed"),
+            ],
+            3,
+            EXPECTED,
+            id="task_errors_remain_excluded_even_with_partial_scores",
+        ),
+        pytest.param(
             _trials({"stable": [1, 1, 1], "flaky": [1, 0, 1]}),
             3,
             EXPECTED,

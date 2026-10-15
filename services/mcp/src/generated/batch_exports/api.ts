@@ -604,6 +604,12 @@ export const BatchExportsCreateBody = () => zod
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
                         ),
+                    negatedPersonFiltersNotIn: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -669,6 +675,12 @@ export const BatchExportsCreateBody = () => zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
+                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -1318,6 +1330,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
                         ),
+                    negatedPersonFiltersNotIn: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -1383,6 +1401,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
+                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -1763,6 +1787,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
                         ),
+                    negatedPersonFiltersNotIn: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -1828,6 +1858,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
+                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -2053,6 +2089,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                     .describe(
                         'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
                     ),
+                negatedPersonFiltersNotIn: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
+                    ),
                 optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                 optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                 parserMode: zod
@@ -2116,6 +2158,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                         'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                     ),
                 useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                useNewEventsCluster: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
+                    ),
                 useNewEventsSchema: zod
                     .union([zod.boolean(), zod.null()])
                     .optional()

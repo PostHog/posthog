@@ -21,8 +21,8 @@ import {
 import {
   useDismissReport,
   useHasLiveImplementationTask,
+  useMarkReportRead,
   useReport,
-  useSeenReports,
   useStartReportTask,
 } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
@@ -34,16 +34,12 @@ export default function ReportScreen() {
   const dismiss = useDismissReport();
   const startTask = useStartReportTask();
   const liveTask = useHasLiveImplementationTask(id);
-  const seenHydrated = useSeenReports((s) => s.hydrated);
-  const isSeen = useSeenReports((s) => s.seen.has(id));
-  const markSeen = useSeenReports((s) => s.markSeen);
-
+  const markRead = useMarkReportRead();
+  // A report that failed to load or is still loading stays unread.
   const reportId = report?.id;
   useEffect(() => {
-    if (reportId && seenHydrated && !isSeen) {
-      markSeen([reportId]).catch(() => {});
-    }
-  }, [reportId, seenHydrated, isSeen, markSeen]);
+    if (reportId) markRead(reportId);
+  }, [reportId, markRead]);
 
   if (!report) {
     return (

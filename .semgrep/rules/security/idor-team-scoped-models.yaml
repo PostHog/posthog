@@ -139,6 +139,7 @@ rules:
                               |CustomPropertyValue
                               |DAG
                               |DailyBriefing
+                              |TodayHighlights
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
@@ -605,6 +606,7 @@ rules:
                         |CustomPropertyValue
                         |DAG
                         |DailyBriefing
+                        |TodayHighlights
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget

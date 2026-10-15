@@ -198,6 +198,27 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-15 — automatic Standard follow-ups post only changed-code findings from run 2 on
+
+- **What.** `FLASH_WHOLE_PR_TURNS` goes from 2 to 1. Run 1 still reviews the whole pull request with the doubled
+  first-review cap. From run 2 on, an automatic Standard (Flash) turn drops every P2 and P3 finding more than
+  `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` lines from code the push changed, as `old_code`. Must-fix findings post
+  anywhere. A requested review (`@posthog review`, the label, the UI) still reviews the whole pull request.
+- **Why.** The per-PR loop complaints came from run 2 and later turns that re-reviewed unchanged code: each fix push
+  drew new should-fix findings on code the push never touched, so the author fixed and pushed again. After the
+  Oct 14 changes, run 2 produced 135 of 241 follow-up findings and 7 of its must-fix findings.
+- **Evidence.** An offline replay of 215 run-2 turns (155 after the Oct 14 cutover, 60 before) through the
+  production rule code (review-eval `experiments/2026-10-15-run2-scope-replay`):
+  - The rule suppresses 147 posted findings on 80 turns, all labeled should-fix by the model.
+  - A blind Sonnet judge graded them 91 real, 54 unsure, 2 not real, and none must-fix.
+  - 18 must-fix findings on unchanged code stay posted.
+  - 13% of the suppressed findings were caused by the push: the 3-line margin misses a changed caller that breaks an
+    unchanged callee. A 10-line margin rescues 4 of those 19 and adds 17 unrelated findings, so the margin stays.
+- **Not chosen.**
+  - A lower run-2 cap: unrelated findings still get through, only fewer of them.
+  - Run 2 as a whole-PR review only when run 1 hit its cap: cap saturation says nothing about the new push.
+  - A wider margin: see the Evidence numbers above.
+
 ### ✅ BUILT 2026-10-13 — Flash follow-ups drop only P3 findings on unchanged code (`reviewhog-flash-2-3`)
 
 - **What.** The `old_code` rule from `reviewhog-flash-2-1` now drops only P3 findings on code unchanged since the last

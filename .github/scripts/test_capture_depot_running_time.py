@@ -24,6 +24,12 @@ SHOWN = {
     "workflow": {"started_at": "2026-01-01T00:00:00Z"},
     "jobs": [
         {
+            "job_key": "ci-backend.yml:wait-for-handoff",
+            "job_display_name": "Wait for GitHub Actions to hand off backend tests",
+            "status": "finished",
+            "attempts": [{"attempt": 1, "started_at": "2026-01-01T00:00:05Z", "finished_at": "2026-01-01T00:00:30Z"}],
+        },
+        {
             "job_key": "ci-backend.yml:django_tests",
             "job_display_name": "Django Tests Pass on Depot",
             "status": "failed",
@@ -68,10 +74,10 @@ def test_build_events_matches_the_action_event_shape() -> None:
         "timestamp": now.isoformat(),
         "event": "posthog-ci-running-time",
         "properties": {
-            "duration_seconds": 1290,
+            "duration_seconds": 1260,
             "url": "https://depot.dev/orgs/org/workflows/wf",
             "attempt": 1,
-            "started_at": "2026-01-01T00:00:00Z",
+            "started_at": "2026-01-01T00:00:30Z",
             "conclusion": "failure",
             "runner": "depot-ci",
             "sha": ENV["GITHUB_SHA"],
@@ -94,6 +100,7 @@ def test_build_events_matches_the_action_event_shape() -> None:
         (e["properties"]["name"], e["properties"]["duration_seconds"], e["properties"]["conclusion"])
         for e in events[2:]
     ] == [
+        ("Wait for GitHub Actions to hand off backend tests", 25, "success"),
         ("Django Tests Pass on Depot", 5, "failure"),
         ("Django tests - Core (1/2)", 450, "success"),
         ("Validate product.yaml owners", 0, "skipped"),

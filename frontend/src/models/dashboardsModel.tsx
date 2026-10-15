@@ -17,7 +17,6 @@ import { urls } from 'scenes/urls'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { parentPath, reparentPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { tagsModel } from '~/models/tagsModel'
-import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, InsightModel } from '~/types'
 
 import type { Node } from '../queries/schema/schema-general'
@@ -181,32 +180,22 @@ export interface dashboardsModelActions {
     }
     loadDashboardsSuccess: (
         pagedDashboards:
+            | PaginatedResponse<DashboardType>
             | {
                   count: number
                   next: null
                   previous: null
                   results: DashboardBasicType[]
-              }
-            | {
-                  count?: undefined
-                  next?: string | null | undefined
-                  previous?: string | null | undefined
-                  results: DashboardType[]
               },
         payload?: string
     ) => {
         pagedDashboards:
+            | PaginatedResponse<DashboardType>
             | {
                   count: number
                   next: null
                   previous: null
                   results: DashboardBasicType[]
-              }
-            | {
-                  count?: undefined
-                  next?: string | null | undefined
-                  previous?: string | null | undefined
-                  results: DashboardType[]
               }
         payload?: string
     }
@@ -425,7 +414,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                             count: 1,
                             next: null,
                             previous: null,
-                            results: [getQueryBasedDashboard(exportedDashboard) as DashboardBasicType],
+                            results: [exportedDashboard as DashboardBasicType],
                         }
                     }
 
@@ -444,11 +433,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
 
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const dashboards: PaginatedResponse<DashboardType> = await api.get(apiUrl)
-
-                    return {
-                        ...dashboards,
-                        results: dashboards.results?.map((dashboard) => getQueryBasedDashboard(dashboard)!),
-                    }
+                    return dashboards
                 },
             },
         ],
@@ -492,7 +477,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                                     beforeChange
                                 )
-                                actions.updateDashboardSuccess(getQueryBasedDashboard(reverted), {
+                                actions.updateDashboardSuccess(reverted, {
                                     layoutsPersisted: true,
                                 })
                                 lemonToast.success('Dashboard change reverted')
@@ -505,41 +490,45 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     return null
                 }
 
-                const mappedDashboard = getQueryBasedDashboard(response)
-                if (!mappedDashboard) {
-                    return mappedDashboard
+                if (!response) {
+                    return response
                 }
 
-                return mergeTileTextUpdatesIntoDashboard(mappedDashboard, payload.tiles)
+                return mergeTileTextUpdatesIntoDashboard(response, payload.tiles)
             },
             deleteDashboard: async ({ id, deleteInsights }) => {
-                const deleted = getQueryBasedDashboard(
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
-                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
+                const deleted = await api.update<DashboardType>(
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    {
                         deleted: true,
                         delete_insights: deleteInsights,
-                    })
-                ) as DashboardType
+                    }
+                )
                 deleteFromTree('dashboard', String(id))
                 return deleted
             },
             restoreDashboard: async ({ id }) => {
-                const restored = getQueryBasedDashboard(
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
-                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
+                const restored = await api.update<DashboardType>(
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    {
                         deleted: false,
-                    })
-                ) as DashboardType
+                    }
+                )
                 refreshTreeItem('dashboard', String(id))
                 return restored
             },
             pinDashboard: async ({ id, source }) => {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
-                const response = await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    pinned: true,
-                })
+                const response = await api.update<DashboardType>(
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    {
+                        pinned: true,
+                    }
+                )
                 reportDashboardPinToggled(id, true, source)
-                return getQueryBasedDashboard(response)!
+                return response
             },
             unpinDashboard: async ({ id, source }) => {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
@@ -550,7 +539,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     }
                 )
                 reportDashboardPinToggled(id, false, source)
-                return getQueryBasedDashboard(response)!
+                return response
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsCreate() from 'products/dashboards/frontend/generated/api' instead.
@@ -565,7 +554,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 if (show) {
                     router.actions.push(urls.dashboard(result.id))
                 }
-                return getQueryBasedDashboard(result)!
+                return result
             },
         },
     })),

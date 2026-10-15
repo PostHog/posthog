@@ -35,17 +35,13 @@ from posthog.temporal.common.base import PostHogWorkflow
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 
-# Temporal patch IDs — arbitrary strings recorded in workflow history. Every gate below
-# has drained: this workflow's longest wait is the 15-minute repo picker, and it is
-# bounded at an hour as a child of the queue workflow, so the pre-patch histories are
-# gone within hours of a deploy. Each branch is gone and only `deprecate_patch` remains,
-# keeping the recorded marker compatible for executions in flight across the deploy that
-# removes the branch. Standard two-step Temporal patch lifecycle: these calls come out in
-# turn, once the histories that recorded a plain marker have drained as well.
-_PATCH_ID_FOLLOWUP_MODEL_CLASSIFIER = "slack-app-followup-model-classifier-v1"
-_PATCH_ID_PROJECT_ROUTE_CLASSIFIER = "slack-app-project-route-classifier-v1"
-_PATCH_ID_PROJECT_ROUTE_QUOTA = "slack-app-project-route-quota-v1"
-_PATCH_ID_UNTAGGED_FOLLOWUP_CONFIRMATION = "slack-untagged-followup-confirmation-v1"
+# Temporal patch ID — an arbitrary string recorded in workflow history. The gate has
+# drained: this workflow's longest wait is the 15-minute repo picker, and it is bounded
+# at an hour as a child of the queue workflow, so the pre-patch histories are gone within
+# hours of a deploy. The branch is gone and only `deprecate_patch` remains, keeping the
+# recorded marker compatible for executions in flight across the deploy that removes the
+# branch. Standard two-step Temporal patch lifecycle: the call comes out once the
+# histories that recorded a plain marker have drained as well.
 _PATCH_ID_MODEL_ROUTER = "slack-app-model-router-v1"
 
 
@@ -128,7 +124,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             # only interrupts someone over a message that would otherwise start work.
             # A confirmed run skips it — the answer is what re-dispatched this.
             if unconfirmed_followup:
-                workflow.deprecate_patch(_PATCH_ID_UNTAGGED_FOLLOWUP_CONFIRMATION)
                 awaiting_confirmation = await _execute_posthog_code_activity(
                     request_untagged_followup_confirmation_activity,
                     inputs,
@@ -145,7 +140,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             # follow-up activity: one call here serves whichever path the message takes,
             # and recording the choice in history once stops a retry of either activity
             # from landing on a different model than the first attempt announced.
-            workflow.deprecate_patch(_PATCH_ID_FOLLOWUP_MODEL_CLASSIFIER)
             model_override: SlackAppModelOverride | None = await _execute_posthog_code_activity(
                 classify_slack_app_model_override_activity,
                 SlackAppModelOverrideInput(
@@ -181,7 +175,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             # pick its own project, because a task, its mapping and its run all belong to
             # one. Everything below reads the integration from `inputs`, so the switch
             # lands above the repo cascade. Eligibility is decided inside the activity.
-            workflow.deprecate_patch(_PATCH_ID_PROJECT_ROUTE_CLASSIFIER)
             project_route = await _execute_posthog_code_activity(
                 classify_slack_app_project_route_activity,
                 SlackAppProjectRouteInput(
@@ -199,7 +192,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 # resolved, not the one the message named. Without this the run spends
                 # the thread fetch, the needs-repo classifier and possibly a discovery
                 # sandbox before task creation refuses on the same quota.
-                workflow.deprecate_patch(_PATCH_ID_PROJECT_ROUTE_QUOTA)
                 blocked = await _execute_posthog_code_activity(
                     enforce_posthog_code_billing_quota_activity,
                     inputs,
@@ -310,20 +302,20 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                         repository = self._selected_repo
 
             # After repo selection, so the repository can inform the pick.
-            if workflow.patched(_PATCH_ID_MODEL_ROUTER):
-                model_override = await _execute_posthog_code_activity(
-                    classify_slack_app_model_router_activity,
-                    SlackAppModelRouterInput(
-                        integration_id=inputs.integration_id,
-                        slack_team_id=inputs.slack_team_id,
-                        slack_user_id=slack_user_id,
-                        user_id=user_id,
-                        event_text=event.get("text", ""),
-                        thread_ts=thread_ts,
-                        repository=repository,
-                        model_override=model_override,
-                    ),
-                )
+            workflow.deprecate_patch(_PATCH_ID_MODEL_ROUTER)
+            model_override = await _execute_posthog_code_activity(
+                classify_slack_app_model_router_activity,
+                SlackAppModelRouterInput(
+                    integration_id=inputs.integration_id,
+                    slack_team_id=inputs.slack_team_id,
+                    slack_user_id=slack_user_id,
+                    user_id=user_id,
+                    event_text=event.get("text", ""),
+                    thread_ts=thread_ts,
+                    repository=repository,
+                    model_override=model_override,
+                ),
+            )
 
             await _execute_posthog_code_activity(
                 create_posthog_code_task_for_repo_activity,
