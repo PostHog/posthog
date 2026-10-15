@@ -84,6 +84,7 @@ from products.signals.backend.test.report_metric_test_fixtures import trends_met
 from products.signals.backend.throttles import ReportMetricRefreshThrottle
 from products.signals.backend.views import (
     PR_CI_STATUS_MAX_REPORTS,
+    SignalReportStateRequestSerializer,
     SignalReportViewSet,
     classify_report_list_client,
     parse_pr_ci_status_report_ids,
@@ -135,6 +136,15 @@ def _seen_event(team: Team, name: str, *, days_ago: int) -> None:
     EventDefinition.objects.create(
         team=team, project_id=team.project_id, name=name, last_seen_at=timezone.now() - timedelta(days=days_ago)
     )
+
+
+class TestSignalReportStateRequest(SimpleTestCase):
+    @parameterized.expand([("resolved", True), ("suppressed", False), ("potential", False)])
+    def test_no_action_needed_requires_resolution(self, target: str, valid: bool) -> None:
+        serializer = SignalReportStateRequestSerializer(data={"state": target, "dismissal_reason": "no_action_needed"})
+        assert serializer.is_valid() == valid
+        if not valid:
+            assert "dismissal_reason" in serializer.errors
 
 
 class TestReportListClientClassification(SimpleTestCase):
@@ -2970,6 +2980,13 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "already_fixed",
                 "shipped a fix by hand",
             ),
+            (
+                "resolve_no_action_needed",
+                {"state": "resolved", "dismissal_reason": "no_action_needed", "dismissal_note": "Reviewed the finding"},
+                SignalReport.Status.RESOLVED,
+                "no_action_needed",
+                "Reviewed the finding",
+            ),
         ]
     )
     def test_state_transition_with_dismissal(self, _name, body, expected_final_status, expected_reason, expected_note):
@@ -2991,6 +3008,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         )
         assert len(artefacts) == 1
         content = json.loads(artefacts[0].content)
+        assert content["state"] == body["state"]
         assert content["reason"] == expected_reason
         assert content["note"] == expected_note
         assert content["user_id"] == self.user.id
@@ -3005,6 +3023,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "fixed_outside_posthog",
             ),
             ("resolve_pr_merged", {"state": "resolved", "dismissal_reason": "pr_merged"}, "pr_merged"),
+            (
+                "resolve_no_action_needed",
+                {"state": "resolved", "dismissal_reason": "no_action_needed"},
+                "no_action_needed",
+            ),
             # A resolve carrying no feedback must not pick a reason up from anywhere.
             ("resolve_without_reason", {"state": "resolved"}, None),
         ]

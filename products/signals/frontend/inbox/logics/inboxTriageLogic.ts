@@ -118,11 +118,11 @@ export interface inboxTriageLogicActions {
     } // reportListLogic
     resolveReport: (
         reportId: string,
-        reason: 'already_fixed' | 'fixed_outside_posthog' | 'other' | 'pr_merged',
+        reason: 'already_fixed' | 'fixed_outside_posthog' | 'no_action_needed' | 'other' | 'pr_merged',
         note: string
     ) => {
         note: string
-        reason: 'already_fixed' | 'fixed_outside_posthog' | 'other' | 'pr_merged'
+        reason: 'already_fixed' | 'fixed_outside_posthog' | 'no_action_needed' | 'other' | 'pr_merged'
         reportId: string
     } // reportListLogic
     unassignMe: (

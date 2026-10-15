@@ -346,7 +346,7 @@ export interface reportListLogicActions {
         note: string
     ) => {
         note: string
-        reason: 'already_fixed' | 'fixed_outside_posthog' | 'other' | 'pr_merged'
+        reason: 'already_fixed' | 'fixed_outside_posthog' | 'no_action_needed' | 'other' | 'pr_merged'
         reportId: string
     }
     restoreReport: (

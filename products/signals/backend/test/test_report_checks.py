@@ -2259,6 +2259,25 @@ class TestPendingChecks(APIBaseTest):
         assert check.status == check_status
         assert check.measurement_start_at is None
 
+    @parameterized.expand(
+        [
+            ("fixed_outside_posthog", SignalReportCheck.Status.ACTIVE),
+            ("no_action_needed", SignalReportCheck.Status.CANCELLED),
+        ]
+    )
+    def test_manual_resolution_only_verifies_an_implemented_fix(self, reason: str, expected_status: str) -> None:
+        check = self._pending()
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/state/",
+                {"state": "resolved", "dismissal_reason": reason},
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        check.refresh_from_db()
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.RESOLVED
+        assert check.status == expected_status
+
     def test_a_pending_check_is_never_due_while_its_report_is_unresolved(self) -> None:
         self._pending()
 

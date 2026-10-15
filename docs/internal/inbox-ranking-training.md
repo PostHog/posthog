@@ -14,6 +14,7 @@ The label comes from the snapshot `horizon_days` later, including outcomes alrea
 The `pr_merged` head includes every report and reads merges within 14 days.
 The `dismiss_wrong` head includes every report and reads wrong-dismissal outcomes within 21 days.
 The `dismiss_lowvalue` head includes every report and reads `wontfix_irrelevant` dismissals within 21 days.
+Manual resolutions with reason `no_action_needed` count as reasoned resolutions for the `action` head but do not count toward the `fixed` head. They record that the report was accepted without claiming an implementation or a PR merge.
 
 The examples asset records `reports_missing_birth_snapshot` for observed reports born inside the lookback whose birth-day partition is missing.
 These reports produce no birth-grain example; reports born before the lookback do not contribute to this count.

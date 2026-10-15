@@ -2928,14 +2928,20 @@ describe("PostHogAPIClient", () => {
 
     // A resolve stores its rationale as a `dismissal` artefact, so resolve-only
     // reasons must normalize as dismissals rather than degrade to a raw preview.
-    it.each([["fixed_outside_posthog"], ["pr_merged"]])(
+    it.each([["fixed_outside_posthog"], ["pr_merged"], ["no_action_needed"]])(
       "keeps a resolve reason %s as a dismissal row",
       async (reason) => {
         const rows = [
           {
             id: "d1",
             type: "dismissal",
-            content: { reason, note: "", user_id: 1, user_uuid: null },
+            content: {
+              state: "resolved",
+              reason,
+              note: "",
+              user_id: 1,
+              user_uuid: null,
+            },
             created_at: "2026-06-01T00:00:00Z",
           },
         ];
@@ -2951,6 +2957,9 @@ describe("PostHogAPIClient", () => {
         expect(results[0].type).toBe("dismissal");
         expect(results[0].degraded).toBeFalsy();
         expect((results[0].content as { reason: string }).reason).toBe(reason);
+        expect((results[0].content as { state: string }).state).toBe(
+          "resolved",
+        );
       },
     );
 
