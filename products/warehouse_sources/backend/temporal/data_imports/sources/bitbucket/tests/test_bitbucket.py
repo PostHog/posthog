@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.settings import BITBUCKET_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.source import BitbucketSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -144,6 +145,20 @@ def test_fetch_page_rejects_off_origin_urls_without_sending_credentials(poisoned
         bitbucket._fetch_page(session, poisoned_url, Mock())
 
     session.get.assert_not_called()
+
+
+def test_fetch_page_exhausted_5xx_is_classified_retryable(monkeypatch):
+    # The raised message and BitbucketSource.get_retryable_errors are two halves of one contract:
+    # a rewording on either side sends a Bitbucket outage to error tracking as a PostHog exception.
+    monkeypatch.setattr(bitbucket._fetch_page.retry, "wait", lambda _: 0)
+    session = Mock()
+    session.get.return_value = Mock(status_code=503)
+
+    with pytest.raises(bitbucket.BitbucketRetryableError) as raised:
+        bitbucket._fetch_page(session, "https://api.bitbucket.org/2.0/repositories/ws", Mock())
+
+    assert error_message_matches(str(raised.value), BitbucketSource().get_retryable_errors())
+    assert not error_message_matches(str(raised.value), BitbucketSource().get_non_retryable_errors().keys())
 
 
 def test_poisoned_resume_state_is_not_fetched():

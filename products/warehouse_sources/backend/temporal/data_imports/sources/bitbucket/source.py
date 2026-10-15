@@ -151,6 +151,12 @@ Your credentials need the **repository**, **pullrequest**, **pipeline**, **proje
             "Missing Atlassian account email or API token": "The Atlassian account email or API token is missing. Please update the source configuration.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A BitbucketRetryableError (429 or any 5xx) that survives _fetch_page's tenacity retry is a
+        # Bitbucket-side outage. Temporal retries the activity and resume state keeps the page, so log
+        # it as a warning rather than track it as an exception. Mirrors GitHub's equivalent case.
+        return {"Bitbucket API error (retryable)"}
+
     def _get_auth(self, config: BitbucketSourceConfig) -> BitbucketAuth:
         if config.auth_method.selection == "access_token":
             if not config.auth_method.access_token:
