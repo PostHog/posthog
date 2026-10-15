@@ -117,6 +117,14 @@ fn create_heatmap_redirect(
 }
 
 /// Process a single analytics event from RawEvent to ProcessedEvent.
+///
+/// capture-ai serves only the AI paths and loads only AI restrictions (see
+/// `Pipeline::for_capture_mode`), so an event on any other lane would run
+/// ungoverned there. It rejects the whole request rather than dropping the
+/// offender: a client sending non-AI events to an AI endpoint is
+/// misconfigured, and a silent drop would hide that until someone went
+/// looking for the data. The abort path emits an `invalid_ai_event` ingestion
+/// warning alongside the 400, so the project owner sees it too.
 #[instrument(skip_all, fields(event_name, request_id))]
 pub fn process_single_event(
     event: &RawEvent,
@@ -131,6 +139,9 @@ pub fn process_single_event(
     Span::current().record("request_id", &context.request_id);
 
     let data_type = DataType::from_event_name(&event.event, context.historical_migration);
+    if context.capture_mode == crate::config::CaptureMode::Ai && data_type != DataType::AiEvents {
+        return Err(CaptureError::NonAiEventOnAiLane(event.event.clone()));
+    }
 
     // Redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if event.properties.contains_key("capture_internal") {
@@ -376,27 +387,6 @@ async fn process_events_inner(
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "created ProcessedEvents batch");
 
-    // capture-ai serves only the AI paths and loads only AI restrictions (see
-    // `Pipeline::for_capture_mode`), so an event on any other lane would run
-    // ungoverned there. Reject the batch rather than dropping the offender: a
-    // client sending non-AI events to an AI endpoint is misconfigured, and a
-    // silent drop would hide that until someone went looking for the data. The
-    // abort path emits an `invalid_ai_event` ingestion warning alongside the
-    // 400, so the project owner sees it too.
-    //
-    // Lane membership is the same answer `DataType::from_event_name` stamped on
-    // each event above.
-    if context.capture_mode == crate::config::CaptureMode::Ai {
-        if let Some(offender) = events
-            .iter()
-            .find(|e| e.metadata.data_type != DataType::AiEvents)
-        {
-            return Err(CaptureError::NonAiEventOnAiLane(
-                offender.metadata.event_name.clone(),
-            ));
-        }
-    }
-
     // Reject an AI-lane event past the deployment's ceiling before it can reach
     // the sink, where the producer's own cap would refuse it anyway — after
     // capture had read and processed the whole request. The whole request is
@@ -410,9 +400,7 @@ async fn process_events_inner(
     // The uuid says which event to fix, since a batch can carry several of the
     // same name. It is only a handle for clients that send their own; the rest
     // get the one `process_single_event` minted, which identifies nothing they
-    // can look up. The non-AI-event rejection above deliberately omits it: its
-    // offender may be the `$$heatmap` event capture itself synthesized, and
-    // naming a uuid the client never issued would misdirect them.
+    // can look up.
     if let Some(offender) = events.iter().find(|e| {
         e.metadata.data_type == DataType::AiEvents
             && exceeds_max_ai_event_bytes(e.event.data.len(), context.ai_max_event_bytes)
