@@ -63,6 +63,10 @@ SOURCE = SourceKind.BILLING.value
 
 FETCH_FAILED = "Billing alert data fetch failed."
 
+# Outcomes per batch, so one activity's result stays far under Temporal's ~2 MiB payload limit. The
+# rest stay due in the same slot, and the next tick evaluates them once these are recorded.
+MAX_CHECKS_PER_BATCH = 500
+
 
 @frozen
 class _BillingStatus:
@@ -77,6 +81,14 @@ def evaluate_billing_batch(team_id: int, slot: str, cutoff: datetime) -> SourceB
     checks = due_checks(team_id, SOURCE, slot, cutoff)
     if not checks:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
+    if len(checks) > MAX_CHECKS_PER_BATCH:
+        logger.warning(
+            "Platform billing batch holds more checks than one evaluation returns; the rest stay due",
+            team_id=team_id,
+            due=len(checks),
+            evaluated=MAX_CHECKS_PER_BATCH,
+        )
+        checks = checks[:MAX_CHECKS_PER_BATCH]
     legacy_ids = [check.legacy_configuration_id for check in checks if check.legacy_configuration_id is not None]
     # Scoped to the batch's team and its organization, so a copy can only read an alert it belongs to.
     alerts = {

@@ -19,7 +19,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
-from products.alerts_platform.backend.facade.testing import create_configuration, set_due_at
+from products.alerts_platform.backend.facade.testing import count_still_due, create_configuration, set_due_at
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvaluationClaim
 from products.billing_alerts.backend.platform_source_cycle import evaluate_billing_batch
 from products.billing_alerts.backend.temporal.platform_evaluate import EVALUATION_BUDGET
@@ -171,6 +171,17 @@ class TestPlatformBillingEvaluation(BaseTest):
         fetch.assert_not_called()
         (outcome,) = evaluation.outcomes
         assert (outcome.kind, outcome.disable) == (AlertEventKind.CHECK, disables_the_copy)
+
+    def test_a_batch_past_the_cap_evaluates_the_cap_and_leaves_the_rest_due(self) -> None:
+        configuration_ids = [self._copy(self._alert(name=f"Cap {n}")) for n in range(3)]
+
+        with patch(f"{_MODULE}.MAX_CHECKS_PER_BATCH", 2):
+            evaluation, _ = self._evaluate(_billing_response(150))
+        with team_scope(self.team.id):
+            record_outcomes(self.team.id, evaluation.outcomes, CUTOFF)
+            still_due = count_still_due(configuration_ids, at=CUTOFF)
+
+        assert (len(evaluation.outcomes), still_due) == (2, 1)
 
 
 def test_the_binding_holds_the_whole_batch() -> None:
