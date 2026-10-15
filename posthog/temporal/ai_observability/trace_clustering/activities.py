@@ -48,6 +48,7 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
     GenerateLabelsActivityOutputs,
     TraceSummary,
 )
+from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.common.heartbeat import Heartbeater
 
 logger = structlog.get_logger(__name__)
@@ -320,7 +321,10 @@ async def perform_clustering_compute_activity(inputs: ClusteringActivityInputs) 
                 analysis_level=inputs.analysis_level,
                 backoff_seconds=round(backoff, 1),
             )
-            raise ApplicationError(
+            # The retry usually gets through, so only a saturation that outlasts every attempt reaches error tracking.
+            is_last_attempt = activity.info().attempt >= (constants.COMPUTE_ACTIVITY_RETRY_POLICY.maximum_attempts or 0)
+            error_class = ApplicationError if is_last_attempt else NonReportableApplicationError
+            raise error_class(
                 "ClickHouse at capacity while fetching embeddings for clustering",
                 type="ClickHouseAtCapacity",
                 next_retry_delay=timedelta(seconds=backoff),

@@ -1,6 +1,7 @@
 """Tests for trace clustering workflow."""
 
 import uuid
+import dataclasses
 from datetime import UTC, datetime
 
 import pytest
@@ -430,31 +431,36 @@ class TestComputeActivityCapacityBackoff:
     of more queries. A regression here would restore the immediate-retry load spiral.
     """
 
+    @pytest.mark.parametrize("attempt, reportable", [(1, False), (2, True)])
     @pytest.mark.asyncio
-    async def test_clickhouse_at_capacity_raises_jittered_backoff(self):
+    async def test_clickhouse_at_capacity_raises_jittered_backoff(self, attempt: int, reportable: bool):
         from temporalio.exceptions import ApplicationError
         from temporalio.testing import ActivityEnvironment
 
         from posthog.exceptions import ClickHouseAtCapacity
         from posthog.temporal.ai_observability.trace_clustering import constants
         from posthog.temporal.ai_observability.trace_clustering.activities import perform_clustering_compute_activity
+        from posthog.temporal.common.errors import NonReportableError
 
         inputs = ClusteringActivityInputs(
             team_id=1,
             window_start="2025-01-01T00:00:00Z",
             window_end="2025-01-08T00:00:00Z",
         )
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(env.info, attempt=attempt)
 
         with patch(
             "posthog.temporal.ai_observability.trace_clustering.activities._perform_clustering_compute",
             side_effect=ClickHouseAtCapacity(),
         ):
             with pytest.raises(ApplicationError) as exc_info:
-                await ActivityEnvironment().run(perform_clustering_compute_activity, inputs)
+                await env.run(perform_clustering_compute_activity, inputs)
 
         err = exc_info.value
         assert err.type == "ClickHouseAtCapacity"
         assert err.non_retryable is False
+        assert isinstance(err, NonReportableError) is not reportable
         assert err.next_retry_delay is not None
         assert (
             constants.CLICKHOUSE_AT_CAPACITY_BACKOFF_MIN
