@@ -152,7 +152,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                     <ProductIntroduction
                         thingName="alert"
                         titleOverride="Get notified when it matters"
-                        description="Catch a drop in signups, a spike in errors, or an unexpected change in your metrics."
+                        description="Catch a drop in signups, a dip in conversion, or an unexpected change in product usage."
                         customHog={InsightAlertPreview}
                         hogLayout="vertical"
                         hogClassName="w-full sm:w-full lg:w-full max-w-96 mb-0"
