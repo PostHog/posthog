@@ -1074,6 +1074,18 @@ class TestTableDiscovery:
         # A tenant listing carries each tenant's password hash signer key, so it is never captured.
         assert factory.call_args_list[-1].kwargs["capture"] is False
 
+    @pytest.mark.parametrize("status", [429, 500, 503])
+    def test_transient_tenant_listing_errors_propagate(self, status: int) -> None:
+        # Dropping the table on a transient error would make the schema sync treat it as removed.
+        session = FakeSession(
+            request_responses=[FakeResponse(payload={}), FakeResponse(status_code=status)],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            with pytest.raises(requests.HTTPError, match=str(status)):
+                get_tables(credentials())
+
 
 class TestSampleCapture:
     @pytest.mark.parametrize(

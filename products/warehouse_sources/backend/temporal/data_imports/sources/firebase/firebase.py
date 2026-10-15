@@ -856,14 +856,14 @@ def has_tenants(session: requests.Session, tokens: AccessTokenProvider, credenti
 def _resume_tenant_cursor(
     resumable_source_manager: ResumableSourceManager[FirebaseResumeConfig],
     logger: FilteringBoundLogger,
-) -> Optional[tuple[str, str]]:
+) -> Optional[FirebaseResumeConfig]:
     if not resumable_source_manager.can_resume():
         return None
     resume = resumable_source_manager.load_state()
     if resume is None or resume.tenant_id is None:
         return None
     logger.debug(f"Resuming Firebase Auth tenant users from tenant={resume.tenant_id} cursor={resume.cursor}")
-    return resume.tenant_id, resume.cursor
+    return resume
 
 
 def iter_tenant_auth_users(
@@ -877,14 +877,14 @@ def iter_tenant_auth_users(
     tenant_ids = list_tenant_ids(session, tokens, credentials)
     if resume is not None:
         # A tenant deleted since the checkpoint is gone from the list, so compare rather than look it up.
-        tenant_ids = [tenant_id for tenant_id in tenant_ids if tenant_id >= resume[0]]
+        tenant_ids = [tenant_id for tenant_id in tenant_ids if tenant_id >= str(resume.tenant_id)]
 
     for index, tenant_id in enumerate(tenant_ids):
         url = (
             f"{IDENTITY_TOOLKIT_API_ROOT}/projects/{credentials.project_id}"
             f"/tenants/{quote(tenant_id, safe='')}/accounts:batchGet"
         )
-        page_token = resume[1] if resume is not None and resume[0] == tenant_id else None
+        page_token = resume.cursor if resume is not None and resume.tenant_id == tenant_id else None
 
         for _ in range(MAX_PAGES):
             params: dict[str, Any] = {"maxResults": AUTH_USERS_PAGE_SIZE}
@@ -1266,8 +1266,12 @@ def get_tables(credentials: FirebaseCredentials, force_refresh: bool = False) ->
             auth_tables.append(AUTH_TENANT_USERS_TABLE)
     except requests.HTTPError as e:
         # A project without Identity Platform, or a service account that can't list tenants, gets
-        # an error here. Neither should hide the tables the source can still read.
+        # one of these statuses. Neither should hide the tables the source can still read. Anything
+        # else (429, 5xx) is transient and must propagate, or the schema sync would treat the table
+        # as removed and disable an enabled sync.
         status = e.response.status_code if e.response is not None else None
+        if status not in (400, 403, 404):
+            raise
         LOGGER.warning(f"Skipping Firebase Auth tenants for Firebase project {credentials.project_id}: {status}")
 
     rtdb_tables = [realtime_database_table_name(path) for path in credentials.realtime_database_paths]
