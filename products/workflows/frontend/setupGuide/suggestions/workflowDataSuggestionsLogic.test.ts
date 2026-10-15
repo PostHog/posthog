@@ -34,16 +34,25 @@ const card: SuggestionCard = {
 
 describe('workflowDataSuggestionsLogic', () => {
     beforeEach(() => {
-        jest.mocked(workflowDataSuggestionsGenerate).mockResolvedValue({ status: 'ready', suggestions: [] })
+        jest.mocked(workflowDataSuggestionsGenerate).mockResolvedValue({
+            status: 'ready',
+            suggestions: [],
+            email_sender_ready: true,
+        })
         initKeaTests()
     })
 
     it('polls while the background run generates the cards', async () => {
         jest.useFakeTimers()
         try {
-            jest.mocked(workflowDataSuggestionsGenerate).mockResolvedValue({ status: 'generating', suggestions: [] })
+            jest.mocked(workflowDataSuggestionsGenerate).mockResolvedValue({
+                status: 'generating',
+                suggestions: [],
+                email_sender_ready: true,
+            })
             jest.mocked(workflowDataSuggestionsCurrent).mockResolvedValue({
                 status: 'ready',
+                email_sender_ready: true,
                 suggestions: [
                     {
                         id: 'suggestion-1',
@@ -78,6 +87,8 @@ describe('workflowDataSuggestionsLogic', () => {
             status: 'ready',
             workflow: { name: 'Welcome new users' },
             uses_saved_template: false,
+            workflow_id: null,
+            missing_inputs: [],
         })
         jest.mocked(hogFlowsCreate).mockResolvedValue({ id: 'workflow-1' } as any)
         const logic = workflowDataSuggestionsLogic({ surface: 'empty_state' })
@@ -102,8 +113,20 @@ describe('workflowDataSuggestionsLogic', () => {
         jest.useFakeTimers()
         try {
             jest.mocked(workflowDataSuggestionsBuild)
-                .mockResolvedValueOnce({ status: 'building', workflow: null, uses_saved_template: false })
-                .mockResolvedValue({ status: 'ready', workflow: { name: 'Welcome' }, uses_saved_template: false })
+                .mockResolvedValueOnce({
+                    status: 'building',
+                    workflow: null,
+                    uses_saved_template: false,
+                    workflow_id: null,
+                    missing_inputs: [],
+                })
+                .mockResolvedValue({
+                    status: 'ready',
+                    workflow: { name: 'Welcome' },
+                    uses_saved_template: false,
+                    workflow_id: null,
+                    missing_inputs: [],
+                })
             jest.mocked(hogFlowsCreate).mockResolvedValue({ id: 'workflow-1' } as any)
             const logic = workflowDataSuggestionsLogic({ surface: 'empty_state' })
             logic.mount()
