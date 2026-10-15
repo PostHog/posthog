@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CloudsmithSource(ResumableSource[CloudsmithSourceConfig, CloudsmithResumeConfig]):
+    codebase_detection = detect(env=("^CLOUDSMITH_",), pypi=("cloudsmith-cli", "cloudsmith-api"))
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     # `/v1` is the only API Cloudsmith publishes and it is not a version the caller selects, so
     # the framework's unversioned default applies.

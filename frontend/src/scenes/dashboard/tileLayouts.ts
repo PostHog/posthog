@@ -9,8 +9,14 @@ import {
 import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { isFunnelsQuery, isMetricInsightQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import {
+    isFunnelsQuery,
+    isInsightVizNode,
+    isMetricInsightQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isTrendsQuery,
+} from '~/queries/utils'
 import { ChartDisplayType, DashboardLayoutSize, DashboardTile } from '~/types'
 
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
@@ -243,7 +249,8 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
         }
 
         const layouts = (sortedDashboardTiles || []).map((tile) => {
-            const query = tile.insight ? getQueryBasedInsightModel(tile.insight) : null
+            const query = tile.insight?.query
+            const source = isInsightVizNode(query) ? query.source : query
             // Base constraints
             let defaultW = 6
             let defaultH = 5
@@ -251,19 +258,19 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
             if (tile.text) {
                 defaultW = 2
                 defaultH = 2
-            } else if (isFunnelsQuery(query)) {
+            } else if (isFunnelsQuery(source)) {
                 defaultW = 4
                 defaultH = 4
-            } else if (isRetentionQuery(query)) {
+            } else if (isRetentionQuery(source)) {
                 defaultW = 6
                 defaultH = 7
-            } else if (isPathsQuery(query)) {
+            } else if (isPathsQuery(source)) {
                 defaultW = columnCount // Paths take up so much space that they need to be full width to be readable
                 defaultH = 7
-            } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
+            } else if (isTrendsQuery(source) && source.trendsFilter?.display === ChartDisplayType.BoldNumber) {
                 defaultW = 2
                 defaultH = 2
-            } else if (isMetricInsightQuery(query?.query)) {
+            } else if (isMetricInsightQuery(query)) {
                 defaultW = 3
                 defaultH = 3
             }

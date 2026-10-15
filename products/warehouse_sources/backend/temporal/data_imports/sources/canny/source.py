@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CannySource(ResumableSource[CannySourceConfig, CannyResumeConfig]):
+    codebase_detection = detect(env=("^CANNY_",), script_hosts=("sdk.canny.io", "canny.io"))
+
     # Oldest→newest; the default is always the last entry. v2 is Canny's cursor-paginated wire,
     # served today for a subset of endpoints (see settings.py) — new sources default to it while
     # v1-pinned rows keep their skip/limit request path unchanged.

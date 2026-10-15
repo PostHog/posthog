@@ -11,9 +11,15 @@ import { DistinctIdKey, PersonhogIdentityOperations } from './identity'
 import { createIdentityClients } from './identity-clients'
 
 describe('PersonhogIdentityOperations', () => {
-    it('refuses a merge timeout that would kill every merge client-side', () => {
-        expect(() => createIdentityClients({} as never, { mergeTimeoutMs: 0 })).toThrow('PERSONHOG_MERGE_TIMEOUT_MS')
-    })
+    it.each([
+        ['merge', {}, { mergeTimeoutMs: 0 }, 'PERSONHOG_MERGE_TIMEOUT_MS'],
+        ['request', { timeoutMs: 0 }, {}, 'PERSONHOG_IDENTITY_TIMEOUT_MS'],
+    ])(
+        'refuses a zero %s timeout, which would kill or unbound every call client-side',
+        (_name, config, options, key) => {
+            expect(() => createIdentityClients(config as never, options)).toThrow(key)
+        }
+    )
 
     function makeOps(handlers: {
         getPersonsByDistinctIds?: jest.Mock
