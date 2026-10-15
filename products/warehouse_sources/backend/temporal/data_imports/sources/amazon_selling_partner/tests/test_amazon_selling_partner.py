@@ -387,6 +387,22 @@ class TestInventorySummaries:
         assert result.raised is None
         assert [request.param("granularityId") for request in _api_requests(result)] == ["B"]
 
+    def test_resume_inside_a_marketplace_skips_rows_already_handed_on(self) -> None:
+        result = _driver("A").run(
+            "inventory_summaries",
+            route(
+                {
+                    TOKEN_PATH: [TOKEN],
+                    SUMMARIES_PATH: [_summaries_page(["sku1", "sku2"], "next"), _summaries_page(["sku3"])],
+                }
+            ),
+            resume_state=AmazonSellingPartnerResumeConfig(marketplace_id="A", rows_done=2),
+        )
+
+        assert result.raised is None
+        assert [row["sellerSku"] for row in result.rows] == ["sku3"]
+        assert result.final_state == AmazonSellingPartnerResumeConfig(completed_marketplaces=["A"])
+
 
 class TestErrors:
     def test_a_rejected_refresh_token_is_a_permanent_auth_error(self) -> None:

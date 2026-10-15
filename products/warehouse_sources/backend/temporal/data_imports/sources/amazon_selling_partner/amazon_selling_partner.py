@@ -73,6 +73,9 @@ class AmazonSellingPartnerResumeConfig:
     # Marketplaces whose inventory walk finished. Inventory page tokens expire in 30 seconds, so a
     # marketplace restarts from its first page.
     completed_marketplaces: list[str] = field(default_factory=list)
+    # The inventory marketplace being handed on, and how many of its rows already were.
+    marketplace_id: str | None = None
+    rows_done: int = 0
 
 
 class LwaAuth(OAuth2Auth):
@@ -388,6 +391,7 @@ def _inventory_rows(
     for marketplace_id in marketplace_ids or list_marketplace_ids(region, auth):
         if marketplace_id in completed:
             continue
+        skip = resume.rows_done if resume is not None and resume.marketplace_id == marketplace_id else 0
         # Pages are read back to back before any row is handed on, because a page token expires
         # 30 seconds after Amazon issues it. Rows wait in a temporary file so a large catalog
         # does not have to fit in memory.
@@ -415,18 +419,29 @@ def _inventory_rows(
                 if not next_token:
                     break
 
-            completed = [*completed, marketplace_id]
-            if row_count == 0:
-                manager.save_state(AmazonSellingPartnerResumeConfig(completed_marketplaces=completed))
+            done_state = AmazonSellingPartnerResumeConfig(completed_marketplaces=[*completed, marketplace_id])
+            if row_count <= skip:
+                manager.save_state(done_state)
                 manager.safe_point()
+                completed = done_state.completed_marketplaces
                 continue
             spool.seek(0)
-            handed_on = 0
+            # A resumed full refresh would append rows handed on before the hand-off, so they are
+            # skipped. This relies on Amazon listing a marketplace's SKUs in the same order on both reads.
+            for _ in range(skip):
+                spool.readline()
+            handed_on = skip
             for lines in batched(spool, INVENTORY_ROWS_PER_BATCH, strict=False):
                 handed_on += len(lines)
-                if handed_on == row_count:
-                    manager.save_state(AmazonSellingPartnerResumeConfig(completed_marketplaces=completed))
+                manager.save_state(
+                    done_state
+                    if handed_on >= row_count
+                    else AmazonSellingPartnerResumeConfig(
+                        completed_marketplaces=completed, marketplace_id=marketplace_id, rows_done=handed_on
+                    )
+                )
                 yield [json.loads(line) for line in lines]
+            completed = done_state.completed_marketplaces
 
 
 def amazon_selling_partner_source(
