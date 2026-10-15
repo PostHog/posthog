@@ -1232,7 +1232,7 @@ export type ScoutSuggestionCreatedVia = 'api' | 'chat'
 export type ScoutSuggestionsRefreshOutcome = 'accepted' | 'running' | 'capped' | 'failed' | 'resumed'
 
 /** What put the scan on screen. Without it, a client resuming a paid scan reads as a refused duplicate. */
-export type ScoutSuggestionsRefreshSource = 'strip' | 'reload'
+export type ScoutSuggestionsRefreshSource = 'strip' | 'reload' | 'onboarding'
 
 /**
  * The suggestion batch as it was first rendered this visit. Without it a batch nobody acts on is
