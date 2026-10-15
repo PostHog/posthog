@@ -197,12 +197,18 @@ class RemoteConfig(UUIDTModel):
             normalized_groups = []
             for group in groups if isinstance(groups, list) else []:
                 # The SDK throws on a group whose conditions is not an object.
-                # It also throws on events that is neither null nor a list.
+                # It also throws on events that is neither null nor a list of strings or objects.
+                # It reads urls that is not a list as "no URLs", which can record every session.
                 conditions = group.get("conditions") if isinstance(group, dict) else None
                 if not isinstance(conditions, dict):
                     continue
+                urls = conditions.get("urls")
+                if urls is not None and not (isinstance(urls, list) and all(isinstance(u, dict) for u in urls)):
+                    continue
                 events = conditions.get("events")
                 if isinstance(events, list):
+                    if not all(isinstance(e, str | dict) for e in events):
+                        continue
                     group = {
                         **group,
                         "conditions": {
