@@ -37,7 +37,7 @@ const draft: InboxOnboardingDraftApi = {
 describe('focused Inbox setup', () => {
     let logic: ReturnType<typeof inboxSetupLogic.build>
     let savedDraft: InboxOnboardingDraftApi | null
-    let variant: 'control' | 'test' | 'quick' | null
+    let variant: 'control' | 'test-ui' | 'test-github' | null
     let sources: SignalSourceConfigApi[]
     let failCompletion: boolean
     let createdSources: number
@@ -53,7 +53,7 @@ describe('focused Inbox setup', () => {
     beforeEach(() => {
         initKeaTests()
         savedDraft = { ...draft }
-        variant = 'test'
+        variant = 'test-ui'
         sources = []
         createdSources = 0
         warehouseConnected = false
@@ -123,10 +123,11 @@ describe('focused Inbox setup', () => {
                 },
             },
             post: {
-                '/api/projects/:id/signals/onboarding/expose/': () => [
-                    200,
-                    { draft: savedDraft, completed_at: null, variant },
-                ],
+                '/api/projects/:id/signals/onboarding/expose/': async ({ request }) => {
+                    const assignment = (await request.json()) as { variant: typeof variant }
+                    variant ??= assignment.variant
+                    return [200, { draft: savedDraft, completed_at: null, variant }]
+                },
                 '/api/projects/:id/signals/scout/configs/sync/': ({ request }) => {
                     expect(new URL(request.url).searchParams.get('surface')).toBe('onboarding')
                     return [200, canonicalScouts]
@@ -177,7 +178,7 @@ describe('focused Inbox setup', () => {
                 '/api/projects/:id/signals/source_configs/:source/': () => [200, sources[0]],
             },
         })
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test' })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' })
         logic = inboxSetupLogic()
         logic.mount()
     })
@@ -191,7 +192,8 @@ describe('focused Inbox setup', () => {
     it.each(['button', 'github_return'])(
         'activates defaults through %s without setup steps or recommendation refreshes',
         async (entry) => {
-            variant = 'quick'
+            variant = entry === 'github_return' ? 'test-github' : null
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-github' })
             savedDraft = null
             failCompletion = false
             hasEvents = true
@@ -230,7 +232,7 @@ describe('focused Inbox setup', () => {
         }
     )
 
-    it.each(['control', null, 'test'] as const)(
+    it.each(['control', null, 'test-ui'] as const)(
         'opens setup and preserves the %s assignment through resume and activation',
         async (assignment) => {
             variant = assignment
@@ -240,13 +242,13 @@ describe('focused Inbox setup', () => {
                 assignment ? { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: assignment } : {}
             )
             await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
-            expect(logic.values.usesFocusedSetup).toBe(assignment === 'test')
+            expect(logic.values.usesFocusedSetup).toBe(assignment === 'test-ui')
             expect(logic.values.inProgress).toBe(false)
             const capture = jest.spyOn(posthog, 'capture')
             const onboarding = inboxOnboardingLogic()
             onboarding.mount()
             try {
-                if (assignment === 'test') {
+                if (assignment === 'test-ui') {
                     await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
                     await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
                 } else {
@@ -270,7 +272,7 @@ describe('focused Inbox setup', () => {
                 )
                 expect(
                     capture.mock.calls.filter(([event]) => event === 'self-driving onboarding welcome continued')
-                ).toHaveLength(assignment === 'test' ? 1 : 0)
+                ).toHaveLength(assignment === 'test-ui' ? 1 : 0)
             } finally {
                 onboarding.unmount()
                 capture.mockRestore()
@@ -504,7 +506,7 @@ describe('focused Inbox setup', () => {
         const save = jest.spyOn(signalsApi, 'signalsOnboardingCreate').mockImplementation(async (_, draft) => ({
             draft,
             completed_at: null,
-            variant: 'test',
+            variant: 'test-ui',
         }))
         jest.useFakeTimers()
         logic.actions.patchDraft({ automatic_implementation: true })
@@ -544,11 +546,11 @@ describe('focused Inbox setup', () => {
         logic.actions.goToStep('scouts')
         expect(save).toHaveBeenCalledTimes(1)
         expect(logic.values.saving).toBe(true)
-        finishFirst({ draft: save.mock.calls[0][1], completed_at: null, variant: 'test' })
+        finishFirst({ draft: save.mock.calls[0][1], completed_at: null, variant: 'test-ui' })
         await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
         expect(logic.values.draft).toMatchObject({ automatic_implementation: false, implementation_priority: 'P2' })
         expect(router.values.searchParams.onboarding_step).not.toBe('scouts')
-        finishSecond({ draft: save.mock.calls[1][1], completed_at: null, variant: 'test' })
+        finishSecond({ draft: save.mock.calls[1][1], completed_at: null, variant: 'test-ui' })
         await expectLogic(logic).toFinishAllListeners()
         expect(save).toHaveBeenCalledTimes(2)
         expect(logic.values.saving).toBe(false)
@@ -582,7 +584,7 @@ describe('focused Inbox setup', () => {
             logic.actions.connectGithub('/authorize-github')
             expect(assign).not.toHaveBeenCalled()
             expect(logic.values.saving).toBe(true)
-            finish({ draft: save.mock.calls[1][1], completed_at: null, variant: 'test' })
+            finish({ draft: save.mock.calls[1][1], completed_at: null, variant: 'test-ui' })
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.error).toBeNull()
             expect(assign).toHaveBeenCalledWith('/authorize-github')

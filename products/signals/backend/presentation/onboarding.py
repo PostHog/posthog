@@ -38,8 +38,8 @@ class InboxOnboardingStep(models.TextChoices):
 
 class InboxOnboardingVariant(models.TextChoices):
     CONTROL = "control", "Control"
-    TEST = "test", "Focused steps"
-    QUICK = "quick", "Activate and explore"
+    TEST_UI = "test-ui", "Focused steps"
+    TEST_GITHUB = "test-github", "Activate and explore"
 
 
 class InboxOnboardingExposureSerializer(serializers.Serializer):

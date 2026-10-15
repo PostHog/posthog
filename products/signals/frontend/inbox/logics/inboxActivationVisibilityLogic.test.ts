@@ -20,7 +20,7 @@ describe('Inbox activation panel visibility', () => {
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
-        state = { variant: 'quick', completed_at: new Date(ACTIVATED_AT).toISOString(), draft: null }
+        state = { variant: 'test-github', completed_at: new Date(ACTIVATED_AT).toISOString(), draft: null }
         reportCount = 0
         reportRequests = []
         unmount = undefined
@@ -81,7 +81,7 @@ describe('Inbox activation panel visibility', () => {
     })
 
     it('does not show the panel or check reports for another onboarding variant', async () => {
-        state = { ...state, variant: 'test' }
+        state = { ...state, variant: 'test-ui' }
         await checkVisibility(SEVEN_DAYS)
         expect(logic.values.showActivationPanel).toBe(false)
         expect(reportRequests).toHaveLength(0)

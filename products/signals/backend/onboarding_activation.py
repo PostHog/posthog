@@ -55,7 +55,7 @@ class InboxOnboardingActivation:
             team_id=self.team_id
         )
         state = config.onboarding or {}
-        if state.get("variant") != "quick" or not state.get("completed_at"):
+        if state.get("variant") != "test-github" or not state.get("completed_at"):
             return
         if state.get("jobs", {}).get(job) in ("started", "skipped"):
             return

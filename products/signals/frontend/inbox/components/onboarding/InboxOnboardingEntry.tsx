@@ -24,10 +24,10 @@ export function InboxOnboardingEntry(): JSX.Element {
         error,
     } = useValues(inboxSetupLogic)
     useEffect(() => {
-        if (variant === 'control' || variant === 'test' || variant === 'quick') {
+        if (variant === 'control' || variant === 'test-ui' || variant === 'test-github') {
             expose(variant)
         }
-        if (variant === 'test' || variant === 'quick') {
+        if (variant === 'test-ui' || variant === 'test-github') {
             captureInboxWelcomeViewed()
         }
     }, [variant, currentTeamId, expose])
