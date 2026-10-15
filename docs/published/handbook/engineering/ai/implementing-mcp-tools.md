@@ -118,7 +118,8 @@ Set each variant's JSON payload to customize its invitation without deploying:
 ```
 
 Each variant must explicitly supply `message` and `booking_url`; omitted timing fields use the defaults above.
-A boolean `true` remains compatible with the original `mcp-research` campaign and its defaults.
+A boolean `true` identifies the original `mcp-research` campaign, but requires the same explicit copy and URL.
+A missing payload skips recruitment; no invitation copy or booking URL is supplied by the code.
 A malformed payload, an empty message, a message over 1,000
 characters, or a non-HTTPS booking URL skips recruitment. Flag values and payloads come from the same
 evaluation, with the same audience properties. Payload edits apply to subsequent requests without
@@ -208,8 +209,10 @@ the original tool or a known booking redirect. Suppressed and impersonated reque
 To reset one user, delete that user's `:response` key and any matching
 `:response:mcp-interview:*` pending keys. Disable the flag or finish any open invitation before
 resetting. Do not reset all users just to test a change. Pending continuations expire after ten minutes
-and are bound to the original token and tool arguments. An expired continuation returns an error
-asking the caller to retry the original tool call without `requestState` or `inputResponses`.
+and are bound to the original token, tool arguments, organization, and project. A changed context
+rejects the continuation before the tool runs. Consumed continuations retain a ten-minute marker
+and cannot run again. Expired or consumed errors require checking the original tool's outcome
+before retrying, because a write may already have succeeded.
 
 ## Claude web and desktop exec schema budget
 

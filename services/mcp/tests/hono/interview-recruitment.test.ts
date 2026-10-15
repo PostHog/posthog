@@ -90,26 +90,27 @@ function createRedis(): {
                 entries.set(key, { value: JSON.stringify(record), expires: now + ttl * 1000 })
                 return [record.completed, record.started]
             }
-            const [preference, pending, first, second, ttl, pendingTtl] = args as [
+            const [preference, pending, first, second, ttl, extra, consumedTtl] = args as [
                 string,
                 string,
                 string,
                 string,
                 number,
+                string | number,
                 number | undefined,
             ]
-            if (pendingTtl !== undefined) {
+            if (consumedTtl === undefined) {
                 if (get(preference) !== undefined) {
                     return 0
                 }
                 entries.set(preference, { value: first, expires: Date.now() + ttl * 1000 })
-                entries.set(pending, { value: second, expires: Date.now() + pendingTtl * 1000 })
+                entries.set(pending, { value: second, expires: Date.now() + Number(extra) * 1000 })
             } else {
                 if (get(pending) !== first) {
                     return 0
                 }
                 entries.set(preference, { value: second, ...(ttl ? { expires: Date.now() + ttl * 1000 } : {}) })
-                entries.delete(pending)
+                entries.set(pending, { value: String(extra), expires: Date.now() + consumedTtl * 1000 })
             }
             return 1
         }),
@@ -120,8 +121,13 @@ function createRedis(): {
 function makeState(): ResolvedState {
     return {
         distinctId: 'test-person',
-        context: { api: { getProjectBaseUrl: () => 'https://us.posthog.com' } },
+        context: {
+            api: { getProjectBaseUrl: () => 'https://us.posthog.com' },
+            stateManager: { getOrgID: vi.fn(async () => 'org-1'), getProjectId: vi.fn(async () => '1') },
+        },
         interviewRecruitmentConfig: resolveInterviewRecruitmentConfig(true, {
+            message: 'Synthetic MCP interview',
+            booking_url: 'https://example.com/book',
             min_completed_tool_calls: 0,
             min_session_age_seconds: 0,
         }),
@@ -166,7 +172,7 @@ async function call(
     params = callParams(),
     requestProps = props,
     id?: number
-): Promise<{ result?: Record<string, unknown>; error?: { code: number } }> {
+): Promise<{ result?: Record<string, unknown>; error?: { code: number; message: string } }> {
     return (await dispatcher.handleRequest(request(params, id ?? nextRequestId++), requestProps)).json()
 }
 
@@ -302,7 +308,10 @@ describe('MCP interview recruitment', () => {
 
     it('waits for three completed product calls and two minutes in the same conversation', async () => {
         vi.useFakeTimers()
-        state.interviewRecruitmentConfig = resolveInterviewRecruitmentConfig(true, {})
+        state.interviewRecruitmentConfig = resolveInterviewRecruitmentConfig(true, {
+            message: 'Synthetic MCP interview',
+            booking_url: 'https://example.com/book',
+        })
         expect((await call(dispatcher)).result).toMatchObject(toolResult)
         expect((await call(dispatcher)).result).toMatchObject(toolResult)
         vi.advanceTimersByTime(120_000)
@@ -315,7 +324,10 @@ describe('MCP interview recruitment', () => {
         'does not count %s calls toward the warm-up',
         async (kind) => {
             vi.useFakeTimers()
-            state.interviewRecruitmentConfig = resolveInterviewRecruitmentConfig(true, {})
+            state.interviewRecruitmentConfig = resolveInterviewRecruitmentConfig(true, {
+                message: 'Synthetic MCP interview',
+                booking_url: 'https://example.com/book',
+            })
             const params = callParams()
             params.arguments = {
                 command: {
@@ -343,7 +355,10 @@ describe('MCP interview recruitment', () => {
 
     it('does not count a replay of the same completed RPC twice', async () => {
         vi.useFakeTimers()
-        state.interviewRecruitmentConfig = resolveInterviewRecruitmentConfig(true, {})
+        state.interviewRecruitmentConfig = resolveInterviewRecruitmentConfig(true, {
+            message: 'Synthetic MCP interview',
+            booking_url: 'https://example.com/book',
+        })
         for (let i = 0; i < 3; i++) {
             expect((await call(dispatcher, callParams(), props, 10)).result).toMatchObject(toolResult)
         }
@@ -357,7 +372,10 @@ describe('MCP interview recruitment', () => {
         'does not reuse warm-up progress for a %s',
         async (change) => {
             vi.useFakeTimers()
-            state.interviewRecruitmentConfig = resolveInterviewRecruitmentConfig(true, {})
+            state.interviewRecruitmentConfig = resolveInterviewRecruitmentConfig(true, {
+                message: 'Synthetic MCP interview',
+                booking_url: 'https://example.com/book',
+            })
             for (let i = 0; i < 3; i++) {
                 await call(dispatcher)
             }
@@ -408,7 +426,7 @@ describe('MCP interview recruitment', () => {
         expect(storage.entries.size).toBe(0)
     })
 
-    it.each(['token', 'person', 'arguments', 'expired', 'replayed', 'invalid-answer'])(
+    it.each(['token', 'person', 'arguments', 'project', 'organization', 'expired', 'replayed', 'invalid-answer'])(
         'rejects a %s continuation without executing the tool',
         async (change) => {
             vi.useFakeTimers()
@@ -423,6 +441,10 @@ describe('MCP interview recruitment', () => {
                 state.distinctId = 'another-person'
             } else if (change === 'arguments') {
                 resumed.arguments = { command: 'call project-delete {}' }
+            } else if (change === 'project') {
+                vi.mocked(state.context.stateManager.getProjectId).mockResolvedValue('2')
+            } else if (change === 'organization') {
+                vi.mocked(state.context.stateManager.getOrgID).mockResolvedValue('org-2')
             } else if (change === 'expired') {
                 vi.setSystemTime(Date.now() + 10 * 60 * 1000)
             } else if (change === 'replayed') {
@@ -431,7 +453,14 @@ describe('MCP interview recruitment', () => {
             } else {
                 resumed.inputResponses = { 'mcp-interview': { action: 'unknown' } }
             }
-            expect((await call(dispatcher, resumed, continuationProps)).error?.code).toBe(-32602)
+            const rejected = await call(dispatcher, resumed, continuationProps)
+            expect(rejected.error?.code).toBe(-32602)
+            if (change === 'replayed') {
+                expect(rejected.error?.message).toContain('already consumed')
+            }
+            if (change === 'expired') {
+                expect(rejected.error?.message).toContain('Check whether the original tool completed')
+            }
             expect(executeTool).not.toHaveBeenCalled()
         }
     )

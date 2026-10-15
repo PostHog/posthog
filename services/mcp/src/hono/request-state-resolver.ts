@@ -175,10 +175,12 @@ export class RequestStateResolver {
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
-        const [{ flags: allFlags, payloads }, _apiKey, distinctId, oauthClientName, oauthClientId] = await Promise.all([
+        const [{ flags: allFlags, payloads }, _apiKey, distinctId] = await Promise.all([
             this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
+        ])
+        const [oauthClientName, oauthClientId] = await Promise.all([
             reqCtx.tokenCache.get('clientName'),
             reqCtx.tokenCache.get('oauthClientId'),
         ])

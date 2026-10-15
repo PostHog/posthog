@@ -8,7 +8,9 @@ const {
     mockRefreshTtlCalls,
     mockRedisFailures,
     mockPinned,
+    mockGetApiKey,
 } = vi.hoisted(() => ({
+    mockGetApiKey: vi.fn(),
     mockSessionStore: new Map<string, unknown>(),
     mockTokenStore: new Map<string, unknown>(),
     mockApiKey: {
@@ -122,7 +124,7 @@ vi.mock('@/hono/request-context', () => {
                     return {
                         stateManager: {
                             setDefaultOrganizationAndProject: vi.fn(async () => {}),
-                            getApiKey: vi.fn(async () => mockApiKey),
+                            getApiKey: mockGetApiKey,
                             getAiConsentGiven: vi.fn(async () => undefined),
                             getAvailableFeatures: vi.fn(async () => undefined),
                         },
@@ -193,6 +195,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockRedisFailures.legacyReadError = undefined
         mockRedisFailures.contextReads = 0
         mockPinned.last = undefined
+        mockGetApiKey.mockReset().mockImplementation(async () => mockApiKey)
         mockApiKey.scopes = ['*']
         mockApiKey.is_impersonated = undefined
         mockApiKey.suppress_analytics = undefined
@@ -506,24 +509,52 @@ describe('RequestStateResolver MCP client contexts', () => {
         { scopes: ['internal_run:read'] },
         { oauthClientId: 'jpSRPhGBBbDGpKprit9bgJEuo6oUTa8ULymqf8PE' },
         { oauthClientId: 'N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu' },
+        { oauthClientId: 'jpSRPhGBBbDGpKprit9bgJEuo6oUTa8ULymqf8PE', cold: true },
+        { oauthClientId: 'N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu', cold: true },
         { oauthClientId: 'https://posthog.com/.well-known/oauth/webmcp/client-metadata.json' },
         { mcpConsumer: 'posthog-cli' },
     ])('enforces recruitment eligibility even when the flag is forced on: %j', async (input) => {
         if (input.scopes) {
             mockApiKey.scopes = input.scopes
         }
-        if ('oauthClientId' in input) {
-            mockTokenStore.set('oauthClientId', input.oauthClientId)
+        if (input.oauthClientId) {
+            if (input.cold) {
+                mockGetApiKey.mockImplementationOnce(async () => {
+                    await new Promise<void>((resolve) => setImmediate(resolve))
+                    mockTokenStore.set('oauthClientId', input.oauthClientId)
+                    mockTokenStore.set('clientName', 'Synthetic first-party application')
+                    return mockApiKey
+                })
+            } else {
+                mockTokenStore.set('oauthClientId', input.oauthClientId)
+            }
         }
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
+            flags: {},
+            payloads: {
+                [MCP_INTERVIEW_RECRUITMENT_FLAG]: {
+                    message: 'Synthetic interview',
+                    booking_url: 'https://example.com/book',
+                },
+            },
+        })
         vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ [MCP_INTERVIEW_RECRUITMENT_FLAG]: true })
         const result = await makeResolver().resolve(makeProps(input))
+        if (input.oauthClientId) {
+            expect(result.oauthClientId).toBe(input.oauthClientId)
+        }
         expect(result.interviewRecruitmentConfig).toBeUndefined()
     })
 
     it.each([
         {
-            payload: {},
-            expected: { campaign_id: 'mcp-research', booking_url: 'https://cal.com/adam-posthog/posthog-chat' },
+            payload: { message: 'Synthetic interview', booking_url: 'https://example.com/book' },
+            expected: {
+                campaign_id: 'mcp-research',
+                booking_url: 'https://example.com/book',
+                min_completed_tool_calls: 3,
+                min_session_age_seconds: 120,
+            },
         },
         {
             payload: { message: 'A new invitation', booking_url: 'https://example.com/book' },
@@ -534,6 +565,11 @@ describe('RequestStateResolver MCP client contexts', () => {
         { payload: { booking_url: 'http://example.com/book' }, expected: undefined },
         { payload: { booking_url: 'not a URL' }, expected: undefined },
         { payload: 'invalid', expected: undefined },
+        { payload: undefined, expected: undefined },
+        { payload: null, expected: undefined },
+        { payload: {}, expected: undefined },
+        { payload: { message: 'Synthetic interview' }, expected: undefined },
+        { payload: { booking_url: 'https://example.com/book' }, expected: undefined },
         {
             value: 'other-study',
             payload: { message: 'Another interview', booking_url: 'https://example.com/other' },

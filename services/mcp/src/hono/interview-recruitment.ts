@@ -23,13 +23,6 @@ const bookingUrlSchema = z.url().refine((value) => value.startsWith('https://'))
 const interviewRecruitmentConfigSchema = z.object({
     min_completed_tool_calls: z.number().int().min(0).max(1000).default(3),
     min_session_age_seconds: z.number().int().min(0).max(86400).default(120),
-    message: invitationMessageSchema.default(
-        "Squeal on our MCP. Book a 20-minute chat. We'll pay you in PostHog merch."
-    ),
-    booking_url: bookingUrlSchema.default('https://cal.com/adam-posthog/posthog-chat'),
-})
-
-const variantConfigSchema = interviewRecruitmentConfigSchema.extend({
     message: invitationMessageSchema,
     booking_url: bookingUrlSchema,
 })
@@ -44,7 +37,7 @@ export function resolveInterviewRecruitmentConfig(
     if (!campaign.success) {
         return undefined
     }
-    const config = (value === true ? interviewRecruitmentConfigSchema : variantConfigSchema).safeParse(payload ?? {})
+    const config = interviewRecruitmentConfigSchema.safeParse(payload)
     return config.success ? { ...config.data, campaign_id: campaign.data } : undefined
 }
 
@@ -82,7 +75,7 @@ if ARGV[3] == '0' then
 else
     redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
 end
-redis.call('DEL', KEYS[2])
+redis.call('SET', KEYS[2], ARGV[4], 'EX', ARGV[5])
 return 1
 `
 
@@ -90,12 +83,15 @@ const bookingLinkSchema = z.object({
     distinct_id: z.string().min(1),
     invitation_id: z.uuid(),
     url: bookingUrlSchema,
-    campaign_id: campaignIdSchema.default(DEFAULT_CAMPAIGN_ID),
+    campaign_id: campaignIdSchema,
 })
 
 const pendingInvitationSchema = z.object({
     fingerprint: z.string(),
     campaign_id: campaignIdSchema,
+    organization_id: z.string().min(1),
+    project_id: z.string().min(1),
+    consumed: z.boolean().default(false),
 })
 
 const responseSchema = z.object({ action: z.enum(['accept', 'decline', 'cancel']) })
@@ -284,7 +280,21 @@ export class InterviewRecruitment {
         const pending = pendingInvitationSchema.safeParse(rawPending ? JSON.parse(rawPending) : undefined)
         if (!pending.success || pending.data.fingerprint !== this.requestFingerprint(params, userHash)) {
             throw new InterviewRequestError(
-                'Interview invitation expired or does not match this request. Retry the original tool call without requestState or inputResponses.'
+                'Interview invitation expired, changed, or is unavailable. Check whether the original tool completed before retrying; do not automatically repeat a write.'
+            )
+        }
+        if (pending.data.consumed) {
+            throw new InterviewRequestError(
+                'This interview response was already consumed. The original tool may have run. Check its outcome before retrying; do not automatically repeat a write.'
+            )
+        }
+        const [organizationId, projectId] = await Promise.all([
+            state.context.stateManager.getOrgID(),
+            state.context.stateManager.getProjectId(),
+        ])
+        if (pending.data.organization_id !== organizationId || pending.data.project_id !== projectId) {
+            throw new InterviewRequestError(
+                'The active project or organization changed while the invitation was open. Restore the original context before retrying this continuation.'
             )
         }
         const saved = await this.redis.eval(
@@ -299,11 +309,13 @@ export class InterviewRecruitment {
                 response,
                 responded_at: new Date().toISOString(),
             }),
-            response === 'not_now' ? COOLDOWN_SECONDS : 0
+            response === 'not_now' ? COOLDOWN_SECONDS : 0,
+            JSON.stringify({ ...pending.data, consumed: true }),
+            PENDING_SECONDS
         )
         if (saved !== 1) {
             throw new InterviewRequestError(
-                'Interview invitation expired or does not match this request. Retry the original tool call without requestState or inputResponses.'
+                'Interview invitation expired, changed, or is unavailable. Check whether the original tool completed before retrying; do not automatically repeat a write.'
             )
         }
         if (!state.isImpersonated && !state.suppressAnalytics) {
@@ -351,6 +363,10 @@ export class InterviewRecruitment {
             ) {
                 return undefined
             }
+            const [organizationId, projectId] = await Promise.all([
+                state.context.stateManager.getOrgID(),
+                state.context.stateManager.getProjectId(),
+            ])
             await this.redis.set(
                 linkKey,
                 JSON.stringify({
@@ -375,6 +391,8 @@ export class InterviewRecruitment {
                 JSON.stringify({
                     fingerprint: this.requestFingerprint(params, userHash),
                     campaign_id: config.campaign_id,
+                    organization_id: organizationId,
+                    project_id: projectId,
                 }),
                 COOLDOWN_SECONDS,
                 PENDING_SECONDS

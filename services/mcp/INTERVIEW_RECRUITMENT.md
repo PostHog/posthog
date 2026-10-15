@@ -35,7 +35,8 @@ the payload. Targeting belongs in release conditions; campaign identity comes fr
 The server does not supply current-client metadata as feature-flag property overrides.
 
 The original campaign key is `mcp-research`. Boolean `true` remains compatible with this original
-campaign for local development and existing boolean configurations.
+campaign for local development and existing boolean configurations, but still requires an explicit valid payload.
+There is no fallback invitation copy or booking URL for any flag value.
 
 ## Shared protections and reporting
 
@@ -55,7 +56,9 @@ The existing events carry `campaign_id` and `invitation_id`:
 
 Filter by `campaign_id` for your study's results. Count distinct people for reach and invitation IDs
 for attempts. Redirects, responses, and suppression records retain the campaign selected when the
-invitation was sent, even if the flag changes while the dialog is open. These events do not track
+invitation was sent, even if the flag changes while the dialog is open. Continuations also require the
+original resolved organization and project. Consumed continuations cannot run again; errors must not
+encourage automatically repeating the original tool, because a write may already have succeeded. These events do not track
 completed bookings.
 
 ## Code and checks
