@@ -118,11 +118,16 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Metric.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[Metric]) -> QuerySet[Metric]:
-        return api.metrics_visible_to_user(
+        metrics = api.metrics_visible_to_user(
             self.team,
             cast(User, self.request.user),
             self.user_access_control,
         )
+        if status_filter := self.request.query_params.get("status"):
+            metrics = metrics.filter(status=status_filter)
+        if definition_kind := self.request.query_params.get("definition_kind"):
+            metrics = metrics.filter(definition__kind=definition_kind)
+        return metrics
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
         if getattr(view, "action", None) not in ("create", "update", "partial_update"):
@@ -147,6 +152,14 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
         return super().get_throttles()
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("status", OpenApiTypes.STR, description="Only metrics with this review status."),
+            OpenApiParameter(
+                "definition_kind", OpenApiTypes.STR, description="Only metrics with this query node kind."
+            ),
+        ]
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
         # Precompute drift for the whole page in one bulk query, so is_drifted doesn't fan out
         # into a per-metric insight lookup (an N+1 over the catalog list).
@@ -328,7 +341,18 @@ class CertificationViewSet(
     queryset = TableCertification.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[TableCertification]) -> QuerySet[TableCertification]:
-        return api.certifications_for_team(self.team)
+        certifications = api.certifications_for_team(self.team)
+        if status_filter := self.request.query_params.get("status"):
+            certifications = certifications.filter(status=status_filter)
+        return certifications
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("status", OpenApiTypes.STR, description="Only certifications with this review status.")
+        ]
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return super().list(request, *args, **kwargs)
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
         action = getattr(view, "action", None)

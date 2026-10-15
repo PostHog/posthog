@@ -362,6 +362,20 @@ class TestCertificationAPI(APIBaseTest):
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/data_catalog/certifications/"
 
+    def test_list_filters_status_before_pagination(self) -> None:
+        certified = TableCertification.objects.for_team(self.team.id).create(
+            team=self.team, table=_table(self.team, "approved_source"), status=CertificationStatus.CERTIFIED
+        )
+        TableCertification.objects.for_team(self.team.id).create(
+            team=self.team, table=_table(self.team, "proposed_source"), status=CertificationStatus.PROPOSED
+        )
+
+        response = self.client.get(self.url, {"status": "certified", "limit": 1})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == 1
+        assert [row["id"] for row in response.json()["results"]] == [str(certified.id)]
+
     @parameterized.expand(
         [
             ("table_name", "table", False),

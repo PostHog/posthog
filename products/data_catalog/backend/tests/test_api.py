@@ -54,6 +54,21 @@ class TestMetricAPI(APIBaseTest):
         assert body["name"] == "mrr"
         assert body["status"] == MetricStatus.PROPOSED
 
+    def test_list_filters_status_and_definition_kind_before_pagination(self) -> None:
+        for name, metric_status, definition in [
+            ("approved_sql", MetricStatus.APPROVED, _HOGQL),
+            ("proposed_sql", MetricStatus.PROPOSED, _HOGQL),
+            ("approved_markdown", MetricStatus.APPROVED, None),
+        ]:
+            Metric.objects.for_team(self.team.id).create(
+                team=self.team, name=name, status=metric_status, definition=definition
+            )
+        response = self.client.get(self.url, {"status": "approved", "definition_kind": "HogQLQuery", "limit": 1})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == 1
+        assert [row["name"] for row in response.json()["results"]] == ["approved_sql"]
+
     def test_status_and_approval_are_not_writable(self) -> None:
         response = self.client.post(
             self.url,
