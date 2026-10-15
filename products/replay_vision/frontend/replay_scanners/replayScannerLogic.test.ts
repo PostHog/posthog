@@ -919,6 +919,29 @@ describe('replayScannerLogic', () => {
             expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
         })
 
+        it('keeps an experiment entry locked when its draft is resumed', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                },
+            })
+            router.actions.push(urls.replayVisionScannerDetails('new'), { experiment: '7' })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            logic.actions.setScannerValues({ name: 'Checkout scan' })
+            expect(logic.values.lockedToExperimentScanner).toBe(true)
+            logic.unmount()
+
+            // A plain entry resumes the draft, so only the stored link can restore the lock.
+            router.actions.push(urls.replayVisionScannerDetails('new'))
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({ name: 'Checkout scan', scanner_type: 'experiment' })
+            expect(logic.values.lockedToExperimentScanner).toBe(true)
+        })
+
         it('preserves an existing draft when the wizard is entered from a ?filters= deep link', async () => {
             // The prefill outranks the draft for this entry but must not delete it; without the
             // restoringDraft guard, persistDraft sees scanner === originalScanner and clears it.
