@@ -2575,6 +2575,36 @@ class TestCustomSourceIncrementalStartParam(SimpleTestCase):
         assert err is not None and "start_param" in err and "'users'" in err
 
 
+class TestCustomSourceIncrementalParamLocation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("invalid_value", "body", False, '"query" or "json"'),
+            ("json_on_child", "json", True, "child resource"),
+        ]
+    )
+    def test_rejected_at_validation(self, _name, param_location, is_child, expected):
+        manifest = _minimal_manifest()
+        incremental = {"cursor_path": "updated_at", "start_param": "variables.since", "param_location": param_location}
+        if is_child:
+            manifest["resources"].append(
+                {
+                    "name": "posts",
+                    "endpoint": {
+                        "path": "/users/{user_id}/posts",
+                        "params": {"user_id": {"type": "resolve", "resource": "users", "field": "id"}},
+                        "incremental": incremental,
+                    },
+                }
+            )
+        else:
+            manifest["resources"][0]["endpoint"]["incremental"] = incremental
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and expected in err
+
+
 class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
     def _manifest(self) -> dict:
         manifest = _minimal_manifest()

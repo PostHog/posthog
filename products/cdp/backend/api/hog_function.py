@@ -28,21 +28,6 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
-from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES
-from posthog.cdp.services.icons import CDPIconsService
-from posthog.cdp.site_functions import get_transpiled_function
-from posthog.cdp.validation import (
-    DUPLICATE_INPUT_KEYS_ERROR,
-    HogFunctionFiltersSerializer,
-    InputsSchemaSerializer,
-    InputsSerializer,
-    MappingsSerializer,
-    added_duplicate_input_keys,
-    compile_hog,
-    generate_template_bytecode,
-    masked_secret_input_keys,
-    reserved_functions_used,
-)
 from posthog.event_usage import AGENT_EVENT_SOURCES, get_event_source
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -61,6 +46,7 @@ from posthog.scopes import APIScopeObject
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
+from products.cdp.backend.filters import DATA_WAREHOUSE_SOURCES
 from products.cdp.backend.internal_events import (
     generic_api_editable_alert_scope,
     is_managed_alert_internal_event,
@@ -81,6 +67,20 @@ from products.cdp.backend.models.plugin import TranspilerError
 from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunRequestSerializer,
     HogInvocationRerunResponseSerializer,
+)
+from products.cdp.backend.services.icons import CDPIconsService
+from products.cdp.backend.site_functions import get_transpiled_function
+from products.cdp.backend.validation import (
+    DUPLICATE_INPUT_KEYS_ERROR,
+    HogFunctionFiltersSerializer,
+    InputsSchemaSerializer,
+    InputsSerializer,
+    MappingsSerializer,
+    added_duplicate_input_keys,
+    compile_hog,
+    generate_template_bytecode,
+    masked_secret_input_keys,
+    reserved_functions_used,
 )
 
 # Maximum size of HOG code as a string in bytes (100KB)
@@ -195,7 +195,7 @@ def _named_warehouse_tables(entries: Any) -> list[Any]:
     """The warehouse tables a filters blob actually names, ignoring the picker's placeholder row.
 
     Matches the placeholder rule `HogFunctionFiltersSerializer.validate` applies moments later
-    (posthog/cdp/validation.py): it drops any entry named "Select a table" outright, regardless of
+    (products/cdp/backend/validation.py): it drops any entry named "Select a table" outright, regardless of
     whether that entry also carries a `table_name`. Checking `table_name` alone here would accept
     `{"name": "Select a table", "table_name": "x"}` — the serializer would still strip it a moment
     later, leaving `data_warehouse: []` stored despite this check having passed.

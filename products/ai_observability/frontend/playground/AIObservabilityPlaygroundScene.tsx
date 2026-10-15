@@ -484,7 +484,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
     const { effectiveModelOptions, playgroundModelsErrorStatus } = useValues(llmPlaygroundModelLogic)
     const {
         hasByokKeys,
-        providerModelGroups,
+        playgroundByokProviderModelGroups,
         playgroundProviderModelGroups,
         byokModelsLoading,
         playgroundModelsLoading,
@@ -498,7 +498,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
     }
 
     const selectedModel = effectiveModelOptions.find((m) => m.id === prompt.model)
-    const groups = hasByokKeys ? providerModelGroups : playgroundProviderModelGroups
+    const groups = hasByokKeys ? playgroundByokProviderModelGroups : playgroundProviderModelGroups
     const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : playgroundModelsLoading
     const errorMessage = !hasByokKeys ? getPlaygroundModelsErrorMessage(playgroundModelsErrorStatus) : null
     const showError = !hasByokKeys && effectiveModelOptions.length === 0 && !playgroundModelsLoading

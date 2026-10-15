@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any, cast
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
@@ -24,11 +24,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun import mailgun as mailgun_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun import (
+    EVENTS_CONSISTENCY_LAG_SECONDS,
+    EVENTS_LOOKBACK_DAYS,
     FORBIDDEN_ERROR,
     INVALID_KEY_ERROR,
     LOGS_LOOKBACK_DAYS,
     METRICS_PAGE_SIZE,
     UNREACHABLE_ERROR,
+    MailgunAllDomainsSkippedError,
     MailgunResumeConfig,
     MailgunRetryableError,
     _epoch_to_datetime,
@@ -135,6 +138,25 @@ class TestInitialUrl:
     def test_domain_scoped_endpoint_without_domain_raises(self):
         with pytest.raises(ValueError):
             _initial_url(US_BASE, MAILGUN_ENDPOINTS["events"], None)
+
+    @pytest.mark.parametrize(
+        "watermark_seconds_ago, expected_begin_seconds_ago",
+        [
+            (None, EVENTS_LOOKBACK_DAYS * 24 * 60 * 60),
+            (3 * 60 * 60, 3 * 60 * 60),
+        ],
+    )
+    def test_events_query_always_sends_an_ascending_time_range(self, watermark_seconds_ago, expected_begin_seconds_ago):
+        now = 1_800_000_000
+        begin = None if watermark_seconds_ago is None else now - watermark_seconds_ago
+        with mock.patch.object(mailgun_module.time, "time", return_value=now):
+            url = _initial_url(US_BASE, MAILGUN_ENDPOINTS["events"], "example.com", begin)
+
+        assert url is not None
+        query = parse_qs(urlparse(url).query)
+        assert query["ascending"] == ["yes"]
+        assert query["begin"] == [str(now - expected_begin_seconds_ago)]
+        assert query["end"] == [str(now - EVENTS_CONSISTENCY_LAG_SECONDS)]
 
 
 class TestNormalizeRow:
@@ -291,6 +313,27 @@ class TestGetRows:
         assert result.saved_states[0].current_domain is None
         assert result.saved_states[-1].next_url is None
         assert result.saved_states[-1].pending_domains == []
+
+    def test_every_domain_skipped_fails_the_sync(self):
+        domains_page = {"items": [{"name": "a.com"}, {"name": "b.com"}, {"name": "c.com"}]}
+        result = _driver().run(
+            "events",
+            [
+                ScriptedResponse(json=domains_page),
+                ScriptedResponse(status=403, json={}),
+                ScriptedResponse(status=400, json={}),
+                ScriptedResponse(status=403, json={}),
+            ],
+        )
+
+        assert isinstance(result.raised, MailgunAllDomainsSkippedError)
+        assert "(400 on 1 domain, 403 on 2 domains)" in str(result.raised)
+
+        # This message must stay a stable, non-sensitive substring of get_non_retryable_errors,
+        # or an account with every domain rejected gets retried instead of surfaced to the user.
+        non_retryable_errors = MailgunSource().get_non_retryable_errors()
+        matches = [message for pattern, message in non_retryable_errors.items() if pattern in str(result.raised)]
+        assert len(matches) == 1
 
     def test_domain_listing_401_still_raises(self):
         # A 401 on the /v4/domains listing is a global credential failure, not a single bad

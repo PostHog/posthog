@@ -11,6 +11,27 @@ FIELD_ALIASES: dict[str, str] = {
 }
 
 RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
+    "change_event": {
+        "resource_name": "change_event",
+        "primary_key": ["customer.id", "change_event.resource_name"],
+        "should_sync_default": False,
+        "description": "Account changes with old and new field values. Google returns the last 30 days. Use incremental sync to retain imported history.",
+        "filter_field_names": [("change_event.change_date_time", IncrementalFieldType.DateTime)],
+        "field_names": [
+            "customer.id",
+            "customer.time_zone",
+            "change_event.resource_name",
+            "change_event.change_date_time",
+            "change_event.change_resource_type",
+            "change_event.change_resource_name",
+            "change_event.resource_change_operation",
+            "change_event.client_type",
+            "change_event.user_email",
+            "change_event.changed_fields",
+            "change_event.old_resource",
+            "change_event.new_resource",
+        ],
+    },
     "ad": {
         "resource_name": "ad_group_ad",
         "primary_key": ["ad_group_ad.ad.id", "ad_group.id", "campaign.id", "customer.id"],

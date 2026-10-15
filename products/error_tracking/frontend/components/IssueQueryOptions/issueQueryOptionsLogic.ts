@@ -30,6 +30,7 @@ export const ORDER_BY_OPTIONS: Record<ErrorTrackingQueryOrderBy, string> = {
     occurrences: 'Occurrences',
     users: 'Users',
     sessions: 'Sessions',
+    severity: 'Severity',
 }
 const DEFAULT_ORDER_BY: ErrorTrackingQueryOrderBy = 'last_seen'
 

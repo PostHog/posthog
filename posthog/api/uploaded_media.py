@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.utils.http import content_disposition_header
 from django.views.decorators.csrf import csrf_exempt
 
@@ -28,7 +29,7 @@ from posthog.models.uploaded_media import (
     PRIVATE_MEDIA_PURPOSES,
     ObjectStorageUnavailable,
     is_inline_safe_content_type,
-    sniff_image_content_type,
+    sniff_image,
 )
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
@@ -186,10 +187,16 @@ class UploadedMediaSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField(
         help_text="Permanent, public URL of the image. For emails, put this in an image block's values.src.url."
     )
+    width = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="Width in pixels. Null for images uploaded before it was recorded."
+    )
+    height = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="Height in pixels. Null for images uploaded before it was recorded."
+    )
 
     class Meta:
         model = UploadedMedia
-        fields = ["id", "name", "purpose", "content_type", "size_bytes", "url", "created_at"]
+        fields = ["id", "name", "purpose", "content_type", "size_bytes", "width", "height", "url", "created_at"]
         read_only_fields = fields
 
     @extend_schema_field(OpenApiTypes.URI)
@@ -234,6 +241,17 @@ class UploadedMediaUploadStartedSerializer(serializers.Serializer):
     expires_in = serializers.IntegerField(read_only=True, help_text="Seconds before upload_url expires.")
 
 
+class UploadedMediaCreatedSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Id of the uploaded image.")
+    image_location = serializers.URLField(
+        read_only=True,
+        help_text="Permanent, public URL of the image. For emails, put this in an image block's values.src.url.",
+    )
+    name = serializers.CharField(read_only=True, help_text="The file's original name.")
+    width = serializers.IntegerField(read_only=True, help_text="Width in pixels.")
+    height = serializers.IntegerField(read_only=True, help_text="Height in pixels.")
+
+
 class UploadedMediaCreateSerializer(serializers.Serializer):
     """Validates the multipart body. The OpenAPI shape comes from `create`'s `@extend_schema`
     instead, so keep the descriptions there — these exist only to satisfy the field rule."""
@@ -247,7 +265,7 @@ class UploadedMediaCreateSerializer(serializers.Serializer):
 @extend_schema(extensions={"x-product": "core"})
 class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "uploaded_media"
-    scope_object_write_actions = ["create", "start_upload", "complete_upload"]
+    scope_object_write_actions = ["create", "start_upload", "complete_upload", "destroy"]
     queryset = UploadedMedia.objects.all()
     serializer_class = _FallbackSerializer
     parser_classes = (MultiPartParser, FormParser)
@@ -255,7 +273,11 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def safely_get_queryset(self, queryset):
         if self.action == "complete_upload":
             return queryset.filter(pending=True)
-        return queryset.filter(pending=False).order_by("-created_at", "-id")
+        if self.action == "destroy":
+            # Only library images can be removed. An upload with no purpose (a dashboard text card
+            # image, say) was never listed, so there is nothing for this to take it out of.
+            return queryset.filter(pending=False, purpose__in=MEDIA_PURPOSES, archived_at__isnull=True)
+        return queryset.filter(pending=False, archived_at__isnull=True).order_by("-created_at", "-id")
 
     @extend_schema(
         description="List images in the media library. Requires a `purpose` filter — the library is scoped per "
@@ -269,7 +291,14 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 required=True,
                 enum=MEDIA_PURPOSES,
                 description="The library to list.",
-            )
+            ),
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Only list images whose name contains this text, ignoring case.",
+            ),
         ],
         responses={
             200: UploadedMediaSerializer(many=True),
@@ -287,6 +316,9 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 code="unknown_purpose", detail=f"Unknown purpose. Valid values: {', '.join(MEDIA_PURPOSES)}."
             )
         queryset = self.get_queryset().filter(purpose=purpose)
+        search = request.query_params.get("search", "").strip()
+        if search:
+            queryset = queryset.filter(file_name__icontains=search)
         page = self.paginate_queryset(queryset)
         serializer = UploadedMediaSerializer(page, many=True)
         return self.get_paginated_response(serializer.data)
@@ -374,8 +406,8 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 uploaded_media, code="file_too_large", detail="Uploaded media must be less than 4MB"
             )
 
-        sniffed_content_type = sniff_image_content_type(content)
-        if sniffed_content_type is None:
+        sniffed = sniff_image(content)
+        if sniffed is None:
             _discard_pending_upload(uploaded_media, code="invalid_image", detail="Uploaded media must be a valid image")
 
         # Move the verified bytes off the key the presigned form signed (see
@@ -392,10 +424,14 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             object_storage.copy(staging_location, permanent_location)
 
             uploaded_media.media_location = permanent_location
-            uploaded_media.content_type = sniffed_content_type
+            uploaded_media.content_type = sniffed.content_type
             uploaded_media.size_bytes = len(content)
+            uploaded_media.width = sniffed.width
+            uploaded_media.height = sniffed.height
             uploaded_media.pending = False
-            uploaded_media.save(update_fields=["media_location", "content_type", "size_bytes", "pending"])
+            uploaded_media.save(
+                update_fields=["media_location", "content_type", "size_bytes", "width", "height", "pending"]
+            )
 
         # The image is live either way, so a failed cleanup must not fail the request — it
         # leaves a logged staging object that no longer costs the caller anything.
@@ -403,7 +439,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         statsd.incr(
             "uploaded_media.uploaded",
-            tags={"team_id": self.team.pk, "content_type": sniffed_content_type},
+            tags={"team_id": self.team.pk, "content_type": sniffed.content_type},
         )
         return Response(UploadedMediaSerializer(uploaded_media).data)
 
@@ -438,7 +474,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "required": ["image"],
             }
         },
-        responses={201: OpenApiTypes.OBJECT},
+        responses={201: UploadedMediaCreatedSerializer},
     )
     def create(self, request, *args, **kwargs) -> Response:
         serializer = UploadedMediaCreateSerializer(data=request.data)
@@ -475,8 +511,8 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if uploaded_media.media_location is None:
             raise APIException("Could not read uploaded media")
         bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
-        sniffed_content_type = sniff_image_content_type(bytes_to_verify)
-        if sniffed_content_type is None:
+        sniffed = sniff_image(bytes_to_verify)
+        if sniffed is None:
             statsd.incr(
                 "uploaded_media.image_failed_validation",
                 tags={"file_name": file.name, "team": self.team_id},
@@ -485,24 +521,42 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             uploaded_media.delete()
             raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
 
-        uploaded_media.content_type = sniffed_content_type
+        uploaded_media.content_type = sniffed.content_type
         uploaded_media.size_bytes = len(bytes_to_verify) if bytes_to_verify else None
+        uploaded_media.width = sniffed.width
+        uploaded_media.height = sniffed.height
         uploaded_media.purpose = purpose
-        uploaded_media.save(update_fields=["content_type", "size_bytes", "purpose"])
+        uploaded_media.save(update_fields=["content_type", "size_bytes", "width", "height", "purpose"])
 
         statsd.incr(
             "uploaded_media.uploaded",
-            tags={"team_id": self.team.pk, "content_type": sniffed_content_type},
+            tags={"team_id": self.team.pk, "content_type": sniffed.content_type},
         )
         return Response(
             {
                 "id": uploaded_media.id,
                 "image_location": uploaded_media.get_absolute_url(),
                 "name": uploaded_media.file_name,
+                "width": uploaded_media.width,
+                "height": uploaded_media.height,
             },
             status=status.HTTP_201_CREATED,
             headers=self.get_success_headers(uploaded_media.get_absolute_url()),
         )
+
+    @extend_schema(
+        description="Remove an image from its media library. It stops appearing in the library list, but its URL "
+        "keeps working, so content that already uses it (a sent email, a live template) is not broken.",
+        responses={
+            204: OpenApiResponse(description="The image was removed from its library."),
+            404: OpenApiResponse(description="No library image with this id for this team."),
+        },
+    )
+    def destroy(self, request, *args, **kwargs) -> Response:
+        uploaded_media = self.get_object()
+        uploaded_media.archived_at = timezone.now()
+        uploaded_media.save(update_fields=["archived_at"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def get_success_headers(self, location: str) -> dict:
         try:

@@ -161,6 +161,23 @@ class AudiencePage:
     has_more: bool
 
 
+class PeopleImportInvalid(Exception):
+    """The upload cannot be used. The message is shown to the person who sent it."""
+
+
+@frozen
+class PeopleImportSummary:
+    """What an uploaded people list kept, and how many rows it dropped and why."""
+
+    cohort_id: int
+    row_count: int
+    new_people: int
+    columns: list[str]
+    dropped_invalid_email: int
+    dropped_duplicate_email: int
+    dropped_too_large: int
+
+
 @frozen
 class EmailSendingTierLimits:
     """What a trust tier allows: two send-rate caps and a maximum batch audience."""
@@ -452,6 +469,8 @@ class WorkflowRef:
     trigger_type: str | None
     trigger_filters: dict[str, Any]
     variables: list[dict[str, Any]] | None
+    # Read from the published steps, not the draft.
+    has_email_step: bool
 
 
 class WorkflowNotFound(Exception):

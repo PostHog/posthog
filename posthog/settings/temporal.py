@@ -50,6 +50,21 @@ TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS: int | None = get_from_env(
     "TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS", None, optional=True, type_cast=int
 )
 
+# Opt-in task poller autoscaling. A MAX turns it on for that task type, and the SDK default
+# (5 pollers) applies when unset. Fixed poller counts leave a small worker fleet short of pollers.
+TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MIN: int | None = get_from_env(
+    "TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MIN", None, optional=True, type_cast=int
+)
+TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MAX: int | None = get_from_env(
+    "TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MAX", None, optional=True, type_cast=int
+)
+TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MIN: int | None = get_from_env(
+    "TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MIN", None, optional=True, type_cast=int
+)
+TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MAX: int | None = get_from_env(
+    "TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MAX", None, optional=True, type_cast=int
+)
+
 TEMPORAL_HEALTH_PORT: int | None = get_from_env("TEMPORAL_HEALTH_PORT", None, optional=True, type_cast=int)
 TEMPORAL_HEALTH_MAX_IDLE_SECONDS: float | None = get_from_env(
     "TEMPORAL_HEALTH_MAX_IDLE_SECONDS", None, optional=True, type_cast=float
@@ -345,6 +360,15 @@ ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(
 if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
+    )
+# The platform's parallel logs batches allowed to run at once, across every team. A batch runs its
+# cohort queries one after another, so this bounds the parallel run's concurrent logs queries.
+ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES: int = get_from_env(
+    "ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES", 5, type_cast=int
+)
+if ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform logs check starts"
     )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)

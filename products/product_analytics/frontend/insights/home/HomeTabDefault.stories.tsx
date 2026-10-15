@@ -1,4 +1,8 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import trendsBarBreakdown from '~/mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
@@ -174,6 +178,25 @@ export const Narrow: Story = {
 
 export const Empty: Story = {
     render: Populated.render,
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/': { results: [] },
+                '/api/environments/:team_id/query/:query_kind/': { results: [] },
+            },
+        }),
+    ],
+}
+
+export const BeforeIngestion: Story = {
+    render: () => {
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false, is_demo: false })
+        return (
+            <div className="@container/main-content mx-auto w-full max-w-screen-xl p-4">
+                <HomeTabDefault />
+            </div>
+        )
+    },
     decorators: [
         mswDecorator({
             post: {

@@ -13,6 +13,7 @@ import posthoganalytics
 from temporalio import activity
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
@@ -142,11 +143,19 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
     try:
         integration: GitHubIntegration | UserGitHubIntegration
         if ctx.github_integration_id:
-            integration = GitHubIntegration(Integration.objects.get(id=ctx.github_integration_id))
+            integration = GitHubIntegration(
+                Integration.objects.get(id=ctx.github_integration_id),
+                source="tasks_sandbox",
+                priority=Priority.CRITICAL,
+            )
             if integration.access_token_expired():
                 integration.refresh_access_token()
         else:
-            integration = UserGitHubIntegration(UserIntegration.objects.get(id=str(ctx.github_user_integration_id)))
+            integration = UserGitHubIntegration(
+                UserIntegration.objects.get(id=str(ctx.github_user_integration_id)),
+                source="tasks_sandbox",
+                priority=Priority.CRITICAL,
+            )
         pr_base = integration.get_open_pr_base_for_head(ctx.repository, branch)
     except Exception:
         logger.warning("resolve_protected_base_branch_failed", task_id=ctx.task_id, run_id=ctx.run_id, exc_info=True)
@@ -635,6 +644,7 @@ def _invoke_start_agent_server(
             rtk_enabled=ctx.rtk_enabled,
             benjamin_enabled=ctx.benjamin_enabled,
             peer_messaging=ctx.peer_messaging_enabled,
+            pi_acp_conversation=ctx.pi_acp_conversation_enabled,
             claude_model_access=ctx.model_access.access_for("claude"),
             codex_model_access=ctx.model_access.access_for("codex"),
             codex_run_token=params.codex_run_token,

@@ -1520,7 +1520,8 @@ class MCPInsightSerializer(InsightSerializer):
 
     Accepts raw product analytics queries and normalizes them into the correct saved-insight
     wrapper before persisting: HogQLQuery → DataVisualizationNode, insight queries
-    (TrendsQuery, FunnelsQuery, PathsQuery) → InsightVizNode.
+    (TrendsQuery, FunnelsQuery, PathsQuery) → InsightVizNode. MetricsQuery and
+    MetricsHistogramQuery stay bare.
     """
 
     query = QueryFieldSerializer(required=False, allow_null=True)
@@ -1551,7 +1552,20 @@ class MCPInsightSerializer(InsightSerializer):
                         for field in ("xAxisColumn", "seriesColumn"):
                             if field in box_plot.model_fields_set and getattr(box_plot, field) is None:
                                 normalized_box_plot[field] = None
+                if isinstance(wrapped_node, schema.BIVisualizationNode):
+                    for entry in normalized_query["config"].get("memberAliases", []):
+                        for alias in entry["aliases"]:
+                            alias.setdefault("value", None)
+                    if "colorBy" in wrapped_node.config.model_fields_set and wrapped_node.config.colorBy is None:
+                        normalized_query["config"]["colorBy"] = None
                 return normalized_query
+            except PydanticValidationError:
+                pass
+
+        # A metrics insight saves its query bare, as the metrics editor and the metrics dashboard builders do
+        for metrics_cls in (schema.MetricsQuery, schema.MetricsHistogramQuery):
+            try:
+                return metrics_cls.model_validate(value).model_dump(exclude_none=True, mode="json")
             except PydanticValidationError:
                 pass
 

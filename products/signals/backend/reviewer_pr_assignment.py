@@ -31,6 +31,7 @@ from django.db import transaction
 import structlog
 from pydantic import ValidationError
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
 from posthog.models.github_integration_base import PullRequestRef
 from posthog.models.integration import GitHubIntegration
@@ -243,7 +244,9 @@ def ranked_reviewer_logins(*, team_id: int, report_id: str) -> list[str]:
 def _github_for_repository(*, team_id: int, report_id: str, repository: str) -> GitHubIntegration | None:
     """The team's GitHub integration for a repository, or None when there is none to call."""
     try:
-        return GitHubIntegration.first_for_team_repository(team_id, repository)
+        return GitHubIntegration.first_for_team_repository(
+            team_id, repository, source="signals_reviewers", priority=Priority.BATCH
+        )
     except Exception:
         logger.exception(
             "signals.reviewer_pr_assignment.integration_lookup_failed",

@@ -38,7 +38,7 @@ from posthog.utils import safe_cache_add, safe_cache_delete
 
 logger = structlog.get_logger(__name__)
 
-# This client always knows its installation, so it records under source="integration" with a real id.
+# App-JWT and user-OAuth calls made directly by this class record under this source.
 _OBSERVABILITY_SOURCE = "integration"
 
 github_cache_access_counter = Counter(
@@ -230,15 +230,15 @@ class GitHubIntegrationBase:
     integration: Any  # Integration | UserIntegration -- subclasses narrow the type
     # Names the table `integration` lives in, so a background task can load the row again.
     is_user_integration: bool = False
-    # Per-subsystem attribution on the shared egress metrics. Product callers construct their client
-    # with their own source (e.g. GitHubIntegration(integration, source="visual_review")) so every
-    # request made through this instance — api_request, verbs, GraphQL — is attributed to them.
-    source: str = _OBSERVABILITY_SOURCE
+    # Per-subsystem attribution on the shared egress metrics. Every caller constructs its client
+    # with its own source (e.g. GitHubIntegration(integration, source="visual_review", ...)) so every
+    # request made through this instance — api_request, verbs, GraphQL — is attributed to it.
+    source: str
     # How sheddable this instance's calls are when the installation's shared budget runs hot.
-    # CRITICAL (the default) is never blocked; deferrable background callers construct with
-    # priority=Priority.BATCH so the egress limiter sheds them first — a denied sheddable call
-    # raises GitHubEgressBudgetExhausted from api_request before anything is sent.
-    priority: Priority = Priority.CRITICAL
+    # Every caller picks it at construction. CRITICAL is never blocked; deferrable background callers
+    # construct with priority=Priority.BATCH so the egress limiter sheds them first — a denied
+    # sheddable call raises GitHubEgressBudgetExhausted from api_request before anything is sent.
+    priority: Priority
 
     @property
     def github_installation_id(self) -> str | None:
@@ -314,6 +314,7 @@ class GitHubIntegrationBase:
             timeout=timeout,
             # requests omits the body entirely when json is None
             json=json_body,
+            priority=Priority.CRITICAL,
         )
 
     @classmethod
@@ -481,6 +482,7 @@ class GitHubIntegrationBase:
             endpoint="/user/installations/{installation_id}/repositories",
             params={"per_page": 1},
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         if response.status_code == 200:
             return True
@@ -577,12 +579,13 @@ class GitHubIntegrationBase:
 
     def mint_scoped_installation_token(
         self,
-        permissions: Mapping[str, str],
+        permissions: Mapping[str, str] | None,
         repositories: list[str] | None = None,
     ) -> str:
         """Mint an ephemeral installation token downscoped to ``permissions`` (e.g.
         ``{"contents": "read", "metadata": "read"}``) and optionally to ``repositories``
-        (bare repo names, no owner prefix).
+        (bare repo names, no owner prefix). ``None`` permissions keep every permission the
+        installation holds.
 
         The token is returned to the caller and deliberately NOT persisted: the cached
         ``sensitive_config`` token is the shared full-permission credential every other
@@ -595,11 +598,14 @@ class GitHubIntegrationBase:
         if not installation_id:
             raise GitHubIntegrationError("No GitHub App installation id on this integration")
 
-        body: dict[str, Any] = {"permissions": dict(permissions)}
+        body: dict[str, Any] = {}
+        if permissions is not None:
+            body["permissions"] = dict(permissions)
         if repositories:
             body["repositories"] = repositories
 
         response = self.client_request(f"installations/{installation_id}/access_tokens", method="POST", json_body=body)
+        raise_if_github_rate_limited(response)
         try:
             data = response.json()
         except ValueError:
@@ -690,15 +696,17 @@ class GitHubIntegrationBase:
         name = account.get("name") if isinstance(account, dict) else None
         return not name or str(name) == str(installation_id)
 
-    def ensure_account_name(self) -> bool:
-        """Replace a placeholder account name with the real GitHub login, at most once per cooldown.
+    def ensure_account_name(self, *, force_refresh: bool = False) -> bool:
+        """Refresh a placeholder (or suspected stale) login, at most once per cooldown.
 
         Skips installations already marked unavailable, since the lookup would fail the same way.
         Returns True when the name was healed. Persists the attempt timestamp either way so a broken
         installation costs one GitHub call per cooldown window, not one per list request.
         """
         installation_id = self.github_installation_id
-        if not installation_id or self.installation_unavailable() or not self.account_name_needs_heal():
+        if not installation_id or self.installation_unavailable():
+            return False
+        if not force_refresh and not self.account_name_needs_heal():
             return False
         now = int(time.time())
         last_attempt = self.integration.config.get(ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY)

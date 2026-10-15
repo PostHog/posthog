@@ -214,9 +214,7 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/active_campaign/active_campaign.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/active_campaign/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adjust/adjust.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/adjust/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_analytics/adobe_analytics.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_analytics/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_commerce/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adroll/adroll.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adroll/settings.py
@@ -228,7 +226,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha/aha.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha_ideas/aha_ideas.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/aha_ideas/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/airbrake/airbrake.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/airbrake/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aircall/aircall.py
@@ -282,7 +279,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aviator/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/awin/awin.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/awin/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/aws_cost_explorer/aws_cost_explorer.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/azure_devops/azure_devops.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/azure_devops/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/babelforce/babelforce.py
@@ -952,7 +948,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/qualaroo/qualaroo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/qualaroo/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/qualys_vmdr/qualys_vmdr.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/qualys_vmdr/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/railway/railway.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/railway/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/ramp/ramp.py
@@ -1160,8 +1155,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tiktok_ads/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tiktok_ads/tiktok_ads.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tinyemail/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/tmdb/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/tmdb/tmdb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/todoist/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/todoist/todoist.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/together_ai/settings.py
@@ -1191,7 +1184,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unleash/unleash.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unstructured/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unstructured/unstructured.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/uppromote/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/uppromote/uppromote.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/upstash/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/uptimerobot/settings.py

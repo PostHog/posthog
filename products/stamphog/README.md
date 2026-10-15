@@ -104,6 +104,36 @@ The merged document is validated by the engine's strict loader inside the sandbo
 A `policy.yml` that is present but unusable, such as malformed YAML or a non-mapping root, fails the run closed.
 The repository declared something, so reviewing under pure defaults would be wrong.
 
+### Deny exceptions
+
+A repository can declare narrow exceptions without copying the hosted `deny` section:
+
+```yaml
+deny_exceptions:
+  billing:
+    - keyword: billing
+      path_prefixes: [apps/, argocd/, shared/, state/, charts/]
+      extensions: [.yaml, .yml]
+  infra_cicd:
+    - path_prefixes: [.github/]
+```
+
+The example permits agent review of billing-service deployment YAML and GitHub automation paths.
+The billing exception skips only the `billing` pattern; `payment`, `stripe`, `invoice`, and `pricing` still match.
+New billing patterns and other categories stay inherited because this file does not replace `deny`.
+
+Every rule needs literal directory prefixes relative to the repository root, with a trailing slash.
+The optional `extensions` list restricts the rule to those file suffixes.
+The optional `keyword` must name an existing literal path-capable pattern in that category; omitting it exempts the category within the selected paths.
+All selectors in a rule must match, and multiple rules provide alternative exceptions.
+Path prefixes and extensions match without regard to case.
+
+An exception that lifts a denial sends the PR to `T1-agent`, including YAML-only and test-only changes.
+The reviewer still evaluates actual effects, independent assurance, and unresolved concerns; exceptions do not grant approval.
+Title scrutiny, other categories, prerequisites, and size gates remain active.
+Unknown categories or fields, malformed selectors, and any `stamphog_policy` exception fail the run closed.
+Exception files use the same default-branch trust boundary as the rest of `policy.yml`, so editing them requires human review.
+
 ### The `digest:` key
 
 `policy.yml` may also carry a `digest:` section.

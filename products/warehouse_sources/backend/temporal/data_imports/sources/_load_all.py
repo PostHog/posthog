@@ -840,6 +840,7 @@ from .nobl9.source import Nobl9Source
 from .nocrm.source import NoCRMSource
 from .nolt.source import NoltSource
 from .nops.source import NopsSource
+from .northbeam.source import NorthbeamSource
 from .northflank.source import NorthflankSource
 from .northpass_lms.source import NorthpassLMSSource
 from .notion.source import NotionSource

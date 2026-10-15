@@ -1321,6 +1321,7 @@ doesn't conflict with concurrent PRs.
 - nocrm
 - nolt
 - nops
+- northbeam
 - northpass_lms
 - nutshell
 - nylas
