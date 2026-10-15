@@ -15,7 +15,7 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
 
 
-def _content(subject: str = "Reset your password") -> TransactionalEmailContent:
+def _content(subject: str = "Reset your password", from_integration_id: int | None = 1) -> TransactionalEmailContent:
     return TransactionalEmailContent(
         message_template_id=uuid4(),
         name="Password reset",
@@ -23,7 +23,7 @@ def _content(subject: str = "Reset your password") -> TransactionalEmailContent:
         preheader="",
         html="<a href='{{ variables.link }}'>Reset</a>",
         text="Reset: {{ variables.link }}",
-        from_integration_id=1,
+        from_integration_id=from_integration_id,
         message_category_id=None,
     )
 
@@ -42,14 +42,19 @@ class TestTransactionalEmailWorkflows(BaseTest):
         flow_id = create_transactional_email_workflow(team_id=self.team.id, user_id=self.user.id, content=_content())
 
         update_transactional_email_workflow(
-            team_id=self.team.id, user_id=self.user.id, hog_flow_id=flow_id, content=_content(subject="New subject")
+            team_id=self.team.id,
+            user_id=self.user.id,
+            hog_flow_id=flow_id,
+            content=_content(subject="New subject", from_integration_id=None),
         )
 
         flow = HogFlow.objects.get(id=flow_id)
         assert flow.status == HogFlow.State.ACTIVE
         assert flow.origin_product == "transactional_emails"
         assert flow.version == 2
-        assert flow.actions[1]["config"]["inputs"]["email"]["value"]["subject"] == "New subject"
+        email = flow.actions[1]["config"]["inputs"]["email"]["value"]
+        assert email["subject"] == "New subject"
+        assert email["from"] == {"integrationId": 1}
         versions = (
             HogFlowRevision.objects.for_team(self.team.id)
             .filter(hog_flow=flow)

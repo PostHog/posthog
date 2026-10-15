@@ -22,7 +22,7 @@ EXIT_ACTION_ID = "exit_node"
 RECIPIENT_EXPRESSION = "{{ event.properties.to }}"
 
 
-def transactional_email_actions(content: TransactionalEmailContent) -> list[dict]:
+def transactional_email_actions(content: TransactionalEmailContent, from_integration_id: int) -> list[dict]:
     return [
         {
             "id": TRIGGER_ACTION_ID,
@@ -50,7 +50,7 @@ def transactional_email_actions(content: TransactionalEmailContent) -> list[dict
                         "templating": "liquid",
                         "value": {
                             "to": {"email": RECIPIENT_EXPRESSION, "name": ""},
-                            "from": {"integrationId": content.from_integration_id},
+                            "from": {"integrationId": from_integration_id},
                             "replyTo": "",
                             "cc": "",
                             "bcc": "",
@@ -73,8 +73,8 @@ def transactional_email_actions(content: TransactionalEmailContent) -> list[dict
     ]
 
 
-def _content_fields(content: TransactionalEmailContent) -> dict:
-    actions = transactional_email_actions(content)
+def _content_fields(content: TransactionalEmailContent, from_integration_id: int) -> dict:
+    actions = transactional_email_actions(content, from_integration_id)
     return {
         "name": content.name,
         "actions": actions,
@@ -88,16 +88,23 @@ def _content_fields(content: TransactionalEmailContent) -> dict:
     }
 
 
+def _current_sender(flow: HogFlow) -> int:
+    email = next(action for action in flow.actions if action.get("id") == EMAIL_ACTION_ID)
+    return email["config"]["inputs"]["email"]["value"]["from"]["integrationId"]
+
+
 # Callers run outside a workflows request, so the revision writes need the team scope set here.
 @with_team_scope()
 def create_transactional_email_workflow(
     *, team_id: int, user_id: Optional[int], content: TransactionalEmailContent
 ) -> UUID:
+    if content.from_integration_id is None:
+        raise ValueError("A new transactional email needs a sender")
     result = create_workflow(
         team_id=team_id,
         user_id=user_id,
         validated_data={
-            **_content_fields(content),
+            **_content_fields(content, content.from_integration_id),
             "status": HogFlow.State.ACTIVE,
             "origin_product": HogFlowOriginProduct.TRANSACTIONAL_EMAILS,
             "exit_condition": "exit_only_at_end",
@@ -110,15 +117,16 @@ def create_transactional_email_workflow(
 def update_transactional_email_workflow(
     *, team_id: int, user_id: Optional[int], hog_flow_id: UUID, content: TransactionalEmailContent
 ) -> None:
-    status = HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id).values_list("status", flat=True).get()
+    flow = HogFlow.objects.only("status", "actions").get(team_id=team_id, pk=hog_flow_id)
+    from_integration_id = content.from_integration_id or _current_sender(flow)
     update_workflow(
         team_id=team_id,
         user_id=user_id,
         hog_flow_id=hog_flow_id,
-        validated_data=_content_fields(content),
+        validated_data=_content_fields(content, from_integration_id),
         route_to_draft=False,
         base_updated_at=None,
         base_live_updated_at=None,
         includes_staged_draft=False,
-        validated_status=status,
+        validated_status=flow.status,
     )

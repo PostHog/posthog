@@ -483,7 +483,8 @@ class TransactionalEmailContent:
     preheader: str
     html: str
     text: str
-    from_integration_id: int
+    # None on an update keeps the sender the workflow already has.
+    from_integration_id: int | None
     message_category_id: UUID | None
 
 
