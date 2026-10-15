@@ -1,0 +1,438 @@
+{
+    "name": "Python runtime",
+    "description": "CPU, memory, threads and garbage collection of Python services that send PostHog Python SDK runtime metrics.",
+    "panels": [
+        {
+            "key": "cpu_now",
+            "title": "CPU cores used",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "process.cpu.time",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "cores",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "memory_now",
+            "title": "Resident memory",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "process.memory.usage",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "By",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 3,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "threads_now",
+            "title": "Threads",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "process.thread.count",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "uncollectable_now",
+            "title": "Uncollectable objects",
+            "description": "Objects the garbage collector found but could not free. Anything above zero points to a leak.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "cpython.gc.uncollectable_objects",
+                        "aggregation": "increase"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "reduce": "last",
+                    "thresholds": [
+                        {
+                            "color": "success",
+                            "value": 0
+                        },
+                        {
+                            "color": "danger",
+                            "value": 1
+                        }
+                    ]
+                }
+            },
+            "layout": {
+                "x": 9,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "cpu_by_service",
+            "title": "CPU by service",
+            "description": "CPU cores each service uses, split into user and system time.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "process.cpu.time",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "service_name"
+                            },
+                            {
+                                "key": "cpu.mode"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "area",
+                    "unit": "cores",
+                    "legendCalcs": ["mean", "max"]
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "cpu_share_by_service",
+            "title": "CPU share of host by service",
+            "description": "CPU each service uses as a share of all host CPUs. 100% means every core is busy.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "process.cpu.utilization",
+                        "aggregation": "avg",
+                        "groupBy": [
+                            {
+                                "key": "service_name"
+                            },
+                            {
+                                "key": "cpu.mode"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "a * 100",
+                "display": {
+                    "type": "area",
+                    "unit": "%",
+                    "legendCalcs": ["mean", "max"]
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "cpu_percent_by_process",
+            "title": "CPU percent by process",
+            "description": "100% is one fully busy core, so a process on several cores goes above 100%.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "app.process.cpu.percent",
+                        "aggregation": "avg",
+                        "groupBy": [
+                            {
+                                "key": "service_name"
+                            },
+                            {
+                                "key": "process.runtime_id"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "%",
+                    "legendCalcs": ["mean", "max"]
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "memory_by_process",
+            "title": "Resident memory by process",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "process.memory.usage",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "service_name"
+                            },
+                            {
+                                "key": "process.runtime_id"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "By",
+                    "legendCalcs": ["last", "max"]
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "memory_share_by_service",
+            "title": "Memory share of host by service",
+            "description": "Resident memory of each service as a share of the host's physical memory.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "process.memory.utilization",
+                        "aggregation": "max",
+                        "groupBy": [
+                            {
+                                "key": "service_name"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "a * 100",
+                "display": {
+                    "type": "line",
+                    "unit": "%",
+                    "legendCalcs": ["last", "max"]
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 10,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "threads_by_process",
+            "title": "Threads by process",
+            "description": "Native threads, including threads that C extensions start.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "process.thread.count",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "service_name"
+                            },
+                            {
+                                "key": "process.runtime_id"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "legendCalcs": ["last", "max"]
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 10,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "context_switches_by_process",
+            "title": "Context switches by process",
+            "description": "How often each process was switched off the CPU. Voluntary and involuntary switches are combined.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "app.process.cpu.ctx_switch.total",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "service_name"
+                            },
+                            {
+                                "key": "process.runtime_id"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "legendCalcs": ["mean", "max"]
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 14,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "gc_collections",
+            "title": "GC collections by generation",
+            "description": "Garbage collections each second. A rise in generation 2 often means memory is growing.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "cpython.gc.collections",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "cpython.gc.generation"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "legendCalcs": ["mean", "max"]
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 14,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "gc_collected",
+            "title": "GC collected objects by generation",
+            "description": "Objects the garbage collector frees each second. This is GC activity, not heap size.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "cpython.gc.collected_objects",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "cpython.gc.generation"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "legendCalcs": ["mean", "max"]
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 18,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "gc_uncollectable",
+            "title": "Uncollectable objects by service",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "cpython.gc.uncollectable_objects",
+                        "aggregation": "increase",
+                        "groupBy": [
+                            {
+                                "key": "service_name"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "legendCalcs": ["last", "max"]
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 18,
+                "w": 6,
+                "h": 4
+            }
+        }
+    ]
+}
