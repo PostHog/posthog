@@ -21,12 +21,12 @@ jest.mock(
     'react-native-safe-area-context',
     () => jest.requireActual('react-native-safe-area-context/jest/mock').default
 )
+jest.mock('react-native-keyboard-controller', () => jest.requireActual('react-native-keyboard-controller/jest'))
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }) }))
 jest.mock('@/lib/analytics', () => ({ track: jest.fn() }))
 jest.mock('../report/hooks', () => ({ useReport: jest.fn(), useReportActions: jest.fn() }))
 jest.mock('../reviewers/hooks', () => ({ useReportReviewers: () => undefined, useGithubOnlyReviewerCount: () => 0 }))
 jest.mock('../reviewers/AssigneeSheet', () => ({ AssigneeSheet: () => null }))
-jest.mock('../snooze/SnoozeSheet', () => ({ SnoozeSheet: () => null }))
 
 const fixture = buildDemoFixtures(new Date(2026, 9, 14)).list.find((item) => item.report.work.state === 'unclaimed')
 if (!fixture) {
@@ -48,11 +48,21 @@ beforeEach(() => {
         answerDecision: jest.fn(),
         undoDecision: jest.fn(),
         snooze: jest.fn(),
+        resolve: jest.fn(),
+        dismiss: jest.fn(),
         setReviewers: jest.fn(),
         setPriority: jest.fn(),
         markRead: jest.fn(async () => undefined),
         markUnread: jest.fn(async () => undefined),
-        pending: { handOff: false, answer: false, snooze: false, reviewers: false, priority: false },
+        pending: {
+            handOff: false,
+            answer: false,
+            snooze: false,
+            reviewers: false,
+            priority: false,
+            resolve: false,
+            dismiss: false,
+        },
     }
     jest.mocked(useReport).mockReturnValue(successQuery(REPORT))
     jest.mocked(useReportActions).mockReturnValue(actions)
@@ -167,5 +177,18 @@ test.each([
     expect(screen.queryByTestId(hidden)).toBeNull()
     fireEvent.press(screen.getByTestId(shown))
     expect(actions[action]).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledTimes(1)
+})
+
+test.each([
+    ['resolve', 'fixed_outside_posthog'],
+    ['dismiss', 'analysis_wrong'],
+] as const)('opens the %s sheet from the menu and closes after the verdict', async (verdict, reason) => {
+    const close = jest.fn()
+    render(<InboxRowActions target={TARGET} onClose={close} />, { wrapper: OverlayHost })
+    fireEvent.press(screen.getByTestId(`inbox-row-menu-${verdict}`))
+    fireEvent.press(screen.getByTestId(`${verdict}-sheet-reason-${reason}`))
+    await act(async () => fireEvent.press(screen.getByTestId(`${verdict}-sheet-confirm`)))
+    expect(actions[verdict]).toHaveBeenCalledWith(reason, '')
     expect(close).toHaveBeenCalledTimes(1)
 })

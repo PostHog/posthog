@@ -9,7 +9,13 @@ import { useViewer } from '@/auth/useViewer'
 import { useDataMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
-import type { ReportPriority, ReportView, SnoozeChoice } from '@/model/types'
+import type { ReportPriority, ReportView } from '@/model/types'
+import {
+    DISMISSAL_REASON_OPTIONS,
+    type DismissReason,
+    RESOLVE_REASON_OPTIONS,
+    type ResolveReason,
+} from '@/model/verdictReasons'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { LoadingView, StateView } from '@/ui/StateView'
@@ -25,7 +31,8 @@ import { useInboxItems, useMarkReadOnOpen } from '../inbox/hooks'
 import { PrioritySheet } from '../priority/PrioritySheet'
 import { AssigneeSheet } from '../reviewers/AssigneeSheet'
 import { useGithubOnlyReviewerCount } from '../reviewers/hooks'
-import { SnoozeSheet } from '../snooze/SnoozeSheet'
+import { VerdictSheet } from '../verdict/VerdictSheet'
+import { dismissCopy, hasOpenPullRequest, resolveCopy } from '../verdict/verdictCopy'
 import { Activity } from './Activity'
 import { Evidence } from './Evidence'
 import { Facts } from './Facts'
@@ -38,7 +45,7 @@ import { reportDetailQuery } from './queries'
 import { ReportMeta } from './ReportMeta'
 import { TOP_CHROME_BOTTOM, TopChrome } from './TopChrome'
 
-type Overlay = 'none' | 'handoff' | 'snooze' | 'assignee' | 'priority'
+type Overlay = 'none' | 'handoff' | 'resolve' | 'dismiss' | 'assignee' | 'priority'
 
 const CONTENT_TOP = 116
 /** The gap between the chrome and the headline at rest, so the title reveal ends as the headline fully passes under. */
@@ -142,11 +149,19 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
             })
         }
     }
-    const snooze = async (choice: SnoozeChoice): Promise<void> => {
-        await actions.snooze(choice)
+    // A resolved or dismissed report leaves the inbox, so the screen goes back to it.
+    const resolve = async (reason: ResolveReason, note: string): Promise<void> => {
+        await actions.resolve(reason, note)
         closeOverlay()
         goBack()
     }
+    const dismiss = async (reason: DismissReason, note: string): Promise<void> => {
+        await actions.dismiss(reason, note)
+        closeOverlay()
+        goBack()
+    }
+    const title = headlineText(report.headline)
+    const hasOpenPr = hasOpenPullRequest(state.pullRequests)
     const handOff = async (): Promise<void> => {
         await actions.handOff()
         closeOverlay()
@@ -177,7 +192,8 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
                 actions={actions}
                 onOpenHandoff={() => setOverlay('handoff')}
                 onReassign={() => setOverlay('assignee')}
-                onSnooze={() => setOverlay('snooze')}
+                onResolve={() => setOverlay('resolve')}
+                onDismiss={() => setOverlay('dismiss')}
                 onChat={() => router.push({ pathname: '/chat', params: { reportId: report.id } })}
                 onTaskChat={taskId ? openTaskChat : undefined}
             />
@@ -188,11 +204,23 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
                 onHandOff={() => void handOff()}
                 pending={actions.pending.handOff}
             />
-            <SnoozeSheet
-                visible={overlay === 'snooze'}
+            <VerdictSheet
+                visible={overlay === 'resolve'}
+                copy={resolveCopy(title, hasOpenPr)}
+                options={RESOLVE_REASON_OPTIONS}
                 onClose={closeOverlay}
-                onSnooze={snooze}
-                pending={actions.pending.snooze}
+                onConfirm={resolve}
+                pending={actions.pending.resolve}
+                testID="resolve-sheet"
+            />
+            <VerdictSheet
+                visible={overlay === 'dismiss'}
+                copy={dismissCopy(title, hasOpenPr)}
+                options={DISMISSAL_REASON_OPTIONS}
+                onClose={closeOverlay}
+                onConfirm={dismiss}
+                pending={actions.pending.dismiss}
+                testID="dismiss-sheet"
             />
             <AssigneeSheet
                 visible={overlay === 'assignee'}

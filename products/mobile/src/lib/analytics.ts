@@ -18,6 +18,8 @@ export type AnalyticsEvent =
     | 'mobile_handoff_option_changed'
     | 'mobile_decision_answered'
     | 'mobile_report_snoozed'
+    | 'mobile_report_resolved'
+    | 'mobile_report_dismissed'
     | 'mobile_reviewers_changed'
     | 'mobile_report_priority_changed'
     | 'mobile_report_marked_read'

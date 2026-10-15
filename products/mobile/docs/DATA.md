@@ -47,7 +47,7 @@ Read states are fetched once per page, so a new page does not ask again for the 
 Pull to refresh, and the refresh button, keep only the first page and refetch it and the read states.
 Refetching every loaded page would rank the whole list once per page.
 The refresh button also scrolls the list back to the top.
-A change made on the report screen (snooze, reviewers, priority, hand-off) refetches every loaded page in the background.
+A change made on the report screen (resolve, dismiss, reviewers, priority, hand-off) refetches every loaded page in the background.
 
 ## Inbox rows
 

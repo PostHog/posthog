@@ -1,23 +1,23 @@
 import { Fragment, type ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
-import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
-import { ClockIcon } from '@/ui/icons/ClockIcon'
+import { CheckCircleIcon } from '@/ui/icons/CheckCircleIcon'
+import { EyeOffIcon } from '@/ui/icons/EyeOffIcon'
 import { ReassignIcon } from '@/ui/icons/ReassignIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, iconSizes, radii, shadows, type } from '@/ui/tokens'
 
 interface ActionPillProps {
     onReassign: () => void
-    onSnooze: () => void
-    onChat: () => void
+    onResolve: () => void
+    onDismiss: () => void
 }
 
-export function ActionPill({ onReassign, onSnooze, onChat }: ActionPillProps): ReactElement {
+export function ActionPill({ onReassign, onResolve, onDismiss }: ActionPillProps): ReactElement {
     const buttons = [
         { key: 'reassign', label: 'Reassign', Icon: ReassignIcon, onPress: onReassign },
-        { key: 'snooze', label: 'Snooze', Icon: ClockIcon, onPress: onSnooze },
-        { key: 'chat', label: 'Chat', Icon: ChatBubbleIcon, onPress: onChat },
+        { key: 'resolve', label: 'Resolve', Icon: CheckCircleIcon, onPress: onResolve },
+        { key: 'dismiss', label: 'Dismiss', Icon: EyeOffIcon, onPress: onDismiss },
     ]
     return (
         <View style={[styles.outer, shadows.actionPill]}>
@@ -46,6 +46,7 @@ export function ActionPill({ onReassign, onSnooze, onChat }: ActionPillProps): R
 const styles = StyleSheet.create({
     // 52pt buttons inside a 1pt border.
     outer: {
+        flex: 1,
         height: 54,
         borderRadius: radii.pill,
         backgroundColor: colors.white,

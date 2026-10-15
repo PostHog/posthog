@@ -4,7 +4,13 @@ import { Linking } from 'react-native'
 import { track } from '@/lib/analytics'
 import { safeHttpsUrl } from '@/lib/urls'
 import { useAsyncAction } from '@/lib/useAsyncAction'
-import type { InboxItem, SnoozeChoice } from '@/model/types'
+import type { InboxItem } from '@/model/types'
+import {
+    DISMISSAL_REASON_OPTIONS,
+    type DismissReason,
+    RESOLVE_REASON_OPTIONS,
+    type ResolveReason,
+} from '@/model/verdictReasons'
 import { motion } from '@/ui/tokens'
 
 import { actionBarStateFor } from '../handoff/actionBarState'
@@ -16,7 +22,8 @@ import { mergeLiveRun } from '../handoff/liveReport'
 import { useReport, useReportActions } from '../report/hooks'
 import { AssigneeSheet } from '../reviewers/AssigneeSheet'
 import { useGithubOnlyReviewerCount, useReportReviewers } from '../reviewers/hooks'
-import { SnoozeSheet } from '../snooze/SnoozeSheet'
+import { VerdictSheet } from '../verdict/VerdictSheet'
+import { dismissCopy, hasOpenPullRequest, resolveCopy } from '../verdict/verdictCopy'
 import type { RowAnchor } from './contextMenuPlacement'
 import { ReportContextMenu } from './ReportContextMenu'
 
@@ -25,9 +32,9 @@ export interface RowMenuTarget {
     anchor: RowAnchor
 }
 
-type RowMenuAction = 'reassign' | 'snooze' | 'chat' | 'mark_read' | 'mark_unread' | 'hand_off' | 'view_pr'
+type RowMenuAction = 'reassign' | 'resolve' | 'dismiss' | 'chat' | 'mark_read' | 'mark_unread' | 'hand_off' | 'view_pr'
 
-type Step = 'menu' | 'assignee' | 'snooze'
+type Step = 'menu' | 'assignee' | 'resolve' | 'dismiss'
 
 type Overlay = Step | 'none'
 
@@ -92,6 +99,10 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
     const entry = useHandoffEntry(reportId)
     const report = reportQuery.data ? mergeLiveRun(reportQuery.data, entry) : undefined
     const canHandOff = report !== undefined && actionBarStateFor(report).showHandoff
+    // Until the report loads, a PR named by the list counts as open, as the web inbox treats a PR of unknown state.
+    const hasOpenPr = report
+        ? hasOpenPullRequest(actionBarStateFor(report).pullRequests)
+        : item.pullRequestUrl !== undefined
     // The list payload names the PR, so the menu offers it on its first frame instead of a handoff row that disappears once
     // the report loads. The loaded report still adds a PR a live run shipped after the list was fetched.
     const pullRequestUrl = item.pullRequestUrl ?? report?.work.pullRequest?.url
@@ -143,9 +154,13 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
         choose('reassign')
         setStep('assignee')
     }
-    const openSnooze = (): void => {
-        choose('snooze')
-        setStep('snooze')
+    const openResolve = (): void => {
+        choose('resolve')
+        setStep('resolve')
+    }
+    const openDismiss = (): void => {
+        choose('dismiss')
+        setStep('dismiss')
     }
     const chat = (): void => {
         choose('chat')
@@ -163,8 +178,13 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
         actions.markUnread().catch(() => undefined)
         close()
     }
-    const snooze = async (choice: SnoozeChoice): Promise<void> => {
-        await actions.snooze(choice)
+    // The report leaves the inbox once the list reloads, so the menu only closes.
+    const resolve = async (reason: ResolveReason, note: string): Promise<void> => {
+        await actions.resolve(reason, note)
+        close()
+    }
+    const dismiss = async (reason: DismissReason, note: string): Promise<void> => {
+        await actions.dismiss(reason, note)
         close()
     }
 
@@ -190,16 +210,29 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
                     }
                 }}
                 onReassign={reassign}
-                onSnooze={openSnooze}
+                onResolve={openResolve}
+                onDismiss={openDismiss}
                 onChat={chat}
                 onMarkRead={markRead}
                 onMarkUnread={markUnread}
             />
-            <SnoozeSheet
-                visible={overlay === 'snooze'}
+            <VerdictSheet
+                visible={overlay === 'resolve'}
+                copy={resolveCopy(item.title, hasOpenPr)}
+                options={RESOLVE_REASON_OPTIONS}
                 onClose={close}
-                onSnooze={snooze}
-                pending={actions.pending.snooze}
+                onConfirm={resolve}
+                pending={actions.pending.resolve}
+                testID="resolve-sheet"
+            />
+            <VerdictSheet
+                visible={overlay === 'dismiss'}
+                copy={dismissCopy(item.title, hasOpenPr)}
+                options={DISMISSAL_REASON_OPTIONS}
+                onClose={close}
+                onConfirm={dismiss}
+                pending={actions.pending.dismiss}
+                testID="dismiss-sheet"
             />
             {reviewers ? (
                 <AssigneeSheet

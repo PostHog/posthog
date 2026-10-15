@@ -56,11 +56,21 @@ function props(state: ActionBarState): ComponentProps<typeof ActionBar> {
         answerDecision: jest.fn(async () => undefined),
         undoDecision: jest.fn(async () => undefined),
         snooze: jest.fn(async () => undefined),
+        resolve: jest.fn(async () => undefined),
+        dismiss: jest.fn(async () => undefined),
         setReviewers: jest.fn(async () => undefined),
         setPriority: jest.fn(async () => undefined),
         markRead: jest.fn(async () => undefined),
         markUnread: jest.fn(async () => undefined),
-        pending: { handOff: false, answer: false, snooze: false, reviewers: false, priority: false },
+        pending: {
+            handOff: false,
+            answer: false,
+            snooze: false,
+            reviewers: false,
+            priority: false,
+            resolve: false,
+            dismiss: false,
+        },
     }
     return {
         report: REPORT,
@@ -68,7 +78,8 @@ function props(state: ActionBarState): ComponentProps<typeof ActionBar> {
         actions,
         onOpenHandoff: jest.fn(),
         onReassign: jest.fn(),
-        onSnooze: jest.fn(),
+        onResolve: jest.fn(),
+        onDismiss: jest.fn(),
         onChat: jest.fn(),
         onTaskChat: jest.fn(),
     }
@@ -155,6 +166,11 @@ test('selects every PR state and keeps selection by URL as activity changes', ()
     expect(screen.queryByTestId('decision-request')).toBeNull()
     fireEvent.press(screen.getByTestId('action-chat'))
     expect(viewProps.onChat).toHaveBeenCalledTimes(1)
+    fireEvent.press(screen.getByTestId('action-resolve'))
+    expect(viewProps.onResolve).toHaveBeenCalledTimes(1)
+    fireEvent.press(screen.getByTestId('action-dismiss'))
+    expect(viewProps.onDismiss).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('action-snooze')).toBeNull()
 })
 
 test('allows Undo during the answer delivery that it cancels', () => {

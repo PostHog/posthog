@@ -230,7 +230,7 @@ The web thread strips only leading blocks, so the blocks lead and the question f
 - Known PRs remain available while execution is active, idle or terminal. Their state is separate
   from execution; a discovered URL starts unknown until the report supplies authoritative state.
 - Report task status opens that implementation task, including idle and completed runs that can
-  resume. Chat in the report action pill starts a separate report discussion. A completed turn
+  resume. The Chat button beside the report action pill starts a separate report discussion. A completed turn
   alone does not create an attention request; the task composer provides continuation.
 
 ## New chat

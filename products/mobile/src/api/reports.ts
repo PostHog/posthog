@@ -1,4 +1,5 @@
 import type { ReportPriority } from '@/model/types'
+import { type DismissReason, type ResolveReason, VERDICT_NOTE_MAX_LENGTH } from '@/model/verdictReasons'
 import type { PullRequestChecksResponseApi } from '../../../signals/frontend/generated/api.schemas'
 
 import { ApiError, apiJson, projectPath } from './client'
@@ -231,6 +232,35 @@ export function snoozeReportForSignals(reportId: string, count: number): Promise
         method: 'POST',
         json: { state: 'potential', snooze_for: count },
     })
+}
+
+function postVerdict(
+    reportId: string,
+    state: 'resolved' | 'suppressed',
+    reason: ResolveReason | DismissReason,
+    note = ''
+): Promise<SignalReportApi> {
+    const trimmed = note.trim().slice(0, VERDICT_NOTE_MAX_LENGTH)
+    return apiJson<SignalReportApi>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/state/`), {
+        method: 'POST',
+        json: { state, dismissal_reason: reason, ...(trimmed ? { dismissal_note: trimmed } : {}) },
+    })
+}
+
+/**
+ * `POST signals/reports/{id}/state/` with `resolved`: marks the report done and closes its open implementation PR.
+ * A 409 means the report's current status cannot move to resolved; its `error` says why.
+ */
+export function resolveReport(reportId: string, reason: ResolveReason, note?: string): Promise<SignalReportApi> {
+    return postVerdict(reportId, 'resolved', reason, note)
+}
+
+/**
+ * `POST signals/reports/{id}/state/` with `suppressed`: the report leaves the inbox, and the agent that filed it reads
+ * the note on its next run. A 409 means the report's current status cannot move to suppressed; its `error` says why.
+ */
+export function dismissReport(reportId: string, reason: DismissReason, note?: string): Promise<SignalReportApi> {
+    return postVerdict(reportId, 'suppressed', reason, note)
 }
 
 /** `PUT signals/reports/{id}/reviewers/`: replaces the suggested reviewers. Returns the new artefact. */

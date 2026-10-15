@@ -72,7 +72,7 @@ Known gaps and behavior that stays on the device.
 - **Reports the ranking hides.** The ranking leaves out reports the model expects to be dismissed as wrong, so a report that names the user can be missing from the inbox.
 - **Inbox paging needs the backend first.** The inbox pages only on a server that has the `for_you/` `offset` parameter and `next` link. An older server sends no `next`, so the inbox shows its first 20 reports and stops.
 - **Inbox paging.** Each page ranks the list again. A report that moves down while the user scrolls can be skipped until the next refresh.
-- **A change on the report screen refetches every loaded page.** Snooze, reviewers, priority and hand-off invalidate the inbox list, and the list then refetches each loaded page in turn. Each of those requests ranks the whole list again.
+- **A change on the report screen refetches every loaded page.** Resolve, dismiss, reviewers, priority and hand-off invalidate the inbox list, and the list then refetches each loaded page in turn. Each of those requests ranks the whole list again.
 - **The signal snooze store is nearly redundant.** The server drops a report snoozed until more signals from `for_you/`, so the device entry only labels the row until the list refetches. The store and its labels could go.
 - **Time snoozes do not sync** to other devices or the web, and are lost when the app's storage is cleared.
 - **Inbox rows** carry no progress label.

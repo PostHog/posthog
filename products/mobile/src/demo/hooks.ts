@@ -15,6 +15,7 @@ function useDemoView(): DemoView {
             handed: state.handed,
             decisions: state.decisions,
             snoozed: state.snoozed,
+            closed: state.closed,
             read: state.read,
             reviewers: state.reviewers,
             priorities: state.priorities,

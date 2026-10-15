@@ -64,7 +64,7 @@ The flow:
 
 1. taps **Try the demo** on the sign-in screen,
 2. opens "Report load time", opens and closes the hand-off sheet,
-3. snoozes the report until tomorrow and checks that the inbox row says so,
+3. resolves the report as fixed outside PostHog and checks that its inbox row is gone,
 4. opens "3,721 errors", taps **Needs your answer**, picks an answer in the decision sheet, then taps Undo, reopens the question and closes its sheet,
 5. opens Chat from the action pill, sends a question and waits for the demo reply,
 6. goes back, opens Chats, opens the session "Fix the flaky checkout test", and checks its title and reply,

@@ -19,6 +19,7 @@ import { type InboxQueryState, useSetReadAction } from '../inbox/hooks'
 import { useSetPriorityAction } from '../priority/hooks'
 import { useSetReviewersAction } from '../reviewers/hooks'
 import { useSnoozeAction } from '../snooze/hooks'
+import { useDismissAction, useResolveAction } from '../verdict/hooks'
 import { reportArtefactsQuery, reportDetailQuery, reportPageQuery, reportSignalsQuery } from './queries'
 
 export const REPORT_POLL_INTERVAL_MS = 15_000
@@ -137,6 +138,8 @@ export function useReport(reportId: string, refreshWhileVisible = false, enabled
 export function useReportActions(reportId: string): ReportActions {
     const handoff = useHandoffActions(reportId)
     const snooze = useSnoozeAction(reportId)
+    const resolve = useResolveAction(reportId)
+    const dismiss = useDismissAction(reportId)
     const reviewers = useSetReviewersAction(reportId)
     const priority = useSetPriorityAction(reportId)
     const markRead = useSetReadAction(reportId, true)
@@ -146,6 +149,8 @@ export function useReportActions(reportId: string): ReportActions {
         answerDecision: handoff.answerDecision.run,
         undoDecision: handoff.undoDecision.run,
         snooze: snooze.run,
+        resolve: resolve.run,
+        dismiss: dismiss.run,
         setReviewers: reviewers.run,
         setPriority: priority.run,
         markRead: markRead.run,
@@ -156,6 +161,8 @@ export function useReportActions(reportId: string): ReportActions {
             snooze: snooze.pending,
             reviewers: reviewers.pending,
             priority: priority.pending,
+            resolve: resolve.pending,
+            dismiss: dismiss.pending,
         },
     }
 }

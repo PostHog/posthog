@@ -25,17 +25,18 @@ steps:
     - tap: { text: Close }
     - await: { hidden: { id: handoff-agent-posthog } }
 
-    - echo: Back on the report. Open Snooze. Expect the snooze sheet
-    - tap: { id: action-snooze }
-    - await: { visible: { id: snooze-tomorrow } }
+    - echo: Back on the report. Open Resolve. Expect the resolve sheet
+    - tap: { id: action-resolve }
+    - await: { visible: { id: resolve-sheet-reason-fixed_outside_posthog } }
     - await: { idle: true }
 
-    - echo: Snooze sheet open. Pick Tomorrow. Expect the inbox with the row snoozed
-    - tap: { id: snooze-tomorrow }
-    - await: { hidden: { id: snooze-tomorrow } }
+    - echo: Resolve sheet open. Pick Fixed outside PostHog and confirm. Expect the inbox without the row
+    - tap: { id: resolve-sheet-reason-fixed_outside_posthog }
+    - tap: { id: resolve-sheet-confirm }
+    - await: { hidden: { id: resolve-sheet-confirm } }
     - await: { visible: { id: inbox-refresh } }
     - await: { idle: true }
-    - assert: { text: { in: { id: inbox-row-demo-report-load-time }, contains: Snoozed until tomorrow } }
+    - await: { hidden: { id: inbox-row-demo-report-load-time } }
 
     - echo: On the inbox. Open the 3,721 errors report. Expect its pull request and answer action
     - tap: { id: inbox-row-demo-report-ui-errors }

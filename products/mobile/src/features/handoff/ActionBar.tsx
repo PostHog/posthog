@@ -3,7 +3,9 @@ import { StyleSheet, Text, View } from 'react-native'
 import { KeyboardStickyView } from 'react-native-keyboard-controller'
 
 import type { ActionBarState, ReportActions, ReportView } from '@/model/types'
-import { colors, layout, radii, type } from '@/ui/tokens'
+import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
+import { Pressable44 } from '@/ui/Pressable44'
+import { colors, iconSizes, layout, radii, shadows, type } from '@/ui/tokens'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { ActionPill } from './ActionPill'
@@ -21,7 +23,8 @@ interface ActionBarProps {
     actions: ReportActions
     onOpenHandoff: () => void
     onReassign: () => void
-    onSnooze: () => void
+    onResolve: () => void
+    onDismiss: () => void
     onChat: () => void
     onTaskChat?: () => void
 }
@@ -34,7 +37,8 @@ export function ActionBar({
     actions,
     onOpenHandoff,
     onReassign,
-    onSnooze,
+    onResolve,
+    onDismiss,
     onChat,
     onTaskChat,
 }: ActionBarProps): ReactElement {
@@ -111,7 +115,19 @@ export function ActionBar({
                         pending={actions.pending.handOff}
                     />
                 ) : null}
-                <ActionPill onReassign={onReassign} onSnooze={onSnooze} onChat={onChat} />
+                <View style={styles.pillRow}>
+                    <ActionPill onReassign={onReassign} onResolve={onResolve} onDismiss={onDismiss} />
+                    <Pressable44
+                        onPress={onChat}
+                        accessibilityLabel="Chat"
+                        pressedBackground={colors.inkHover}
+                        style={[styles.chat, shadows.fab]}
+                        haptic="selection"
+                        testID="action-chat"
+                    >
+                        <ChatBubbleIcon size={iconSizes.navigation} color={colors.white} />
+                    </Pressable44>
+                </View>
             </View>
         </KeyboardStickyView>
     )
@@ -134,4 +150,18 @@ const styles = StyleSheet.create({
         backgroundColor: colors.white,
     },
     notice: { ...type.metaSmall, color: colors.orange, paddingHorizontal: 4 },
+    pillRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    // As tall as the action pill, so the two read as one row.
+    chat: {
+        width: 54,
+        height: 54,
+        borderRadius: radii.pill,
+        backgroundColor: colors.ink,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
 })

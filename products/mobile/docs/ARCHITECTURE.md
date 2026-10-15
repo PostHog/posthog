@@ -44,6 +44,7 @@ products/mobile/
                           useReportWithLiveRun, handoffStore, hooks
       snooze/             SnoozeSheet, CustomSnoozePicker (.web.tsx for web), snoozeTimes,
                           snoozeStore, snoozeEntries, reminders, hooks
+      verdict/            VerdictSheet (Resolve and Dismiss), verdictCopy, hooks; reasons in model/verdictReasons
       reviewers/          AssigneeSheet, hooks
       priority/           PrioritySheet, hooks
       chat/               ChatSheet, Composer, ContextChip, MentionPopover, ChatEmptyState, ChatOptionsSheet,

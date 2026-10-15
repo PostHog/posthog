@@ -138,7 +138,7 @@ the task query so a resumed run can replace the report's older run immediately.
 
 Tapping the action bar's agent status card opens that task's chat sheet, passing the task id and
 the displayed run id when available. A claim without a task id cannot open a task chat yet. The
-Reassign / Snooze / Chat pill's Chat action starts a new conversation with the report attached.
+round Chat button beside the Reassign / Resolve / Dismiss pill starts a new conversation with the report attached.
 The streamed command beneath the status title stays on one line and truncates at the end.
 
 ## Stream handling

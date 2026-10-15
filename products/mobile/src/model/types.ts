@@ -1,3 +1,5 @@
+import type { DismissReason, ResolveReason } from './verdictReasons'
+
 // Every timestamp in these view models is an ISO 8601 string; screens format it at render time.
 
 /** `alert`: something is wrong. `opportunity`: feedback or a request. `resolved`: fixed or closed. */
@@ -326,6 +328,8 @@ export interface ReportActionsPending {
     snooze: boolean
     reviewers: boolean
     priority: boolean
+    resolve: boolean
+    dismiss: boolean
 }
 
 export interface ReportActions {
@@ -333,6 +337,10 @@ export interface ReportActions {
     answerDecision: (input: DecisionAnswerInput) => Promise<void>
     undoDecision: () => Promise<void>
     snooze: (choice: SnoozeChoice) => Promise<void>
+    /** Marks the report done. The server closes its open implementation PR. */
+    resolve: (reason: ResolveReason, note: string) => Promise<void>
+    /** Takes the report out of the inbox. The agent that filed it reads the note on its next run. */
+    dismiss: (reason: DismissReason, note: string) => Promise<void>
     /** Replaces the reviewers with the given user uuids. An empty list clears them. */
     setReviewers: (uuids: string[]) => Promise<void>
     setPriority: (priority: ReportPriority) => Promise<void>

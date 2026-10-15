@@ -3,7 +3,7 @@
 A standalone Expo + React Native app for iOS and Android, named **PostHog** on the stores.
 It is a quick-triage companion to the PostHog home page:
 open your latest reports, hand them to the PostHog agent, answer its questions,
-review the PR it opens, reassign, snooze, mark read, or chat with PostHog AI about a report.
+review the PR it opens, reassign, resolve, dismiss, mark read, or chat with PostHog AI about a report.
 
 Demo mode renders the whole design from fixture data with no network.
 Signed in, the same screens read the PostHog API.

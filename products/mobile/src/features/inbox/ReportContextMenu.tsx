@@ -5,8 +5,9 @@ import { useSafeAreaFrame } from 'react-native-safe-area-context'
 import type { InboxItem } from '@/model/types'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
-import { ClockIcon } from '@/ui/icons/ClockIcon'
+import { CheckCircleIcon } from '@/ui/icons/CheckCircleIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
+import { EyeOffIcon } from '@/ui/icons/EyeOffIcon'
 import { GitBranchIcon } from '@/ui/icons/GitBranchIcon'
 import { MailOpenIcon } from '@/ui/icons/MailOpenIcon'
 import { MailUnreadIcon } from '@/ui/icons/MailUnreadIcon'
@@ -43,7 +44,8 @@ interface ReportContextMenuProps {
     onViewPullRequest: () => void
     onClose: () => void
     onReassign: () => void
-    onSnooze: () => void
+    onResolve: () => void
+    onDismiss: () => void
     onChat: () => void
     onMarkRead: () => void
     onMarkUnread: () => void
@@ -106,7 +108,8 @@ export function ReportContextMenu({
     onViewPullRequest,
     onClose,
     onReassign,
-    onSnooze,
+    onResolve,
+    onDismiss,
     onChat,
     onMarkRead,
     onMarkUnread,
@@ -198,11 +201,18 @@ export function ReportContextMenu({
                     testID="inbox-row-menu-reassign"
                 />
                 <ContextMenuRow
-                    label="Snooze"
+                    label="Resolve"
                     disabled={handoffPending}
-                    Icon={ClockIcon}
-                    onPress={onSnooze}
-                    testID="inbox-row-menu-snooze"
+                    Icon={CheckCircleIcon}
+                    onPress={onResolve}
+                    testID="inbox-row-menu-resolve"
+                />
+                <ContextMenuRow
+                    label="Dismiss"
+                    disabled={handoffPending}
+                    Icon={EyeOffIcon}
+                    onPress={onDismiss}
+                    testID="inbox-row-menu-dismiss"
                 />
                 <ContextMenuRow
                     label="Chat"

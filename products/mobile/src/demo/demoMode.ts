@@ -5,6 +5,12 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 
 import { MCP_VIA } from '@/model/agent'
 import type { ActivityEvent, DecisionAnswer, ReportPriority } from '@/model/types'
+import {
+    DISMISSAL_REASON_OPTIONS,
+    type DismissReason,
+    RESOLVE_REASON_OPTIONS,
+    type ResolveReason,
+} from '@/model/verdictReasons'
 
 import { DEMO_AGENT, DEMO_USER_NAME } from './briefings'
 import { DEMO_PEOPLE } from './fixtures'
@@ -13,7 +19,7 @@ const REFRESH_MS = 450
 /** Builds made with EXPO_PUBLIC_DEMO_MODE=1 start in demo mode, so a simulator or preview build needs no account. */
 const DEMO_FROM_ENV = process.env.EXPO_PUBLIC_DEMO_MODE === '1'
 
-export type DemoLogTag = 'handoff' | 'decision' | 'snooze' | 'reviewers' | 'priority'
+export type DemoLogTag = 'handoff' | 'decision' | 'snooze' | 'reviewers' | 'priority' | 'verdict'
 
 export interface DemoLogEntry extends ActivityEvent {
     tag: DemoLogTag
@@ -25,6 +31,7 @@ export interface DemoMutableState {
     handed: Record<string, string>
     decisions: Record<string, DecisionAnswer>
     snoozed: Record<string, string>
+    closed: Record<string, 'resolved' | 'dismissed'>
     /** An explicit value overrides the fixture's read state. */
     read: Record<string, boolean>
     reviewers: Record<string, string[]>
@@ -47,6 +54,8 @@ export interface DemoModeState extends DemoMutableState {
     answer: (reportId: string, answer: DecisionAnswer) => void
     undoAnswer: (reportId: string) => void
     snooze: (reportId: string, labels: DemoSnoozeLabels) => void
+    resolve: (reportId: string, reason: ResolveReason) => void
+    dismiss: (reportId: string, reason: DismissReason) => void
     setReviewers: (reportId: string, uuids: string[]) => void
     setPriority: (reportId: string, priority: ReportPriority) => void
     markRead: (reportId: string) => void
@@ -59,6 +68,7 @@ function freshState(): DemoMutableState {
         handed: {},
         decisions: {},
         snoozed: {},
+        closed: {},
         read: {},
         reviewers: {},
         priorities: {},
@@ -80,6 +90,14 @@ function appendLog(
     ...entries: DemoLogEntry[]
 ): DemoMutableState['log'] {
     return { ...log, [reportId]: [...(log[reportId] ?? []), ...entries] }
+}
+
+// Mirrors the live activity line for a dismissal artefact. "Something else…" has no label there.
+function verdictSentence(verb: 'resolved' | 'dismissed', reason: ResolveReason | DismissReason): string {
+    const options: readonly { value: string; label: string }[] =
+        verb === 'resolved' ? RESOLVE_REASON_OPTIONS : DISMISSAL_REASON_OPTIONS
+    const label = reason === 'other' ? undefined : options.find((option) => option.value === reason)?.label
+    return label ? `${DEMO_USER_NAME} ${verb} the report as **${label}**` : `${DEMO_USER_NAME} ${verb} the report`
 }
 
 function reviewerSentence(uuids: string[]): string {
@@ -139,6 +157,16 @@ export const useDemoMode = create<DemoModeState>()(
                         reportId,
                         entry('snooze', `${DEMO_USER_NAME} snoozed until **${labels.activity}**`)
                     ),
+                })),
+            resolve: (reportId, reason) =>
+                set((state) => ({
+                    closed: { ...state.closed, [reportId]: 'resolved' },
+                    log: appendLog(state.log, reportId, entry('verdict', verdictSentence('resolved', reason))),
+                })),
+            dismiss: (reportId, reason) =>
+                set((state) => ({
+                    closed: { ...state.closed, [reportId]: 'dismissed' },
+                    log: appendLog(state.log, reportId, entry('verdict', verdictSentence('dismissed', reason))),
                 })),
             setReviewers: (reportId, uuids) =>
                 set((state) => ({

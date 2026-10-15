@@ -6,7 +6,7 @@ import { DEMO_PEOPLE, type DemoFixture, type DemoFixtures } from './fixtures'
 
 export type DemoView = Pick<
     DemoMutableState,
-    'handed' | 'decisions' | 'snoozed' | 'read' | 'reviewers' | 'priorities' | 'log'
+    'handed' | 'decisions' | 'snoozed' | 'closed' | 'read' | 'reviewers' | 'priorities' | 'log'
 >
 
 function lastIndexOfTag(log: DemoLogEntry[], tag: DemoLogEntry['tag']): number {
@@ -52,7 +52,8 @@ export function deriveDemoReport(view: DemoView, fixture: DemoFixture): ReportVi
 }
 
 export function deriveDemoInbox(view: DemoView, fixtures: DemoFixtures): InboxItem[] {
-    return fixtures.list.map(({ item, briefing }) => {
+    const open = fixtures.list.filter(({ item }) => !view.closed[item.reportId])
+    return open.map(({ item, briefing }) => {
         const id = item.reportId
         const next: InboxItem = { ...item, read: view.read[id] ?? item.read }
         const decision = view.decisions[id]

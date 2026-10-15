@@ -97,7 +97,7 @@ Sizing a glyph does not change its button's tap target, which stays at least 44p
   opens a new chat sheet. Products opens the project's product library in the web app, and is
   dimmed in demo mode or when the session has no project. A long press on a row (or the screen
   reader's "Show report actions") opens a menu with Hand off to the saved agent (PostHog,
-  Claude Code or Codex), Reassign, Snooze, Chat and Mark as read (for an unread report) or Mark as unread.
+  Claude Code or Codex), Reassign, Resolve, Dismiss, Chat and Mark as read (for an unread report) or Mark as unread.
   A full swipe on a row changes its read state: swipe right past 40% of the row marks an unread report read
   (blue), swipe left marks a read report unread (ink). The other direction has no action, and screen readers get
   the same change as a "Mark as read" or "Mark as unread" row action.
@@ -132,10 +132,12 @@ Sizing a glyph does not change its button's tap target, which stays at least 44p
   check label is green for passing, red for failing, amber for pending or unavailable, blue while
   checking, and gray when no checks are reported. The label stays visible alongside the color.
   Task status opens the
-  implementation chat; the Reassign / Snooze / Chat pill starts report discussion. The pill shows
-  in every state. Undo is a separate action while an answer is in flight. Transient tool text
+  implementation chat. The Reassign / Resolve / Dismiss pill and the round ink Chat button to its right
+  show in every state; Chat starts report discussion. Resolve and Dismiss open a sheet with the web
+  inbox's reasons and an optional note, and after a confirmed verdict the screen goes back to the inbox.
+  A 409 from the server (the report's status cannot take that verdict) stays in the sheet as an error. Undo is a separate action while an answer is in flight. Transient tool text
   clears when a turn is idle or terminal and stays on one truncated line while active.
-- **Overlays**: hand-off sheet, snooze sheet (with a custom time picker), Assignee card, Priority sheet (P0 to P4),
+- **Overlays**: hand-off sheet, Resolve and Dismiss sheets (`VerdictSheet`), Assignee card, Priority sheet (P0 to P4),
   Project card (search field, projects grouped by organization, check on the current one),
   chat sheet with @-mention popover, the Model and Mode chips, and the session thread. The chat sheet shares the sheets' grabber
   and drag-down dismissal (`useSheetDrag`), on its header only, so a drag never competes with the thread's scroll.
