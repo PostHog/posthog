@@ -14,6 +14,7 @@ from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -43,7 +44,11 @@ from products.workflows.backend.services.data_suggestions.service import (
     start_build,
 )
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
-from products.workflows.backend.services.data_suggestions.team_context import email_sender, has_verified_email_sender
+from products.workflows.backend.services.data_suggestions.team_context import (
+    email_sender,
+    has_verified_email_sender,
+    saved_workflow_actions,
+)
 from products.workflows.backend.services.email_sending_controls import ensure_workflows_config
 from products.workflows.backend.tasks.data_suggestions import build_data_suggestion
 from products.workflows.backend.tests.api.test_hog_flow_action_email import _email_function_template, webhook_template
@@ -688,7 +693,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
         suggestion_id = self._list()["suggestions"][0]["id"]
-        caller = build_caller(EventSource.API.value, save=True)
+        caller = build_caller(EventSource.API.value, save=True, user_id=self.user.id)
         cache.set(_build_lock_key(self.team.id, suggestion_id, caller), "token", 60)
 
         build_data_suggestion(self.team.id, self.user.id, suggestion_id, "token", EventSource.API.value, True)
@@ -707,13 +712,47 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
         suggestion_id = self._list()["suggestions"][0]["id"]
-        caller = build_caller(EventSource.API.value, save=True)
+        caller = build_caller(EventSource.API.value, save=True, user_id=self.user.id)
         cache.set(_build_lock_key(self.team.id, suggestion_id, caller), "newer-run", 60)
         drafts_before = HogFlow.objects.filter(team=self.team).count()
 
         build_data_suggestion(self.team.id, self.user.id, suggestion_id, "stale-run", EventSource.API.value, True)
 
         assert HogFlow.objects.filter(team=self.team).count() == drafts_before
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_another_editor_gets_their_own_saved_draft(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+        suggestion_id = self._list()["suggestions"][0]["id"]
+        build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
+        build = {"suggestion_id": suggestion_id, "save_draft": True}
+
+        mine = self.client.post(build_url, build, format="json").json()
+        self.client.force_login(User.objects.create_and_join(self.organization, "other@example.com", None))
+        theirs = self.client.post(build_url, build, format="json").json()
+
+        # A saved draft can carry access restrictions, so one editor never receives another editor's draft.
+        assert theirs["workflow_id"] != mine["workflow_id"]
+
+    def test_a_filled_secret_counts_as_set_without_returning_its_value(self, _flag) -> None:
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Draft",
+            status="draft",
+            trigger={"type": "event", "filters": {"events": []}},
+            actions=[{"id": "send", "type": "function", "config": {"template_id": "template-webhook", "inputs": {}}}],
+            encrypted_inputs={"send": {"token": "super-secret"}},
+        )
+
+        actions = saved_workflow_actions(self.team, str(flow.id))
+
+        assert actions is not None
+        assert actions[0]["config"]["inputs"]["token"] == {"value": "<set>"}
+        assert "super-secret" not in str(actions)
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")

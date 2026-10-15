@@ -39,7 +39,7 @@ def start_build(
     return service.start_build(
         team=team,
         suggestion_id=suggestion_id,
-        caller=build_caller(event_source.value, save=save),
+        caller=build_caller(event_source.value, save=save, user_id=user.id),
         retry=retry,
         enqueue=lambda lock_token: build_data_suggestion.delay(
             team.id, user.id, suggestion_id, lock_token, event_source.value, save

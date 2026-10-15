@@ -33,7 +33,7 @@ def build_data_suggestion(
             team_id=team_id,
             user_id=user_id,
             suggestion_id=suggestion_id,
-            caller=build_caller(event_source, save=save),
+            caller=build_caller(event_source, save=save, user_id=user_id),
             lock_token=lock_token,
             validate_draft=lambda team, workflow: validated_draft(team, workflow, rules),
             save_draft=save_draft if save else None,

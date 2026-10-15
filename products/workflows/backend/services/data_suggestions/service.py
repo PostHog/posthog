@@ -186,10 +186,11 @@ def start_build(
     return _read_build(team.id, suggestion_id, caller) or _BUILDING
 
 
-def build_caller(event_source: str, *, save: bool) -> str:
+def build_caller(event_source: str, *, save: bool, user_id: int) -> str:
     """The key a build is stored under. A saved build is checked with the editor's draft rules, so it differs from an
-    unsaved build for the same caller."""
-    return f"{event_source}:save" if save else event_source
+    unsaved build for the same caller. A saved build is also kept per user, because its draft can carry access
+    restrictions another editor of the project does not pass."""
+    return f"{event_source}:save:{user_id}" if save else event_source
 
 
 def needs_new_build(*, team: Team, suggestion_id: str, caller: str, retry: bool) -> bool:
@@ -346,7 +347,7 @@ def _capture_saved_build(*, user: User, suggestion: DataSuggestion, result: Buil
             event="workflows data suggestion built",
             properties={
                 "workflow_id": result.workflow_id,
-                "source": caller.removesuffix(":save"),
+                "source": caller.split(":")[0],
                 "trigger_event": suggestion.trigger_event,
                 "stage": suggestion.stage,
                 "uses_saved_template": result.uses_saved_template,

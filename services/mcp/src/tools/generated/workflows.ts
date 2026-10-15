@@ -126,36 +126,37 @@ const WorkflowsDataSuggestionsCreateSchema = () => {
 const workflowsDataSuggestionsCreate = (): ToolBase<
     ReturnType<typeof WorkflowsDataSuggestionsCreateSchema>,
     Schemas.DataSuggestionBuildResponse
-> => ({
-    name: 'workflows-data-suggestions-create',
-    schema: WorkflowsDataSuggestionsCreateSchema(),
-    handler: withToolHooks(
-        hooks_workflowsDataSuggestionsCreate,
-        async (context: Context, params: z.infer<ReturnType<typeof WorkflowsDataSuggestionsCreateSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const body: Record<string, unknown> = {}
-            if (params.suggestion_id !== undefined) {
-                body['suggestion_id'] = params.suggestion_id
+> =>
+    withUiApp('workflow-data-suggestions', {
+        name: 'workflows-data-suggestions-create',
+        schema: WorkflowsDataSuggestionsCreateSchema(),
+        handler: withToolHooks(
+            hooks_workflowsDataSuggestionsCreate,
+            async (context: Context, params: z.infer<ReturnType<typeof WorkflowsDataSuggestionsCreateSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const body: Record<string, unknown> = {}
+                if (params.suggestion_id !== undefined) {
+                    body['suggestion_id'] = params.suggestion_id
+                }
+                if (params.retry !== undefined) {
+                    body['retry'] = params.retry
+                }
+                body['save_draft'] = true
+                const result = await context.api.request<Schemas.DataSuggestionBuildResponse>({
+                    method: 'POST',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/build/`,
+                    body,
+                })
+                const filtered = pickResponseFields(result, [
+                    'status',
+                    'workflow_id',
+                    'missing_inputs',
+                    'uses_saved_template',
+                ]) as typeof result
+                return filtered
             }
-            if (params.retry !== undefined) {
-                body['retry'] = params.retry
-            }
-            body['save_draft'] = true
-            const result = await context.api.request<Schemas.DataSuggestionBuildResponse>({
-                method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/build/`,
-                body,
-            })
-            const filtered = pickResponseFields(result, [
-                'status',
-                'workflow_id',
-                'missing_inputs',
-                'uses_saved_template',
-            ]) as typeof result
-            return filtered
-        }
-    ),
-})
+        ),
+    })
 
 const WorkflowsDataSuggestionsGetSchema = () => z.object({})
 

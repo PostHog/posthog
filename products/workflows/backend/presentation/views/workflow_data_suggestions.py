@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from django.db import models
 
@@ -186,7 +186,11 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return not payload.is_valid() or needs_new_build(
             team=self.team,
             suggestion_id=payload.validated_data["suggestion_id"],
-            caller=build_caller(get_event_source(self.request).value, save=payload.validated_data["save_draft"]),
+            caller=build_caller(
+                get_event_source(self.request).value,
+                save=payload.validated_data["save_draft"],
+                user_id=cast(User, self.request.user).id,
+            ),
             retry=payload.validated_data["retry"],
         )
 

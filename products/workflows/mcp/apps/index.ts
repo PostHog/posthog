@@ -9,3 +9,4 @@ export {
     type WorkflowDataSuggestionsData,
     type WorkflowDataSuggestionsViewProps,
 } from './WorkflowDataSuggestionsView'
+export { WorkflowDataSuggestionBuildView } from './WorkflowDataSuggestionBuildView'

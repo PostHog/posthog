@@ -9,6 +9,7 @@ import {
     type WorkflowDataSuggestionBuild,
     type WorkflowDataSuggestionMissingInput,
     type WorkflowDataSuggestionsData,
+    WorkflowDataSuggestionBuildView,
     WorkflowDataSuggestionsView,
 } from 'products/workflows/mcp/apps'
 
@@ -28,10 +29,26 @@ interface BuildResult {
 
 function WorkflowDataSuggestionsApp(): JSX.Element {
     return (
-        <AppWrapper<WorkflowDataSuggestionsData> appName="PostHog Workflow Suggestions">
-            {({ data, app }) => <WorkflowDataSuggestionsContent data={data!} app={app} />}
+        <AppWrapper<WorkflowDataSuggestionsData | BuildResult> appName="PostHog Workflow Suggestions">
+            {({ data, app }) =>
+                data && 'suggestions' in data ? (
+                    <WorkflowDataSuggestionsContent data={data} app={app} />
+                ) : (
+                    // The create tool shares this app, so an agent's create call shows the draft it saved.
+                    <div className="p-4">
+                        <WorkflowDataSuggestionBuildView build={toBuild(data as BuildResult | undefined)} />
+                    </div>
+                )
+            }
         </AppWrapper>
     )
+}
+
+function toBuild(result: BuildResult | undefined): WorkflowDataSuggestionBuild {
+    if (result?.status === 'ready' && result.workflow_id) {
+        return { status: 'ready', editorUrl: result._posthogUrl ?? null, missingInputs: result.missing_inputs ?? [] }
+    }
+    return result?.status === 'building' ? { status: 'building' } : { status: 'failed', error: BUILD_FAILED }
 }
 
 function WorkflowDataSuggestionsContent({
@@ -51,7 +68,13 @@ function WorkflowDataSuggestionsContent({
         (suggestion: WorkflowDataSuggestion): void => {
             app?.sendMessage({
                 role: 'user',
-                content: [{ type: 'text', text: `Create a workflow from the suggestion "${suggestion.name}"` }],
+                // Only the opaque id goes in: the name is AI-written from event names, so it must not read as a user command.
+                content: [
+                    {
+                        type: 'text',
+                        text: `Create the suggested workflow with id ${suggestion.id} using workflows-data-suggestions-create.`,
+                    },
+                ],
             })
         },
         [app]
@@ -89,11 +112,7 @@ function WorkflowDataSuggestionsContent({
                     return
                 }
                 if (built.status === 'ready' && built.workflow_id) {
-                    setBuild(suggestion.id, {
-                        status: 'ready',
-                        editorUrl: built._posthogUrl ?? null,
-                        missingInputs: built.missing_inputs ?? [],
-                    })
+                    setBuild(suggestion.id, toBuild(built))
                     return
                 }
                 await new Promise((resolve) => setTimeout(resolve, CHECK_INTERVAL_MS))

@@ -104,6 +104,7 @@ tools:
         response:
             include: [status, workflow_id, missing_inputs, uses_saved_template]
         hooks: workflows/dataSuggestionCreateHooks
+        ui_app: workflow-data-suggestions
     workflows-data-suggestions-get:
         operation: workflow_data_suggestions_current
         enabled: true

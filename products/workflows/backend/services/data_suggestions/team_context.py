@@ -25,13 +25,30 @@ def used_trigger_events(team: Team) -> set[str]:
 
 
 def saved_workflow_actions(team: Team, workflow_id: str) -> list[dict[str, Any]] | None:
-    """The actions of a draft a build saved, or None when it was deleted or archived."""
-    return (
+    """The actions of a draft a build saved, or None when it was deleted or archived. A secret input someone filled
+    lives in the encrypted maps instead of the actions, so it comes back as a placeholder, never as its value."""
+    row = (
         HogFlow.objects.filter(team_id=team.id, id=workflow_id)
         .exclude(status="archived")
-        .values_list("actions", flat=True)
+        .values_list("actions", "encrypted_inputs", "draft_encrypted_inputs")
         .first()
     )
+    if row is None:
+        return None
+    actions, *secret_maps = row
+    filled: dict[str, set[str]] = {}
+    for secrets in secret_maps:
+        for action_id, inputs in (secrets or {}).items():
+            filled.setdefault(action_id, set()).update(inputs or {})
+    return [_with_filled_secrets(action, filled.get(action.get("id"), set())) for action in actions or []]
+
+
+def _with_filled_secrets(action: dict[str, Any], keys: set[str]) -> dict[str, Any]:
+    if not keys:
+        return action
+    config = action.get("config") or {}
+    inputs = {**(config.get("inputs") or {}), **{key: {"value": "<set>"} for key in keys}}
+    return {**action, "config": {**config, "inputs": inputs}}
 
 
 def channels(team: Team) -> frozenset[Channel]:
