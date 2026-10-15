@@ -158,6 +158,7 @@ API scopes and billing access checks still apply.
 
 The underlying root billing API also supports an optional `organization_id` UUID on overview reads.
 Use it when refreshing billing after a payment so another tab changing the user's current project cannot change the target.
+The `billing-overview-get` tool does not expose it.
 Subscription activation, payment authorization, and authorization status requests require an explicit `organization_id` in the body.
 They reject missing or invalid IDs rather than falling back to the current project, and require billing access in the requested organization.
 These payment actions remain unavailable to personal API keys and OAuth tokens.
