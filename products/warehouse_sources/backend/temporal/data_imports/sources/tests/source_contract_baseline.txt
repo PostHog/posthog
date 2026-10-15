@@ -159,6 +159,7 @@ Close fail:rate-limit-budget
 Cloudability fail:stall-budget
 Cloudbeds fail:stall-budget
 Cloudflare fail:stall-budget
+CloudflareD1 not-checkable:schemas
 Cloudinary fail:stall-budget
 Cloudsmith fail:stall-budget
 Cloudzero fail:stall-budget
