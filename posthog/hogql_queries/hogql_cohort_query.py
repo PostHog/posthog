@@ -86,10 +86,14 @@ def _behavioral_date_range(prop: Property) -> tuple[str, Optional[str]]:
         # Explicit datetime filter, can be a relative or absolute date, follows same convention
         # as all analytics datetime filters
         return prop.explicit_datetime, prop.explicit_datetime_to
-    if prop.time_value is None:
-        raise ValidationError(f"The {prop.value} cohort filter needs either a time_value or an explicit_datetime")
-    date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
-    date_interval = validate_interval(prop.time_interval)
+    # Re-raise as a DRF ValidationError so recalculation records VALIDATION_ERROR instead of UNKNOWN.
+    try:
+        date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
+        date_interval = validate_interval(prop.time_interval)
+    except ValueError as e:
+        raise ValidationError(
+            f"The {prop.value} cohort filter needs either a valid time range or an explicit_datetime: {e}"
+        ) from e
     return f"-{date_value}{date_interval[:1]}", None
 
 

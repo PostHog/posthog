@@ -267,20 +267,28 @@ def test_property_group_multi_level_json_parsing():
             "parse_properties.ValidationError.group",
             id="invalid_group_type_index",
         ),
+        # Aliased behavioral leaf with no time window: fails the conditional check, whose
+        # message joins sets in hash order, so the fingerprint must come from the canonical value.
         pytest.param(
             {
                 "key": "$pageview",
                 "type": "behavioral",
-                "value": "stopped_performing_event",
+                "value": "performed_event_multiple_times",
                 "event_type": "events",
-                "time_value": 30,
-                "time_interval": "day",
-                "seq_time_interval": "day",
+                "operator_value": 2,
             },
-            ["event_type", "key", "seq_time_interval", "time_interval", "time_value", "type", "value"],
+            ["event_type", "key", "operator_value", "type", "value"],
             PropertyValidationError,
-            "parse_properties.PropertyValidationError.behavioral.stopped_performing_event.seq_time_value",
-            id="missing_seq_time_value",
+            "parse_properties.PropertyValidationError.behavioral.performed_event_multiple",
+            id="aliased_leaf_without_time_window",
+        ),
+        # Unrecognized property type: stored strings must not reach the fingerprint.
+        pytest.param(
+            {"key": "attr", "value": "x", "type": "not_a_type"},
+            ["key", "type", "value"],
+            PropertyValidationError,
+            "parse_properties.PropertyValidationError.unknown.type",
+            id="unknown_property_type",
         ),
     ],
 )

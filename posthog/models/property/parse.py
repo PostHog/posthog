@@ -49,7 +49,7 @@ def parse_property_group_data(data: Any) -> PropertyGroup:
     return PropertyGroup(type=PropertyOperatorType.AND, values=parse_properties(loaded_props))
 
 
-def _unparsable_property_fingerprint(error: Exception, prop_dict: dict) -> str:
+def _unparsable_property_fingerprint(error: Exception, prop_dict: dict[str, Any]) -> str:
     """Group a dropped property by its shape, not by the message or by the exception in flight.
 
     Without this, a chained exception that is in flight changes the default fingerprint, so one
@@ -58,6 +58,8 @@ def _unparsable_property_fingerprint(error: Exception, prop_dict: dict) -> str:
     """
     parts = ["parse_properties", type(error).__name__]
     prop_type = prop_dict.get("type")
+    # Stored filters can hold a list here. Check str first, because an unhashable `in` lookup
+    # would raise out of the except block in parse_properties.
     parts.append(prop_type if isinstance(prop_type, str) and prop_type in VALIDATE_PROP_TYPES else "unknown")
     value = prop_dict.get("value")
     if prop_type == "behavioral" and isinstance(value, str):

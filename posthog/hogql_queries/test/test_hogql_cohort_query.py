@@ -57,7 +57,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
                 }
             },
         )
-        with self.assertRaisesMessage(ValidationError, "needs either a time_value or an explicit_datetime"):
+        with self.assertRaisesMessage(ValidationError, "needs either a valid time range or an explicit_datetime"):
             HogQLCohortQuery(cohort=cohort).get_query()
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
