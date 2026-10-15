@@ -3,12 +3,14 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Optional
 
+from posthog.dataclasses import frozen
+
 TableName = str
 PropertySourceColumnName = str
 PropertyGroupName = str
 
 
-@dataclass
+@dataclass(frozen=True)
 class PropertyGroupDefinition:
     key_filter_expression: str
     key_filter_function: Callable[[str], bool]
@@ -58,12 +60,17 @@ class PropertyGroupDefinition:
 PropertyGroupDefinitions = Mapping[PropertySourceColumnName, Mapping[PropertyGroupName, PropertyGroupDefinition]]
 
 
-def iter_groups(
-    definitions: PropertyGroupDefinitions,
-) -> Iterator[tuple[PropertySourceColumnName, PropertyGroupName, PropertyGroupDefinition]]:
+@frozen
+class ColumnPropertyGroup:
+    source_column: PropertySourceColumnName
+    group_name: PropertyGroupName
+    definition: PropertyGroupDefinition
+
+
+def iter_groups(definitions: PropertyGroupDefinitions) -> Iterator[ColumnPropertyGroup]:
     for source_column, groups in definitions.items():
-        for group_name, group_definition in groups.items():
-            yield source_column, group_name, group_definition
+        for group_name, definition in groups.items():
+            yield ColumnPropertyGroup(source_column=source_column, group_name=group_name, definition=definition)
 
 
 class PropertyGroupManager:
@@ -88,9 +95,9 @@ class PropertyGroupManager:
         Returns an iterable of SQL DDL chunks that can be used to define all property groups for the provided table as
         part of a CREATE TABLE statement.
         """
-        for source_column, group_name, group_definition in iter_groups(self.__groups[table]):
-            yield group_definition.get_column_definition(source_column, group_name)
-            for index_definition in group_definition.get_index_definitions(source_column, group_name):
+        for group in iter_groups(self.__groups[table]):
+            yield group.definition.get_column_definition(group.source_column, group.group_name)
+            for index_definition in group.definition.get_index_definitions(group.source_column, group.group_name):
                 yield f"INDEX {index_definition}"
 
     def get_alter_create_statements(

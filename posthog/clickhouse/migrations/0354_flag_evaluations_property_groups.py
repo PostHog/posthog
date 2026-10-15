@@ -18,9 +18,9 @@ operations = [
             sharded=True,
             is_alter_on_replicated_table=True,
         )
-        for source_column, group_name, _ in iter_groups(flag_evaluations_property_group_definitions)
+        for group in iter_groups(flag_evaluations_property_group_definitions)
         for statement in property_groups.get_alter_create_statements(
-            FLAG_EVALUATIONS_DATA_TABLE, source_column, group_name
+            FLAG_EVALUATIONS_DATA_TABLE, group.source_column, group.group_name
         )
     ],
     *[
@@ -30,7 +30,9 @@ operations = [
             sharded=False,
             is_alter_on_replicated_table=False,
         )
-        for source_column, group_name, _ in iter_groups(flag_evaluations_property_group_definitions)
-        for statement in property_groups.get_alter_create_statements(FLAG_EVALUATIONS_TABLE, source_column, group_name)
+        for group in iter_groups(flag_evaluations_property_group_definitions)
+        for statement in property_groups.get_alter_create_statements(
+            FLAG_EVALUATIONS_TABLE, group.source_column, group.group_name
+        )
     ],
 ]

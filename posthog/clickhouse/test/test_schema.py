@@ -252,8 +252,8 @@ _FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT = {"inserted_at", "_offset", "
 
 # MATERIALIZED, so no insert can name them, and every shard computes them from the JSON.
 _FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMN_NAMES = {
-    group_definition.get_column_name(source_column, group_name)
-    for source_column, group_name, group_definition in iter_groups(flag_evaluations_property_group_definitions)
+    group.definition.get_column_name(group.source_column, group.group_name)
+    for group in iter_groups(flag_evaluations_property_group_definitions)
 }
 
 
