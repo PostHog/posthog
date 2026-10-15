@@ -473,6 +473,20 @@ class WorkflowRef:
     has_email_step: bool
 
 
+@frozen
+class TransactionalEmailContent:
+    """What a transactional email's workflow sends, taken from the message template it was made from."""
+
+    message_template_id: UUID
+    name: str
+    subject: str
+    preheader: str
+    html: str
+    text: str
+    from_integration_id: int
+    message_category_id: UUID | None
+
+
 class WorkflowNotFound(Exception):
     pass
 
