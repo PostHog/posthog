@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import type { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
+import type { CyclotronInvocationQueueParametersMcpEventType } from '~/cdp/schema/cyclotron'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { internalFetch } from '~/common/utils/request'
@@ -15,7 +15,7 @@ const DeliveryResponse = z.object({
 
 export type McpEventDeliveryResult =
     | { ok: true; body: string; headers: Record<string, string> }
-    | { ok: false; status: number; retryAfterMs?: number }
+    | { ok: false; retryable: boolean; retryAfterMs?: number }
 
 type AuthorizationFailureCategory = 'dns' | 'connection' | 'timeout' | 'network' | 'invalid_response'
 
@@ -48,13 +48,22 @@ function authorizationFailureCategory(error: unknown): AuthorizationFailureCateg
     return 'network'
 }
 
+export function parseRetryAfterMs(header: string | string[] | undefined): number | undefined {
+    const raw = Array.isArray(header) ? header[0] : header
+    if (!raw) {
+        return undefined
+    }
+    const delay = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) * 1000 : Date.parse(raw) - Date.now()
+    return Number.isFinite(delay) ? Math.max(0, delay) : undefined
+}
+
 export async function prepareMcpEventDelivery({
     invocation,
     params,
     internalApiBaseUrl,
 }: {
     invocation: CyclotronJobInvocationHogFunction
-    params: CyclotronInvocationQueueParametersFetchType
+    params: CyclotronInvocationQueueParametersMcpEventType
     internalApiBaseUrl: string
 }): Promise<McpEventDeliveryResult> {
     const subscription = params.mcp_event_subscription
@@ -63,14 +72,14 @@ export async function prepareMcpEventDelivery({
             invocationId: invocation.id,
             teamId: invocation.teamId,
             hogFunctionId: invocation.hogFunction.id,
-            subscriptionId: subscription?.id,
+            subscriptionId: subscription.id,
             category,
             status,
         })
     }
     const credential = resolveHogFunctionInputValue(invocation.hogFunction, 'mcp_credential')
-    if (!subscription || typeof credential !== 'string' || !credential) {
-        return { ok: false, status: 403 }
+    if (typeof credential !== 'string' || !credential) {
+        return { ok: false, retryable: false }
     }
 
     // Reuse the caller's credential so Django enforces current scopes and membership on every attempt.
@@ -92,33 +101,22 @@ export async function prepareMcpEventDelivery({
         )
         if (response.status !== 200) {
             logFailure('http_error', response.status)
-            const retryAfter = response.headers?.['retry-after']
-            const rawRetryAfter = Array.isArray(retryAfter) ? retryAfter[0] : retryAfter
-            const parsedDelay = rawRetryAfter
-                ? /^\d+(\.\d+)?$/.test(rawRetryAfter)
-                    ? Number(rawRetryAfter) * 1000
-                    : Date.parse(rawRetryAfter) - Date.now()
-                : NaN
-            const retryAfterMs = Number.isFinite(parsedDelay) ? Math.max(0, parsedDelay) : undefined
+            const retryAfterMs = parseRetryAfterMs(response.headers?.['retry-after'])
             await response.dump()
             return {
                 ok: false,
                 ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
-                status: [401, 403, 404].includes(response.status)
-                    ? 410
-                    : response.status >= 500 || response.status === 429
-                      ? 503
-                      : response.status,
+                retryable: response.status >= 500 || response.status === 429,
             }
         }
         const parsed = DeliveryResponse.safeParse(parseJSON(await response.text()))
         if (!parsed.success) {
             logFailure('invalid_response', response.status)
-            return { ok: false, status: 503 }
+            return { ok: false, retryable: true }
         }
         return { ok: true, ...parsed.data }
     } catch (error) {
         logFailure(authorizationFailureCategory(error))
-        return { ok: false, status: 503 }
+        return { ok: false, retryable: true }
     }
 }

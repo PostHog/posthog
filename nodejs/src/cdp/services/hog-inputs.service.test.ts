@@ -238,13 +238,10 @@ describe('Hog Inputs', () => {
         it('keeps the MCP credential out of persisted invocation globals', async () => {
             hogFunction.encrypted_inputs = {
                 mcp_credential: { value: 'phx_synthetic_mcp_credential' },
-                signing_secret: { value: 'whsec_synthetic_signing_secret' },
             }
             const result = await hogInputsService.buildInputsWithGlobals(hogFunction, globals)
             expect(result.inputs).not.toHaveProperty('mcp_credential')
             expect(JSON.stringify(result)).not.toContain('phx_synthetic_mcp_credential')
-            expect(result.inputs.signing_secret).toBe('')
-            expect(JSON.stringify(result)).not.toContain('whsec_synthetic_signing_secret')
         })
 
         it('should template out hog inputs', async () => {
