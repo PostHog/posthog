@@ -4,13 +4,12 @@ import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanF
 import { dayjs } from 'lib/dayjs'
 import { getConstrainedWeekRange, parseDateInTimezone } from 'lib/utils/datetime'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils/strings'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, DateRange } from '~/queries/schema/schema-general'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
-
-import { formatBreakdownLabel } from '../utils'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in

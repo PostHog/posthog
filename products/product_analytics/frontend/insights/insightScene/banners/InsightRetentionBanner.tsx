@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
 import { urls } from 'scenes/urls'
 
 import { InsightLogicProps } from '~/types'
 
-import { dataRetentionBannerLogic } from './dataRetentionBannerLogic'
 import { insightRetentionBannerLogic } from './insightRetentionBannerLogic'
 
 export function InsightRetentionBanner({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
