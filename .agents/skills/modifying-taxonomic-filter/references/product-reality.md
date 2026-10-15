@@ -97,8 +97,8 @@ Summary only. Detail in [failure-modes](failure-modes.md).
   (Jul to Oct 2026, health dashboard session tile) while the empty-result
   rate stayed flat.
 - About 2% of timed searches end in a fetch failure (health dashboard).
-  Per typed legacy search the overall rate is well under 1%, but a few
-  groups fail far more often.
+  Per typed legacy search the overall rate is well under 1%. Cohorts,
+  events, person properties and flags make up most of the failures.
 - Person properties is the weakest big tab: ~70% of engaged opens on it
   end in a selection.
 

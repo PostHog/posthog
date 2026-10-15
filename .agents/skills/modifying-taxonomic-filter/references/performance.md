@@ -7,6 +7,7 @@ For the full profiling workflow, use
 ## Where users wait
 
 Measured with `taxonomic filter search latency` (`time_to_see_data_ms`).
+Only the legacy picker sends it, so these numbers say nothing about the rebuild.
 Refresh with query 9 in [refreshing-product-reality](refreshing-product-reality.md).
 
 - The median search is fast (~200ms) in every large group.
@@ -17,8 +18,8 @@ Refresh with query 9 in [refreshing-product-reality](refreshing-product-reality.
 
 ## A failed request must end the loading state
 
-`taxonomic filter fetch failed` fires on ~2% of timed searches, and some groups (cohorts, flags,
-session properties) fail far more often than average.
+`taxonomic filter fetch failed` fires on ~2% of timed searches. Cohorts, events, person
+properties and flags make up most of the failures.
 A failure that leaves a spinner looks like slowness to the user.
 A 403 must not look like a slow request.
 

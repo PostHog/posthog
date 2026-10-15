@@ -5,7 +5,7 @@ source is good and bad at. Use more than one: telemetry says what
 happened, replay says why, tickets say what hurt enough to report.
 
 All of these live in PostHog's own project (project 2 on
-us.posthog.com). Use the PostHog MCP (`execute-sql`, dashboards,
+us.posthog.com). Use the PostHog MCP (`posthog:execute-sql`, dashboards,
 vision scanners, conversations) to query them.
 
 ## Telemetry

@@ -49,7 +49,8 @@ neither.
   a local list, so its empty state sends nothing. Add coverage there
   before you measure a change to the Suggested empty state.
 - `taxonomic filter search latency`: `groupType`, `searchQuery`,
-  `resultCount`, `time_to_see_data_ms`, `surface`.
+  `resultCount`, `time_to_see_data_ms`, `surface`. Legacy only: the
+  rebuild does not send it yet (see `hooks/useGroupList.ts`).
 - `taxonomic filter fetch failed`: `groupType`, `searchQuery`, `surface`.
   It has also fired on first-load failures since 2026-09-13. Rates from
   before then are not comparable.

@@ -207,6 +207,8 @@ FROM per_open
 
 ### 9. Search latency by group
 
+Legacy only. The rebuild does not send `taxonomic filter search latency`.
+
 ```sql
 SELECT
   toString(properties.groupType) AS group_type,
@@ -226,10 +228,12 @@ LIMIT 15
 
 Only the legacy `infiniteListLogic` sends fetch failures, but both
 surfaces send `taxonomic_filter_search_query`. Filter both sides to
-`legacy-pill` so the rate does not fall as rebuild use grows. The
-denominator is typed searches, while failures also fire on initial
-loads. Rates above 100 per 100 searches mean the group fails before
-anyone types. Read it as a ranking. The health dashboard divides by
+`legacy-pill` so the rate does not fall as rebuild use grows. There is
+no honest rate per group: a list also fails while it feeds Suggested,
+and then the failure logs its own group but the search logs
+`suggested_filters`. Rank groups by share of failures, and report one
+overall rate. Failures also fire on initial loads, so the overall rate
+is per typed search, not per request. The health dashboard divides by
 timed searches instead, so its rate is higher.
 
 ```sql
@@ -242,19 +246,17 @@ WITH f AS (
   GROUP BY g
 ),
 s AS (
-  SELECT toString(properties.groupType) AS g, count() AS n
+  SELECT count() AS n
   FROM events
   WHERE event = 'taxonomic_filter_search_query'
     AND properties.surface = 'legacy-pill'
     AND timestamp >= now() - INTERVAL 7 DAY
-  GROUP BY g
 )
 SELECT
   f.g AS group_type,
   round(100 * f.n / sum(f.n) OVER (), 1) AS share_of_failures_pct,
-  round(100 * f.n / nullIf(s.n, 0), 2) AS failures_per_100_searches
+  round(100 * (SELECT sum(n) FROM f) / (SELECT n FROM s), 2) AS overall_failures_per_100_searches
 FROM f
-LEFT JOIN s ON f.g = s.g
 ORDER BY share_of_failures_pct DESC
 LIMIT 15
 ```
@@ -308,7 +310,7 @@ ASOF LEFT JOIN picks p ON e.person_id = p.person_id AND p.t > e.t
 
 ## Updating the doc
 
-1. Run each query via the PostHog MCP `execute-sql` against project 2 on
+1. Run each query via the PostHog MCP `posthog:execute-sql` against project 2 on
    us.posthog.com.
 2. Convert results to ratios. Drop absolute event and user counts.
 3. Update [product-reality](product-reality.md) and the five-line
