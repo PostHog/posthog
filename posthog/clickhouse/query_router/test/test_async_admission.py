@@ -1,20 +1,32 @@
 import asyncio
 import threading
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, nullcontext
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import aclosing, asynccontextmanager, nullcontext
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import aiohttp
+import pyarrow as pa
 import fakeredis
 from parameterized import parameterized
+from redis.exceptions import RedisError
+
+from posthog.schema import HogQLQueryModifiers
+
+from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.query_router.admission import AdmissionOutcome, QueryRouter
 from posthog.clickhouse.query_router.config import Pool, QueryClass, RouterMode, durations_key, running_key, waiting_key
 from posthog.clickhouse.query_router.test.fakes import router_settings
-from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.clickhouse.query_tagging import Feature, Product, QueryTags, tags_context
+from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models import Organization, Team
+from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
+from posthog.temporal.data_modeling.activities.materialize_view import LOGGER, hogql_table
 
 
 class TestAsyncAdmission(SimpleTestCase):
@@ -33,6 +45,60 @@ class TestAsyncAdmission(SimpleTestCase):
         async with self.router.aadmit(pool=Pool.OFFLINE, query_class=QueryClass.BACKGROUND):
             self.assertEqual(self.running(), 1)
         self.assertEqual(self.running(), 0)
+
+    async def test_waiting_admission_does_not_block_stream_executor(self) -> None:
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(ThreadPoolExecutor(max_workers=1))
+        queued = asyncio.Event()
+        original_script = self.router._try_enter_script
+
+        def observe_queue(*args: Any, **kwargs: Any) -> Any:
+            result = original_script(*args, **kwargs)
+            if self.redis.zcard(waiting_key(Pool.OFFLINE)):
+                loop.call_soon_threadsafe(queued.set)
+            return result
+
+        self.router._try_enter_script = MagicMock(side_effect=observe_queue)
+
+        async def waiter() -> None:
+            async with self.router.aadmit(pool=Pool.OFFLINE, query_class=QueryClass.BACKGROUND):
+                self.fail("Full pool must block the waiter")
+
+        with self.router.admit(pool=Pool.OFFLINE, query_class=QueryClass.BACKGROUND):
+            task = asyncio.create_task(waiter())
+            try:
+                await asyncio.wait_for(queued.wait(), timeout=5)
+                self.assertEqual(await asyncio.wait_for(asyncio.to_thread(lambda: "decoded"), timeout=1), "decoded")
+            finally:
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+        self.assertEqual(self.running(), 0)
+        self.assertEqual(self.redis.zcard(waiting_key(Pool.OFFLINE)), 0)
+
+    @parameterized.expand([("success", False), ("failure", True)])
+    async def test_settings_connections_are_closed_before_streaming(self, _name: str, fail: bool) -> None:
+        connections: set[int] = set()
+
+        def load_settings() -> Any:
+            connections.add(threading.get_ident())
+            if fail:
+                raise RuntimeError("settings unavailable")
+            return router_settings(limit=1)
+
+        def close_connections() -> None:
+            connections.discard(threading.get_ident())
+
+        with (
+            self.settings(TEST=False),
+            patch("posthog.clickhouse.query_router.config.get_settings", side_effect=load_settings),
+            patch("posthog.sync.close_old_connections", side_effect=close_connections),
+        ):
+            error_context = self.assertRaisesRegex(RuntimeError, "settings unavailable") if fail else nullcontext()
+            with error_context:
+                async with self.router.aadmit(pool=Pool.OFFLINE, query_class=QueryClass.BACKGROUND):
+                    self.assertEqual(connections, set())
+            self.assertEqual(connections, set())
 
     async def test_cancel_during_redis_call_removes_slot_after_call_returns(self) -> None:
         entered = asyncio.Event()
@@ -136,7 +202,6 @@ class TestAsyncAdmission(SimpleTestCase):
             self.assertEqual(self.redis.zcard(waiting_key(Pool.OFFLINE)), 0)
 
     async def test_redis_error_fails_open_and_removes_uncertain_admission(self) -> None:
-        from redis.exceptions import RedisError
 
         original_script = self.router._try_enter_script
 
@@ -190,7 +255,6 @@ class TestAsyncAdmission(SimpleTestCase):
     async def test_factory_preserves_unrouted_clients(
         self, _name: str, enabled: bool, url: str | None, team_settings: dict[str, dict[str, Any]]
     ) -> None:
-        from posthog.temporal.common.clickhouse import get_client
 
         with self.settings(CLICKHOUSE_PER_TEAM_SETTINGS=team_settings):
             async with get_client(team_id=123, clickhouse_url=url, query_router_enabled=enabled) as client:
@@ -200,11 +264,6 @@ class TestAsyncAdmission(SimpleTestCase):
 
     @parameterized.expand([("complete",), ("consumer_stops",), ("consumer_fails",)])
     async def test_arrow_stream_holds_exactly_one_slot_through_consumption(self, outcome: str) -> None:
-        from contextlib import aclosing
-
-        from unittest.mock import AsyncMock
-
-        import pyarrow as pa
 
         client = ClickHouseClient(query_router_pool=Pool.OFFLINE, max_execution_time=600)
         batch = pa.record_batch({"value": [1, 2]})
@@ -249,7 +308,6 @@ class TestAsyncAdmission(SimpleTestCase):
         self.assertEqual(self.running(), 0)
 
     async def test_release_failure_stops_renewing_and_expires(self) -> None:
-        from redis.exceptions import RedisError
 
         self.router.get_time = lambda: 1000
         async with self.router.aadmit(pool=Pool.OFFLINE, query_class=QueryClass.BACKGROUND):
@@ -269,7 +327,6 @@ class TestAsyncAdmission(SimpleTestCase):
         self.assertEqual(self.running(), 0)
 
     async def test_refused_query_does_not_send_http_request(self) -> None:
-        from posthog.exceptions import ClickHouseAtCapacity
 
         client = ClickHouseClient(query_router_pool=Pool.OFFLINE)
         client.session = MagicMock()
@@ -298,8 +355,6 @@ class TestAsyncAdmission(SimpleTestCase):
     async def test_warehouse_factory_routes_stream_as_background_on_shared_offline_pool(
         self, _name: str, team_settings: dict[str, dict[str, Any]]
     ) -> None:
-        from posthog.clickhouse.query_tagging import Feature, Product, QueryTags, tags_context
-        from posthog.temporal.common.clickhouse import get_client
 
         @asynccontextmanager
         async def post(**kwargs: Any) -> AsyncIterator[MagicMock]:
@@ -325,20 +380,6 @@ class TestAsyncAdmission(SimpleTestCase):
         self.assertEqual(self.running(), 0)
 
     async def test_materialization_closes_admitted_stream_when_consumer_fails(self) -> None:
-        from contextlib import aclosing
-
-        from unittest.mock import AsyncMock
-
-        import aiohttp
-        import pyarrow as pa
-
-        from posthog.schema import HogQLQueryModifiers
-
-        from posthog.hogql.database.database import Database
-
-        from posthog.clickhouse.query_tagging import Feature, Product, QueryTags, tags_context
-        from posthog.models import Organization, Team
-        from posthog.temporal.data_modeling.activities.materialize_view import LOGGER, hogql_table
 
         team = Team(id=123, organization=Organization())
         batch = pa.record_batch({"id": [1]})
