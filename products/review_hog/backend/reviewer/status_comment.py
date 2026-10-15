@@ -51,6 +51,7 @@ from products.review_hog.backend.reviewer.progress import (
     TurnMarker,
     TurnStats,
     finding_counts,
+    live_turn_markers,
     progress_payload,
     snapshot_stats,
     turn_markers,
@@ -642,7 +643,11 @@ def _render_live_body(
 ) -> str:
     state = _turn_state(team_id, report, run_index)
     # A run that dies in the publish window renders its finished turn, which is not a live turn.
-    live_marker = state.marker if run_index > report.run_count else None
+    live_marker = (
+        live_turn_markers(team_id, [report], {(str(report.id), run_index): state.marker}).get(str(report.id))
+        if state.marker is not None and run_index > report.run_count
+        else None
+    )
     return render_in_progress_body(
         str(report.id),
         progress_payload(team_id, report, state.snapshot, state.turn, state.pairs, live_marker),

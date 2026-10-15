@@ -1068,12 +1068,18 @@ class TestRecentReviewsAPI(APIBaseTest):
             head_sha="sha1",
             completed_head_sha="sha1",
         )
+        self._turn_marker(report, run_index=1, review_mode=REVIEW_MODE_FULL, head_sha="sha1")
 
         row = self.client.get(self.url).json()["results"][0]
         assert row["pr_number"] == 3
         assert row["in_progress"] is True
         assert row["published"] is False
-        assert row["progress"] == {"review_stage": "finalizing", "done": None, "total": None, "review_mode": None}
+        assert row["progress"] == {
+            "review_stage": "finalizing",
+            "done": None,
+            "total": None,
+            "review_mode": REVIEW_MODE_FULL,
+        }
 
         # A resolution run holds the same ACTIVE-at-completed-head shape but with the head already
         # published — that window keeps its pre-existing label until the run's `resolution_run`
@@ -1134,6 +1140,24 @@ class TestRecentReviewsAPI(APIBaseTest):
             "total": None,
             "review_mode": REVIEW_MODE_FULL,
         }
+
+    @parameterized.expand([("on_an_older_head", "sha2", False), ("that_failed_on_the_same_head", "sha1", True)])
+    def test_the_marker_of_an_ended_attempt_does_not_describe_the_running_one(
+        self, _name: str, head_sha: str, record_failure: bool
+    ) -> None:
+        report = self._report(pr_number=3, acting_user=self.user, completed=False, run_count=0, head_sha=head_sha)
+        self._turn_marker(
+            report, run_index=1, review_mode=REVIEW_MODE_FULL, head_sha="sha1", review_design=REVIEW_DESIGN_PIPELINE
+        )
+        if record_failure:
+            record_run_outcome(
+                self.team.id, str(report.id), stage="review", outcome="failed", reason="review_failed", run_index=1
+            )
+
+        row = self.client.get(self.url).json()["results"][0]
+
+        assert row["in_progress"] is True
+        assert row["progress"]["review_mode"] is None
 
     def test_row_and_detail_anchor_to_the_completed_turn_during_a_re_review(self) -> None:
         # A re-review advances the live head_sha at turn START while run_count still points at the

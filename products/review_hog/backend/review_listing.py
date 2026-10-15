@@ -55,6 +55,7 @@ from products.review_hog.backend.reviewer.progress import (
     finding_counts,
     in_progress_report_ids,
     latest_resolution_summaries,
+    live_turn_markers,
     progress_payload,
     resolution_states,
     running_q,
@@ -122,6 +123,7 @@ def _turn_progress(
     live_heads = {str(report.id): report.head_sha for report in in_flight}
     live_snapshots = snapshot_stats(team_id, live_heads)
     live_turns = turn_stats(team_id, live_heads)
+    live_markers = live_turn_markers(team_id, in_flight, markers)
     return {
         str(report.id): ReviewProgress(
             **progress_payload(
@@ -129,9 +131,10 @@ def _turn_progress(
                 report,
                 live_snapshots.get(str(report.id), SnapshotStats()),
                 live_turns.get(str(report.id), TurnStats()),
-                # The in-flight turn's findings and marker live one run_index ahead of the completed watermark.
+                # The in-flight turn's findings live one run_index ahead of the completed watermark.
                 bundle.turn(str(report.id), report.run_count + 1),
-                markers.get((str(report.id), report.run_count + 1)),
+                live_markers.get(str(report.id)),
+                markers.get((str(report.id), report.run_count)),
             )
         )
         for report in in_flight

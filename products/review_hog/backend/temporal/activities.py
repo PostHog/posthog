@@ -117,6 +117,7 @@ from products.review_hog.backend.reviewer.progress import (
     RUN_OUTCOME_SKIPPED,
     RUN_STAGE_REVIEW,
     in_publish_window,
+    live_turn_markers,
     record_run_outcome,
     turn_markers,
 )
@@ -2572,7 +2573,7 @@ def _fail_run(
         return
     if run_index is None:
         # A run that dies in the publish window already counts its turn in `run_count`.
-        live_marker = turn_markers(team_id, [report_id]).get((report_id, report.run_count + 1))
+        live_marker = live_turn_markers(team_id, [report], turn_markers(team_id, [report_id])).get(report_id)
         run_index = report.run_count if in_publish_window(report, live_marker) else report.run_count + 1
     record_run_outcome(
         team_id,

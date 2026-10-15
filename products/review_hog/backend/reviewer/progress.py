@@ -414,6 +414,37 @@ def run_outcome_markers(
     return markers
 
 
+def live_turn_markers(
+    team_id: int, reports: Sequence[ReviewReport], markers: dict[tuple[str, int], TurnMarker]
+) -> dict[str, TurnMarker]:
+    """The marker of each report's running turn `run_count + 1`, keyed by report id.
+
+    An attempt that fails or is skipped leaves its marker at that index, and the next attempt
+    reuses the index. So a marker counts only on the report's current head, and only when no
+    outcome note of its turn came after it.
+    """
+    candidates: dict[str, tuple[int, TurnMarker]] = {}
+    for report in reports:
+        report_id = str(report.id)
+        marker = markers.get((report_id, report.run_count + 1))
+        if marker is not None and marker.head_sha == report.head_sha:
+            candidates[report_id] = (report.run_count + 1, marker)
+    if not candidates:
+        return {}
+    since = min(marker.started_at for _, marker in candidates.values())
+    outcomes = run_outcome_markers(team_id, list(candidates), since=since)
+    return {
+        report_id: marker
+        for report_id, (run_index, marker) in candidates.items()
+        if not any(
+            outcome.stage == RUN_STAGE_REVIEW
+            and outcome.run_index == run_index
+            and outcome.created_at >= marker.started_at
+            for outcome in outcomes.get(report_id, [])
+        )
+    }
+
+
 @frozen
 class _ThreadVerdictRow:
     outcome: str
@@ -816,6 +847,7 @@ def progress_payload(
     turn: TurnStats,
     current_pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
     live_marker: TurnMarker | None,
+    finished_marker: TurnMarker | None = None,
 ) -> dict[str, Any]:
     """Stage, counters and mode of the in-flight turn, inferred from which working state exists at the head.
 
@@ -825,6 +857,12 @@ def progress_payload(
 
     `live_marker` is the marker of turn `run_count + 1`, written right before the turn's review
     sessions start. Until it exists, the mode is unknown and the design comes from the snapshot.
+    `finished_marker` is the marker of turn `run_count`. It gives the mode while that turn publishes.
     """
-    review_mode = live_marker.review_mode if live_marker is not None else None
+    if live_marker is not None:
+        review_mode = live_marker.review_mode
+    elif finished_marker is not None and in_publish_window(report, None):
+        review_mode = finished_marker.review_mode
+    else:
+        review_mode = None
     return {**_stage_payload(team_id, report, snapshot, turn, current_pairs, live_marker), "review_mode": review_mode}
