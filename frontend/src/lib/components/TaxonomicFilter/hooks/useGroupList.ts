@@ -106,6 +106,8 @@ export interface UseGroupListResult {
     needsMoreSearchCharacters: boolean
     hasRemoteDataSource: boolean
     showEmptyState: boolean
+    /** The current query's fetch failed and there are no rows to show. */
+    showErrorState: boolean
     showLoadingState: boolean
     showNonCapturedEventOption: boolean
 
@@ -463,6 +465,10 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     // (not "no results") shows while it's in flight on a >1-page dataset.
     const isLoading = remote.isLoading || (serverSearchEnabled && serverSearch.isLoading)
     const isFetching = remote.isFetching || (serverSearchEnabled && serverSearch.isFetching)
+    const fetchFailed = (remoteEnabled && !!remote.error) || (serverSearchEnabled && !!serverSearch.error)
+    // Kept apart from `showEmptyState` so a timeout or a 5xx does not read as "no matching items".
+    // Mirrors legacy infiniteListLogic's `showErrorState`.
+    const showErrorState = fetchFailed && !isFetching && items.length === 0
 
     const showNonCapturedEventOption = useMemo(() => {
         if (!allowNonCapturedEvents) {
@@ -471,7 +477,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         if (group.type !== TaxonomicFilterGroupType.Events && group.type !== TaxonomicFilterGroupType.CustomEvents) {
             return false
         }
-        if (!trimmedSearch || isLoading) {
+        if (!trimmedSearch || isLoading || fetchFailed) {
             return false
         }
         // Offering an excluded name would let it be selected as a non-captured event, committing the
@@ -481,13 +487,17 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         }
         const realResults = items.filter((item) => !isQuickFilterItem(item))
         return realResults.length === 0
-    }, [allowNonCapturedEvents, group.type, group.excludedProperties, trimmedSearch, isLoading, items])
+    }, [allowNonCapturedEvents, group.type, group.excludedProperties, trimmedSearch, isLoading, fetchFailed, items])
 
     // Empty / loading state checks read array length, not the API-reported
     // total — a remote tab can have count > 0 while still loading its first
     // page, and we don't want to flash an empty state during that window.
     const showEmptyState =
-        (items.length === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption) ||
+        (items.length === 0 &&
+            !isLoading &&
+            !showErrorState &&
+            (!!searchQuery || !hasRemoteDataSource) &&
+            !showNonCapturedEventOption) ||
         needsMoreSearchCharacters
 
     const showLoadingState = isLoading && items.length === 0
@@ -532,6 +542,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         needsMoreSearchCharacters,
         hasRemoteDataSource,
         showEmptyState,
+        showErrorState,
         showLoadingState,
         showNonCapturedEventOption,
         isExpandable,
@@ -539,6 +550,9 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         expand,
         refetch: () => {
             remote.refetch()
+            if (serverSearchEnabled) {
+                serverSearch.refetch()
+            }
             if (remoteEnabled && group.scopedEndpoint && !isExpanded) {
                 expandedCount.refetch()
             }

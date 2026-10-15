@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useRef } from 'react'
 
-import { Empty, EmptyHeader, EmptyTitle, ItemMenuItem, Spinner } from '@posthog/quill'
+import { Button, Empty, EmptyContent, EmptyHeader, EmptyTitle, ItemMenuItem, Spinner } from '@posthog/quill'
 
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 
@@ -98,6 +98,23 @@ function TaxonomicFilterActivePanel({
                         </EmptyHeader>
                     </Empty>
                 )}
+            </div>
+        )
+    }
+
+    if (list.showErrorState) {
+        return (
+            <div className={className}>
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyTitle>Couldn't load results</EmptyTitle>
+                    </EmptyHeader>
+                    <EmptyContent>
+                        <Button variant="outline" size="sm" onClick={list.refetch}>
+                            Try again
+                        </Button>
+                    </EmptyContent>
+                </Empty>
             </div>
         )
     }

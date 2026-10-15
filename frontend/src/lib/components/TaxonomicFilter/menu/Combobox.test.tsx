@@ -170,6 +170,35 @@ describe('MenuFilterCombobox', () => {
         expect(within(screen.getByTestId('menu-filter-empty')).getByText(/No "Cohorts" found/)).toBeInTheDocument()
     })
 
+    it('shows an error with a retry, not the empty state, when the fetch fails', async () => {
+        let failCohorts = true
+        apiGet.mockImplementation((url: string) => {
+            if (!url.includes('cohorts')) {
+                return emptyPaginated()
+            }
+            return failCohorts
+                ? Promise.reject(new Error('search unavailable'))
+                : Promise.resolve({ results: [{ id: 1, name: 'Internal team' }], count: 1 })
+        })
+
+        renderCombobox()
+
+        const errorState = await screen.findByTestId('menu-filter-error')
+        expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('menu-filter-empty')).not.toBeInTheDocument()
+        expect(captureMock).toHaveBeenCalledWith(
+            'taxonomic filter fetch failed',
+            expect.objectContaining({ surface: 'rebuild-menu' })
+        )
+        expect(captureMock).not.toHaveBeenCalledWith('taxonomic filter empty result', expect.anything())
+
+        failCohorts = false
+        await userEvent.click(within(errorState).getByText('Try again'))
+
+        await waitFor(() => expect(screen.getAllByText('Internal team').length).toBeGreaterThan(0))
+        expect(screen.queryByTestId('menu-filter-error')).not.toBeInTheDocument()
+    })
+
     it('renders results once the fetch resolves with items', async () => {
         apiGet.mockResolvedValue({
             results: [

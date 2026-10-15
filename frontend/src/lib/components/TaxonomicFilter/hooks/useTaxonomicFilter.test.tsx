@@ -479,6 +479,7 @@ describe('useTaxonomicFilter', () => {
             needsMoreSearchCharacters: false,
             hasRemoteDataSource: false,
             showEmptyState: false,
+            showErrorState: false,
             showLoadingState: false,
             showNonCapturedEventOption: false,
             isExpandable: false,

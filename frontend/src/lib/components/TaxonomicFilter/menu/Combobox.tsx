@@ -238,6 +238,9 @@ export function MenuFilterCombobox({
     // `loadingByType` which is `loading && no-items-yet`). Drives the reveal
     // barrier so kept-previous-data refetches still hold the list.
     const [fetchingByType, setFetchingByType] = useState<Record<string, { query?: string; fetching: boolean }>>({})
+    // Per-group flags for a failed fetch with no rows. Kept apart from loading so a failure ends the skeleton.
+    const [failedByType, setFailedByType] = useState<Record<string, boolean>>({})
+    const [retryNonce, setRetryNonce] = useState(0)
     // Only engages while actively searching a fetching scope. Recent/Pinned read
     // pre-resolved entries (`drillItems` when drilled to, the recents/pinned props
     // when picked from the category select) and never fetch, so they're never gated.
@@ -284,6 +287,10 @@ export function MenuFilterCombobox({
 
     const reportLoading = useCallback((type: string, loading: boolean): void => {
         setLoadingByType((prev) => (prev[type] === loading ? prev : { ...prev, [type]: loading }))
+    }, [])
+
+    const reportFailed = useCallback((type: string, failed: boolean): void => {
+        setFailedByType((prev) => (prev[type] === failed ? prev : { ...prev, [type]: failed }))
     }, [])
 
     const reportFetching = useCallback((type: string, fetching: boolean, query?: string): void => {
@@ -678,6 +685,14 @@ export function MenuFilterCombobox({
         return targetGroups.some((g) => loadingByType[g.type])
     }, [drillItems, targetGroups, loadingByType])
 
+    // A failed fetch has no rows, so without this the list falls through to "No matches".
+    const isAnyFailed = useMemo(() => {
+        if (drillItems) {
+            return false
+        }
+        return targetGroups.some((g) => failedByType[g.type])
+    }, [drillItems, targetGroups, failedByType])
+
     // ---- Reveal barrier ----------------------------------------------------
     // Close synchronously the instant the query changes (React "adjust state
     // while rendering" pattern) so a stale list never paints between keystroke
@@ -729,7 +744,7 @@ export function MenuFilterCombobox({
         // Suppress empty-state copy while a remote fetch is in flight —
         // the skeleton fallback below takes its place so we don't flash
         // "No X found" before the response resolves.
-        if (isAnyLoading) {
+        if (isAnyLoading || isAnyFailed) {
             return null
         }
         const singleGroup =
@@ -768,7 +783,9 @@ export function MenuFilterCombobox({
         return {
             title: categoryLabel ? `No "${categoryLabel}" found` : 'No items',
         }
-    }, [filtered.length, activeScope, groups, searchQuery, isAnyLoading])
+    }, [filtered.length, activeScope, groups, searchQuery, isAnyLoading, isAnyFailed])
+
+    const showErrorState = isAnyFailed && filtered.length === 0 && !isAnyLoading
 
     // --- Telemetry parity ---------------------------------------------------
     // Emit the legacy `taxonomic filter *` contract so the rebuild is
@@ -834,6 +851,26 @@ export function MenuFilterCombobox({
             searchQuery: trimmed,
         })
     }, [emptyState, searchQuery, telemetryGroupType])
+
+    // `taxonomic filter fetch failed` — once per scope+query when the error state shows.
+    // Mirrors legacy `lastFetchFailedDedupeKey`.
+    const lastFetchFailedKeyRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (!showErrorState) {
+            return
+        }
+        const trimmed = searchQuery.trim()
+        const key = `${telemetryGroupType ?? 'all'}::${trimmed}`
+        if (lastFetchFailedKeyRef.current === key) {
+            return
+        }
+        lastFetchFailedKeyRef.current = key
+        posthog.capture('taxonomic filter fetch failed', {
+            surface: TAXONOMIC_FILTER_SURFACE,
+            groupType: telemetryGroupType,
+            searchQuery: trimmed,
+        })
+    }, [showErrorState, searchQuery, telemetryGroupType])
 
     // Offered in the empty state whenever an event/custom-event group is among
     // the visible targets (drilled Events/CustomEvents, or the merged All surface
@@ -1072,6 +1109,8 @@ export function MenuFilterCombobox({
                                     onItems={reportItems}
                                     onLoadingChange={reportLoading}
                                     onFetchingChange={reportFetching}
+                                    onFailedChange={reportFailed}
+                                    retryNonce={retryNonce}
                                 />
                             ))}
                         <ScrollArea className="flex-1 min-h-0 scroll-py-8" alwaysShowScrollbars>
@@ -1079,6 +1118,24 @@ export function MenuFilterCombobox({
                                 <Autocomplete.Empty className="empty:hidden">
                                     {isAnyLoading || barrierClosed ? (
                                         <LoadingRows />
+                                    ) : showErrorState ? (
+                                        <div
+                                            data-attr="menu-filter-error"
+                                            className="flex flex-col items-center gap-2 px-4 py-8 text-center"
+                                        >
+                                            <div className="text-sm font-semibold">Couldn't load results</div>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                data-attr="menu-filter-retry"
+                                                onClick={() => setRetryNonce((n) => n + 1)}
+                                            >
+                                                Try again
+                                            </Button>
+                                            <div className="text-xs text-secondary leading-relaxed">
+                                                If it keeps happening, contact support.
+                                            </div>
+                                        </div>
                                     ) : (
                                         emptyState && (
                                             <div
@@ -1408,6 +1465,8 @@ function Fetcher({
     onItems,
     onLoadingChange,
     onFetchingChange,
+    onFailedChange,
+    retryNonce,
 }: {
     group: TaxonomicFilterGroup
     /** Hide stale event definitions (event / custom-event groups only). */
@@ -1419,6 +1478,10 @@ function Fetcher({
     /** Reports `isFetching` (true during background refetches too) so the
      *  parent's reveal barrier holds the list until every group settles. */
     onFetchingChange: (type: string, fetching: boolean, query?: string) => void
+    /** Reports a failed fetch with no rows, so the parent shows an error and a retry. */
+    onFailedChange: (type: string, failed: boolean) => void
+    /** Increments when the person asks to retry. A failed group fetches again. */
+    retryNonce: number
 }): null {
     const { getGroupListInput } = useTaxonomicFilterContext()
     const input = getGroupListInput(group)
@@ -1432,6 +1495,16 @@ function Fetcher({
     useEffect(() => {
         onFetchingChange(group.type, list.isFetching, input.searchQuery)
     }, [group.type, list.isFetching, input.searchQuery, onFetchingChange])
+    useEffect(() => {
+        onFailedChange(group.type, list.showErrorState)
+    }, [group.type, list.showErrorState, onFailedChange])
+    const listRef = useRef(list)
+    listRef.current = list
+    useEffect(() => {
+        if (retryNonce > 0 && listRef.current.showErrorState) {
+            listRef.current.refetch()
+        }
+    }, [retryNonce])
     // Make sure we flip back to "not loading"/"not fetching" when this group
     // unmounts — otherwise a stale `true` from a previously-active chip would
     // keep the skeleton (or the reveal barrier) stuck after we switch scope.
@@ -1439,8 +1512,9 @@ function Fetcher({
         return () => {
             onLoadingChange(group.type, false)
             onFetchingChange(group.type, false)
+            onFailedChange(group.type, false)
         }
-    }, [group.type, onLoadingChange, onFetchingChange])
+    }, [group.type, onLoadingChange, onFetchingChange, onFailedChange])
     return null
 }
 

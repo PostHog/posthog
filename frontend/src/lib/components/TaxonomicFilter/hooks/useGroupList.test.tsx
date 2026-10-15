@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { PropertyOperator, PropertyFilterType } from '~/types'
 
 import { QuickFilterItem, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
+import { TAXONOMIC_LIST_REQUEST_TIMEOUT_MS } from './fetchTaxonomicListPage'
 import { NO_ITEM_SELECTED, useGroupList } from './useGroupList'
 import { __clearTaxonomicResourceCache } from './useTaxonomicResource'
 
@@ -186,6 +187,40 @@ describe('useGroupList', () => {
 
             await waitFor(() => expect(result.current.items).toEqual([]))
             expect(result.current.isLoading).toBe(false)
+            expect(result.current.showErrorState).toBe(true)
+            expect(result.current.showEmptyState).toBe(false)
+        })
+
+        it('ends a request that never settles as an error, and a retry loads the results', async () => {
+            jest.useFakeTimers()
+            try {
+                apiGet.mockImplementationOnce(
+                    (_url, options) =>
+                        new Promise((_resolve, reject) => {
+                            options?.signal?.addEventListener('abort', () =>
+                                reject(new DOMException('aborted', 'AbortError'))
+                            )
+                        })
+                )
+                apiGet.mockResolvedValueOnce({ results: [{ name: 'alpha' }], count: 1 })
+                const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+                const { result } = renderHook(() => useGroupList({ group, searchQuery: 'alpha' }))
+                expect(result.current.showLoadingState).toBe(true)
+
+                await act(async () => {
+                    jest.advanceTimersByTime(TAXONOMIC_LIST_REQUEST_TIMEOUT_MS)
+                })
+                expect(result.current.showLoadingState).toBe(false)
+                expect(result.current.showErrorState).toBe(true)
+
+                await act(async () => {
+                    result.current.refetch()
+                })
+                expect(result.current.items).toEqual([{ name: 'alpha' }])
+                expect(result.current.showErrorState).toBe(false)
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('refires when searchQuery changes', async () => {

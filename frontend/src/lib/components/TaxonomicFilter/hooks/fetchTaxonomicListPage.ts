@@ -26,6 +26,11 @@ export interface FetchTaxonomicPageParams {
 
 const EMPTY_LIST: ListStorage = { results: [], searchQuery: '', count: 0 }
 
+// Some list endpoints have no server-side statement timeout, so a wedged query only fails when the
+// gateway gives up minutes later. Giving up first ends the loading state. Mirrors legacy
+// infiniteListLogic's `REMOTE_ITEMS_REQUEST_TIMEOUT_MS`.
+export const TAXONOMIC_LIST_REQUEST_TIMEOUT_MS = 30000
+
 export async function fetchTaxonomicListPage({
     group,
     searchQuery,
@@ -76,8 +81,22 @@ export async function fetchTaxonomicListPage({
     const useScoped = group.scopedEndpoint && !isExpanded
     const primaryUrl = useScoped ? group.scopedEndpoint! : remoteEndpoint
 
-    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-    const primary = await api.get(combineUrl(primaryUrl, baseParams).url, { signal })
+    // Abort without a reason so the timeout surfaces as the same AbortError as a cancelled request.
+    const controller = new AbortController()
+    const abort = (): void => controller.abort()
+    if (signal?.aborted) {
+        abort()
+    }
+    signal?.addEventListener('abort', abort)
+    const timeoutId = window.setTimeout(abort, TAXONOMIC_LIST_REQUEST_TIMEOUT_MS)
+    let primary: any
+    try {
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+        primary = await api.get(combineUrl(primaryUrl, baseParams).url, { signal: controller.signal })
+    } finally {
+        window.clearTimeout(timeoutId)
+        signal?.removeEventListener('abort', abort)
+    }
 
     const results = primary?.results ?? primary ?? []
     const count = primary?.count ?? (Array.isArray(primary) ? primary.length : results.length)
