@@ -45,6 +45,7 @@ export function useSqlChartModel<
         goalLines,
         embedded,
         directPointClick,
+        labelFormatter,
         xAxis,
         margins,
     }: SqlChartProps,
@@ -88,11 +89,26 @@ export function useSqlChartModel<
             legendRenderItem,
             embedded,
         })
+        const formatLabel =
+            labelFormatter && visualizationType === ChartDisplayType.ActionsBarValue
+                ? (index: string): string => {
+                      const raw = xData.data[Number(index)]
+                      const label = labelFormatter(raw)
+                      return label === raw ? (config.tooltip?.labelFormatter?.(index) ?? label) : label
+                  }
+                : labelFormatter
         return {
             ...config,
+            ...(formatLabel && visualizationType === ChartDisplayType.ActionsBarValue
+                ? { xTickFormatter: formatLabel }
+                : {}),
             xAxis: { ...config.xAxis, ...xAxis },
             margins: { ...config.margins, ...margins },
-            tooltip: { ...config.tooltip, resolveClickToNearestSeries: directPointClick },
+            tooltip: {
+                ...config.tooltip,
+                resolveClickToNearestSeries: directPointClick,
+                ...(formatLabel ? { labelFormatter: formatLabel } : {}),
+            },
         }
     }, [
         xData,
@@ -106,6 +122,7 @@ export function useSqlChartModel<
         legendRenderItem,
         embedded,
         directPointClick,
+        labelFormatter,
         xAxis,
         margins,
     ])

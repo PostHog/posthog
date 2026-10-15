@@ -106,6 +106,8 @@ Date and timestamp drops start with daily buckets. A date pill offers **Timeline
 
 **Charts → Series → Color** separates series coloring from shelf grouping. **Single color** preserves every group and series while using one color; switching back restores automatic or customized colors. With two categorical dimensions, select either field to define the colored series and use the other on the axis. Date dimensions remain on the timeline. Automatic uses lines for dates, grouped bars for one or two categorical dimensions, and a number for a single total. Explicit chart choices remain selected. **New worksheet** is available directly in the worksheet header.
 
+Worksheet member aliases apply to table cells, chart labels, legends, tooltips, and equality or membership filter descriptions. Substring conditions and range bounds display their raw operands. Queries, sorting, selection, and data exports retain raw values. Duplicate labels keep separate groups, and grouped values retain their original identities.
+
 ## Filters in BI mode
 
 Drop a field onto **Row filters** above the chart. Click its pill to edit values and settings. String fields start with
