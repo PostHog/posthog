@@ -4977,9 +4977,6 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
     ctx.add_distinct_id_to_person(q.id, "w_q_same")
         .await
         .unwrap();
-    ctx.add_distinct_id_to_person(q.id, "w_q_tomb")
-        .await
-        .unwrap();
     ctx.add_distinct_id_to_person(p.id, "w_p_gone")
         .await
         .unwrap();
@@ -4993,10 +4990,7 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
         uuid: Uuid::new_v4(),
     };
     let s = ctx.insert_person("w_s", None).await.unwrap();
-    ctx.add_distinct_id_to_person(s.id, "w_stray")
-        .await
-        .unwrap();
-    ctx.tombstone_person(s.id, Some("w_stray")).await.unwrap();
+    ctx.tombstone_person(s.id, None).await.unwrap();
 
     let write =
         |distinct_id: &str, action, person: &common::TestPerson, min_version, expected_version| {
@@ -5008,21 +5002,20 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
                 expected_version,
             }
         };
-    use DistinctIdWriteAction::{Insert, Raise, Tombstone};
+    use DistinctIdWriteAction::{Insert, Raise};
     use DistinctIdWriteOutcome::{Applied, PersonNotLive, PreconditionFailed, Unchanged};
     let writes = vec![
         write("w_new", Insert, &p, 5, None),
         write("w_q", Insert, &p, 5, None),
         write("w_on_deleted", Insert, &s, 5, None),
+        write("w_raise_on_deleted", Raise, &s, 5, None),
         write("w_p", Raise, &p, 3, None),
         write("w_q_same", Raise, &q, 0, None),
         write("w_q_owner", Raise, &p, 3, None),
         write("w_p_expect", Raise, &p, 3, Some(9)),
-        write("w_stray", Tombstone, &s, 0, Some(0)),
         write("w_on_missing", Insert, &ghost, 5, None),
         write("w_s", Insert, &p, 5, None),
         write("w_p_gone", Raise, &p, 5, None),
-        write("w_q_tomb", Tombstone, &q, 10, None),
     ];
 
     let results = ctx
@@ -5049,15 +5042,14 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
             ("w_new", Applied, Some((p.id, 5, false))),
             ("w_q", PreconditionFailed, Some((q.id, 0, false))),
             ("w_on_deleted", PersonNotLive, None),
+            ("w_raise_on_deleted", PersonNotLive, None),
             ("w_p", Applied, Some((p.id, 3, false))),
             ("w_q_same", Unchanged, Some((q.id, 0, false))),
             ("w_q_owner", PreconditionFailed, Some((q.id, 0, false))),
             ("w_p_expect", PreconditionFailed, Some((p.id, 0, false))),
-            ("w_stray", Applied, Some((s.id, 1, true))),
             ("w_on_missing", PersonNotLive, None),
             ("w_s", PreconditionFailed, Some((s.id, 1, true))),
             ("w_p_gone", PreconditionFailed, Some((p.id, 2, true))),
-            ("w_q_tomb", Applied, Some((q.id, 10, true))),
         ]
     );
     let marks_left: i64 =

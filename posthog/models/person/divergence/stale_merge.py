@@ -48,7 +48,14 @@ def _queue_stale_merge(
 
 
 def send_set_once(
-    team_id: int, distinct_id: str, missing: dict[str, Any], existing: dict[str, Any], *, event_source: str
+    team_id: int,
+    distinct_id: str,
+    missing: dict[str, Any],
+    existing: dict[str, Any],
+    *,
+    event_source: str,
+    event_name: str = "$set",
+    extra_properties: dict[str, Any] | None = None,
 ) -> datatypes.RepairOutcome | None:
     """Send `missing` to ingestion as $set_once on the person that owns `distinct_id`, or return why it was not
     sent. `existing` is that person's Postgres properties, which bound the size of the merged result."""
@@ -62,11 +69,11 @@ def send_set_once(
         token = Team.objects.only("api_token").get(id=team_id).api_token
         capture_internal(
             token=token,
-            event_name="$set",
+            event_name=event_name,
             event_source=event_source,
             distinct_id=distinct_id,
             timestamp=datetime.now(UTC),
-            properties={"$set_once": missing},
+            properties={**(extra_properties or {}), "$set_once": missing},
             process_person_profile=True,
         ).raise_for_status()
     except Exception:
