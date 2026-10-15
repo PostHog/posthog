@@ -1268,14 +1268,22 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                 ...baseFields,
                                 evaluation_type: 'hog' as const,
                                 evaluation_config: { source: template.source, bytecode: [] },
+                                output_type: template.output_type,
+                                output_config: template.output_config,
                             }
-                          : {
-                                ...baseFields,
-                                evaluation_type: 'llm_judge' as const,
-                                evaluation_config: {
-                                    prompt: template && 'prompt' in template ? template.prompt : '',
-                                },
-                            }
+                          : template?.evaluation_type === 'llm_judge'
+                            ? {
+                                  ...baseFields,
+                                  evaluation_type: 'llm_judge' as const,
+                                  evaluation_config: { prompt: template.prompt },
+                                  output_type: template.output_type,
+                                  output_config: template.output_config,
+                              }
+                            : {
+                                  ...baseFields,
+                                  evaluation_type: 'llm_judge' as const,
+                                  evaluation_config: { prompt: '' },
+                              }
                 actions.loadEvaluationSuccess(newEvaluation)
             }
         },
