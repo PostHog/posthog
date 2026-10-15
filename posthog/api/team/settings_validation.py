@@ -302,14 +302,6 @@ def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | No
     return serializer.validated_data
 
 
-def is_throttled_logs_retention_change(read_settings: dict[str, Any] | None, new_settings: Any) -> bool:
-    """Only a change away from a stored period counts against the 24-hour limit."""
-    if not read_settings or not isinstance(new_settings, dict):
-        return False
-    new_retention = new_settings.get("retention_days")
-    return new_retention is not None and new_retention != read_settings.get("retention_days")
-
-
 @contextmanager
 def refuse_stale_logs_settings_change(
     team: Team, read_settings: dict[str, Any] | None, new_settings: Any
