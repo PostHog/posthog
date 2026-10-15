@@ -591,11 +591,7 @@ const AgentRow = memo(function AgentRow({
                     </span>
                 )}
                 {(loading || requiresSetup || hasMasterSwitch) && (
-                    // eslint-disable-next-line react/no-unknown-property
-                    <div
-                        className={`flex shrink-0 justify-end ${warehouseSource ? 'w-20' : 'w-13'}`}
-                        onClick={(e) => e.stopPropagation()}
-                    >
+                    <div className={`flex shrink-0 justify-end ${warehouseSource ? 'w-20' : 'w-13'}`}>
                         {loading ? (
                             <Spinner className="text-base" />
                         ) : warehouseSource || requiresSetup ? (
@@ -604,6 +600,7 @@ const AgentRow = memo(function AgentRow({
                                 size="xsmall"
                                 onClick={() => onToggle(agent.source)}
                                 disabledReason={state.blockedReason}
+                                aria-label={`${requiresSetup ? 'Connect' : armed ? 'Pause' : 'Turn on'} ${agent.label}`}
                                 data-attr="signal-source-toggle"
                             >
                                 {requiresSetup ? 'Connect' : armed ? 'Pause' : 'Turn on'}
@@ -623,8 +620,6 @@ const AgentRow = memo(function AgentRow({
                         )}
                     </div>
                 )}
-                {/* A real button inside the clickable row, so keyboard users can reach the
-                    expansion (and the controls inside it, like steering). */}
                 <LemonButton
                     size="xsmall"
                     icon={
@@ -632,10 +627,7 @@ const AgentRow = memo(function AgentRow({
                             className={`shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
                         />
                     }
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onExpand()
-                    }}
+                    onClick={onExpand}
                     aria-expanded={expanded}
                     aria-label={`${expanded ? 'Collapse' : 'Expand'} ${agent.label}`}
                 />
