@@ -34,6 +34,9 @@ const TodayViewsSidebar = lazyWithRetry(() =>
 const TodayProductsSidebar = lazyWithRetry(() =>
     import('./TodayProductsSidebar').then((m) => ({ default: m.TodayProductsSidebar }))
 )
+const TodaySettingsSidebar = lazyWithRetry(() =>
+    import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
+)
 const NewSpaceDialog = lazyWithRetry(() =>
     import('products/tasks/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
 )
@@ -99,6 +102,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 <TodaySpacesPane />
             ) : activePane === 'views' ? (
                 <TodayViewsSidebar />
+            ) : activePane === 'settings' ? (
+                <TodaySettingsSidebar />
             ) : (
                 <TodayProductsSidebar />
             )}

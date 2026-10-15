@@ -6,6 +6,7 @@ import {
   isAnthropicModelId,
 } from "@posthog/shared";
 import {
+  buildAiGatewayReservedHeaders,
   buildPosthogProjectHeaderRecord,
   buildPosthogPropertiesHeaderRecord,
   buildPosthogPropertyHeaderRecord,
@@ -222,11 +223,14 @@ export class LlmGatewayService {
               Authorization: `Bearer ${current.token}`,
             },
           }),
-        buildPosthogPropertiesHeaderRecord({
-          ...options.posthogProperties,
-          ai_product: "posthog_code",
-          team_id: current.teamId,
-        }),
+        {
+          ...buildPosthogPropertiesHeaderRecord({
+            ...options.posthogProperties,
+            ai_product: "posthog_code",
+            team_id: current.teamId,
+          }),
+          ...buildAiGatewayReservedHeaders(options.posthogProperties ?? {}),
+        },
         shape,
       );
     try {

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailtrapSource(ResumableSource[MailtrapSourceConfig, MailtrapResumeConfig]):
+    codebase_detection = detect(
+        env=("^MAILTRAP_",),
+        npm=("mailtrap",),
+        pypi=("mailtrap",),
+        composer=("railsware/mailtrap-php",),
+        maven=("io.mailtrap:mailtrap-java",),
+        rubygems=("mailtrap",),
+    )
+
     api_docs_url = "https://docs.mailtrap.io/developers"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

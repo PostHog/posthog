@@ -28,9 +28,6 @@ export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex items-center justify-between gap-1 px-2 pt-2">
-                <span className="text-sm font-semibold">Data</span>
-            </div>
             <div className="flex flex-col gap-1.5 p-2">
                 <BIConnectionSelector tabId={tabId} />
                 <BIDataSourcePicker />

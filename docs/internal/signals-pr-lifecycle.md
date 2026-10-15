@@ -3,13 +3,23 @@
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR resolves the report; otherwise all closed PRs suppress it.
 
-The schema reserves `monitoring` and a nullable `monitoring_started_at`, but current report transitions do not enter that state. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats evaluation failures as disabled.
+Monitoring means implementation is complete and outcome verification is pending. Resolved means the report is finished. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats missing definitions or evaluation failures as disabled.
 
-Attaching a new open, draft, or unknown PR to a resolved report returns it to ready.
+A Monitoring period begins with an explicit, timezone-aware implementation-complete timestamp supplied by the server. Merge-driven entry can use the linked PR's recorded `merged_at`, even when its webhook arrives later. The lifecycle never substitutes receipt time for a missing implementation timestamp. Repeated entry preserves the original period; archive and restore preserve it too. Reopening implementation clears the start so a later implementation creates a new period. Resolving after verification keeps the implementation timestamp for history.
+
+Monitoring keeps the researched report available for verification and new matching signals, without starting another implementation. Enabled responses expose the server-owned start time, and implementation work is done while the report itself remains unfinished. A Monitoring child keeps its parent plan open, and child rollups cannot finish a Monitoring parent. The single and bulk state APIs still accept only suppressed, potential, and resolved targets; neither manual entry controls nor automatic PR-merge entry are available.
+
+Disabled organizations treat stored Monitoring reports as Resolved across reads, filters, counts, sorting, actions, recurrence handling, work state, plan rollups, and background checks. Responses omit the Monitoring start field and the inbox offers no Monitoring controls. Monitoring entry is refused. Restoring a report archived from Monitoring returns it to Resolved while disabled. Reads preserve the stored status.
+
+Background check processing discovers rollout decisions only for Monitoring reports with candidate checks and reuses them through each coordinator tick, including pending-check arming. Arming still rechecks the report's stored status under its row lock. Reopened-check batches and briefing details share one decision per team. Plan rollups reuse one decision across their child statuses and ancestor walk.
+
+PR merges still resolve reports. A plan already in Monitoring waits for verification even after its steps close. Existing checks stay pending while Monitoring is enabled and start when the report resolves. If the rollout is disabled, existing Resolved check behavior applies to stored Monitoring reports; pending checks begin at the next coordinator tick, without using the Monitoring start as a measurement anchor. Expired checks stay expired. Monitoring entry, outcome checks, and automatic completion ship separately.
+
+Attaching a new open, draft, or unknown PR to a resolved or Monitoring report returns it to ready.
 The shared PR-linking service applies this rule to task outputs and agent attachments.
 An existing attachment retry does not reopen a report, and importing legacy assignments preserves its status.
 Suppressed reports remain suppressed when another PR is attached.
-A report merged into another report cannot be restored or resolved from the archive; act on the surviving report instead.
+A report merged into another report cannot be restored, resolved, or marked Monitoring from the archive; act on the surviving report instead.
 
 A report that is `part_of` another report is a step in a plan, and the plan completes from its steps.
 When every live step of a plan is closed, the plan takes their verdict: resolved if at least one step resolved, suppressed if they all were.
@@ -63,6 +73,23 @@ This is prompt guidance, not an enforced access control, and it does not validat
 ## Reviewer notifications
 
 Research suggests reviewers from relevant commit authors and recent code activity. It also checks the finding's relevant paths against `owners.yaml` and the connected repository's CODEOWNERS. When they disagree, the `owners.yaml` owner comes first and a routable CODEOWNERS owner follows. A human edit to the report's reviewer list stays in place on later research runs. Missing ownership files or paths leave the existing author-based suggestions unchanged. Scout-authored reports use their own reviewer selection guidance.
+
+The `signals-research-reviewer-selection` flag lets research choose reviewers and preserve its selected order.
+Research first reads recent human corrections from the project profile, which is available on every plan.
+It also reads relevant notes, older activity logs when available, and `reviewer:` scratchpad entries.
+Corrections apply only to the affected area. Research does not save its own choices as reviewer memory.
+The existing limit remains three reviewers.
+
+The pipeline skips a reviewer row when ordered identities and authorization evidence are unchanged.
+A different explanation alone does not add a row. Human edits retain precedence.
+A real selection change after the first Slack notification can still leave that notification out of date.
+Automatic reviewer changes do not send additional Slack notifications.
+
+During the internal trial, check correction relevance and assignment quality in report samples.
+Use `after_inbox_notification` on `signals_suggested_reviewers_resolved` to inspect pipeline changes after notification.
+Use `runner_source=team_fallback` on `signals_autostart_steering_attached` and `skip_reason=no_runner` on `signals_autostart_skipped` to inspect task outcomes.
+Compare report state, not raw event totals: skipped unchanged writes reduce the event count.
+Keep the selection flag disabled until the trial confirms suitable assignments and expected autostart behavior.
 
 When a project member adds a reviewer, the report shows "Added by" and that member's name as the reason above the reviewer. The name comes from the authenticated author of the artefact that added the reviewer, not from the editable reason. If the author is unavailable, the report shows the generic "Added by teammate" badge instead.
 

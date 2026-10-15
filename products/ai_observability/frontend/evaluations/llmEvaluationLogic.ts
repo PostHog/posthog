@@ -42,6 +42,8 @@ import {
     categoricalOutputConfigError,
     categoricalEvaluationPassedHogQL,
     EVALUATION_CATEGORICAL_GRADED_HOGQL,
+    EVALUATION_RUNS_QUERY_LIMIT,
+    evaluationRunsFilterHogQL,
 } from './constants'
 import {
     evaluationCanResolveModel,
@@ -317,6 +319,7 @@ export interface llmEvaluationLogicValues {
     evaluationRuns: EvaluationRun[]
     evaluationRunsError: boolean
     evaluationRunsFilter: EvaluationRunsFilter
+    evaluationRunsHasMore: boolean
     evaluationRunsLoading: boolean
     filteredEvaluationRuns: EvaluationRun[]
     formValid: boolean
@@ -389,6 +392,21 @@ export interface llmEvaluationLogicActions {
     loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => {
         evaluation: EvaluationConfig | null
         requestedTab: string | null
+    }
+    loadOlderEvaluationRuns: () => any
+    loadOlderEvaluationRunsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadOlderEvaluationRunsSuccess: (
+        evaluationRuns: EvaluationRun[],
+        payload?: any
+    ) => {
+        evaluationRuns: EvaluationRun[]
+        payload?: any
     }
     loadRunsBackfill: () => any
     loadRunsBackfillFailure: (
@@ -472,6 +490,9 @@ export interface llmEvaluationLogicActions {
     ) => {
         filter: EvaluationRunsFilter
         previousFilter: EvaluationRunsFilter
+    }
+    setEvaluationRunsHasMore: (hasMore: boolean) => {
+        hasMore: boolean
     }
     setEvaluationTarget: (target: EvaluationTarget) => {
         target: EvaluationTarget
@@ -670,6 +691,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         // Evaluation runs actions
         refreshEvaluationRuns: true,
+        setEvaluationRunsHasMore: (hasMore: boolean) => ({ hasMore }),
 
         // Model selection actions
         selectModelFromPicker: (modelId: string, providerKeyId: string) => ({ modelId, providerKeyId }),
@@ -761,10 +783,43 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         evaluationId: props.evaluationId,
                         backfillId: values.runsBackfillId ?? undefined,
                         dateRange: values.runsBackfillId ? undefined : values.runsDateRange,
+                        filterHogQL: evaluationRunsFilterHogQL(values.evaluationRunsFilter, values.originalEvaluation),
                         forceRefresh: values.isForceRefresh,
                     })
                     breakpoint?.()
+                    actions.setEvaluationRunsHasMore(runs.length >= EVALUATION_RUNS_QUERY_LIMIT)
                     return runs
+                },
+                loadOlderEvaluationRuns: async () => {
+                    const { evaluationRuns: loadedRuns, runsDateRange, runsBackfillId, evaluationRunsFilter } = values
+                    const oldestTimestamp = loadedRuns[loadedRuns.length - 1]?.timestamp
+                    if (!oldestTimestamp || !props.evaluationId || props.evaluationId === 'new') {
+                        return loadedRuns
+                    }
+
+                    const olderRuns = await queryEvaluationRuns({
+                        evaluationId: props.evaluationId,
+                        backfillId: runsBackfillId ?? undefined,
+                        dateRange: runsBackfillId ? undefined : runsDateRange,
+                        filterHogQL: evaluationRunsFilterHogQL(evaluationRunsFilter, values.originalEvaluation),
+                        before: {
+                            timestamp: oldestTimestamp,
+                            excludeIds: loadedRuns
+                                .filter((run) => run.timestamp === oldestTimestamp)
+                                .map((run) => run.id),
+                        },
+                    })
+                    // The selection can change, or a reload can finish, while this page loads. Do not append to rows of a different query.
+                    if (
+                        values.evaluationRuns !== loadedRuns ||
+                        values.runsDateRange !== runsDateRange ||
+                        values.runsBackfillId !== runsBackfillId ||
+                        values.evaluationRunsFilter !== evaluationRunsFilter
+                    ) {
+                        return values.evaluationRuns
+                    }
+                    actions.setEvaluationRunsHasMore(olderRuns.length >= EVALUATION_RUNS_QUERY_LIMIT)
+                    return [...loadedRuns, ...olderRuns]
                 },
             },
         ],
@@ -1072,6 +1127,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 resetEvaluation: () => false,
             },
         ],
+        evaluationRunsHasMore: [
+            false,
+            {
+                setEvaluationRunsHasMore: (_, { hasMore }) => hasMore,
+            },
+        ],
         evaluationRunsFilter: [
             'all' as EvaluationRunsFilter,
             {
@@ -1126,6 +1187,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         },
         loadEvaluationSuccess: () => {
             actions.loadRunsStats()
+            // The filter query reads the evaluation's pass rules, and a sentiment evaluation opens on a non-'all' filter.
+            if (values.evaluationRunsFilter !== 'all') {
+                actions.loadEvaluationRuns()
+            }
         },
         loadEvaluationConfigSuccess: () => {
             // The new-eval draft's enabled default is read before the team's evaluation config has
@@ -1227,6 +1292,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         },
 
         setEvaluationRunsFilter: ({ filter, previousFilter }) => {
+            actions.loadEvaluationRuns()
             // pinned: analytics event name - renaming it breaks existing dashboards
             posthog.capture('llma evaluation summary filter changed', {
                 filter,

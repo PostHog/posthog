@@ -82,7 +82,13 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
-from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
+from products.surveys.backend.models import (
+    MAX_ITERATION_COUNT,
+    MAX_ITERATION_FREQUENCY_DAYS,
+    Survey,
+    SurveyResponseArchive,
+    ensure_question_ids,
+)
 from products.surveys.backend.responses import (
     SurveyRates,
     SurveyStats,
@@ -126,6 +132,7 @@ SURVEY_APPEARANCE_HTML_FIELDS = (
     "introScreenHeader",
     "introScreenDescription",
     "introScreenButtonText",
+    "backButtonText",
 )
 SURVEY_QUESTION_HTML_FIELDS = (
     "question",
@@ -305,6 +312,7 @@ class GeneratedSurveyRootTranslationSerializer(serializers.Serializer):
     introScreenButtonText = serializers.CharField(
         required=False, allow_blank=True, help_text="Translated intro screen button text."
     )
+    backButtonText = serializers.CharField(required=False, allow_blank=True, help_text="Translated back button text.")
 
 
 class GeneratedSurveyQuestionTranslationSerializer(serializers.Serializer):
@@ -634,6 +642,41 @@ class SurveyMatchType(models.TextChoices):
 SURVEY_MATCH_TYPE_CHOICES = list(SurveyMatchType.values)
 
 
+class SurveyPosition(models.TextChoices):
+    TOP_LEFT = "top_left", "top_left"
+    TOP_CENTER = "top_center", "top_center"
+    TOP_RIGHT = "top_right", "top_right"
+    MIDDLE_LEFT = "middle_left", "middle_left"
+    MIDDLE_CENTER = "middle_center", "middle_center"
+    MIDDLE_RIGHT = "middle_right", "middle_right"
+    LEFT = "left", "left"
+    CENTER = "center", "center"
+    RIGHT = "right", "right"
+    NEXT_TO_TRIGGER = "next_to_trigger", "next_to_trigger"
+
+
+class SurveyTabPosition(models.TextChoices):
+    TOP = "top", "top"
+    LEFT = "left", "left"
+    RIGHT = "right", "right"
+    BOTTOM = "bottom", "bottom"
+
+
+# `bottom-right` is an old name for `right` that the create-survey tool wrote on every survey it
+# made, because it was the default appearance position. Both the web and the React Native SDK
+# render it as `right`. The API replaces it so a response always validates against the position
+# enum the API documents, which generated clients turn into a strict validator.
+LEGACY_SURVEY_POSITIONS = {"bottom-right": SurveyPosition.RIGHT.value}
+
+
+def normalize_survey_appearance(appearance: dict[str, Any]) -> dict[str, Any]:
+    position = appearance.get("position")
+    replacement = LEGACY_SURVEY_POSITIONS.get(position) if isinstance(position, str) else None
+    if replacement is None:
+        return appearance
+    return {**appearance, "position": replacement}
+
+
 class SurveyAppearanceSchemaSerializer(serializers.Serializer):
     backgroundColor = serializers.CharField(required=False)
     submitButtonColor = serializers.CharField(required=False)
@@ -644,6 +687,18 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
     ratingButtonColor = serializers.CharField(required=False)
     ratingButtonActiveColor = serializers.CharField(required=False)
     ratingButtonHoverColor = serializers.CharField(required=False)
+    textSubtleColor = serializers.CharField(
+        required=False,
+        help_text="Color of secondary text, such as question descriptions.",
+    )
+    inputBackground = serializers.CharField(
+        required=False,
+        help_text="Background color of open text inputs and rating buttons.",
+    )
+    inputTextColor = serializers.CharField(
+        required=False,
+        help_text="Text color of open text inputs and rating buttons. Calculated from inputBackground when not set.",
+    )
     whiteLabel = serializers.BooleanField(required=False)
     autoDisappear = serializers.BooleanField(required=False)
     displayThankYouMessage = serializers.BooleanField(required=False)
@@ -654,10 +709,40 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
         required=False,
     )
     thankYouMessageCloseButtonText = serializers.CharField(required=False)
+    displayIntroScreen = serializers.BooleanField(
+        required=False,
+        help_text="Whether to show an intro screen before the first question. The intro screen shows only when introScreenHeader or introScreenDescription is set.",
+    )
+    introScreenHeader = serializers.CharField(
+        required=False,
+        help_text="Heading of the intro screen.",
+    )
+    introScreenDescription = serializers.CharField(
+        required=False,
+        help_text="Body text of the intro screen.",
+    )
+    introScreenDescriptionContentType = serializers.ChoiceField(
+        choices=DescriptionContentType.choices,
+        required=False,
+        help_text="Content type of introScreenDescription.",
+    )
+    introScreenButtonText = serializers.CharField(
+        required=False,
+        help_text="Label of the button that closes the intro screen and starts the survey.",
+    )
     borderColor = serializers.CharField(required=False)
     placeholder = serializers.CharField(required=False)
+    position = serializers.ChoiceField(
+        choices=SurveyPosition.choices,
+        required=False,
+        help_text="Where a popover survey appears on the page. Defaults to 'right'.",
+    )
     shuffleQuestions = serializers.BooleanField(required=False)
-    surveyPopupDelaySeconds = serializers.IntegerField(required=False)
+    surveyPopupDelaySeconds = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Seconds to wait before a popover survey appears. Null shows it without a delay.",
+    )
     allowGoBack = serializers.BooleanField(
         required=False,
         help_text="Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false.",
@@ -670,11 +755,24 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
     widgetSelector = serializers.CharField(required=False)
     widgetLabel = serializers.CharField(required=False)
     widgetColor = serializers.CharField(required=False)
+    tabPosition = serializers.ChoiceField(
+        choices=SurveyTabPosition.choices,
+        required=False,
+        help_text="Which edge of the page holds the tab of a widget survey with widgetType 'tab'.",
+    )
     fontFamily = serializers.CharField(required=False)
     maxWidth = serializers.CharField(required=False)
     zIndex = serializers.CharField(required=False)
     disabledButtonOpacity = serializers.CharField(required=False)
     boxPadding = serializers.CharField(required=False)
+    boxShadow = serializers.CharField(
+        required=False,
+        help_text="CSS box-shadow value of the survey box.",
+    )
+    borderRadius = serializers.CharField(
+        required=False,
+        help_text="CSS border-radius value of the survey box.",
+    )
 
 
 SURVEY_DEVICE_TYPE_CHOICES = ["Desktop", "Mobile", "Tablet"]
@@ -974,13 +1072,13 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
             return value
         if not isinstance(value, dict):
             raise serializers.ValidationError("Appearance must be an object")
-        return sanitize_survey_appearance(value)
+        return sanitize_survey_appearance(normalize_survey_appearance(value))
 
     def to_representation(self, instance: Survey) -> dict[str, Any]:
         data = super().to_representation(instance)
         appearance = data.get("appearance")
         if isinstance(appearance, dict):
-            data["appearance"] = sanitize_survey_appearance(appearance)
+            data["appearance"] = sanitize_survey_appearance(normalize_survey_appearance(appearance))
         questions = data.get("questions")
         if isinstance(questions, list):
             data["questions"] = [
@@ -1108,6 +1206,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
+        appearance = data.get("appearance")
+        if isinstance(appearance, dict):
+            data["appearance"] = sanitize_survey_appearance(normalize_survey_appearance(appearance))
         data["conditions"] = get_survey_conditions_with_actions(instance)
         return data
 
@@ -1118,7 +1219,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Appearance must be an object")
 
-        value = sanitize_survey_appearance(value)
+        value = sanitize_survey_appearance(normalize_survey_appearance(value))
 
         thank_you_description_content_type = value.get("thankYouMessageDescriptionContentType")
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
@@ -2198,7 +2299,7 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
         required=False,
         allow_null=True,
         min_value=1,
-        max_value=365,
+        max_value=MAX_ITERATION_FREQUENCY_DAYS,
         help_text="For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.",
     )
     enable_partial_responses = serializers.BooleanField(
@@ -3655,7 +3756,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         appearance = data.get("appearance")
         if isinstance(appearance, dict):
-            data["appearance"] = sanitize_survey_appearance(appearance)
+            data["appearance"] = sanitize_survey_appearance(normalize_survey_appearance(appearance))
         if data.get("translations") is None:
             data.pop("translations", None)
         return data

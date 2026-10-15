@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 
 from posthog.egress.limiter.policies import Priority
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
@@ -157,6 +159,105 @@ class GithubSource(
     WebhookSource[GithubSourceConfig],
     OAuthMixin,
 ):
+    # 'Github' (not 'GitHub') - matches the ExternalDataSourceType value.
+    # Default auth is the GitHub App integration (OAuth), so deep-link.
+    codebase_detection = detect(
+        env=(
+            "^GITHUB_TOKEN$",
+            "^GH_TOKEN$",
+            "^GH_ENTERPRISE_TOKEN$",
+            "^GITHUB_ENTERPRISE_TOKEN$",
+            "^GH_HOST$",
+            "^GITHUB_PERSONAL_ACCESS_TOKEN$",
+            "^GITHUB_PAT$",
+            "^GITHUB_CLIENT_ID$",
+            "^GITHUB_CLIENT_SECRET$",
+            "^GITHUB_ID$",
+            "^GITHUB_SECRET$",
+            "^AUTH_GITHUB_ID$",
+            "^AUTH_GITHUB_SECRET$",
+            "^GHE_HOST$",
+        ),
+        npm=(
+            "@octokit/rest",
+            "@octokit/core",
+            "@octokit/graphql",
+            "octokit",
+            "@octokit/app",
+            "@octokit/request",
+            "@octokit/endpoint",
+            "@octokit/types",
+            "@octokit/webhooks",
+            "@octokit/webhooks-methods",
+            "@octokit/webhooks-types",
+            "@octokit/auth-token",
+            "@octokit/auth-app",
+            "@octokit/auth-oauth-app",
+            "@octokit/auth-oauth-user",
+            "@octokit/auth-oauth-device",
+            "@octokit/auth-action",
+            "@octokit/auth-unauthenticated",
+            "@octokit/auth-callback",
+            "@octokit/auth-basic",
+            "@octokit/oauth-app",
+            "@octokit/oauth-methods",
+            "@octokit/oauth-authorization-url",
+            "@octokit/plugin-rest-endpoint-methods",
+            "@octokit/plugin-paginate-rest",
+            "@octokit/plugin-paginate-graphql",
+            "@octokit/plugin-throttling",
+            "@octokit/plugin-retry",
+            "@octokit/plugin-request-log",
+            "@octokit/plugin-enterprise-rest",
+            "@octokit/plugin-enterprise-server",
+            "@octokit/plugin-enterprise-cloud",
+            "@octokit/plugin-enterprise-compatibility",
+            "@octokit/plugin-create-or-update-text-file",
+            "@octokit/plugin-scim",
+            "@octokit/action",
+            "@octokit/graphql-schema",
+            "github",
+            "@actions/github",
+            "@actions/core",
+            "@actions/artifact",
+            "@actions/cache",
+            "@actions/attest",
+            "probot",
+            "@probot/adapter-github-actions",
+            "@probot/adapter-aws-lambda-serverless",
+            "@probot/adapter-azure-functions",
+            "octokit-auth-probot",
+            "universal-github-app-jwt",
+            "passport-github",
+            "passport-github2",
+            "github-api",
+            "@pulumi/github",
+        ),
+        pypi=("pygithub", "githubkit", "github3-py", "ghapi", "gidgethub", "pulumi-github"),
+        cargo=("octocrab", "octorust", "hubcaps"),
+        cocoapods=("OctoKit.swift", "OctoKit"),
+        composer=("knplabs/github-api", "graham-campbell/github", "league/oauth2-github"),
+        go=(
+            "github.com/google/go-github",
+            "github.com/shurcooL/githubv4",
+            "github.com/octokit/go-sdk",
+            "github.com/octokit/go-octokit",
+            "github.com/bradleyfalzon/ghinstallation",
+            "github.com/cli/go-gh",
+            "github.com/palantir/go-githubapp",
+            "github.com/sethvargo/go-githubactions",
+        ),
+        hex=("tentacat",),
+        maven=(
+            "org.kohsuke:github-api",
+            "com.spotify:github-client",
+            "org.eclipse.mylyn.github:org.eclipse.egit.github.core",
+        ),
+        pub=("github",),
+        rubygems=("octokit", "github_api", "omniauth-github"),
+        swiftpm=("github.com/nerdishbynature/octokit.swift",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2022-11-28", "2026-03-10")
     default_version = "2026-03-10"
