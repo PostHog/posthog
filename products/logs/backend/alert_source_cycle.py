@@ -51,6 +51,7 @@ from products.alerts_platform.backend.facade.grouping import (
     GroupObservation,
     bounded_grouping_key,
     decide_groups,
+    delivery_parts,
     is_hashed_grouping_key,
     muted_value,
 )
@@ -69,6 +70,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
     decide_incident_action,
     evaluate_alert_check,
 )
+from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES, payload_bytes
 from products.alerts_platform.backend.facade.platform_metrics import (
     increment_checks,
     increment_checks_deferred,
@@ -458,6 +460,7 @@ def _request(
         else None,
         owned_by_platform=check.owned_by_platform,
         overflowed=recorded.overflowed,
+        parts=delivery_parts(recorded, actions),
     )
 
 
@@ -876,29 +879,53 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
 
 
 def _collect(decided: Sequence[Decision], team_id: int, slot: str, started_at: float) -> SourceBatchEvaluation:
-    """Applies the payload bound and reports the batch."""
+    """Applies the payload bounds and reports the batch.
+
+    A check that does not fit is left out with its delivery, so it keeps its due time and a later
+    tick evaluates it again. The byte budget counts every check, including one with no delivery,
+    because a grouped check's outcome grows with its groups whether or not it announces.
+    """
     outcomes: list[PlatformAlertOutcome] = []
     deliveries: list[AlertDeliveryRequest] = []
-    omitted = 0
+    deferred_deliveries = 0
+    deferred_checks = 0
+    spent = 0
     for outcome, delivery in decided:
         if delivery is not None and len(deliveries) >= MAX_DELIVERIES_PER_CYCLE:
-            omitted += 1
+            deferred_deliveries += 1
             continue
+        size = payload_bytes(outcome) + (payload_bytes(delivery) if delivery is not None else 0)
+        if spent + size > MAX_BATCH_PAYLOAD_BYTES:
+            deferred_checks += 1
+            continue
+        spent += size
         outcomes.append(outcome)
         if delivery is not None:
             deliveries.append(delivery)
 
-    if omitted:
+    if deferred_deliveries:
         logger.warning(
             "Deferred logs alert deliveries over the batch payload bound",
             team_id=team_id,
             slot=slot,
             delivered=len(deliveries),
-            deferred=omitted,
+            deferred=deferred_deliveries,
         )
-        safe_record(increment_deliveries_deferred, SourceKind.LOGS.value, omitted)
+        safe_record(increment_deliveries_deferred, SourceKind.LOGS.value, deferred_deliveries)
+    if deferred_checks:
+        logger.warning(
+            "Deferred logs alert checks over the batch payload byte budget",
+            team_id=team_id,
+            slot=slot,
+            recorded=len(outcomes),
+            deferred=deferred_checks,
+            budget_bytes=MAX_BATCH_PAYLOAD_BYTES,
+        )
+        safe_record(increment_checks_deferred, SourceKind.LOGS.value, deferred_checks)
     safe_record(record_batch_duration, SourceKind.LOGS.value, int((time.monotonic() - started_at) * 1000))
-    return SourceBatchEvaluation(outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=omitted)
+    return SourceBatchEvaluation(
+        outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=deferred_deliveries + deferred_checks
+    )
 
 
 def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatchEvaluation:

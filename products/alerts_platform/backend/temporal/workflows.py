@@ -193,18 +193,22 @@ async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
     key names a window or a slot but not the alert, so two alerts in one slot do not collide. A
     re-run of the same occasion reuses the ids, and a reused id raises, so one delivery already
     started does not stop the rest.
+
+    A request split into parts starts one workflow per part. Only the first carries the overflow,
+    so a destination hears it once.
     """
     results = await asyncio.gather(
         *(
             workflow.start_child_workflow(
                 AlertsPlatformDeliverPreviewWorkflow.run,
-                delivery,
-                id=f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}",
+                part,
+                id=_delivery_workflow_id(part),
                 task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
                 parent_close_policy=workflow.ParentClosePolicy.ABANDON,
                 execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
             )
             for delivery in deliveries
+            for part in _parts(delivery)
         ),
         return_exceptions=True,
     )
@@ -216,6 +220,20 @@ async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
             raise result
         started += 1
     return started
+
+
+def _parts(delivery: AlertDeliveryRequest) -> list[AlertDeliveryRequest]:
+    if delivery.parts <= 1:
+        return [delivery]
+    return [
+        replace(delivery, part=part, overflowed=delivery.overflowed if part == 0 else 0)
+        for part in range(delivery.parts)
+    ]
+
+
+def _delivery_workflow_id(delivery: AlertDeliveryRequest) -> str:
+    workflow_id = f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}"
+    return workflow_id if delivery.parts <= 1 else f"{workflow_id}:part-{delivery.part}"
 
 
 @workflow.defn(name="alerts-platform-deliver")

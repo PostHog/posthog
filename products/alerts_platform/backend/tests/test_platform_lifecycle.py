@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.api import (
     upsert_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
+    MAX_INSTANCES_CEILING,
     AlertEventKind,
     CheckFailure,
     FiringEpisode,
@@ -36,6 +37,14 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.grouping import (
+    MAX_TRANSITIONS_PER_DELIVERY,
+    GroupObservation,
+    decide_groups,
+    delivery_parts,
+)
+from products.alerts_platform.backend.facade.lifecycle import LOGS_ALERT_POLICY, AlertSnapshot, AlertState
+from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES, payload_bytes
 from products.alerts_platform.backend.logic.platform_lifecycle import CONFIGURATION_ROW_ALERT_ID
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
@@ -620,6 +629,7 @@ def test_a_check_admits_existing_groups_and_new_ones_up_to_the_cap(
         {"mode": GroupingMode.BY_RESULT_LABELS, "keys": ()},
         {"mode": GroupingMode.BY_RESULT_LABELS, "keys": ("service", "service")},
         {"mode": GroupingMode.BY_RESULT_LABELS, "keys": ("service",), "max_instances": 0},
+        {"mode": GroupingMode.BY_RESULT_LABELS, "keys": ("service",), "max_instances": MAX_INSTANCES_CEILING + 1},
     ],
 )
 def test_a_grouping_rejects_keys_its_mode_cannot_use(fields: dict[str, Any]) -> None:
@@ -644,3 +654,79 @@ def test_an_outcome_rejects_an_invalid_shape(overrides: dict[str, Any]) -> None:
     fields.update(overrides)
     with pytest.raises(ValueError):
         PlatformAlertOutcome(**fields)
+
+
+def test_a_full_grouped_check_with_hostile_labels_fits_one_payload() -> None:
+    check = PlatformAlertCheckInput(
+        id=uuid4(),
+        team_id=1,
+        name="API errors",
+        source_config={},
+        check_interval_minutes=5,
+        evaluation_periods=1,
+        datapoints_to_alarm=1,
+        cooldown_minutes=0,
+        schedule_restriction=None,
+        next_check_at=None,
+        consecutive_failures=0,
+        legacy_configuration_id=None,
+        check_status="ok",
+        snooze_until=None,
+        grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=MAX_INSTANCES_CEILING),
+    )
+    # Astral characters escape to 12 bytes each in a payload, the most a character can cost.
+    hostile = "\U0001f600" * 32 * 1024
+    observations = [
+        GroupObservation(
+            grouping_key=f"{index:03d}" + "\U0001f600" * 252,
+            current_breached=True,
+            value=1.0,
+            labels={f"{name}{hostile}": hostile for name in range(10)},
+        )
+        for index in range(MAX_INSTANCES_CEILING)
+    ]
+
+    decision = decide_groups(
+        check,
+        observations,
+        snapshot_of=lambda instance, prior: AlertSnapshot(
+            state=AlertState(instance.state),
+            cooldown=timedelta(0),
+            last_notified_at=None,
+            snooze_until=None,
+            consecutive_failures=0,
+        ),
+        policy=LOGS_ALERT_POLICY,
+        now=datetime(2026, 10, 15, tzinfo=UTC),
+    )
+    outcome = decision.as_outcome(configuration_id=check.id, evaluation_key="window:x", query_duration_ms=1)
+
+    assert len(outcome.groups) == MAX_INSTANCES_CEILING
+    assert payload_bytes(outcome) < MAX_BATCH_PAYLOAD_BYTES
+
+
+@pytest.mark.parametrize(
+    "kinds, incident_keys, failure, expected",
+    [
+        ((AlertEventKind.FIRING,), (), None, 1),
+        ((AlertEventKind.FIRING,) * (MAX_TRANSITIONS_PER_DELIVERY + 1), (), None, 2),
+        ((AlertEventKind.CHECK,) * (MAX_TRANSITIONS_PER_DELIVERY * 3), (), None, 1),
+        ((AlertEventKind.CHECK,) * (MAX_TRANSITIONS_PER_DELIVERY + 1), ("0", "1", "2", "3", "4", "5"), None, 2),
+        ((), (), CheckFailure(kind=AlertEventKind.ERRORED, new_state="errored", notified=True), 1),
+    ],
+)
+def test_an_outcome_splits_its_delivery_by_the_transitions_it_announces(
+    kinds: tuple[AlertEventKind, ...], incident_keys: tuple[str, ...], failure: CheckFailure | None, expected: int
+) -> None:
+    outcome = PlatformAlertOutcome(
+        configuration_id=uuid4(),
+        evaluation_key="window:x",
+        consecutive_failures=0,
+        groups=tuple(
+            GroupOutcome(grouping_key=str(index), kind=kind, new_state="firing", notified=True)
+            for index, kind in enumerate(kinds)
+        ),
+        failure=failure,
+    )
+
+    assert delivery_parts(outcome, incident_keys) == expected

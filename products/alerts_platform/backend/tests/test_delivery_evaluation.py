@@ -91,6 +91,8 @@ def _request(
     incident_actions: dict[str, IncidentAction] | None = None,
     owned_by_platform: bool = False,
     overflowed: int = 0,
+    parts: int = 1,
+    part: int = 0,
 ) -> AlertDeliveryRequest:
     return AlertDeliveryRequest(
         source=SourceKind.LOGS,
@@ -104,6 +106,8 @@ def _request(
         event_ids_by_incident_action={"trigger": OPENED_EVENT, "resolve": CLOSED_EVENT},
         owned_by_platform=owned_by_platform,
         overflowed=overflowed,
+        parts=parts,
+        part=part,
     )
 
 
@@ -150,6 +154,8 @@ class TestDeliverEvaluation(APIBaseTest):
         incident_actions: dict[str, IncidentAction] | None = None,
         owned_by_platform: bool = False,
         overflowed: int = 0,
+        parts: int = 1,
+        part: int = 0,
     ) -> Any:
         def groups(*, team_id: int, alert_id: str, allowed_event_ids: list[str]) -> list[AlertDestinationGroup]:
             return by_event.get(allowed_event_ids[0], [])
@@ -178,6 +184,8 @@ class TestDeliverEvaluation(APIBaseTest):
                     incident_actions=incident_actions,
                     owned_by_platform=owned_by_platform,
                     overflowed=overflowed,
+                    parts=parts,
+                    part=part,
                 )
             )
 
@@ -214,6 +222,19 @@ class TestDeliverEvaluation(APIBaseTest):
             detail for _, m in RecordingTransport.sends for detail in m.details if detail.label == "Untracked groups"
         ]
         assert len(overflow_notices) == 1
+
+    def test_the_parts_of_a_split_delivery_send_each_transition_once(self) -> None:
+        keys = [f"service-{index}" for index in range(7)]
+        announced = _announcement(*(_transition(AlertEventKind.FIRING, key) for key in reversed(keys)))
+
+        sent_by_part: list[list[str]] = []
+        for part in range(3):
+            RecordingTransport.sends = []
+            self._run(announced, {FIRING_EVENT: [_group(SLACK)]}, parts=3, part=part)
+            sent_by_part.append([message.transition.grouping_key for _, message in RecordingTransport.sends])
+
+        assert sorted(key for sent in sent_by_part for key in sent) == keys
+        assert [len(sent) for sent in sent_by_part] == [3, 2, 2]
 
     def test_a_delivery_that_exists_only_for_its_incident_sends_no_message(self) -> None:
         # Even a kind its destinations subscribe to reaches none of them when the source announced nothing.

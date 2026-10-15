@@ -173,6 +173,8 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     )
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
+    if request.parts > 1:
+        announced = replace(announced, transitions=_this_part(request, announced.transitions))
 
     thread_store = DatabaseThreadStore(request.team_id)
     sent = 0
@@ -249,6 +251,18 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     if failures:
         raise DeliveryError(f"{len(failures)} destination(s) failed: " + "; ".join(failures)) from first_refusal
     return DeliveryOutcome(live=True, sent=sent, skipped_without_transport=skipped)
+
+
+def _this_part(
+    request: AlertDeliveryRequest, transitions: tuple[AnnouncedTransition, ...]
+) -> tuple[AnnouncedTransition, ...]:
+    """The transitions this part of a split delivery sends.
+
+    Every part reads the same recorded rows, so ordering them by key and dealing them out by
+    position gives each transition to exactly one part, whatever the count the source estimated.
+    """
+    ordered = sorted(transitions, key=lambda transition: transition.grouping_key)
+    return tuple(ordered[request.part :: request.parts])
 
 
 def _by_subscription(

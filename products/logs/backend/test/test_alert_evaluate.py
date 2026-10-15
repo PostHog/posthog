@@ -242,20 +242,28 @@ class TestLogsAlertEvaluation(APIBaseTest):
             assert platform_testing.alert_for(configuration.id) is None
         assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
 
-    def test_a_delivery_the_batch_cannot_carry_leaves_its_alert_due(self) -> None:
+    @parameterized.expand(
+        [
+            # A firing alert does not fire again, so recording the second outcome would retire its
+            # breach with no delivery to announce it.
+            ("over_the_delivery_cap", "MAX_DELIVERIES_PER_CYCLE", 1, 500, 1, 1),
+            # A quiet check announces nothing and still costs bytes, so the budget counts it too.
+            ("over_the_byte_budget", "MAX_BATCH_PAYLOAD_BYTES", 1, 0, 0, 2),
+        ]
+    )
+    def test_a_check_the_batch_cannot_carry_leaves_its_alert_due(
+        self, _name: str, bound: str, limit: int, count: int, delivered: int, omitted: int
+    ) -> None:
         configurations = [self._configuration(), self._configuration()]
 
-        with patch(f"{_MODULE}.MAX_DELIVERIES_PER_CYCLE", 1):
-            evaluation, _ = self._run(*configurations)
+        with patch(f"{_MODULE}.{bound}", limit):
+            evaluation, _ = self._run(*configurations, count=count)
         self._record(evaluation)
 
-        # A firing alert does not fire again, so recording the second outcome would retire its
-        # breach with no delivery to announce it.
-        assert len(evaluation.deliveries) == 1
-        assert evaluation.omitted == 1
+        assert (len(evaluation.deliveries), evaluation.omitted) == (delivered, omitted)
         with team_scope(self.team.id):
             still_due = platform_testing.count_still_due([c.id for c in configurations], at=self.cutoff)
-        assert still_due == 1
+        assert still_due == omitted
 
     def test_two_scheduled_checks_clamped_to_one_window_keep_distinct_keys(self) -> None:
         # `resolve_alert_date_to` clamps the window end to the ingestion checkpoint, so a

@@ -114,6 +114,9 @@ class OnOverflow(StrEnum):
 
 
 DEFAULT_MAX_INSTANCES: Final = 100
+# One check's outcome carries a group per instance, and it crosses Temporal whole, so
+# `MAX_BATCH_PAYLOAD_BYTES` is sized to hold this many groups with their keys and labels at full length.
+MAX_INSTANCES_CEILING: Final = 100
 
 
 @frozen
@@ -139,6 +142,8 @@ class Grouping:
             raise ValueError("a grouping names each key once")
         if self.max_instances < 1:
             raise ValueError("max_instances must be at least 1")
+        if self.max_instances > MAX_INSTANCES_CEILING:
+            raise ValueError(f"max_instances must be at most {MAX_INSTANCES_CEILING}")
 
     @classmethod
     def from_stored(cls, stored: Mapping[str, Any]) -> Grouping:
@@ -620,6 +625,9 @@ class AlertDeliveryRequest:
     source_alert_url: str | None = None
     owned_by_platform: bool = False
     overflowed: int = 0
+    # Which of `parts` delivery workflows this is, when `MAX_TRANSITIONS_PER_DELIVERY` splits an evaluation.
+    parts: int = 1
+    part: int = 0
 
 
 @frozen

@@ -5,8 +5,10 @@ every source, so it lives here once: run the machine per group, leave out a new 
 nothing, put firing groups first, and admit what `max_instances` has room for.
 """
 
+import json
+import math
 import hashlib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import field
 from datetime import datetime
 from typing import Final
@@ -15,6 +17,7 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.contracts import (
+    AlertEventKind,
     GroupOutcome,
     InstanceCheckState,
     PlatformAlertCheckInput,
@@ -48,6 +51,61 @@ def bounded_grouping_key(key: str) -> str:
 def is_hashed_grouping_key(key: str) -> bool:
     """Whether `bounded_grouping_key` hashed this key, so the value it came from is gone."""
     return key.startswith(_HASHED_PREFIX)
+
+
+# A label value can come from ingested data, such as a service name, so its size is the sender's
+# choice. Every group's labels cross Temporal on the outcome, and a cap on the count and on each
+# encoded size keeps a check's outcome inside `MAX_BATCH_PAYLOAD_BYTES` at `MAX_INSTANCES_CEILING`.
+MAX_GROUP_LABELS: Final = 4
+# In bytes of the JSON a payload carries, where a non-ASCII character is escaped to up to 12 bytes.
+MAX_LABEL_BYTES: Final = 256
+_TRUNCATED: Final = "…"
+
+
+def _bounded_label(value: str) -> str:
+    if _encoded_length(value) <= MAX_LABEL_BYTES:
+        return value
+    budget = MAX_LABEL_BYTES - _encoded_length(_TRUNCATED)
+    kept: list[str] = []
+    for char in value:
+        budget -= _encoded_length(char)
+        if budget < 0:
+            break
+        kept.append(char)
+    return "".join(kept) + _TRUNCATED
+
+
+def _encoded_length(value: str) -> int:
+    return len(json.dumps(value)) - 2
+
+
+def bounded_labels(labels: dict[str, str]) -> dict[str, str]:
+    """The labels a group may carry: the first `MAX_GROUP_LABELS`, each name and value cut to size.
+
+    Display only. The grouping key is derived from the full values, so a cut label never merges two groups.
+    """
+    return {_bounded_label(name): _bounded_label(value) for name, value in list(labels.items())[:MAX_GROUP_LABELS]}
+
+
+# One delivery activity sends every message it holds, to every destination, inside its timeout. An
+# evaluation with more transitions than this is split into parts that each retry on their own.
+MAX_TRANSITIONS_PER_DELIVERY: Final = 5
+
+
+def delivery_parts(outcome: PlatformAlertOutcome, incident_grouping_keys: Collection[str] = ()) -> int:
+    """How many delivery workflows an outcome's transitions need.
+
+    Counts the rows the delivery reads back: every group that announced, every group whose firing
+    opened or closed, and a failure.
+    """
+    transitions = sum(
+        1
+        for group in outcome.groups
+        if group.kind != AlertEventKind.CHECK or group.grouping_key in incident_grouping_keys
+    )
+    if outcome.failure is not None and outcome.failure.kind != AlertEventKind.CHECK:
+        transitions += 1
+    return max(1, math.ceil(transitions / MAX_TRANSITIONS_PER_DELIVERY))
 
 
 @frozen
@@ -160,7 +218,7 @@ def decide_groups(
                 notified=outcome.update_last_notified_at,
                 firing_episode=decide_firing_episode(snapshot, outcome, now, policy=policy),
                 value=observation.value,
-                labels=observation.labels,
+                labels=bounded_labels(observation.labels),
                 muted_notification=muted_value(outcome),
             ),
         )
