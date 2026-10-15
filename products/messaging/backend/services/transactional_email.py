@@ -6,6 +6,8 @@ from uuid import UUID
 
 from django.db import transaction
 
+from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
+
 from products.messaging.backend.facade.contracts import MarketingTemplate, SenderUnavailable, TemplateNotSendable
 from products.messaging.backend.models import MessageCategory, MessageTemplate
 from products.messaging.backend.models.message_category import MessageCategoryType
@@ -104,6 +106,9 @@ def check_transactional_update(template_id: UUID, team_id: int, fields: dict[str
     template = MessageTemplate.objects.get(team_id=team_id, id=template_id)
     if not template.transactional_hog_flow_id or fields.get("deleted"):
         return
+    # A link to a deleted workflow no longer restricts the template. The sync after the update clears it.
+    if not _workflow_exists(team_id, template.transactional_hog_flow_id):
+        return
     check_sendable(
         team_id,
         template_type=fields.get("type", template.type),
@@ -117,13 +122,17 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
     template = MessageTemplate.objects.get(team_id=team_id, id=template_id)
     if not template.transactional_hog_flow_id or template.deleted:
         return
+    hog_flow_id = template.transactional_hog_flow_id
     try:
         update_transactional_email_workflow(
             team_id=team_id,
             user_id=user_id,
-            hog_flow_id=template.transactional_hog_flow_id,
+            hog_flow_id=hog_flow_id,
             content=_content(template, from_integration_id=None),
         )
+        # The save already told the workers to reload, but before the caller's transaction committed, so a
+        # worker can cache the old version. This reload runs once the new version is visible.
+        transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[str(hog_flow_id)]))
     except WorkflowNotFound:
         # Someone deleted the workflow. The template stops being transactional and can be made so again.
         MessageTemplate.objects.filter(team_id=team_id, id=template_id).update(transactional_hog_flow_id=None)
