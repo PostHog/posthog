@@ -1,7 +1,18 @@
 {
-    "name": "Python runtime",
-    "description": "CPU, memory, threads and garbage collection of Python services that send PostHog Python SDK runtime metrics.",
+    "name": "Process metrics",
+    "description": "CPU, memory, threads and context switches of services that send OpenTelemetry process metrics, with a section for each language runtime.",
     "panels": [
+        {
+            "key": "right_now",
+            "title": "",
+            "text": "## Right now\nCPU, memory and threads across all services.",
+            "layout": {
+                "x": 0,
+                "y": 0,
+                "w": 12,
+                "h": 2
+            }
+        },
         {
             "key": "cpu_now",
             "title": "CPU cores used",
@@ -25,8 +36,8 @@
             },
             "layout": {
                 "x": 0,
-                "y": 0,
-                "w": 3,
+                "y": 2,
+                "w": 4,
                 "h": 2
             }
         },
@@ -52,9 +63,9 @@
                 }
             },
             "layout": {
-                "x": 3,
-                "y": 0,
-                "w": 3,
+                "x": 4,
+                "y": 2,
+                "w": 4,
                 "h": 2
             }
         },
@@ -79,47 +90,20 @@
                 }
             },
             "layout": {
-                "x": 6,
-                "y": 0,
-                "w": 3,
+                "x": 8,
+                "y": 2,
+                "w": 4,
                 "h": 2
             }
         },
         {
-            "key": "uncollectable_now",
-            "title": "Uncollectable objects",
-            "description": "Objects the garbage collector found but could not free. Anything above zero points to a leak.",
-            "query": {
-                "kind": "MetricsQuery",
-                "clauses": [
-                    {
-                        "name": "a",
-                        "metricName": "cpython.gc.uncollectable_objects",
-                        "aggregation": "increase"
-                    }
-                ],
-                "display": {
-                    "type": "stat",
-                    "reduce": "last",
-                    "thresholds": [
-                        {
-                            "color": "success",
-                            "value": 0
-                        },
-                        {
-                            "color": "danger",
-                            "value": 1
-                        }
-                    ]
-                },
-                "dateRange": {
-                    "date_from": "-1h"
-                }
-            },
+            "key": "which_service",
+            "title": "",
+            "text": "## Which service?\nThe CPU, memory and threads each service and instance uses.",
             "layout": {
-                "x": 9,
-                "y": 0,
-                "w": 3,
+                "x": 0,
+                "y": 4,
+                "w": 12,
                 "h": 2
             }
         },
@@ -155,7 +139,7 @@
             },
             "layout": {
                 "x": 0,
-                "y": 2,
+                "y": 6,
                 "w": 6,
                 "h": 4
             }
@@ -193,51 +177,14 @@
             },
             "layout": {
                 "x": 6,
-                "y": 2,
-                "w": 6,
-                "h": 4
-            }
-        },
-        {
-            "key": "cpu_percent_by_process",
-            "title": "CPU percent by process",
-            "description": "100% is one fully busy core, so a process on several cores goes above 100%.",
-            "query": {
-                "kind": "MetricsQuery",
-                "clauses": [
-                    {
-                        "name": "a",
-                        "metricName": "app.process.cpu.percent",
-                        "aggregation": "avg",
-                        "groupBy": [
-                            {
-                                "key": "service_name"
-                            },
-                            {
-                                "key": "process.runtime_id"
-                            }
-                        ]
-                    }
-                ],
-                "display": {
-                    "type": "line",
-                    "unit": "%",
-                    "legendCalcs": ["mean", "max"]
-                },
-                "dateRange": {
-                    "date_from": "-1h"
-                }
-            },
-            "layout": {
-                "x": 0,
                 "y": 6,
                 "w": 6,
                 "h": 4
             }
         },
         {
-            "key": "memory_by_process",
-            "title": "Resident memory by process",
+            "key": "memory_by_instance",
+            "title": "Resident memory by instance",
             "query": {
                 "kind": "MetricsQuery",
                 "clauses": [
@@ -250,7 +197,7 @@
                                 "key": "service_name"
                             },
                             {
-                                "key": "process.runtime_id"
+                                "key": "service.instance.id"
                             }
                         ]
                     }
@@ -265,8 +212,8 @@
                 }
             },
             "layout": {
-                "x": 6,
-                "y": 6,
+                "x": 0,
+                "y": 10,
                 "w": 6,
                 "h": 4
             }
@@ -300,16 +247,16 @@
                 }
             },
             "layout": {
-                "x": 0,
+                "x": 6,
                 "y": 10,
                 "w": 6,
                 "h": 4
             }
         },
         {
-            "key": "threads_by_process",
-            "title": "Threads by process",
-            "description": "Native threads, including threads that C extensions start.",
+            "key": "threads_by_instance",
+            "title": "Threads by instance",
+            "description": "Native threads, including threads that native extensions start.",
             "query": {
                 "kind": "MetricsQuery",
                 "clauses": [
@@ -322,7 +269,7 @@
                                 "key": "service_name"
                             },
                             {
-                                "key": "process.runtime_id"
+                                "key": "service.instance.id"
                             }
                         ]
                     }
@@ -336,29 +283,29 @@
                 }
             },
             "layout": {
-                "x": 6,
-                "y": 10,
+                "x": 0,
+                "y": 14,
                 "w": 6,
                 "h": 4
             }
         },
         {
-            "key": "context_switches_by_process",
-            "title": "Context switches by process",
-            "description": "How often each process was switched off the CPU. Voluntary and involuntary switches are combined.",
+            "key": "context_switches_by_service",
+            "title": "Context switches by service",
+            "description": "How often each service was switched off the CPU. Involuntary switches mean it was waiting for a CPU.",
             "query": {
                 "kind": "MetricsQuery",
                 "clauses": [
                     {
                         "name": "a",
-                        "metricName": "app.process.cpu.ctx_switch.total",
+                        "metricName": "process.context_switches",
                         "aggregation": "rate",
                         "groupBy": [
                             {
                                 "key": "service_name"
                             },
                             {
-                                "key": "process.runtime_id"
+                                "key": "process.context_switch.type"
                             }
                         ]
                     }
@@ -372,14 +319,25 @@
                 }
             },
             "layout": {
-                "x": 0,
+                "x": 6,
                 "y": 14,
                 "w": 6,
                 "h": 4
             }
         },
         {
-            "key": "gc_collections",
+            "key": "python",
+            "title": "",
+            "text": "## Python\nGarbage collection of CPython services. Delete this section if you don't run Python.",
+            "layout": {
+                "x": 0,
+                "y": 18,
+                "w": 12,
+                "h": 2
+            }
+        },
+        {
+            "key": "python_gc_collections",
             "title": "GC collections by generation",
             "description": "Garbage collections each second. A rise in generation 2 often means memory is growing.",
             "query": {
@@ -405,14 +363,14 @@
                 }
             },
             "layout": {
-                "x": 6,
-                "y": 14,
+                "x": 0,
+                "y": 20,
                 "w": 6,
                 "h": 4
             }
         },
         {
-            "key": "gc_collected",
+            "key": "python_gc_collected",
             "title": "GC collected objects by generation",
             "description": "Objects the garbage collector frees each second. This is GC activity, not heap size.",
             "query": {
@@ -438,15 +396,16 @@
                 }
             },
             "layout": {
-                "x": 0,
-                "y": 18,
+                "x": 6,
+                "y": 20,
                 "w": 6,
                 "h": 4
             }
         },
         {
-            "key": "gc_uncollectable",
+            "key": "python_gc_uncollectable",
             "title": "Uncollectable objects by service",
+            "description": "Objects the garbage collector found but could not free. Any steady rise is a leak.",
             "query": {
                 "kind": "MetricsQuery",
                 "clauses": [
@@ -470,9 +429,9 @@
                 }
             },
             "layout": {
-                "x": 6,
-                "y": 18,
-                "w": 6,
+                "x": 0,
+                "y": 24,
+                "w": 12,
                 "h": 4
             }
         }
