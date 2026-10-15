@@ -9,9 +9,11 @@ import type { StartPick } from "../chats";
 import { currentRepository, type PiChats } from "../chats";
 import { runClaudeSetupToken } from "../claudeSetup";
 import { dividerGlyphs } from "../dividers";
+import { useAccount } from "../hooks/useAccount";
 import { useChatPlace } from "../hooks/useChatPlace";
 import { useKeys } from "../hooks/useKeys";
 import { useLocalChats } from "../hooks/useLocalChats";
+import { useMcpSheet } from "../hooks/useMcpSheet";
 import { useModels } from "../hooks/useModels";
 import { noticeIn, useNotice } from "../hooks/useNotice";
 import { usePaneViews } from "../hooks/usePaneViews";
@@ -297,27 +299,41 @@ export function App({
     flashNotice,
   });
 
-  const {
-    onSubmit,
-    pending,
-    reopening,
-    undelivered,
-    delivered,
-    welcome,
-    welcomeStep,
-  } = useSend({
+  const account = useAccount({
+    layout,
+    setLayout,
+    signedIn: chats !== undefined,
+    placeFor,
+    openModal,
+    closeModal,
+    notice,
+    login,
+    logout,
+    onSignOut: () => {
+      resetWork();
+      setFresh(new Map());
+    },
+    runSetup,
+    codexCloud: session?.codexCloud,
+  });
+  const { welcome, welcomeStep } = account;
+  const mcpSheet = useMcpSheet({
+    layout,
+    openModal,
+    closeModal,
+    notice,
+    mcp: session?.mcp,
+  });
+  const { onSubmit, pending, reopening, undelivered, delivered } = useSend({
     layout,
     setLayout,
     setFresh,
     chats,
     taskOf,
-    resetWork,
     local: { isLocal, localFor, clear: clearLocal, markActive },
     places: { placeFor, setPlace },
     composerFor,
     modalFor,
-    openModal,
-    closeModal,
     openModelSheet,
     openEffortSheet,
     openModeSheet,
@@ -331,11 +347,8 @@ export function App({
     setTitles,
     runShell,
     notice,
-    login,
-    logout,
-    runSetup,
-    codexCloud: session?.codexCloud,
-    mcp: session?.mcp,
+    account,
+    mcpSheet,
   });
   // Chats with a message on its way; a new chat's message waits on its pane until the chat has a task.
   const pendingTaskIds = useMemo(

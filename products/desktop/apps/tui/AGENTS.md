@@ -72,7 +72,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `errors.ts`, `components/ErrorBoundary.tsx` | `messageOf` for notices, `LOG_PATH` and `logError`; the boundary that shows a render error in place of the app instead of ending the process |
 | `analytics.ts` | Events and exceptions to the desktop app's PostHog project, tagged `app: "tui"` and the process's `$session_id`, never with message text: `track` for a feature's use, `notice shown` for every notice the user saw, and `logError` for exceptions. The key is `VITE_POSTHOG_API_KEY` or the desktop workspace's `.env`; without one, and in tests, nothing is sent |
 | `components/App.tsx`, `components/PaneTree.tsx` | Wiring the hooks together, and drawing the sidebar and the split panes |
-| `hooks/` | App state, one hook per concern: notices (a chat's notice wraps, right-aligned, in a row kept above its composer, and falls back to the sidebar while no pane shows the chat; app-wide ones stay in the sidebar), work list, local chats, pane views, sheets, models, `!` commands, sending, sidebar, search, turns, keys, pointer, terminal input |
+| `hooks/` | App state, one hook per concern: sending (`useSend`: the composer's submit, slash commands, pending messages and failed deliveries), the account (`useAccount`: sign-in, who pays, each plan's login sheet, the first run's welcome, sign-out), `/mcp` (`useMcpSheet`), notices (a chat's notice wraps, right-aligned, in a row kept above its composer, and falls back to the sidebar while no pane shows the chat; app-wide ones stay in the sidebar), work list, local chats, pane views, sheets, models, `!` commands, sending, sidebar, search, turns, keys, pointer, terminal input |
 
 ## Things that bit us
 
