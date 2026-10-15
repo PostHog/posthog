@@ -114,9 +114,11 @@ describe('dashboardLogic', () => {
      *             i666    i999
      */
     let dashboards: Record<number, DashboardType> = {}
+    let cancelledRequests: unknown[] = []
 
     beforeEach(() => {
         jest.spyOn(api, 'update')
+        cancelledRequests = []
 
         const insights: Record<number, InsightModel> = {
             172: {
@@ -254,7 +256,10 @@ describe('dashboardLogic', () => {
                 },
             },
             post: {
-                '/api/environments/:team_id/insights/cancel/': [201],
+                '/api/environments/:team_id/insights/cancel/': async ({ request, params }) => {
+                    cancelledRequests.push({ teamId: params.team_id, body: await request.json() })
+                    return [201]
+                },
             },
             patch: {
                 '/api/environments/:team_id/dashboards/:id/': async ({ request, params }) => {
@@ -2974,6 +2979,53 @@ describe('dashboardLogic', () => {
         })
     })
 
+    it('links tile requests to their own dashboard load or refresh', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        const requests = jest.spyOn(api, 'getResponse')
+        logic = dashboardLogic({ id: 5 })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const loadId = logic.values.dashboardLoadData.dashboardQueryId
+        const tileEvents = (): Record<string, any>[] =>
+            capture.mock.calls.filter(([event]) => event === 'dashboard insight refreshed').map(([, props]) => props!)
+        const requestIds = (): string[] =>
+            requests.mock.calls
+                .map(([url]) => new URL(url, 'https://example.com'))
+                .filter((url) => /insights\/\d+\//.test(url.pathname))
+                .map((url) => url.searchParams.get('client_query_id')!)
+
+        expect(tileEvents()).toHaveLength(2)
+        expect(new Set(tileEvents().map((props) => props.primary_interaction_id))).toEqual(new Set([loadId]))
+        expect(new Set(tileEvents().map((props) => props.client_query_id))).toEqual(new Set(requestIds()))
+        expect(new Set(requestIds()).size).toBe(2)
+
+        capture.mockClear()
+        requests.mockClear()
+        await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
+        const refresh = capture.mock.calls.find(([event]) => event === 'dashboard refreshed')![1]!
+        expect(refresh.primary_interaction_id).not.toBe(loadId)
+        expect(new Set(tileEvents().map((props) => props.primary_interaction_id))).toEqual(
+            new Set([refresh.primary_interaction_id])
+        )
+        expect(new Set(tileEvents().map((props) => props.client_query_id))).toEqual(new Set(requestIds()))
+
+        capture.mockClear()
+        requests.mockClear()
+        await expectLogic(logic, () =>
+            logic.actions.refreshDashboardItem({ tile: logic.values.insightTiles[0] })
+        ).toFinishAllListeners()
+        expect(tileEvents()).toHaveLength(1)
+        expect(tileEvents()[0]).toMatchObject({
+            tile_id: logic.values.insightTiles[0].id,
+            client_query_id: requestIds()[0],
+            primary_interaction_id: requestIds()[0],
+            individual_refresh: true,
+        })
+        expect(tileEvents()[0].primary_interaction_id).not.toBe(refresh.primary_interaction_id)
+        expect(tileEvents()[0].primary_interaction_id).not.toBe(loadId)
+    })
+
     describe('when a dashboard item API errors', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 8 })
@@ -3301,7 +3353,7 @@ describe('dashboardLogic', () => {
                             return realGetInsightWithRetry(...args)
                         }
                     )
-                const cancelQuerySpy = jest.spyOn(api.insights, 'cancelQuery').mockResolvedValue(undefined as any)
+                const capture = jest.spyOn(posthog, 'capture').mockImplementation()
 
                 const poll = async (cond: () => boolean, message: string): Promise<void> => {
                     const deadline = Date.now() + 5000
@@ -3330,7 +3382,12 @@ describe('dashboardLogic', () => {
                     // selector derived Y from the live map, so it collapsed as the map shrank — and only the
                     // aborted tile leaves the status map, so the sibling still in flight keeps being counted
                     // (a whole-map wipe would drop it and overstate X as "done").
-                    logic.actions.abortQuery({ queryId: 'q1', queryStartTime: 0, shortId: insight1.short_id })
+                    logic.actions.abortQuery({
+                        clientQueryId: 'q1',
+                        queryStartTime: 0,
+                        shortId: insight1.short_id,
+                        dashboardInteractionId: 'original-batch',
+                    })
                     expect(logic.values.refreshStatus).not.toHaveProperty(insight1.short_id)
                     expect(logic.values.refreshStatus[insight2.short_id]?.loading).toBe(true)
                     expect(logic.values.refreshMetrics).toEqual({ completed: 1, total: 2 })
@@ -3338,10 +3395,20 @@ describe('dashboardLogic', () => {
                     gates[insight1.short_id].release()
                     gates[insight2.short_id].release()
                     await refreshDone
+                    expect(cancelledRequests).toEqual([
+                        { teamId: String(MOCK_TEAM_ID), body: { client_query_id: 'q1' } },
+                    ])
+                    expect(capture).toHaveBeenCalledWith(
+                        'time to see data',
+                        expect.objectContaining({
+                            status: 'cancelled',
+                            query_id: 'q1',
+                            primary_interaction_id: 'original-batch',
+                        })
+                    )
                 } finally {
                     Object.values(gates).forEach(({ release }) => release())
                     getInsightWithRetrySpy.mockRestore()
-                    cancelQuerySpy.mockRestore()
                 }
             })
 

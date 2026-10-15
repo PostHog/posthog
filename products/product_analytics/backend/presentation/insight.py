@@ -1616,6 +1616,10 @@ class InsightViewedRequestSerializer(serializers.Serializer):
     )
 
 
+class InsightQueryCancelRequestSerializer(serializers.Serializer):
+    client_query_id = serializers.CharField(help_text="Client request ID of the running insight query to cancel.")
+
+
 INSIGHT_BULK_DELETE_MAX_IDS = 1000
 
 
@@ -2770,6 +2774,7 @@ When set, the specified dashboard's filters and date range override will be appl
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
+    @extend_schema(request=InsightQueryCancelRequestSerializer, responses={201: None})
     @action(methods=["POST"], detail=False)
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="CANCEL")
     def cancel(self, request: request.Request, **kwargs):

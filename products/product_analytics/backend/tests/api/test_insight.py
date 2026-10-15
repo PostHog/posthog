@@ -3231,6 +3231,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"client_query_id": f"testid"},
         )
         self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.content, b"")
 
     def assert_insight_activity(self, insight_id: Optional[int], expected: list[dict]):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)

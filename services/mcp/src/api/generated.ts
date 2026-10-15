@@ -59792,6 +59792,11 @@ export namespace Schemas {
       legacy: number;
     }
 
+    export interface InsightQueryCancelRequest {
+      /** Client request ID of the running insight query to cancel. */
+      client_query_id: string;
+    }
+
     /**
      * * `trends` - trends
      * * `funnel` - funnel
