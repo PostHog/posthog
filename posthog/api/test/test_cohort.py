@@ -28,6 +28,7 @@ from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
 from posthog.api.cohort import COHORT_USED_IN_PAGE_SIZE, CohortFilters
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
@@ -46,6 +47,7 @@ from posthog.tasks.calculate_cohort import (
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort, CohortType
@@ -7046,7 +7048,11 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)  # Should remain unchanged
         self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
 
+    def _roll_out_cohort_conditions(self, enabled: bool = True) -> None:
+        self.enterContext(patch("posthog.api.cohort.cohort_conditions_rolled_out", return_value=enabled))
+
     def _create_realtime_cohort(self) -> int:
+        self._roll_out_cohort_conditions()
         filters = {
             "properties": {
                 "type": "AND",
@@ -7060,14 +7066,16 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert response.data["cohort_type"] == CohortType.REALTIME
         return response.data["id"]
 
-    def _create_workflow_using_cohort(self, cohort_id: int, usage: str, status: str) -> None:
+    def _create_workflow_using_cohort(self, cohort_id: int, usage: str, status: str) -> str:
         if usage == "trigger":
             action = {"id": "trigger_node", "type": "trigger", "config": {"type": "cohort", "cohort_id": cohort_id}}
         else:
             filter_type = "precalculated-cohort" if usage == "branch_precalculated" else "cohort"
             condition = {"filters": {"properties": [{"key": "id", "type": filter_type, "value": cohort_id}]}}
             action = {"id": "branch", "type": "conditional_branch", "config": {"conditions": [condition]}}
-        create_workflow_for_test(team_id=self.team.id, name=f"Workflow {usage}", status=status, actions=[action])
+        return create_workflow_for_test(
+            team_id=self.team.id, name=f"Workflow {usage}", status=status, actions=[action]
+        ).id
 
     @parameterized.expand(
         [
@@ -7075,11 +7083,15 @@ class TestCohortTypeIntegration(APIBaseTest):
             ("active_branch", "branch", "active", 400),
             ("active_branch_precalculated", "branch_precalculated", "active", 400),
             ("draft_trigger", "trigger", "draft", 200),
+            ("active_trigger_flag_off", "trigger", "active", 200, False),
         ]
     )
-    def test_delete_cohort_is_blocked_by_active_workflows_using_it(self, _name, usage, workflow_status, expected):
+    def test_delete_cohort_is_blocked_by_active_workflows_using_it(
+        self, _name, usage, workflow_status, expected, rolled_out=True
+    ):
         cohort_id = self._create_realtime_cohort()
         self._create_workflow_using_cohort(cohort_id, usage, workflow_status)
+        self._roll_out_cohort_conditions(rolled_out)
 
         response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", {"deleted": True})
 
@@ -7106,6 +7118,28 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "used in 1 active workflow(s)" in response.json()["detail"]
         assert ("Workflow trigger" in response.json()["detail"]) == names_shown
+
+    def test_blocked_delete_hides_names_of_workflows_the_member_cannot_view(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        cohort_id = self._create_realtime_cohort()
+        hidden_id = self._create_workflow_using_cohort(cohort_id, "trigger", "active")
+        self._create_workflow_using_cohort(cohort_id, "branch", "active")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=hidden_id,
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", {"deleted": True})
+
+        assert response.status_code == 400, response.json()
+        assert "used in 2 active workflow(s): Workflow branch and 1 more." in response.json()["detail"]
+        assert "Workflow trigger" not in response.json()["detail"]
 
     def test_edit_that_stops_realtime_is_blocked_by_active_workflows_using_it(self):
         cohort_id = self._create_realtime_cohort()

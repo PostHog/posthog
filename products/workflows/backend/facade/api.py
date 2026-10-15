@@ -6,6 +6,7 @@ from django.db.models import F
 
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
+from posthog.ph_client import feature_enabled_or_false
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
@@ -220,6 +221,24 @@ def get_active_workflows_using_integration(*, team_id: int, integration_id: int)
         WorkflowSummary(id=str(flow.id), name=flow.name or "", status=flow.status)
         for flow in get_active_hog_flows_using_integration(team_id=team_id, integration_id=integration_id)
     ]
+
+
+WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
+
+
+def cohort_conditions_rolled_out(*, distinct_id: str, organization_id: str) -> bool:
+    """Whether the organization can use realtime cohorts in workflow triggers and branches."""
+    try:
+        return feature_enabled_or_false(
+            WORKFLOWS_COHORT_CONDITIONS_FLAG,
+            distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return False
 
 
 def get_active_workflows_using_realtime_cohort(*, team_id: int, cohort_id: int) -> list[WorkflowSummary]:

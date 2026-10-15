@@ -87,6 +87,7 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
 from posthog.utils import format_query_params_absolute_url, str_to_bool
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cdp.backend.filters import build_behavioral_event_expr
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import (
@@ -123,15 +124,43 @@ from products.feature_flags.backend.models.team_feature_flags_config import (
 )
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.product_analytics.backend.facade.models import Insight
-from products.workflows.backend.facade.api import get_active_workflows_using_realtime_cohort
+from products.workflows.backend.facade.api import (
+    cohort_conditions_rolled_out,
+    filter_hog_flow_references_by_access_level,
+    get_active_workflows_using_realtime_cohort,
+)
+from products.workflows.backend.facade.contracts import HogFlowReference, WorkflowSummary
 
 
-def _workflow_names_suffix(request: Request, workflow_names: list[str]) -> str:
-    # A token without workflow read access learns how many workflows block the change, not their names.
+def _workflows_relying_on_cohort(request: Request, cohort: Cohort) -> list[WorkflowSummary]:
+    # Workflows can only depend on a realtime cohort behind this flag, so without it there is nothing to lock.
+    distinct_id = getattr(request.user, "distinct_id", None)
+    if not distinct_id or not cohort_conditions_rolled_out(
+        distinct_id=str(distinct_id), organization_id=str(cohort.team.organization_id)
+    ):
+        return []
+    return get_active_workflows_using_realtime_cohort(team_id=cohort.team_id, cohort_id=cohort.id)
+
+
+def _workflow_names_suffix(
+    request: Request, user_access_control: Optional[UserAccessControl], team_id: int, workflows: list[WorkflowSummary]
+) -> str:
+    # The caller sees the names of the workflows it can view. The count always covers all of them.
     scopes = get_authenticator_scopes(request.successful_authenticator)
-    if scopes is not None and not {"*", "hog_flow:read", "hog_flow:write"} & set(scopes):
+    if user_access_control is None or (
+        scopes is not None and not {"*", "hog_flow:read", "hog_flow:write"} & set(scopes)
+    ):
         return ""
-    return f": {', '.join(workflow_names)}"
+    references = [
+        HogFlowReference(id=workflow.id, name=workflow.name, status=workflow.status) for workflow in workflows
+    ]
+    visible = filter_hog_flow_references_by_access_level(team_id, {"blocking": references}, user_access_control).get(
+        "blocking", []
+    )
+    if not visible:
+        return ""
+    hidden = len(workflows) - len(visible)
+    return f": {', '.join(reference.name for reference in visible)}" + (f" and {hidden} more" if hidden else "")
 
 
 class CohortPersonsResponseSerializer(serializers.Serializer):
@@ -1503,6 +1532,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     code="behavioral_cohort_found",
                 )
 
+    def _user_access_control(self) -> Optional[UserAccessControl]:
+        return getattr(self.context.get("view"), "user_access_control", None)
+
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         existing_has_criteria = cohort_filters_have_values(cohort.filters)
@@ -1543,11 +1575,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # A cohort that stops being realtime stops emitting membership changes, so its workflows would
         # never trigger and their branches would read frozen membership, with no error anywhere.
         if was_realtime and (cohort.is_static or cohort.cohort_type != CohortType.REALTIME):
-            workflows_relying_on_realtime = get_active_workflows_using_realtime_cohort(
-                team_id=cohort.team_id, cohort_id=cohort.id
-            )
+            workflows_relying_on_realtime = _workflows_relying_on_cohort(request, cohort)
             if workflows_relying_on_realtime:
-                names = _workflow_names_suffix(request, [workflow.name for workflow in workflows_relying_on_realtime])
+                names = _workflow_names_suffix(
+                    request, self._user_access_control(), cohort.team_id, workflows_relying_on_realtime
+                )
                 raise ValidationError(
                     f"This change stops the cohort updating in real time, and {len(workflows_relying_on_realtime)} "
                     f"active workflow(s) rely on that{names}. "
@@ -1573,11 +1605,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                         "Please remove the cohort from these feature flags before deleting it."
                     )
 
-                workflows_with_cohort = get_active_workflows_using_realtime_cohort(
-                    team_id=cohort.team_id, cohort_id=cohort.id
-                )
+                workflows_with_cohort = _workflows_relying_on_cohort(request, cohort)
                 if workflows_with_cohort:
-                    names = _workflow_names_suffix(request, [workflow.name for workflow in workflows_with_cohort])
+                    names = _workflow_names_suffix(
+                        request, self._user_access_control(), cohort.team_id, workflows_with_cohort
+                    )
                     raise ValidationError(
                         f"This cohort is used in {len(workflows_with_cohort)} active workflow(s){names}. "
                         "Please remove the cohort from these workflows before deleting it."

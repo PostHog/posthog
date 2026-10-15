@@ -135,6 +135,7 @@ from products.workflows.backend.facade.activity import (
     log_workflow_activity,
     resume_workflow_email_sending,
 )
+from products.workflows.backend.facade.api import WORKFLOWS_COHORT_CONDITIONS_FLAG
 from products.workflows.backend.facade.batch_jobs import (
     create_batch_job,
     get_batch_job,
@@ -319,8 +320,6 @@ _LookupResult = TypeVar("_LookupResult", Workflow, WorkflowRef, WorkflowEditStat
 # Compiled from the author's filters rather than written by them, and only present once a condition has
 # been through validation. Comparing them would make an unchanged condition look edited.
 _DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "source")
-
-WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
 
 
 def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
