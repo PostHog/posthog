@@ -1,6 +1,7 @@
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import field
 from datetime import UTC, datetime, timedelta
+from itertools import batched
 from typing import Any, Optional
 
 import requests
@@ -9,8 +10,8 @@ from requests import PreparedRequest
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.settings import (
+    DEFERRED_RELEASE_SWEEP_DAYS,
     EARLIEST_START,
-    INVENTORY_MAX_LOOKBACK_DAYS,
     INVENTORY_SUMMARIES,
     INVENTORY_SUMMARIES_PATH,
     LWA_TOKEN_URL,
@@ -24,6 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_sel
     PRIMARY_KEYS,
     REQUEST_TIME_MARGIN_SECONDS,
     SP_API_HOSTS,
+    SP_API_MAX_RETRY_ATTEMPTS,
+    SP_API_RETRY_BACKOFF_MAX_SECONDS,
     TRANSACTIONS,
     TRANSACTIONS_PATH,
     TRANSACTIONS_WINDOW_DAYS,
@@ -53,6 +56,7 @@ ACCESS_DENIED_MESSAGE = (
 UNAVAILABLE_MESSAGE = "Couldn't reach Amazon to check the credentials. Try again in a few minutes."
 
 PROBE_TIMEOUT = (10.0, 30.0)
+INVENTORY_ROWS_PER_BATCH = 2000
 ResumeHook = Callable[[Optional[dict[str, Any]]], None]
 
 
@@ -60,9 +64,11 @@ ResumeHook = Callable[[Optional[dict[str, Any]]], None]
 class AmazonSellingPartnerResumeConfig:
     # The page token of the endpoint being walked, when the vendor's token outlives a hand-off.
     next_token: str | None = None
-    # The start of the transactions window being walked.
+    # The transactions window being walked. Amazon accepts a page token only with the arguments that produced it.
     window_start: str | None = None
-    # Marketplaces whose inventory walk finished; their page tokens expire in 30 seconds, so a
+    window_end: str | None = None
+    transaction_status: str | None = None
+    # Marketplaces whose inventory walk finished. Inventory page tokens expire in 30 seconds, so a
     # marketplace restarts from its first page.
     completed_marketplaces: list[str] = field(default_factory=list)
 
@@ -102,6 +108,7 @@ def parse_marketplace_ids(value: str | None) -> list[str]:
 class TransactionWindow:
     posted_after: datetime
     posted_before: datetime
+    transaction_status: str | None = None
 
 
 def transaction_windows(start: datetime, now: datetime) -> list[TransactionWindow]:
@@ -144,7 +151,12 @@ def _build_resource(
     initial_paginator_state: dict[str, Any] | None = None,
 ) -> Resource:
     config: RESTAPIConfig = {
-        "client": {"base_url": _base_url(region), "auth": auth},
+        "client": {
+            "base_url": _base_url(region),
+            "auth": auth,
+            "max_retries": SP_API_MAX_RETRY_ATTEMPTS,
+            "retry_backoff_max_seconds": SP_API_RETRY_BACKOFF_MAX_SECONDS,
+        },
         "resource_defaults": {},
         "resources": [
             {
@@ -174,6 +186,21 @@ def _build_resource(
 
 def _wrapper_hints(name: str, merge: bool) -> dict[str, Any]:
     return {"table_name": name, "write_disposition": _write_disposition(merge), "table_format": "delta"}
+
+
+def drop_buyer_personal_data(order: dict[str, Any]) -> dict[str, Any]:
+    """Remove the buyer's personal data that rides inside the TAX and FULFILLMENT datasets."""
+    tax = order.get("tax")
+    if isinstance(tax, dict):
+        tax.pop("taxRegistrations", None)
+    for item in order.get("orderItems") or []:
+        product = item.get("product")
+        if isinstance(product, dict):
+            product.pop("customization", None)
+        gift_option = ((item.get("fulfillment") or {}).get("packing") or {}).get("giftOption")
+        if isinstance(gift_option, dict):
+            gift_option.pop("giftMessage", None)
+    return order
 
 
 def explode_order_items(order: dict[str, Any]) -> list[dict[str, Any]]:
@@ -232,9 +259,19 @@ def _orders_resource(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+    resource.add_map(drop_buyer_personal_data)
     if endpoint == ORDER_ITEMS:
         resource.add_map(explode_order_items)
     return resource
+
+
+def deferred_release_sweep(now: datetime) -> TransactionWindow:
+    cutoff = now - timedelta(seconds=REQUEST_TIME_MARGIN_SECONDS)
+    return TransactionWindow(
+        posted_after=cutoff - timedelta(days=DEFERRED_RELEASE_SWEEP_DAYS),
+        posted_before=cutoff,
+        transaction_status="DEFERRED_RELEASED",
+    )
 
 
 def _transactions_resource(
@@ -247,41 +284,57 @@ def _transactions_resource(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> Resource:
+    now = datetime.now(UTC)
     start = parse_datetime_value(EARLIEST_START)
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         start = parse_datetime_value(db_incremental_field_last_value) or start
+    assert start is not None
+    windows = transaction_windows(start, now)
     initial_paginator_state: dict[str, Any] | None = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and resume.window_start:
-            start = parse_datetime_value(resume.window_start) or start
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.window_start and resume.window_end:
+        after, before = parse_datetime_value(resume.window_start), parse_datetime_value(resume.window_end)
+        if after is not None and before is not None:
+            current = TransactionWindow(
+                posted_after=after, posted_before=before, transaction_status=resume.transaction_status
+            )
+            windows = [current]
+            if current.transaction_status is None:
+                windows += transaction_windows(before, now)
             if resume.next_token:
                 initial_paginator_state = {"cursor": resume.next_token}
-    assert start is not None
-    windows = transaction_windows(start, datetime.now(UTC))
+    if should_use_incremental_field and (not windows or windows[-1].transaction_status is None):
+        windows.append(deferred_release_sweep(now))
+
+    def state_for(window: TransactionWindow, next_token: str | None = None) -> AmazonSellingPartnerResumeConfig:
+        return AmazonSellingPartnerResumeConfig(
+            window_start=to_iso8601(window.posted_after),
+            window_end=to_iso8601(window.posted_before),
+            transaction_status=window.transaction_status,
+            next_token=next_token,
+        )
 
     def pages() -> Iterator[Any]:
         for index, window in enumerate(windows):
-            window_start, window_end = window.posted_after, window.posted_before
-            next_start = windows[index + 1].posted_after if index + 1 < len(windows) else None
+            following = windows[index + 1] if index + 1 < len(windows) else None
 
             def save_checkpoint(
                 state: dict[str, Any] | None,
-                window_start: datetime = window_start,
-                next_start: datetime | None = next_start,
+                window: TransactionWindow = window,
+                following: TransactionWindow | None = following,
             ) -> None:
                 if state and state.get("cursor"):
-                    resumable_source_manager.save_state(
-                        AmazonSellingPartnerResumeConfig(
-                            window_start=to_iso8601(window_start), next_token=str(state["cursor"])
-                        )
-                    )
-                elif next_start is not None:
+                    resumable_source_manager.save_state(state_for(window, str(state["cursor"])))
+                elif following is not None:
                     # Staged before the window's last page is handed on, so a resume skips the window.
-                    resumable_source_manager.save_state(
-                        AmazonSellingPartnerResumeConfig(window_start=to_iso8601(next_start))
-                    )
+                    resumable_source_manager.save_state(state_for(following))
 
+            params: dict[str, Any] = {
+                "postedAfter": to_iso8601(window.posted_after),
+                "postedBefore": to_iso8601(window.posted_before),
+            }
+            if window.transaction_status is not None:
+                params["transactionStatus"] = window.transaction_status
             yield from _build_resource(
                 region=region,
                 auth=auth,
@@ -290,7 +343,7 @@ def _transactions_resource(
                 data_selector="payload.transactions",
                 cursor_path="payload.nextToken",
                 cursor_param="nextToken",
-                params={"postedAfter": to_iso8601(window_start), "postedBefore": to_iso8601(window_end)},
+                params=params,
                 merge=should_use_incremental_field,
                 team_id=team_id,
                 job_id=job_id,
@@ -313,69 +366,56 @@ def list_marketplace_ids(region: str, auth: LwaAuth) -> list[str]:
     ]
 
 
-def _inventory_resource(
+def _inventory_rows(
     *,
     region: str,
     auth: LwaAuth,
     marketplace_ids: list[str],
-    team_id: int,
-    job_id: str,
     resumable_source_manager: ResumableSourceManager[AmazonSellingPartnerResumeConfig],
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> Resource:
-    completed: list[str] = []
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None:
-            completed = list(resume.completed_marketplaces)
-    start_date_time: str | None = None
-    watermark = parse_datetime_value(db_incremental_field_last_value) if should_use_incremental_field else None
-    if watermark is not None:
-        start_date_time = to_iso8601(max(watermark, datetime.now(UTC) - timedelta(days=INVENTORY_MAX_LOOKBACK_DAYS)))
+) -> Iterator[list[dict[str, Any]]]:
+    manager = resumable_source_manager
+    resume = manager.load_state() if manager.can_resume() else None
+    completed = list(resume.completed_marketplaces) if resume is not None else []
+    session = make_tracked_session(redact_values=auth.secret_values())
+    url = f"{_base_url(region)}{INVENTORY_SUMMARIES_PATH}"
 
-    def pages() -> Iterator[Any]:
-        marketplaces = marketplace_ids or list_marketplace_ids(region, auth)
-        for marketplace_id in marketplaces:
-            if marketplace_id in completed:
-                continue
+    for marketplace_id in marketplace_ids or list_marketplace_ids(region, auth):
+        if marketplace_id in completed:
+            continue
+        # Pages are read back to back before any row is handed on, because a page token expires
+        # 30 seconds after Amazon issues it.
+        rows: list[dict[str, Any]] = []
+        next_token: str | None = None
+        while True:
+            params: dict[str, Any] = {
+                "granularityType": "Marketplace",
+                "granularityId": marketplace_id,
+                "marketplaceIds": marketplace_id,
+                "details": "true",
+            }
+            if next_token:
+                params["nextToken"] = next_token
+            response = session.get(url, params=params, auth=auth, timeout=PROBE_TIMEOUT)
+            response.raise_for_status()
+            body = response.json()
+            summaries = (body.get("payload") or {}).get("inventorySummaries") or []
+            rows.extend({"marketplaceId": marketplace_id, **summary} for summary in summaries)
+            next_token = (body.get("pagination") or {}).get("nextToken")
+            # The staged cursor does not cover this marketplace, so a hand-off here reads it again.
+            manager.safe_point()
+            if not next_token:
+                break
 
-            def save_checkpoint(state: dict[str, Any] | None, marketplace_id: str = marketplace_id) -> None:
-                if not state or not state.get("cursor"):
-                    resumable_source_manager.save_state(
-                        AmazonSellingPartnerResumeConfig(completed_marketplaces=[*completed, marketplace_id])
-                    )
-
-            def tag_marketplace(row: dict[str, Any], marketplace_id: str = marketplace_id) -> dict[str, Any]:
-                return {"marketplaceId": marketplace_id, **row}
-
-            resource = _build_resource(
-                region=region,
-                auth=auth,
-                name=INVENTORY_SUMMARIES,
-                path=INVENTORY_SUMMARIES_PATH,
-                data_selector="payload.inventorySummaries",
-                cursor_path="pagination.nextToken",
-                cursor_param="nextToken",
-                params={
-                    "granularityType": "Marketplace",
-                    "granularityId": marketplace_id,
-                    "marketplaceIds": marketplace_id,
-                    "details": "true",
-                    "startDateTime": start_date_time,
-                },
-                merge=should_use_incremental_field,
-                team_id=team_id,
-                job_id=job_id,
-                db_incremental_field_last_value=None,
-                resume_hook=save_checkpoint,
-            )
-            yield from resource.add_map(tag_marketplace)
-            completed.append(marketplace_id)
-
-    return Resource(
-        pages, name=INVENTORY_SUMMARIES, hints=_wrapper_hints(INVENTORY_SUMMARIES, should_use_incremental_field)
-    )
+        completed = [*completed, marketplace_id]
+        batches = list(batched(rows, INVENTORY_ROWS_PER_BATCH, strict=False))
+        if not batches:
+            manager.save_state(AmazonSellingPartnerResumeConfig(completed_marketplaces=completed))
+            manager.safe_point()
+            continue
+        for index, batch in enumerate(batches):
+            if index == len(batches) - 1:
+                manager.save_state(AmazonSellingPartnerResumeConfig(completed_marketplaces=completed))
+            yield list(batch)
 
 
 def amazon_selling_partner_source(
@@ -402,29 +442,38 @@ def amazon_selling_partner_source(
         "should_use_incremental_field": should_use_incremental_field,
         "db_incremental_field_last_value": db_incremental_field_last_value,
     }
-    resource: Resource
-    if endpoint in (ORDERS, ORDER_ITEMS):
-        resource = _orders_resource(marketplace_ids=marketplace_ids, endpoint=endpoint, **common)
-    elif endpoint == TRANSACTIONS:
-        resource = _transactions_resource(**common)
-    elif endpoint == INVENTORY_SUMMARIES:
-        resource = _inventory_resource(marketplace_ids=marketplace_ids, **common)
+    items: Callable[[], Iterable[Any]]
+    column_hints: dict[str, Any] | None = None
+    if endpoint == INVENTORY_SUMMARIES:
+        inventory_rows = _inventory_rows(
+            region=region, auth=auth, marketplace_ids=marketplace_ids, resumable_source_manager=resumable_source_manager
+        )
+        items = lambda: inventory_rows
     else:
-        raise ValueError(f"Unknown Amazon Selling Partner endpoint: {endpoint}")
+        resource: Resource
+        if endpoint in (ORDERS, ORDER_ITEMS):
+            resource = _orders_resource(marketplace_ids=marketplace_ids, endpoint=endpoint, **common)
+        elif endpoint == TRANSACTIONS:
+            resource = _transactions_resource(**common)
+        else:
+            raise ValueError(f"Unknown Amazon Selling Partner endpoint: {endpoint}")
+        items = lambda: resource
+        column_hints = resource.column_hints
 
     partition_key = PARTITION_KEYS.get(endpoint)
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items,
         primary_keys=PRIMARY_KEYS[endpoint],
-        # Amazon documents no order for any of these listings.
-        sort_mode=None,
+        # Amazon documents no order for any of these listings. Desc stores the watermark when the
+        # run completes, which is correct whichever order the rows arrive in.
+        sort_mode="desc",
         partition_count=1 if partition_key else None,
         partition_size=1 if partition_key else None,
         partition_mode="datetime" if partition_key else None,
         partition_format="month" if partition_key else None,
         partition_keys=[partition_key] if partition_key else None,
-        column_hints=resource.column_hints,
+        column_hints=column_hints,
     )
 
 

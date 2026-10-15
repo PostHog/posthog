@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -196,6 +197,36 @@ class TestOrders:
             },
         ]
 
+    def test_buyer_personal_data_is_dropped_from_orders_and_items(self) -> None:
+        item = {
+            "orderItemId": "i1",
+            "product": {"asin": "B01", "customization": {"customizedUrl": "https://example.com/c"}},
+            "fulfillment": {"packing": {"giftOption": {"giftMessage": "Happy birthday", "giftWrapLevel": "CLASSIC"}}},
+        }
+        order = {**_order("A", [item]), "tax": {"taxRegistrations": [{"legalName": "Jane Example"}], "taxRate": 0.2}}
+
+        for endpoint in ("orders", "order_items"):
+            result = _driver().run(
+                endpoint, route({TOKEN_PATH: [TOKEN], ORDERS_PATH: [_orders_page([json.loads(json.dumps(order))])]})
+            )
+
+            assert result.raised is None
+            serialized = json.dumps(result.rows)
+            assert "Jane Example" not in serialized
+            assert "Happy birthday" not in serialized
+            assert "customizedUrl" not in serialized
+            assert "CLASSIC" in serialized
+
+    def test_orders_keep_retrying_through_amazons_refill_interval(self) -> None:
+        throttled = ScriptedResponse(status=429, json={"errors": [{"code": "QuotaExceeded"}]})
+        result = _driver().run(
+            "orders",
+            route({TOKEN_PATH: [TOKEN], ORDERS_PATH: [throttled] * 6 + [_orders_page([_order("1")])]}),
+        )
+
+        assert result.raised is None
+        assert [row["orderId"] for row in result.rows] == ["1"]
+
     def test_resumes_from_the_saved_page_token(self) -> None:
         result = _driver().run(
             "orders",
@@ -224,27 +255,31 @@ class TestTransactions:
         assert result.raised is None
         windows = transaction_windows(datetime(2016, 1, 1, tzinfo=UTC), NOW)
         api_requests = _api_requests(result)
-        assert [request.param("postedAfter") for request in api_requests] == [
-            to_iso8601(window.posted_after) for window in windows
-        ]
-        assert [request.param("postedBefore") for request in api_requests] == [
-            to_iso8601(window.posted_before) for window in windows
+        assert [(r.param("postedAfter"), r.param("postedBefore")) for r in api_requests] == [
+            (to_iso8601(w.posted_after), to_iso8601(w.posted_before)) for w in windows
         ]
         assert api_requests[0].param("postedAfter") == EARLIEST_START
         assert api_requests[-1].param("postedBefore") == "2026-10-15T11:57:00Z"
-        assert all(request.param("nextToken") is None for request in api_requests)
+        assert all(r.param("nextToken") is None and r.param("transactionStatus") is None for r in api_requests)
         assert result.saved_states == [
-            AmazonSellingPartnerResumeConfig(window_start=to_iso8601(window.posted_after)) for window in windows[1:]
+            AmazonSellingPartnerResumeConfig(
+                window_start=to_iso8601(w.posted_after), window_end=to_iso8601(w.posted_before)
+            )
+            for w in windows[1:]
         ]
         assert len(result.rows) == len(windows)
 
-    def test_incremental_starts_at_the_watermark_and_stages_the_page_token_before_its_page(self) -> None:
+    def test_incremental_walks_from_the_watermark_then_sweeps_released_deferred_transactions(self) -> None:
         result = _driver().run(
             "transactions",
             route(
                 {
                     TOKEN_PATH: [TOKEN],
-                    TRANSACTIONS_PATH: [_transactions_page(["t1"], "n2"), _transactions_page(["t2"])],
+                    TRANSACTIONS_PATH: [
+                        _transactions_page(["t1"], "n2"),
+                        _transactions_page(["t2"]),
+                        _transactions_page(["t-released"]),
+                    ],
                 }
             ),
             incremental_field="postedDate",
@@ -252,40 +287,42 @@ class TestTransactions:
         )
 
         assert result.raised is None
-        api_requests = _api_requests(result)
-        assert [request.param("postedAfter") for request in api_requests] == ["2026-09-01T00:00:00Z"] * 2
-        assert [request.param("postedBefore") for request in api_requests] == ["2026-10-15T11:57:00Z"] * 2
-        assert [request.param("nextToken") for request in api_requests] == [None, "n2"]
-        expected = AmazonSellingPartnerResumeConfig(window_start="2026-09-01T00:00:00Z", next_token="n2")
-        assert result.saved_states == [expected]
-        assert result.committed_states == [expected]
+        assert [
+            (r.param("postedAfter"), r.param("postedBefore"), r.param("transactionStatus"), r.param("nextToken"))
+            for r in _api_requests(result)
+        ] == [
+            ("2026-09-01T00:00:00Z", "2026-10-15T11:57:00Z", None, None),
+            ("2026-09-01T00:00:00Z", "2026-10-15T11:57:00Z", None, "n2"),
+            ("2026-08-16T11:57:00Z", "2026-10-15T11:57:00Z", "DEFERRED_RELEASED", None),
+        ]
+        assert [row["transactionId"] for row in result.rows] == ["t1", "t2", "t-released"]
+        first_page_state = AmazonSellingPartnerResumeConfig(
+            window_start="2026-09-01T00:00:00Z", window_end="2026-10-15T11:57:00Z", next_token="n2"
+        )
+        assert result.committed_states[0] == first_page_state
 
-    def test_resumes_from_the_saved_window_and_token(self) -> None:
+    def test_resume_reuses_the_saved_window_end_with_its_token(self) -> None:
         result = _driver().run(
             "transactions",
             route({TOKEN_PATH: [TOKEN], TRANSACTIONS_PATH: [_transactions_page(["t3"])]}),
-            resume_state=AmazonSellingPartnerResumeConfig(window_start="2026-09-01T00:00:00Z", next_token="n2"),
-        )
-
-        request = _api_requests(result)[0]
-        assert request.param("postedAfter") == "2026-09-01T00:00:00Z"
-        assert request.param("nextToken") == "n2"
-
-    def test_a_watermark_inside_the_request_margin_makes_no_request(self) -> None:
-        result = _driver().run(
-            "transactions",
-            [],
+            resume_state=AmazonSellingPartnerResumeConfig(
+                window_start="2026-10-01T00:00:00Z",
+                window_end="2026-10-14T00:00:00Z",
+                transaction_status="DEFERRED_RELEASED",
+                next_token="n2",
+            ),
             incremental_field="postedDate",
-            db_incremental_field_last_value=NOW - timedelta(seconds=60),
+            db_incremental_field_last_value=datetime(2026, 9, 1, tzinfo=UTC),
         )
 
-        assert result.raised is None
-        assert result.requests == []
-        assert result.rows == []
+        assert [
+            (r.param("postedAfter"), r.param("postedBefore"), r.param("transactionStatus"), r.param("nextToken"))
+            for r in _api_requests(result)
+        ] == [("2026-10-01T00:00:00Z", "2026-10-14T00:00:00Z", "DEFERRED_RELEASED", "n2")]
 
 
 class TestInventorySummaries:
-    def test_discovers_marketplaces_and_tags_each_row(self) -> None:
+    def test_discovers_marketplaces_reads_each_one_whole_and_tags_rows(self) -> None:
         participations = ScriptedResponse(
             json={
                 "payload": [
@@ -311,50 +348,33 @@ class TestInventorySummaries:
         )
 
         assert result.raised is None
-        api_requests = _api_requests(result)
-        assert [request.path for request in api_requests] == [PARTICIPATIONS_PATH] + [SUMMARIES_PATH] * 3
-        summaries = api_requests[1:]
-        assert [request.param("granularityId") for request in summaries] == ["A", "A", "B"]
-        assert [request.param("marketplaceIds") for request in summaries] == ["A", "A", "B"]
-        assert [request.param("nextToken") for request in summaries] == [None, "next", None]
-        assert summaries[0].param("granularityType") == "Marketplace"
-        assert summaries[0].param("details") == "true"
-        assert summaries[0].param("startDateTime") is None
-        assert [(row["marketplaceId"], row["sellerSku"]) for row in result.rows] == [
-            ("A", "sku1"),
-            ("A", "sku2"),
-            ("B", "sku3"),
+        summaries = [request for request in _api_requests(result) if request.path == SUMMARIES_PATH]
+        assert [(r.param("granularityId"), r.param("marketplaceIds"), r.param("nextToken")) for r in summaries] == [
+            ("A", "A", None),
+            ("A", "A", "next"),
+            ("B", "B", None),
         ]
-        assert result.saved_states == [
+        assert summaries[0].param("details") == "true"
+        assert all(r.param("startDateTime") is None for r in summaries)
+        # Both pages of a marketplace arrive in one batch, so no page token waits on the pipeline.
+        assert [[(row["marketplaceId"], row["sellerSku"]) for row in item] for item in result.items] == [
+            [("A", "sku1"), ("A", "sku2")],
+            [("B", "sku3")],
+        ]
+        assert result.committed_states == [
             AmazonSellingPartnerResumeConfig(completed_marketplaces=["A"]),
             AmazonSellingPartnerResumeConfig(completed_marketplaces=["A", "B"]),
         ]
 
-    @pytest.mark.parametrize(
-        ("watermark", "expected_start"),
-        [
-            ("2026-10-01T00:00:00+00:00", "2026-10-01T00:00:00Z"),
-            # Amazon rejects a start more than 18 months back, so an old watermark is clamped.
-            ("2020-01-01T00:00:00+00:00", "2025-04-23T12:00:00Z"),
-        ],
-    )
-    def test_resume_skips_finished_marketplaces_and_incremental_sends_the_start_date(
-        self, watermark: str, expected_start: str
-    ) -> None:
-        with time_machine.travel(NOW, tick=False):
-            result = _driver("A,B").run(
-                "inventory_summaries",
-                route({TOKEN_PATH: [TOKEN], SUMMARIES_PATH: [_summaries_page(["sku9"])]}),
-                resume_state=AmazonSellingPartnerResumeConfig(completed_marketplaces=["A"]),
-                incremental_field="lastUpdatedTime",
-                db_incremental_field_last_value=watermark,
-            )
+    def test_resume_skips_finished_marketplaces(self) -> None:
+        result = _driver("A,B").run(
+            "inventory_summaries",
+            route({TOKEN_PATH: [TOKEN], SUMMARIES_PATH: [_summaries_page(["sku9"])]}),
+            resume_state=AmazonSellingPartnerResumeConfig(completed_marketplaces=["A"]),
+        )
 
         assert result.raised is None
-        api_requests = _api_requests(result)
-        assert [request.path for request in api_requests] == [SUMMARIES_PATH]
-        assert api_requests[0].param("granularityId") == "B"
-        assert api_requests[0].param("startDateTime") == expected_start
+        assert [request.param("granularityId") for request in _api_requests(result)] == ["B"]
 
 
 class TestErrors:

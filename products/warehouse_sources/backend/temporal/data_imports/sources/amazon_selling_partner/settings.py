@@ -21,10 +21,15 @@ TRANSACTIONS_WINDOW_DAYS = 179
 REQUEST_TIME_MARGIN_SECONDS = 180
 # The oldest order data any marketplace keeps (JP, AU and SG keep orders from 2016).
 EARLIEST_START = "2016-01-01T00:00:00Z"
-# getInventorySummaries rejects a startDateTime more than 18 months before the call.
-INVENTORY_MAX_LOOKBACK_DAYS = 540
-# Financial events can post up to 48 hours late, and a deferred transaction changes status when released.
+# Financial events can post up to 48 hours late.
 TRANSACTIONS_LOOKBACK_SECONDS = 3 * 24 * 60 * 60
+# A deferred transaction keeps its postedDate when Amazon releases it, so each incremental run also
+# re-reads the transactions released in this many days.
+DEFERRED_RELEASE_SWEEP_DAYS = 60
+# searchOrders refills at one request every 179 seconds once its burst is spent, and SP-API sends
+# no Retry-After, so the backoff has to grow past that interval.
+SP_API_MAX_RETRY_ATTEMPTS = 8
+SP_API_RETRY_BACKOFF_MAX_SECONDS = 180.0
 
 ORDERS = "orders"
 ORDER_ITEMS = "order_items"
@@ -60,7 +65,6 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     ORDERS: [_datetime_field("lastUpdatedTime")],
     ORDER_ITEMS: [_datetime_field("lastUpdatedTime")],
     TRANSACTIONS: [_datetime_field("postedDate")],
-    INVENTORY_SUMMARIES: [_datetime_field("lastUpdatedTime")],
 }
 
 DEFAULT_INCREMENTAL_LOOKBACK_SECONDS: dict[str, int] = {TRANSACTIONS: TRANSACTIONS_LOOKBACK_SECONDS}
