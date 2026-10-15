@@ -2826,6 +2826,25 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
         ]
         assert row["state_timeline"][0]["state"] == "not_firing"
 
+    def test_timeline_shows_a_reset_of_a_platform_broken_alert(self) -> None:
+        with team_scope(self.team.id):
+            copy_id = platform_testing.copy_of(self.alert.id).id
+            platform_testing.set_state(copy_id, team_id=self.team.id, state="broken")
+        platform_testing.record_check(
+            copy_id,
+            team_id=self.team.id,
+            at=self.now - timedelta(minutes=60),
+            previous_state="not_firing",
+            state="broken",
+            error_message="Query failed",
+        )
+
+        response = self.client.post(f"{self.base_url}{self.alert.id}/reset/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        [row] = self._rows("retrieve")
+
+        assert [interval["state"] for interval in row["state_timeline"]] == ["not_firing", "broken", "not_firing"]
+
     def test_falls_back_to_the_logs_row_when_clickhouse_fails(self) -> None:
         with patch(
             "products.logs.backend.presentation.views.alerts_api.history_by_legacy_id",

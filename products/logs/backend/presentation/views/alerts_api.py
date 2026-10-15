@@ -259,7 +259,12 @@ class LogsAlertConfigurationListSerializer(serializers.ListSerializer):
 _PLATFORM_CHANGE: Final = "platform_change"
 _SNOOZE_EXPIRY: Final = "snooze_expiry"
 _SNOOZE_KINDS: Final = (LogsAlertEvent.Kind.SNOOZE, LogsAlertEvent.Kind.UNSNOOZE)
-_PLATFORM_TIMELINE_LOGS_KINDS: Final = (LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE, *_SNOOZE_KINDS)
+_PLATFORM_TIMELINE_LOGS_KINDS: Final = (
+    LogsAlertEvent.Kind.ENABLE,
+    LogsAlertEvent.Kind.DISABLE,
+    LogsAlertEvent.Kind.RESET,
+    *_SNOOZE_KINDS,
+)
 
 
 @frozen
@@ -429,9 +434,10 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     ) -> list[StateInterval]:
         """The timeline of an alert the platform owns.
 
-        The platform's history holds the state changes. The logs API still writes the toggles and
-        the snoozes, so they come from LogsAlertEvent. Logs check rows are left out, because the
-        logs stack only shadows an alert the platform owns.
+        The platform's history holds the state changes. The logs API still writes the toggles, the
+        snoozes and the resets, so they come from LogsAlertEvent. A reset writes no platform history,
+        so its logs row is the only record that the platform state went back to not firing. Logs
+        check rows are left out, because the logs stack only shadows an alert the platform owns.
 
         Each logs event keeps its own time, and the state shown at any moment is snoozed while a
         snooze holds, else the platform's state. A snooze that expired leaves no event, so only
@@ -481,6 +487,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             before = shown()
             if moved_to is not None:
                 platform_state = moved_to
+            elif kind == LogsAlertEvent.Kind.RESET:
+                platform_state = PlatformAlertState.NOT_FIRING
             elif kind == LogsAlertEvent.Kind.SNOOZE:
                 snoozed = True
             elif kind in (LogsAlertEvent.Kind.UNSNOOZE, _SNOOZE_EXPIRY):
@@ -1386,6 +1394,16 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
                 update_fields.extend(alert.clear_next_check())
                 alert.save(update_fields=update_fields)
+            else:
+                # The logs row did not move, so nothing else records the reset that the alert's
+                # timeline needs. The platform's history writes no row for it either.
+                LogsAlertEvent.objects.create(
+                    alert=alert,
+                    kind=LogsAlertEvent.Kind.RESET,
+                    threshold_breached=False,
+                    state_before=LogsAlertConfiguration.State.BROKEN,
+                    state_after=LogsAlertConfiguration.State.NOT_FIRING,
+                )
             # The model's auto-signal skips these fields (signal_exclusions silences
             # engine-driven churn) so we log the user-initiated reset explicitly.
             log_activity(

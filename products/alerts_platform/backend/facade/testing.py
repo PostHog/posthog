@@ -75,6 +75,13 @@ def start_firing(configuration_id: UUID, *, team_id: int, at: datetime) -> None:
     )
 
 
+def set_state(configuration_id: UUID, *, team_id: int, state: str) -> None:
+    """Put a configuration's ungrouped instance in a state, as a check outside the test can leave it."""
+    PlatformAlert.objects.update_or_create(
+        team_id=team_id, configuration_id=configuration_id, grouping_key="", defaults={"state": state}
+    )
+
+
 def record_check(
     configuration_id: UUID,
     *,
