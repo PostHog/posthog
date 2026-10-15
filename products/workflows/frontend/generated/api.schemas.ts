@@ -1784,6 +1784,14 @@ export interface EmailSendingSuspensionStatusApi {
     readonly email_sending_suspension_reason: string
 }
 
+/**
+ * Whether the caller may save a workflow that triggers on Inbox reports.
+ */
+export interface InboxReportAccessApi {
+    /** True when the caller can read Inbox reports: viewer access to Tasks, and the task:read scope when they use an API key. Saving an Inbox report ready trigger fails without it. */
+    readonly can_use_inbox_reports: boolean
+}
+
 export interface WorkflowStatsRowApi {
     /** The workflow these counts are for. */
     workflow_id: string

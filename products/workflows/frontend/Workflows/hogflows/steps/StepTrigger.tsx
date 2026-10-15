@@ -84,6 +84,11 @@ type TriggerOptionItem = {
     icon: JSX.Element
     group?: string
     tag?: JSX.Element
+    useDisabledReason?: () => string | null
+}
+
+function useNoDisabledReason(): null {
+    return null
 }
 
 function getTriggerDisplayType(type: string, config: any): string {
@@ -202,9 +207,17 @@ function TriggerTypeDropdownItem({
     selected: boolean
     onSelect: () => void
 }): JSX.Element {
+    const useDisabledReason = item.useDisabledReason ?? useNoDisabledReason
+    const disabledReason = useDisabledReason()
     return (
         <li>
-            <LemonButton fullWidth active={selected} onClick={onSelect} icon={item.icon}>
+            <LemonButton
+                fullWidth
+                active={selected}
+                onClick={onSelect}
+                icon={item.icon}
+                disabledReason={disabledReason}
+            >
                 <div className="flex flex-col my-1">
                     <div className="flex items-baseline font-semibold">
                         <span>{item.label}</span>
@@ -272,6 +285,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                     value: t.value,
                     icon: t.icon,
                     group: t.group,
+                    useDisabledReason: t.useDisabledReason,
                 })),
         ]
         return items

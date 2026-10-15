@@ -3627,6 +3627,26 @@ class TestHogFlowAPI(APIBaseTest):
         }
         assert trigger_masking["bytecode"][0] == "_H"
 
+    @parameterized.expand(
+        [
+            ("member_who_reads_reports", None, False, True),
+            ("member_without_report_access", None, True, False),
+            ("api_key_with_report_read", ["hog_flow:read", "task:read"], False, True),
+            ("api_key_without_report_read", ["hog_flow:read"], False, False),
+        ]
+    )
+    def test_inbox_report_access_tells_the_editor_whether_the_trigger_can_be_saved(
+        self, _name: str, api_key_scopes: list[str] | None, deny_report_access: bool, expected: bool
+    ) -> None:
+        if deny_report_access:
+            self._deny_report_access()
+        headers = self._api_key_headers(api_key_scopes) if api_key_scopes is not None else {}
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/inbox_report_access/", headers=headers)
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"can_use_inbox_reports": expected}
+
     def test_hog_flow_internal_event_trigger_rejects_a_disallowed_event_alongside_an_allowed_one(self):
         # Checking only the first event would let a second one smuggle the payload out.
         trigger_action = {

@@ -2559,6 +2559,18 @@ class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
     )
 
 
+class InboxReportAccessSerializer(serializers.Serializer):
+    """Whether the caller may save a workflow that triggers on Inbox reports."""
+
+    can_use_inbox_reports = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when the caller can read Inbox reports: viewer access to Tasks, and the task:read scope "
+            "when they use an API key. Saving an Inbox report ready trigger fails without it."
+        ),
+    )
+
+
 class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
     """Whether PostHog paused this one workflow's email sending, and why."""
 
@@ -4318,6 +4330,7 @@ class HogFlowViewSet(
         "metrics_global",
         "team_reputation",
         "email_sending_suspension",
+        "inbox_report_access",
         "user_blast_radius",
         "assets",
         "asset_content",
@@ -6287,6 +6300,17 @@ class HogFlowViewSet(
                     ),
                 }
             ).data
+        )
+
+    @extend_schema(
+        operation_id="hog_flows_inbox_report_access_retrieve",
+        responses={200: InboxReportAccessSerializer},
+    )
+    @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[], url_path="inbox_report_access")
+    def inbox_report_access(self, request: Request, **kwargs) -> Response:
+        """Whether the caller may use the Inbox report ready trigger, so the editor can disable it up front."""
+        return Response(
+            InboxReportAccessSerializer({"can_use_inbox_reports": _may_read_inbox_reports(request, self.team)}).data
         )
 
     @extend_schema(

@@ -5,6 +5,8 @@ import { Node } from '@xyflow/react'
 import { BindLogic } from 'kea'
 
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
@@ -33,6 +35,7 @@ describe('StepTriggerConfiguration', () => {
                 '/api/environments/:team/persons/properties': [],
                 '/api/environments/:team/events/values': { results: [], refreshing: false },
                 '/api/environments/:team_id/quick_filters/': { results: [] },
+                '/api/projects/:team/hog_flows/inbox_report_access/': { can_use_inbox_reports: false },
             },
             post: {
                 '/api/environments/:team/query': { results: [] },
@@ -91,5 +94,23 @@ describe('StepTriggerConfiguration', () => {
         await waitFor(() => {
             expect(screen.getByText("properties.plan = 'pro'")).toBeInTheDocument()
         })
+    })
+
+    it('disables the Inbox report ready tile for someone without access to Tasks', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOW_INBOX_REPORT_TRIGGER], {
+            [FEATURE_FLAGS.WORKFLOW_INBOX_REPORT_TRIGGER]: true,
+        })
+        renderTrigger([])
+
+        fireEvent.click(screen.getByText('Event'))
+        await waitFor(() => {
+            expect(screen.getByText('Inbox report ready').closest('button')).toHaveAttribute('aria-disabled', 'true')
+        })
+        fireEvent.click(screen.getByText('Inbox report ready'))
+
+        expect(
+            await screen.findByText('You need viewer access to Tasks to use Inbox reports in workflows.')
+        ).toBeInTheDocument()
     })
 })

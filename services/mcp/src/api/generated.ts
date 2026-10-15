@@ -59939,6 +59939,14 @@ export namespace Schemas {
     }
 
     /**
+     * Whether the caller may save a workflow that triggers on Inbox reports.
+     */
+    export interface InboxReportAccess {
+      /** True when the caller can read Inbox reports: viewer access to Tasks, and the task:read scope when they use an API key. Saving an Inbox report ready trigger fails without it. */
+      readonly can_use_inbox_reports: boolean;
+    }
+
+    /**
      * Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine.
      */
     export type IncrementalEligibilityKeyCandidateTypes = {[key: string]: string};

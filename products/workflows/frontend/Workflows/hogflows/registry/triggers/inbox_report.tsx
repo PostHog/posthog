@@ -1,13 +1,20 @@
+import { useValues } from 'kea'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSelfDriving } from 'lib/lemon-ui/icons'
 
 import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
 
+import { inboxReportAccessLogic } from './inboxReportAccessLogic'
 import {
     INBOX_REPORT_PROPERTIES,
     INBOX_REPORT_READY_EVENT,
     isInboxReportReadyTriggerConfig,
 } from './inboxReportTriggerConfig'
+
+function useInboxReportTriggerDisabledReason(): string | null {
+    return useValues(inboxReportAccessLogic).inboxReportTriggerDisabledReason
+}
 
 function StepTriggerConfigurationInboxReportReady(): JSX.Element {
     return (
@@ -38,6 +45,7 @@ registerTriggerType({
     description: 'Trigger when an Inbox report finishes research and is ready',
     group: 'Inbox',
     featureFlag: FEATURE_FLAGS.WORKFLOW_INBOX_REPORT_TRIGGER,
+    useDisabledReason: useInboxReportTriggerDisabledReason,
     matchConfig: (config) => isInboxReportReadyTriggerConfig(config),
     buildConfig: () => ({
         type: 'internal-event',

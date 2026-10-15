@@ -26,6 +26,8 @@ export type TriggerTypeDefinition = {
     /** Group label for sectioning in the trigger type dropdown (e.g. 'Surveys', 'Support') */
     group?: string
     featureFlag?: FeatureFlagKey
+    /** Hook returning why the tile can't be picked (e.g. missing access), or null when it can */
+    useDisabledReason?: () => string | null
     /** Return true if this trigger type owns the given event-type config */
     matchConfig?: (config: any) => boolean
     /** Build the initial config when this trigger type is selected */
