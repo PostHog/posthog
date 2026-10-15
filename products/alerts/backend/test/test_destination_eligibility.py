@@ -12,10 +12,10 @@ from parameterized import parameterized
 from products.alerts.backend.facade.contracts import DestinationBucket, DestinationEligibility, DestinationHoldBack
 from products.alerts.backend.facade.destinations import (
     bucket_for,
-    bucketed_destinations,
     classify_alert_destinations,
     unbound_alert_destinations,
 )
+from products.alerts.backend.logic.destination_bucket_report import bucketed_destinations
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 
@@ -328,7 +328,7 @@ class TestDestinationEligibility(APIBaseTest):
             bucketed_destinations([(self.team.id, ALERT_ID), (self.team.id, other_alert)], allowed_event_ids=[EVENT])
         )
 
-        assert [(d.alert_id, d.eligibility.hog_function_id, d.bucket) for d in report[:2]] == [
+        assert [(d.alert_id, d.eligibility.hog_function_id, bucket_for(d.eligibility)) for d in report[:2]] == [
             (None, team_wide.id, DestinationBucket.CODE),
             (ALERT_ID, bound.id, DestinationBucket.STOCK),
         ]

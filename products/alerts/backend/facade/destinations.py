@@ -34,7 +34,7 @@ from ..logic import (
     destinations,
     insight_alert_destinations,
 )
-from .contracts import BucketedDestination, DestinationBucket, DestinationEligibility
+from .contracts import DestinationBucket, DestinationEligibility
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -248,13 +248,6 @@ def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
     return destination_eligibility.bucket_for(eligibility)
 
 
-def bucketed_destinations(
-    team_alerts: Iterable[tuple[int, str]], *, allowed_event_ids: Collection[str]
-) -> Iterator[BucketedDestination]:
-    """Each alert's destinations, and once per team the destinations bound to no single alert."""
-    return destination_bucket_report.bucketed_destinations(team_alerts, allowed_event_ids=allowed_event_ids)
-
-
-def bucket_report_lines(destinations: Iterable[BucketedDestination]) -> Iterator[str]:
-    """One line per destination, then the count per bucket and per reason."""
-    return destination_bucket_report.bucket_report_lines(destinations)
+def bucket_report_lines(team_alerts: Iterable[tuple[int, str]], *, allowed_event_ids: Collection[str]) -> Iterator[str]:
+    """One line per destination of the given (team id, alert id) pairs, then the count per bucket and per reason."""
+    return destination_bucket_report.bucket_report_lines(team_alerts, allowed_event_ids=allowed_event_ids)
