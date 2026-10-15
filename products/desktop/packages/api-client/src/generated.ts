@@ -12361,6 +12361,7 @@ export namespace Schemas {
      * * `Wise` - Wise
      * * `LaravelCloud` - LaravelCloud
      * * `Northbeam` - Northbeam
+     * * `ChannelIO` - ChannelIO
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13744,7 +13745,8 @@ export namespace Schemas {
         | "RainforestPay"
         | "Wise"
         | "LaravelCloud"
-        | "Northbeam";
+        | "Northbeam"
+        | "ChannelIO";
     /**
      * * `web` - web
      * * `api` - api
@@ -15137,6 +15139,7 @@ export namespace Schemas {
          * * `Wise` - Wise
          * * `LaravelCloud` - LaravelCloud
          * * `Northbeam` - Northbeam
+         * * `ChannelIO` - ChannelIO
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
