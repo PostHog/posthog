@@ -73,6 +73,12 @@ const DEFAULT_COMPACT_ON_DELETION_WINDOW: usize = 1000;
 const DEFAULT_COMPACT_ON_DELETION_NUM_DELS_TRIGGER: usize = 500;
 const DEFAULT_COMPACT_ON_DELETION_RATIO: f64 = 0.5;
 
+/// With these two, the info `LOG` files on disk stay under about 6 × 16 MiB.
+const DEFAULT_MAX_LOG_FILE_SIZE_BYTES: usize = 16 * 1024 * 1024;
+const DEFAULT_KEEP_LOG_FILE_NUM: usize = 5;
+const DEFAULT_MAX_TOTAL_WAL_SIZE_BYTES: u64 = 1024 * 1024 * 1024;
+const DEFAULT_MAX_MANIFEST_FILE_SIZE_BYTES: usize = 64 * 1024 * 1024;
+
 /// Resolved RocksDB settings.
 #[derive(Debug, Clone)]
 pub struct StoreConfig {
@@ -112,6 +118,15 @@ pub struct StoreConfig {
     /// `cf_person_records` **only** — never `cf_behavioral`, whose eviction deadlines are the sweep's
     /// contract. See [`super::ttl_filter`].
     pub person_record_ttl_days: u32,
+    /// Size at which RocksDB rolls the info `LOG` file. `0` leaves RocksDB's default (no size roll).
+    pub max_log_file_size_bytes: usize,
+    /// Number of info `LOG` files RocksDB keeps. `0` leaves RocksDB's default (1000).
+    pub keep_log_file_num: usize,
+    /// WAL size at which RocksDB flushes the memtables so it can delete old WAL files. `0` leaves
+    /// RocksDB's default (4 × the total memtable budget).
+    pub max_total_wal_size_bytes: u64,
+    /// Size at which RocksDB starts a new `MANIFEST` file. `0` leaves RocksDB's default (1 GiB).
+    pub max_manifest_file_size_bytes: usize,
 }
 
 impl Default for StoreConfig {
@@ -134,6 +149,10 @@ impl Default for StoreConfig {
             periodic_compaction_seconds: 0,
             max_background_jobs: 0,
             person_record_ttl_days: 0,
+            max_log_file_size_bytes: DEFAULT_MAX_LOG_FILE_SIZE_BYTES,
+            keep_log_file_num: DEFAULT_KEEP_LOG_FILE_NUM,
+            max_total_wal_size_bytes: DEFAULT_MAX_TOTAL_WAL_SIZE_BYTES,
+            max_manifest_file_size_bytes: DEFAULT_MAX_MANIFEST_FILE_SIZE_BYTES,
         }
     }
 }
@@ -1452,6 +1471,18 @@ fn db_options(config: &StoreConfig) -> Options {
     }
     if config.max_background_jobs > 0 {
         opts.set_max_background_jobs(config.max_background_jobs);
+    }
+    if config.max_log_file_size_bytes > 0 {
+        opts.set_max_log_file_size(config.max_log_file_size_bytes);
+    }
+    if config.keep_log_file_num > 0 {
+        opts.set_keep_log_file_num(config.keep_log_file_num);
+    }
+    if config.max_total_wal_size_bytes > 0 {
+        opts.set_max_total_wal_size(config.max_total_wal_size_bytes);
+    }
+    if config.max_manifest_file_size_bytes > 0 {
+        opts.set_max_manifest_file_size(config.max_manifest_file_size_bytes);
     }
     opts
 }
@@ -2909,6 +2940,44 @@ mod tests {
             stats.block_cache_hits,
             stats.block_cache_misses,
         );
+    }
+
+    #[test]
+    fn file_size_caps_reach_the_persisted_rocksdb_options() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("db");
+        let _store = CohortStore::open(&StoreConfig {
+            path: path.clone(),
+            max_log_file_size_bytes: 1_048_576,
+            keep_log_file_num: 3,
+            max_total_wal_size_bytes: 268_435_456,
+            max_manifest_file_size_bytes: 8_388_608,
+            ..StoreConfig::default()
+        })
+        .unwrap();
+
+        let options_file = std::fs::read_dir(&path)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|p| {
+                p.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("OPTIONS-")
+            })
+            .expect("RocksDB writes an OPTIONS file at open");
+        let options = std::fs::read_to_string(options_file).unwrap();
+        for line in [
+            "max_log_file_size=1048576",
+            "keep_log_file_num=3",
+            "max_total_wal_size=268435456",
+            "max_manifest_file_size=8388608",
+        ] {
+            assert!(
+                options.lines().any(|l| l.trim() == line),
+                "missing `{line}`"
+            );
+        }
     }
 
     #[test]

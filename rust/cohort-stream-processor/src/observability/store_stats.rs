@@ -1,5 +1,5 @@
-//! Periodic publisher of RocksDB store statistics (block-cache tickers, cache usage, per-CF sizes)
-//! and the store filesystem's utilization, via the shared sweep machinery. Read latency is timed
+//! Periodic publisher of RocksDB store statistics (block-cache tickers, cache usage, per-CF sizes),
+//! the store filesystem's utilization, and per-file-type usage of the store volume, via the shared sweep machinery. Read latency is timed
 //! inline in [`crate::store::rocks`].
 
 use std::path::PathBuf;
@@ -18,15 +18,18 @@ use crate::observability::metrics::{
     STORE_BLOCK_CACHE_INDEX_MISSES_TOTAL, STORE_BLOCK_CACHE_MISSES_TOTAL,
     STORE_BLOCK_CACHE_USAGE_BYTES, STORE_BLOOM_FILTER_USEFUL_TOTAL, STORE_DISK_AVAILABLE_BYTES,
     STORE_DISK_SAMPLE_ERRORS_TOTAL, STORE_DISK_TOTAL_BYTES, STORE_DISK_UTILIZATION_PCT,
-    STORE_ESTIMATE_NUM_KEYS, STORE_LIVE_DATA_BYTES, STORE_SST_BYTES,
+    STORE_ESTIMATE_NUM_KEYS, STORE_FILE_BYTES, STORE_LIVE_DATA_BYTES, STORE_SST_BYTES,
 };
+use crate::observability::store_files::sample_store_files;
 use crate::store::StoreHandle;
 use crate::sweep::Sweeper;
 
 /// Samples the store filesystem each stats tick, publishing the `store_disk_*` gauges plus the
-/// shared snapshot the seed consumer's disk gate reads.
+/// shared snapshot the seed consumer's disk gate reads, then the per-file-type `store_file_bytes`
+/// gauge.
 pub struct DiskProbe {
     store_path: PathBuf,
+    checkpoint_dir: PathBuf,
     shared: Arc<SharedDiskUtilization>,
     /// At most one statvfs call outstanding: a hung mount must not leak one blocking thread per
     /// tick until the pool is exhausted.
@@ -34,9 +37,14 @@ pub struct DiskProbe {
 }
 
 impl DiskProbe {
-    pub fn new(store_path: PathBuf, shared: Arc<SharedDiskUtilization>) -> Self {
+    pub fn new(
+        store_path: PathBuf,
+        checkpoint_dir: PathBuf,
+        shared: Arc<SharedDiskUtilization>,
+    ) -> Self {
         Self {
             store_path,
+            checkpoint_dir,
             shared,
             in_flight: Arc::new(AtomicBool::new(false)),
         }
@@ -53,6 +61,7 @@ impl DiskProbe {
             return;
         }
         let path = self.store_path.clone();
+        let checkpoint_dir = self.checkpoint_dir.clone();
         let shared = self.shared.clone();
         let in_flight = self.in_flight.clone();
         tokio::task::spawn_blocking(move || {
@@ -70,6 +79,17 @@ impl DiskProbe {
                 }
             };
             shared.publish(sample);
+            // After the publish, so a slow directory walk cannot delay the disk gate's sample.
+            match sample_store_files(&path, &checkpoint_dir) {
+                Ok(usage) => {
+                    for (kind, bytes) in usage.by_kind() {
+                        gauge!(STORE_FILE_BYTES, "kind" => kind).set(bytes as f64);
+                    }
+                }
+                Err(err) => {
+                    warn!(error = %err, path = %path.display(), "store file usage sample failed");
+                }
+            }
             in_flight.store(false, Ordering::Release);
         });
     }

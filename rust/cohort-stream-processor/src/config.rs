@@ -456,6 +456,23 @@ pub struct Config {
     #[envconfig(from = "COHORT_MAX_BACKGROUND_JOBS", default = "0")]
     pub cohort_max_background_jobs: i32,
 
+    /// Size at which RocksDB rolls its info `LOG` file. `0` leaves RocksDB's default (no size roll).
+    #[envconfig(from = "COHORT_MAX_LOG_FILE_SIZE_BYTES", default = "16777216")]
+    pub cohort_max_log_file_size_bytes: usize,
+
+    /// Number of info `LOG` files RocksDB keeps. `0` leaves RocksDB's default (1000).
+    #[envconfig(from = "COHORT_KEEP_LOG_FILE_NUM", default = "5")]
+    pub cohort_keep_log_file_num: usize,
+
+    /// WAL size at which RocksDB flushes the memtables so it can delete old WAL files. `0` leaves
+    /// RocksDB's default (4 × the total memtable budget).
+    #[envconfig(from = "COHORT_MAX_TOTAL_WAL_SIZE_BYTES", default = "1073741824")]
+    pub cohort_max_total_wal_size_bytes: u64,
+
+    /// Size at which RocksDB starts a new `MANIFEST` file. `0` leaves RocksDB's default (1 GiB).
+    #[envconfig(from = "COHORT_MAX_MANIFEST_FILE_SIZE_BYTES", default = "67108864")]
+    pub cohort_max_manifest_file_size_bytes: usize,
+
     /// TTL in days for `cf_person_records`: a compaction filter drops a person record whose
     /// `last_seen_ms` is older than this. `0` (the default) disables it — no filter is installed, so a
     /// persisted record never ages out. Attached to `cf_person_records` only; `cf_behavioral` eviction
@@ -965,6 +982,10 @@ impl Config {
             compact_on_deletion: self.cohort_compact_on_deletion_enabled,
             periodic_compaction_seconds: self.cohort_periodic_compaction_seconds,
             max_background_jobs: self.cohort_max_background_jobs,
+            max_log_file_size_bytes: self.cohort_max_log_file_size_bytes,
+            keep_log_file_num: self.cohort_keep_log_file_num,
+            max_total_wal_size_bytes: self.cohort_max_total_wal_size_bytes,
+            max_manifest_file_size_bytes: self.cohort_max_manifest_file_size_bytes,
             person_record_ttl_days: self.cohort_person_record_ttl_days,
             ..StoreConfig::default()
         }
@@ -1204,6 +1225,10 @@ mod tests {
             cohort_compact_on_deletion_enabled: true,
             cohort_periodic_compaction_seconds: 0,
             cohort_max_background_jobs: 0,
+            cohort_max_log_file_size_bytes: 16_777_216,
+            cohort_keep_log_file_num: 5,
+            cohort_max_total_wal_size_bytes: 1_073_741_824,
+            cohort_max_manifest_file_size_bytes: 67_108_864,
             cohort_person_record_ttl_days: 0,
             cohort_store_offload_mode: OffloadMode::All,
             cohort_store_event_read_permits: 16,
@@ -2379,6 +2404,10 @@ mod tests {
         assert!(defaults.cohort_compact_on_deletion_enabled);
         assert_eq!(defaults.cohort_periodic_compaction_seconds, 0);
         assert_eq!(defaults.cohort_max_background_jobs, 0);
+        assert_eq!(defaults.cohort_max_log_file_size_bytes, 16_777_216);
+        assert_eq!(defaults.cohort_keep_log_file_num, 5);
+        assert_eq!(defaults.cohort_max_total_wal_size_bytes, 1_073_741_824);
+        assert_eq!(defaults.cohort_max_manifest_file_size_bytes, 67_108_864);
         assert_eq!(defaults.partition_channel_buffer, 128);
 
         let env: std::collections::HashMap<String, String> = [
@@ -2387,6 +2416,10 @@ mod tests {
             ("COHORT_COMPACT_ON_DELETION_ENABLED", "false"),
             ("COHORT_PERIODIC_COMPACTION_SECONDS", "3600"),
             ("COHORT_MAX_BACKGROUND_JOBS", "2"),
+            ("COHORT_MAX_LOG_FILE_SIZE_BYTES", "1048576"),
+            ("COHORT_KEEP_LOG_FILE_NUM", "3"),
+            ("COHORT_MAX_TOTAL_WAL_SIZE_BYTES", "268435456"),
+            ("COHORT_MAX_MANIFEST_FILE_SIZE_BYTES", "8388608"),
             ("PARTITION_CHANNEL_BUFFER", "256"),
         ]
         .into_iter()
@@ -2398,6 +2431,10 @@ mod tests {
         assert!(!config.cohort_compact_on_deletion_enabled);
         assert_eq!(config.cohort_periodic_compaction_seconds, 3600);
         assert_eq!(config.cohort_max_background_jobs, 2);
+        assert_eq!(config.cohort_max_log_file_size_bytes, 1_048_576);
+        assert_eq!(config.cohort_keep_log_file_num, 3);
+        assert_eq!(config.cohort_max_total_wal_size_bytes, 268_435_456);
+        assert_eq!(config.cohort_max_manifest_file_size_bytes, 8_388_608);
         assert_eq!(config.partition_channel_buffer, 256);
     }
 
@@ -2409,6 +2446,10 @@ mod tests {
         config.cohort_compact_on_deletion_enabled = false;
         config.cohort_periodic_compaction_seconds = 3600;
         config.cohort_max_background_jobs = 2;
+        config.cohort_max_log_file_size_bytes = 1_048_576;
+        config.cohort_keep_log_file_num = 3;
+        config.cohort_max_total_wal_size_bytes = 268_435_456;
+        config.cohort_max_manifest_file_size_bytes = 8_388_608;
 
         let store = config.store_config();
         assert_eq!(store.block_cache_bytes, 3_221_225_472);
@@ -2416,6 +2457,10 @@ mod tests {
         assert!(!store.compact_on_deletion);
         assert_eq!(store.periodic_compaction_seconds, 3600);
         assert_eq!(store.max_background_jobs, 2);
+        assert_eq!(store.max_log_file_size_bytes, 1_048_576);
+        assert_eq!(store.keep_log_file_num, 3);
+        assert_eq!(store.max_total_wal_size_bytes, 268_435_456);
+        assert_eq!(store.max_manifest_file_size_bytes, 8_388_608);
     }
 
     #[test]
