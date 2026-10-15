@@ -33,7 +33,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
 
 MARK_FAILED_TIMEOUT = timedelta(seconds=30)
 SCHEDULER_TIMEOUT = timedelta(minutes=10)
-HIGHLIGHT_SOURCE_TIMEOUT = timedelta(seconds=30)
+HIGHLIGHT_SOURCE_TIMEOUT = timedelta(seconds=60)
 FINALIZE_HIGHLIGHTS_TIMEOUT = timedelta(seconds=30)
 
 
