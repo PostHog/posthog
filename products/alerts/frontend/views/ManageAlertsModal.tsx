@@ -76,7 +76,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const isEmpty = alerts.length === 0
     const isExperimentEligible = props.isOpen && !alertsLoading && isEmpty && props.canCreateAlertForInsight
-    const showListSpinner = props.isOpen && (alertsLoading || (isExperimentEligible && !receivedFeatureFlags))
+    const showListSpinner = props.isOpen && alertsLoading
     const showVisualEmptyState =
         isExperimentEligible &&
         receivedFeatureFlags &&
@@ -168,7 +168,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                                 New alert
                             </LemonButton>
                         }
-                        docsURL="https://posthog.com/docs/insights/alerts"
+                        docsURL="https://posthog.com/docs/alerts"
                     />
                 )}
             </LemonModal.Content>
