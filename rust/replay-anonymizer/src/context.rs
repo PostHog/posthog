@@ -15,7 +15,7 @@ use crate::allow_lists::AllowLists;
 use crate::assets::PLACEHOLDER_SRC;
 use crate::collect::{
     collectable_data_uri_bytes, is_image_ref, CollectedImage, ImageCollection, ImageCollector,
-    DROP_COLLECTION_OFF, MAX_IMAGE_BYTES,
+    DROP_COLLECTION_OFF, DROP_MESSAGE_CAP, MAX_IMAGE_BYTES,
 };
 use crate::data_uri::blank_image_data_uri;
 use crate::data_uri::ImageFallback;
@@ -232,9 +232,11 @@ impl<'a> Ctx<'a> {
         };
         let removed = collector.borrow_mut().truncate(checkpoint.images);
         if !removed.is_empty() {
-            self.image_memo
-                .borrow_mut()
-                .retain(|_, hit| !hit.as_ref().is_ok_and(|r| removed.contains(r)));
+            self.image_memo.borrow_mut().retain(|_, hit| match hit {
+                Ok(reference) => !removed.contains(reference),
+                // The freed room may now take an image the cap refused.
+                Err(reason) => *reason != DROP_MESSAGE_CAP,
+            });
         }
     }
 
@@ -373,6 +375,34 @@ mod tests {
             .decompress_cv(b"plainly not a compressed stream")
             .is_err());
         assert!(ctx.decompress_cv(b"").is_err());
+    }
+
+    #[test]
+    fn a_discarded_walk_frees_the_message_cap_for_a_later_image() {
+        use base64::Engine;
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::with_image_collection(
+            &allow,
+            Some(ImageCollection::new("42".to_string(), "k".repeat(32))),
+        );
+        let uri = |n: usize| {
+            let payload = base64::engine::general_purpose::STANDARD.encode(n.to_be_bytes());
+            format!("data:image/png;base64,{payload}")
+        };
+        let checkpoint = ctx.count_checkpoint();
+        for n in 0..crate::collect::MAX_IMAGES_PER_MESSAGE {
+            assert!(is_image_ref(
+                &ctx.scrub_image(&uri(n), ImageFallback::Blank)
+            ));
+        }
+        let late = uri(usize::MAX);
+        assert_eq!(
+            ctx.scrub_image(&late, ImageFallback::Blank),
+            blank_image_data_uri()
+        );
+        ctx.discard_walk(checkpoint);
+        assert!(is_image_ref(&ctx.scrub_image(&late, ImageFallback::Blank)));
+        assert_eq!(ctx.into_collected_images().len(), 1);
     }
 
     #[test]
