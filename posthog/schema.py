@@ -6325,6 +6325,16 @@ class HogQLQueryModifiers(BaseModel):
         ),
     )
     sessionTableVersion: SessionTableVersion | None = None
+    sessionTimestampBufferMinutes: int | None = Field(
+        default=None,
+        description=(
+            "Padding, in minutes, on each side of the event time range when it filters"
+            " the sessions table by session start. Defaults to 3 days. It can only"
+            " narrow the range: values above the default are ignored. Lower it only for"
+            " a query that keeps just the sessions that start inside its own time"
+            " range."
+        ),
+    )
     sessionsV2JoinMode: SessionsV2JoinMode | None = None
     timings: bool | None = None
     typeAwareCastSimplification: bool | None = Field(
