@@ -170,6 +170,7 @@ export function createCohortFormData(
                           ).filters.properties,
                           id: undefined,
                       },
+                      filterTestAccounts: cohort.filters.filterTestAccounts,
                   }
         ),
     }
