@@ -375,6 +375,9 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
             provisioning.can_create_accounts or provisioning.pays_for_customers
         ):
             return ProvisioningSigning.NOT_REQUIRED
+        # Grace covers partners that have not switched yet. Once a partner publishes a key it signs from then on.
+        if self.uses_private_key_jwt_auth:
+            return ProvisioningSigning.REQUIRED
         allowed_until = self.provisioning_unsigned_allowed_until
         if allowed_until is not None and timezone.now() < allowed_until:
             return ProvisioningSigning.GRACE

@@ -97,9 +97,9 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            # A partner that has just published its key may still have callers that do not sign yet.
-            ("during_grace", {}, False, 200),
-            # The client_id is public, so presenting it alone must not authenticate a confidential partner.
+            # The client_id is public, so presenting it alone must not authenticate a key-based partner,
+            # even while partners that have not switched yet are still in grace.
+            ("during_grace", {}, False, 401),
             ("after_grace", {}, True, 401),
             ("cannot_create_accounts_or_pay", {"can_create_accounts": False}, False, 401),
         ]
@@ -123,14 +123,13 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
             )
 
         assert res.status_code == expected_status, res.json()
-        if grace_ended:
+        if not capabilities:
             assert res.json()["error"] == {"code": "unauthorized", "message": PRIVATE_KEY_REQUIRED_MESSAGE}
 
     @parameterized.expand(
         [
             ("jwt_bearer_type", CLIENT_ASSERTION_TYPE_JWT_BEARER),
-            # The partner is in its grace period, where a bare client_id would pass, so an assertion
-            # with a missing or wrong type must not fall back to that path unverified.
+            # An assertion with a missing or wrong type must not fall back to the bare client_id path unverified.
             ("no_type", None),
             ("wrong_type", "urn:ietf:params:oauth:client-assertion-type:saml2-bearer"),
         ]
@@ -154,9 +153,8 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("unsigned_during_grace", False, None, 200),
+            ("unsigned_during_grace", False, None, 401),
             ("unsigned_after_grace", True, None, 401),
-            # Grace lets the partner leave the assertion out, never send one that does not verify.
             ("signed_by_another_key_during_grace", False, CLIENT_ASSERTION_TYPE_JWT_BEARER, 401),
             ("signed_by_another_key_without_a_type_during_grace", False, "", 401),
         ]
@@ -191,7 +189,7 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
         )
         assert retry.status_code == 200, retry.json()
 
-    @parameterized.expand([("during_grace", False, 200, "unsigned_grace"), ("after_grace", True, 401, "refused")])
+    @parameterized.expand([("during_grace", False, 401, "refused"), ("after_grace", True, 401, "refused")])
     def test_unsigned_refresh_at_the_oauth_token_endpoint(
         self, _name: str, grace_ended: bool, expected_status: int, expected_signing: str
     ) -> None:

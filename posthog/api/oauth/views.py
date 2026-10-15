@@ -83,7 +83,6 @@ from posthog.models.oauth import (
     OAuthApplicationAccessLevel,
     OAuthGrant,
     OAuthRefreshToken,
-    ProvisioningSigning,
     lock_oauth_connection,
     revoke_oauth_session,
     revoke_oauth_token_family,
@@ -609,7 +608,7 @@ class OAuthValidator(OAuth2Validator):
         app = self._load_application(getattr(request, "client_id", None) or "", request)
         if app is None or not app.is_cimd_client or not app.uses_private_key_jwt_auth:
             return None
-        if app.is_provisioning_partner and app.provisioning_signing is not ProvisioningSigning.GRACE:
+        if app.is_provisioning_partner:
             return None
         return app
 

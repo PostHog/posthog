@@ -64,11 +64,7 @@ def _require_client_authentication(request: Request, oauth_app: OAuthApplication
     presenting nothing. Returns the request's signing tag for analytics.
     """
     signing = oauth_app.provisioning_signing
-    # Grace lets a partner that switched to private_key_jwt leave the assertion out, never send one
-    # that does not verify, including one whose client_assertion_type is wrong.
-    if oauth_app.uses_private_key_jwt_auth and (
-        presents_client_assertion(request) or signing is not ProvisioningSigning.GRACE
-    ):
+    if oauth_app.uses_private_key_jwt_auth:
         _verify_assertion_or_fail(request, oauth_app, grant_type)
         return signing.request_tag(signed=True)
 

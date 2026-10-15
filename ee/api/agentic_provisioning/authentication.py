@@ -153,7 +153,7 @@ class ProvisioningAuthentication(ActivityCredentialMixin, BaseAuthentication):
             # returning a bare "unauthorized" it cannot act on.
             raise AuthenticationFailed(CLIENT_NOT_REGISTERED_MESSAGE)
 
-        # A client_id proves nothing. A switched partner goes on to the signing check, which accepts it only in grace.
+        # A client_id proves nothing. A key-based partner that must sign goes on to the signing check, which refuses it.
         if app.requires_client_authentication and not (
             app.uses_private_key_jwt_auth and app.provisioning_signing is not ProvisioningSigning.NOT_REQUIRED
         ):
