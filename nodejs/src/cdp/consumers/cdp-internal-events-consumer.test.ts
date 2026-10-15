@@ -379,7 +379,7 @@ describe('CDP Internal Events Consumer', () => {
             expect(hogFlowInvocations[0].functionId).toBe(hogFlow.id)
         })
 
-        it('should start a masked workflow again on redelivery when queueing its run failed', async () => {
+        it('should not start a masked workflow again on redelivery when queueing its run failed', async () => {
             await _insertHogFlow(hub.postgres, {
                 ...buildHogFlow(team.id, { type: 'internal-event' }),
                 trigger_masking: HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking,
@@ -400,7 +400,7 @@ describe('CDP Internal Events Consumer', () => {
             const redelivered = await deliver()
             await redelivered.backgroundTask
 
-            expect(redelivered.invocations.filter((i: any) => i.hogFlow)).toHaveLength(1)
+            expect(redelivered.invocations.filter((i: any) => i.hogFlow)).toHaveLength(0)
         })
 
         it('should not start an internal-event workflow from another signal on this topic', async () => {

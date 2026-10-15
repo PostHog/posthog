@@ -89,7 +89,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
         // Warehouse rows carry no `$groups` property — group enrichment is a no-op here, so we skip the
         // call entirely to avoid the per-batch group-types lookup.
 
-        const [hogInvocations, { invocations: hogflowInvocations }] = await Promise.all([
+        const [hogInvocations, hogflowInvocations] = await Promise.all([
             this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
                 hogTypes: this.hogTypes,
                 filterFn: (fn) => WAREHOUSE_TRIGGER_TYPES.has(fn.filters?.source ?? 'events'),

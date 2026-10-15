@@ -102,7 +102,7 @@ describe('HogFlowInvocationPipeline', () => {
     })
 
     it('returns empty when no hogflows match', async () => {
-        const { invocations: result } = await pipeline.buildInvocations([makeGlobals()])
+        const result = await pipeline.buildInvocations([makeGlobals()])
         expect(result).toEqual([])
         expect(hogFlowManager.getHogFlowsForTeams).toHaveBeenCalledWith([1])
     })
@@ -118,7 +118,7 @@ describe('HogFlowInvocationPipeline', () => {
         hogWatcher.getEffectiveStates.mockResolvedValue({ [inv.hogFlow.id]: { state: HogWatcherState.healthy } } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
 
-        const { invocations: result } = await pipeline.buildInvocations([makeGlobals()])
+        const result = await pipeline.buildInvocations([makeGlobals()])
 
         expect(result).toEqual([inv])
         expect(hogFunctionMonitoringService.queueAppMetrics).toHaveBeenCalledWith(
@@ -149,7 +149,7 @@ describe('HogFlowInvocationPipeline', () => {
         hogWatcher.getEffectiveStates.mockResolvedValue({ [inv.hogFlow.id]: { state: HogWatcherState.healthy } } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: true }]])
 
-        const { invocations: result } = await pipeline.buildInvocations([makeGlobals()])
+        const result = await pipeline.buildInvocations([makeGlobals()])
 
         expect(result).toEqual([])
         expect(hogFunctionMonitoringService.queueAppMetric).toHaveBeenCalledWith(
@@ -172,7 +172,7 @@ describe('HogFlowInvocationPipeline', () => {
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
         quotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
 
-        const { invocations: result } = await pipeline.buildInvocations([makeGlobals()])
+        const result = await pipeline.buildInvocations([makeGlobals()])
         expect(result).toEqual([])
     })
 
@@ -189,7 +189,7 @@ describe('HogFlowInvocationPipeline', () => {
         } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
 
-        const { invocations: result } = await pipeline.buildInvocations([makeGlobals()])
+        const result = await pipeline.buildInvocations([makeGlobals()])
 
         expect(result).toEqual([])
         expect(hogFunctionMonitoringService.queueAppMetric).toHaveBeenCalledWith(
@@ -211,7 +211,7 @@ describe('HogFlowInvocationPipeline', () => {
         } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
 
-        const { invocations: result } = await pipeline.buildInvocations([makeGlobals()])
+        const result = await pipeline.buildInvocations([makeGlobals()])
 
         expect(result).toHaveLength(1)
         expect(result[0].queuePriority).toBe(2)
@@ -230,7 +230,7 @@ describe('HogFlowInvocationPipeline', () => {
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
         hogMasker.filterByMasking.mockResolvedValue({ masked: [inv], notMasked: [], release: async () => {} })
 
-        const { invocations: result } = await pipeline.buildInvocations([makeGlobals()])
+        const result = await pipeline.buildInvocations([makeGlobals()])
 
         expect(result).toEqual([])
         expect(hogFunctionMonitoringService.queueAppMetrics).toHaveBeenCalledWith(
