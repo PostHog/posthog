@@ -2213,6 +2213,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             setScannerExperiment: ({ experimentId }) => {
+                // A failed rebuild would otherwise leave the previous experiment's context in place.
+                if (values.experimentContext && values.experimentContext.experiment.id !== experimentId) {
+                    actions.setExperimentContext(null)
+                }
                 actions.setScannerValues({ scanner_config: { experiment_id: experimentId, variants: null } })
                 actions.rebuildExperimentContext()
             },

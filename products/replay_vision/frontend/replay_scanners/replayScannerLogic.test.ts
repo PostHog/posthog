@@ -2013,6 +2013,22 @@ describe('replayScannerLogic', () => {
                 experiment_targeting: null,
             })
         })
+
+        it('switching experiments drops the old context when the new one fails to load', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/7/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                    '/api/projects/:team/experiments/8/': () => [500, {}],
+                },
+            })
+            logic.actions.setScannerType('experiment')
+            await expectLogic(logic, () => logic.actions.setScannerExperiment(7)).toFinishAllListeners()
+            expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 } })
+
+            await expectLogic(logic, () => logic.actions.setScannerExperiment(8)).toFinishAllListeners()
+
+            expect(logic.values.experimentContext).toBeNull()
+        })
     })
 
     describe('team refresh on tab visibility', () => {

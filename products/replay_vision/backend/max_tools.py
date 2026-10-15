@@ -17,7 +17,6 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
-from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
@@ -289,14 +288,6 @@ class CompareReplayVisionVariantsTool(ReplayVisionGatesMixin, MaxTool):
             )
             return "Something went wrong comparing the variants. Please try again.", {"error": "fetch_failed"}
 
-    def _can_read_parent_project(self) -> bool:
-        # The readout reads scout records from the parent project, so a child environment needs the
-        # same parent membership the variants endpoint checks with ScoutCanonicalTeamAccessPermission.
-        parent = self._team.parent_team
-        if parent is None or parent.id == self._team.id:
-            return True
-        return UserPermissions(user=self._user).team(parent).effective_membership_level is not None
-
     @database_sync_to_async
     def _compare(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
         scanner = scanner_for_reading_observations(self._team.id, scanner_id)
@@ -304,11 +295,9 @@ class CompareReplayVisionVariantsTool(ReplayVisionGatesMixin, MaxTool):
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         # The same gate as the variants endpoint: the scanner's RBAC and its experiment's access,
         # with a denied scanner reading as not-found.
-        if (
-            not self.user_access_control.check_access_level_for_object(scanner, "viewer")
-            or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner)
-            or not self._can_read_parent_project()
-        ):
+        if not self.user_access_control.check_access_level_for_object(
+            scanner, "viewer"
+        ) or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner):
             return f"Scanner {scanner_id} not found.", {"error": "forbidden"}
         if scanner.scanner_type != ScannerType.EXPERIMENT:
             return (
@@ -337,7 +326,16 @@ class CompareReplayVisionVariantsTool(ReplayVisionGatesMixin, MaxTool):
             as_untrusted_data("variant counts", counts),
         ]
         analysis = readout.analysis
-        if analysis is None:
+        # The scout's records live on the parent project. The variants endpoint checks the caller's
+        # parent access and credential scope with ScoutCanonicalTeamAccessPermission, and a tool sees
+        # no credential, so a child environment gets its analysis only from the Variants tab.
+        in_child_environment = self._team.parent_team_id is not None and self._team.parent_team_id != self._team.id
+        if analysis is not None and in_child_environment:
+            analysis = None
+            sections.append(
+                "This environment's variant analysis is on the scanner's Variants tab. Ask the user to open it there."
+            )
+        elif analysis is None:
             sections.append(
                 "This scanner has no variant analysis scout, so there is no comparison of what users do. "
                 "The user can set one up from the scanner's Scouts tab."

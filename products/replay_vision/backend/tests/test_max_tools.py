@@ -15,7 +15,6 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.event_usage import EventSource
-from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 import products.replay_vision.backend.max_tools as max_tools_module
@@ -678,27 +677,11 @@ class TestCompareReplayVisionVariantsTool(BaseTest):
 
         assert artifact["scanner_id"] == str(target.id)
 
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_a_child_environment_needs_access_to_the_parent_project(self):
-        # The readout reads scout records from the parent project, as the variants endpoint does.
-        other_org = await sync_to_async(Organization.objects.create)(name="other org")
-        parent = await sync_to_async(Team.objects.create)(organization=other_org, name="parent")
-        child = await sync_to_async(Team.objects.create)(organization=self.organization, parent_team=parent, name="env")
-        scanner = await sync_to_async(self._experiment_scanner)(team=child, flag_key="child-flag")
-
-        _, artifact = await self._tool(team=child)._arun_impl(scanner_id=str(scanner.id))
-
-        assert artifact == {"error": "forbidden"}
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_reports_theme_denominators_and_small_sampling_rates(self):
-        scanner = await sync_to_async(self._experiment_scanner)()
+    def _readout_with_analysis(self) -> ExperimentVariantsReadout:
         late_theme = VariantAnalysisLine(
             theme="retries payment", statement="retries", count=20, read=50, example_observation_ids=()
         )
-        readout = ExperimentVariantsReadout(
+        return ExperimentVariantsReadout(
             experiment=None,
             window=VariantsWindow(total_observations=1000, first_observation_at=None, last_observation_at=None),
             variants=(
@@ -724,12 +707,34 @@ class TestCompareReplayVisionVariantsTool(BaseTest):
             ),
         )
 
-        with patch.object(max_tools_module, "experiment_variants_readout", return_value=readout):
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_reports_theme_denominators_and_small_sampling_rates(self):
+        scanner = await sync_to_async(self._experiment_scanner)()
+
+        with patch.object(max_tools_module, "experiment_variants_readout", return_value=self._readout_with_analysis()):
             content, _ = await self._tool()._arun_impl(scanner_id=str(scanner.id))
 
         assert "sampled at 0.4%" in content
         assert "retries (20 of 50)" in content
         assert "test 20 of 50" in content
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_a_child_environment_leaves_the_parent_analysis_to_the_variants_tab(self):
+        # The analysis is read from the parent project, and only the variants endpoint can check the
+        # caller's credential scope for it.
+        child = await sync_to_async(Team.objects.create)(
+            organization=self.organization, parent_team=self.team, name="env"
+        )
+        scanner = await sync_to_async(self._experiment_scanner)(team=child, flag_key="child-flag")
+
+        with patch.object(max_tools_module, "experiment_variants_readout", return_value=self._readout_with_analysis()):
+            content, artifact = await self._tool(team=child)._arun_impl(scanner_id=str(scanner.id))
+
+        assert artifact["has_analysis"] is False
+        assert "retries" not in content
+        assert "Variants tab" in content
 
 
 class TestCreateReplayVisionScannerTool(BaseTest):
