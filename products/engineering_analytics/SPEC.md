@@ -113,7 +113,7 @@ A query on the raw tables parses every payload and repeats the hand-off shell fi
 - The inserts run as the `cache_warmup` ClickHouse user, so they take no query slots from the default user.
 - A change to a builder changes the insert query, and the framework keys its jobs on that query. So a deploy that changes a builder starts a new set of days, and no read mixes rows of two builder versions.
 - A refresh reads every source of the team with no user, so the stored rows are outside the per-table warehouse access control. The tables are therefore in no shared HogQL catalog: no insight, subscription or `execute-sql` query can name them. Only the curated read layer reads them, and it checks the reader's access itself.
-- A product read takes the stored rows only behind the `engineering-analytics-stored-reads` flag, and only when all of the following hold. Any other read takes the raw tables.
+- A product read takes the stored rows only when all of the following hold. Any other read takes the raw tables.
   - The source carries a scan floor. A source with no floor always reads the raw tables.
   - Every day from the floor to now is stored, and no day is more than 40 minutes past the age at which a refresh computes it again. A read of runs, or of the runs that jobs belong to, needs the days from 35 days before its floor, because a re-run starts a run again up to 35 days after its creation. A floor below the stored days fails this. The stored days cover a range of 30 days with its previous period or its CI lookback, so a read that reaches further back reads the raw tables.
   - The reader may read every raw table behind the stored rows, and resolves the same Depot CI.

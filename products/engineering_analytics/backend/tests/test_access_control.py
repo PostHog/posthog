@@ -51,7 +51,6 @@ _RUN_QUERY = "products.engineering_analytics.backend.logic.queries._curated.Cura
 _EXECUTE_HOGQL = "products.engineering_analytics.backend.logic.queries._curated.execute_hogql_query"
 # Schema build reads this to decide whether per-table warehouse ACL is enforced.
 _FLAG = "posthog.hogql.database.database.feature_enabled_or_false"
-_STORED_READS_FLAG = "products.engineering_analytics.backend.logic.queries._curated.team_flag"
 _ENSURE_STORED = "products.engineering_analytics.backend.logic.ci_precompute.ensure_stored"
 
 
@@ -220,7 +219,6 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
     def _floored_ci_reads(self, user_access_control: UserAccessControl) -> list[str]:
         with (
             mock.patch(_FLAG, side_effect=_warehouse_acl_enabled),
-            mock.patch(_STORED_READS_FLAG, return_value=True),
             mock.patch(_ENSURE_STORED, return_value=SimpleNamespace(ready=True, job_ids=[uuid4()])),
             mock.patch(_EXECUTE_HOGQL, return_value=SimpleNamespace(results=[])) as execute,
         ):

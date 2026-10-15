@@ -47,13 +47,8 @@ from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_que
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models.team import Team
 
-from products.engineering_analytics.backend.facade.contracts import (
-    STORED_READS_FEATURE_FLAG,
-    CIDataFreshness,
-    QueryWorkLimitExceededError,
-)
+from products.engineering_analytics.backend.facade.contracts import CIDataFreshness, QueryWorkLimitExceededError
 from products.engineering_analytics.backend.logic.ci_precompute import StoredCiReader, mark_in_use
-from products.engineering_analytics.backend.logic.feature_flags import team_flag
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
@@ -591,9 +586,6 @@ class CuratedGitHubSource:
             self._stored_reader_resolved = True
 
     def _resolve_stored_ci_reader(self) -> StoredCiReader | None:
-        distinct_id = self._user.distinct_id if self._user else None
-        if not team_flag(STORED_READS_FEATURE_FLAG, self._team, distinct_id=distinct_id, only_evaluate_locally=True):
-            return None
         repository = self.repository.casefold()
         source = next(
             (
