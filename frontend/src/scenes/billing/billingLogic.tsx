@@ -132,8 +132,10 @@ const parseBillingResponse = (data: Partial<BillingType> | null): BillingType | 
 
     data.free_trial_until = data.free_trial_until ? dayjs(data.free_trial_until) : undefined
     data.amount_off_expires_at = data.amount_off_expires_at ? dayjs(data.amount_off_expires_at) : undefined
-    // If expiration is in the middle of the current period, we let it expire at the end of the period
+    // If expiration is in the middle of the current period, we let it expire at the end of the period.
+    // YC credits are the exception: billing renews or ends them on the expiry date itself.
     if (
+        data.startup_program_label !== StartupProgramLabel.YC &&
         data.amount_off_expires_at &&
         data.billing_period &&
         data.amount_off_expires_at.isBefore(data.billing_period.current_period_end) &&
