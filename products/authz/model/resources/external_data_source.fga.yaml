@@ -1,0 +1,34 @@
+name: External data source
+model_file: ../../generated/model.fga
+tuple_files:
+    - ../fixtures.yaml
+tuples:
+    - { user: 'project:project', relation: project, object: 'external_data_source:source' }
+    - { user: 'resource:sources', relation: resource, object: 'external_data_source:source' }
+    - { user: 'access_policy:object', relation: policy, object: 'external_data_source:source' }
+    - { user: 'organization_member:creator#user', relation: creator, object: 'external_data_source:source' }
+
+    - { user: 'project:project', relation: project, object: 'resource:sources' }
+    - { user: 'access_policy:resource', relation: policy, object: 'resource:sources' }
+
+tests:
+    - name: Source permissions preserve the shared object behavior
+      check:
+          - user: user:member
+            object: external_data_source:source
+            assertions: { can_view: true, can_edit: true, can_delete: true, can_manage_access: false }
+          - user: user:creator
+            object: external_data_source:source
+            assertions: { can_view: true, can_edit: true, can_delete: true, can_manage_access: true }
+          - user: user:outsider
+            object: external_data_source:source
+            assertions: { can_view: false, can_edit: false, can_delete: false, can_manage_access: false }
+
+    - name: Explicit source denial takes precedence over resource grants
+      tuples:
+          - { user: 'user:*', relation: default_none, object: 'access_policy:object' }
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:resource' }
+      check:
+          - user: user:member
+            object: external_data_source:source
+            assertions: { can_view: false, can_edit: false, can_manage_access: false }

@@ -1,0 +1,34 @@
+# Tables resolve two object scopes before either resource scope; the shared object base has only one of each.
+type warehouse_table
+  relations
+    define project: [project]
+    define resource: [resource]
+    define policy: [access_policy]
+    define creator: [organization_member#user]
+    # Self-managed tables have no source and therefore skip both source scopes.
+    define source: [external_data_source]
+
+    define has_table_rule: has_rule from policy
+    define has_source_rule: has_rule from source
+    define has_resource_rule: has_rule from resource
+    define has_source_resource_rule: resource_has_rule from source
+    define has_object_rule: has_table_rule or has_source_rule
+    define has_prior_resource_rule: has_object_rule or has_resource_rule
+    # Explicit none and lower levels stop fallback just like grants.
+    define has_rule: has_prior_resource_rule or has_source_resource_rule
+
+    define policy_viewer: viewer from policy or ((object_policy_viewer from source) but not has_table_rule) or ((policy_viewer from resource) but not has_object_rule) or ((resource_policy_viewer from source) but not has_prior_resource_rule)
+
+    define policy_editor: editor from policy or ((object_policy_editor from source) but not has_table_rule) or ((policy_editor from resource) but not has_object_rule) or ((resource_policy_editor from source) but not has_prior_resource_rule)
+
+    define policy_manager: manager from policy or ((object_policy_manager from source) but not has_table_rule) or ((policy_manager from resource) but not has_object_rule) or ((resource_policy_manager from source) but not has_prior_resource_rule)
+
+    define viewer: (member from project) and (creator or org_admin from project or policy_viewer or ((member from project) but not has_rule))
+    define editor: (member from project) and (creator or org_admin from project or policy_editor or ((member from project) but not has_rule))
+    define manager: (member from project) and (creator or org_admin from project or policy_manager)
+    define can_view: viewer
+    # SDK Action.QUERY checks can_query; querying uses the resolved view permission rather than a separate access level.
+    define can_query: can_view
+    define can_edit: editor
+    define can_delete: can_edit
+    define can_manage_access: manager or can_manage_access from project

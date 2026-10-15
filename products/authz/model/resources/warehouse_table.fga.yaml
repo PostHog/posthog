@@ -1,0 +1,202 @@
+name: Warehouse table fallback
+model_file: ../../generated/model.fga
+tuple_files:
+    - ../fixtures.yaml
+tuples:
+    - { user: 'project:project', relation: project, object: 'warehouse_table:sourced' }
+    - { user: 'project:project', relation: project, object: 'warehouse_table:self_managed' }
+    - { user: 'resource:warehouse', relation: resource, object: 'warehouse_table:sourced' }
+    - { user: 'resource:warehouse', relation: resource, object: 'warehouse_table:self_managed' }
+    - { user: 'project:project', relation: project, object: 'resource:warehouse' }
+    - { user: 'access_policy:warehouse', relation: policy, object: 'resource:warehouse' }
+    - { user: 'access_policy:table', relation: policy, object: 'warehouse_table:sourced' }
+    - { user: 'access_policy:self_managed', relation: policy, object: 'warehouse_table:self_managed' }
+    - { user: 'organization_member:creator#user', relation: creator, object: 'warehouse_table:sourced' }
+    - { user: 'external_data_source:zendesk', relation: source, object: 'warehouse_table:sourced' }
+    - { user: 'project:project', relation: project, object: 'external_data_source:zendesk' }
+    - { user: 'access_policy:zendesk', relation: policy, object: 'external_data_source:zendesk' }
+    - { user: 'resource:sources', relation: resource, object: 'external_data_source:zendesk' }
+    - { user: 'project:project', relation: project, object: 'resource:sources' }
+    - { user: 'access_policy:sources', relation: policy, object: 'resource:sources' }
+    - { user: 'organization:org', relation: organization, object: 'access_policy:table' }
+    - { user: 'organization:org', relation: organization, object: 'access_policy:self_managed' }
+    - { user: 'organization:org', relation: organization, object: 'access_policy:zendesk' }
+    - { user: 'organization:org', relation: organization, object: 'access_policy:warehouse' }
+    - { user: 'organization:org', relation: organization, object: 'access_policy:sources' }
+
+tests:
+    - name: No rules use the built-in default within the project
+      check:
+          - user: user:member
+            objects: [warehouse_table:sourced, warehouse_table:self_managed]
+            assertions: { can_view: true, can_query: true, can_edit: true, can_delete: true, can_manage_access: false }
+          - user: user:outsider
+            object: warehouse_table:sourced
+            assertions:
+                { can_view: false, can_query: false, can_edit: false, can_delete: false, can_manage_access: false }
+
+    - name: Source denial masks warehouse resource grants and does not reach self-managed tables
+      tuples:
+          - { user: 'user:*', relation: default_none, object: 'access_policy:zendesk' }
+          - { user: 'user:*', relation: default_editor, object: 'access_policy:warehouse' }
+      check:
+          - user: user:member
+            object: warehouse_table:sourced
+            assertions: { can_view: false, can_query: false, can_edit: false, can_delete: false, has_rule: true }
+          - user: user:member
+            object: warehouse_table:self_managed
+            assertions: { can_view: true, can_query: true }
+          - user: user:creator
+            object: warehouse_table:sourced
+            assertions: { can_view: true, can_query: true, can_manage_access: true }
+
+    - name: Explicit table grant wins over source denial
+      tuples:
+          - { user: 'user:*', relation: default_none, object: 'access_policy:zendesk' }
+          - { user: 'organization_member:member#user', relation: member_viewer, object: 'access_policy:table' }
+      check:
+          - user: user:member
+            object: warehouse_table:sourced
+            assertions: { can_view: true, can_query: true, can_edit: false, can_manage_access: false }
+
+    - name: Member viewer on a table masks role manager and source manager
+      tuples:
+          - { user: 'organization_member:member#user', relation: member_viewer, object: 'access_policy:table' }
+          - { user: 'role:manager#member', relation: role_manager, object: 'access_policy:table' }
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:zendesk' }
+      check:
+          - user: user:member
+            object: warehouse_table:sourced
+            assertions: { can_view: true, can_query: true, can_edit: false, can_manage_access: false }
+
+    - name: Object default denial wins over a member grant on the source
+      tuples:
+          - { user: 'user:*', relation: default_none, object: 'access_policy:table' }
+          - { user: 'organization_member:member#user', relation: member_manager, object: 'access_policy:zendesk' }
+      check:
+          - user: user:member
+            object: warehouse_table:sourced
+            assertions: { can_view: false, can_query: false, can_edit: false }
+
+    - name: Warehouse category grant wins over source category denial
+      tuples:
+          - { user: 'user:*', relation: default_editor, object: 'access_policy:warehouse' }
+          - { user: 'user:*', relation: default_none, object: 'access_policy:sources' }
+      check:
+          - user: user:member
+            object: warehouse_table:sourced
+            assertions: { can_view: true, can_query: true, can_edit: true }
+
+    - name: Source category denial applies only when the earlier scopes have no rule
+      tuples:
+          - { user: 'user:*', relation: default_none, object: 'access_policy:sources' }
+      check:
+          - user: user:member
+            object: warehouse_table:sourced
+            assertions: { can_view: false, can_query: false, can_edit: false, has_rule: true }
+          - user: user:member
+            object: warehouse_table:self_managed
+            assertions: { can_view: true, can_query: true, can_edit: true }
+      list_objects:
+          - user: user:member
+            type: warehouse_table
+            assertions:
+                has_rule: [warehouse_table:sourced]
+                can_view: [warehouse_table:self_managed]
+                can_query: [warehouse_table:self_managed]
+
+    - name: Inherited source manager grants all table actions
+      tuples:
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:zendesk' }
+      check:
+          - user: user:member
+            object: warehouse_table:sourced
+            assertions: { can_view: true, can_query: true, can_edit: true, can_delete: true, can_manage_access: true }
+
+    - name: Self-managed tables still apply their own rule before warehouse defaults
+      tuples:
+          - { user: 'user:*', relation: default_editor, object: 'access_policy:warehouse' }
+          - { user: 'user:*', relation: default_none, object: 'access_policy:self_managed' }
+      check:
+          - user: user:member
+            object: warehouse_table:self_managed
+            assertions: { can_view: false, can_query: false, can_edit: false, has_rule: true }
+
+    - name: A source denial does not reach tables from another source
+      tuples:
+          - { user: 'user:*', relation: default_none, object: 'access_policy:zendesk' }
+          - { user: 'project:project', relation: project, object: 'warehouse_table:other_source' }
+          - { user: 'resource:warehouse', relation: resource, object: 'warehouse_table:other_source' }
+          - { user: 'external_data_source:other', relation: source, object: 'warehouse_table:other_source' }
+          - { user: 'access_policy:other_source', relation: policy, object: 'external_data_source:other' }
+          - { user: 'project:project', relation: project, object: 'external_data_source:other' }
+          - { user: 'resource:sources', relation: resource, object: 'external_data_source:other' }
+          - { user: 'organization:org', relation: organization, object: 'access_policy:other_source' }
+      check:
+          - user: user:member
+            object: warehouse_table:sourced
+            assertions: { can_query: false }
+          - user: user:member
+            object: warehouse_table:other_source
+            assertions: { can_query: true }
+
+    - name: An unrelated table override does not stop source fallback
+      tuples:
+          - { user: 'organization_member:creator#user', relation: member_manager, object: 'access_policy:table' }
+          - { user: 'user:*', relation: default_none, object: 'access_policy:zendesk' }
+      check:
+          - user: user:member
+            object: warehouse_table:sourced
+            assertions: { can_query: false, has_rule: true }
+
+    - name: Source member viewer masks source role manager
+      tuples:
+          - { user: 'organization_member:member#user', relation: member_viewer, object: 'access_policy:zendesk' }
+          - { user: 'role:manager#member', relation: role_manager, object: 'access_policy:zendesk' }
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:warehouse' }
+      check:
+          - user: user:member
+            object: warehouse_table:sourced
+            assertions: { can_query: true, can_edit: false, can_manage_access: false }
+
+    - name: Project denial gates inherited grants and creator rights
+      tuples:
+          - { user: 'organization_member:member#user', relation: member_none, object: 'project:project' }
+          - { user: 'organization_member:creator#user', relation: member_none, object: 'project:project' }
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:zendesk' }
+      check:
+          - users: [user:member, user:creator]
+            object: warehouse_table:sourced
+            assertions: { can_query: false, can_edit: false, can_manage_access: false }
+
+    - name: Source creator rights do not grant table access
+      tuples:
+          - { user: 'organization_member:member#user', relation: creator, object: 'external_data_source:zendesk' }
+          - { user: 'user:*', relation: default_none, object: 'access_policy:zendesk' }
+      check:
+          - user: user:member
+            object: external_data_source:zendesk
+            assertions: { can_view: true, can_edit: true }
+          - user: user:member
+            object: warehouse_table:sourced
+            assertions: { can_query: false, can_edit: false, can_manage_access: false }
+
+    - name: Warehouse category denial masks source category manager
+      tuples:
+          - { user: 'user:*', relation: default_none, object: 'access_policy:warehouse' }
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:sources' }
+      check:
+          - user: user:member
+            objects: [warehouse_table:sourced, warehouse_table:self_managed]
+            assertions: { can_query: false, can_edit: false, can_manage_access: false }
+
+    - name: Source category manager is inherited only by sourced tables
+      tuples:
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:sources' }
+      check:
+          - user: user:member
+            object: warehouse_table:sourced
+            assertions: { can_query: true, can_edit: true, can_manage_access: true }
+          - user: user:member
+            object: warehouse_table:self_managed
+            assertions: { can_query: true, can_edit: true, can_manage_access: false }

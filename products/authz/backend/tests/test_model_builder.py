@@ -110,6 +110,11 @@ class TestModelRules(SimpleTestCase):
                 },
                 "notebook.reviewer: no permission",
             ),
+            (
+                "standalone_override_without_base",
+                {"resources/notebook.fga": (None, "type notebook\n  relations\n    override can_view: viewer\n")},
+                "nothing to override",
+            ),
             ("hand_edited_model", {}, "does not match its sources"),
         ]
     )

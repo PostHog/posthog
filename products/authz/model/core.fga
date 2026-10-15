@@ -134,6 +134,10 @@ type resource
     define project: [project]
     define policy: [access_policy]
     define has_rule: has_rule from policy
+    # Fallback consumers need explicit policy results without the resource's implicit default or admin bypass.
+    define policy_viewer: viewer from policy
+    define policy_editor: editor from policy
+    define policy_manager: manager from policy
     define viewer: (member from project) and (org_admin from project or viewer from policy or ((member from project) but not has_rule))
     define editor: (member from project) and (org_admin from project or editor from policy or ((member from project) but not has_rule))
     define manager: (member from project) and (org_admin from project or manager from policy)
