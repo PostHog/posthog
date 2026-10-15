@@ -8,13 +8,14 @@ once, and the task trusts them. The run happens in this product's task, and the 
 through the Slack integration the mention came in on.
 
 The message names its subject by URL. For a pull request, the GitHub App installation on the
-repository owner tells which projects may act on it. A Slack command needs no GitHub permission
+repository owner tells which projects may act on it. An error tracking issue URL names its project. A Slack command needs no GitHub permission
 check: it runs as a PostHog account that is a member of the project, the same as the review
 trigger in the PostHog API and MCP. It reaches only projects of organizations that connected this
 Slack workspace, the same scope the agent has.
 """
 
 from collections.abc import Collection
+from typing import assert_never
 
 import structlog
 
@@ -26,13 +27,21 @@ from posthog.slack.markdown import slack_markdown_block
 
 from ...facade.contracts import SlackMention
 from ...logic.admission import claim, rolled_out_team_ids, within_rate_limit
-from ...logic.commands import Answer, CommandRequest, DispatchOutcome, FollowUpAddress, PullRequestRef, SubjectRef
+from ...logic.commands import (
+    Answer,
+    CommandRequest,
+    DispatchOutcome,
+    ErrorTrackingIssueRef,
+    FollowUpAddress,
+    PullRequestRef,
+    SubjectRef,
+)
 from ...logic.dispatcher import Admission, CommandDispatcher
 from ...logic.github import CommandGitHub
 from ...logic.registry import COMMANDS
 from ...logic.schema import ArgumentError, resolve_verb
 from ...logic.subjects import open_subject
-from .parsing import SubjectUrl, parse_slack_command
+from .parsing import ErrorTrackingIssueUrl, PullRequestUrl, SubjectUrl, parse_slack_command
 
 logger = structlog.get_logger(__name__)
 
@@ -74,11 +83,21 @@ def _installation_id(owner: str, organization_ids: Collection[str]) -> str | Non
 
 
 def _subject_ref(url: SubjectUrl, organization_ids: Collection[str]) -> SubjectRef | None:
-    """Where the subject lives for PostHog, or None when no connected organization reaches it."""
-    installation_id = _installation_id(url.repository.split("/", 1)[0], organization_ids)
-    if installation_id is None:
-        return None
-    return PullRequestRef(installation_id=installation_id, repository=url.repository, number=url.number)
+    """Where the subject lives for PostHog, or None when no connected organization reaches it.
+
+    An issue URL names its project. The rollout check after this keeps only a project of a
+    connected organization.
+    """
+    match url:
+        case PullRequestUrl():
+            installation_id = _installation_id(url.repository.split("/", 1)[0], organization_ids)
+            if installation_id is None:
+                return None
+            return PullRequestRef(installation_id=installation_id, repository=url.repository, number=url.number)
+        case ErrorTrackingIssueUrl():
+            return ErrorTrackingIssueRef(team_id=url.team_id, issue_id=url.issue_id)
+        case _:
+            assert_never(url)
 
 
 def read_slack_command(mention: SlackMention) -> SlackCommandRequest | None:
