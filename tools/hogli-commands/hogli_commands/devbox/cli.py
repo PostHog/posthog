@@ -271,16 +271,26 @@ def _workspace_arg_suffix(name: str) -> str:
     return f" {label}" if label else ""
 
 
+_NOT_READY_REASONS = {
+    "start_error": "A startup script failed, so some setup may be missing.",
+    "start_timeout": "A startup script ran past its time limit, so some setup may be missing.",
+    "wait_timeout": "Its startup scripts are still running.",
+    "stopped": "It stopped before its startup scripts finished.",
+    "agent_timeout": "Its agent did not connect to Coder.",
+    "unavailable": "hogli could not read its status from Coder.",
+}
+
+
 def _wait_until_ready(name: str) -> None:
     """Hold the command until startup scripts finish, warning if they did not."""
     click.echo("Waiting for startup scripts...")
     state = wait_for_agent_ready(name)
-    if state is None:
-        return
     telemetry.add_command_properties(devbox_agent_lifecycle=state)
+    if state == "ready":
+        return
     click.echo(
         click.style(
-            f"Devbox '{name}' is running, but its startup scripts did not finish ({state}). "
+            f"Devbox '{name}' may not be ready. {_NOT_READY_REASONS[state]} "
             f"Check `hogli devbox:logs{_workspace_arg_suffix(name)}`.",
             fg="yellow",
         )
@@ -1606,6 +1616,7 @@ def devbox_restart(workspace: str | None, verbose: bool) -> None:
     _get_workspace_or_fail(name, workspaces)
     click.echo(f"Restarting '{name}'...")
     restart_workspace(name, verbose=verbose)
+    _wait_until_ready(name)
     click.echo("Restarted.")
     _print_connection_info(name)
 
@@ -1623,6 +1634,7 @@ def devbox_update(workspace: str | None, verbose: bool) -> None:
         return
     click.echo(f"Updating '{name}' to the latest template...")
     update_workspace(name, verbose=verbose)
+    _wait_until_ready(name)
     click.echo("Updated.")
     click.echo(
         "Note: if your local lockfiles differ from the new AMI's baked versions, "
