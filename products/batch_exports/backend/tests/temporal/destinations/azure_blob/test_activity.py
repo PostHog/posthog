@@ -46,7 +46,6 @@ async def run_activity(
             run_id=None,
             backfill_details=None,
             batch_export_model=inputs.batch_export_model,
-            batch_export_schema=inputs.batch_export_schema,
             destination_default_fields=azure_blob_default_fields(),
         ),
     )
@@ -76,12 +75,11 @@ async def test_activity_exports_model_to_azure_blob(
     model,
 ):
     """Test that events, persons, and sessions are exported to Azure Blob Storage."""
-    batch_export_schema = None
     batch_export_model = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     batch_export_id = str(uuid.uuid4())
 
@@ -97,7 +95,6 @@ async def test_activity_exports_model_to_azure_blob(
         integration_id=azure_integration.id,
         destination_default_fields=azure_blob_default_fields(),
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
     )
 
     result = await run_activity(activity_environment, inputs)

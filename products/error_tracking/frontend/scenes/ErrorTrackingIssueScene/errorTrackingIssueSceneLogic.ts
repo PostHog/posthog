@@ -978,7 +978,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
         issueId: [(_, p) => [p.id], (id: string) => id],
 
-        // A real issue id is a UUID. The catch-all `/error_tracking/:id` route can capture a
+        // A real issue id is a UUID. The catch-all `/error-tracking/:id` route can capture a
         // legacy settings slug (e.g. `symbol_sets`), so the scene checks this to show a
         // not-found state instead of firing loaders that fail with "issue_id must be a valid UUID".
         issueIdValid: [(_, p) => [p.id], (id: string) => isUUIDLike(id)],
@@ -1126,7 +1126,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     urlToAction(({ actions, values }) => {
         return {
-            '**/error_tracking/:id': (_, params) => {
+            '**/error-tracking/:id': (_, params) => {
                 if (values.listDateRange == null) {
                     actions.setListDateRange(params.dateRange ?? DEFAULT_DATE_RANGE)
                 }

@@ -7071,7 +7071,7 @@ describe("AgentServer HTTP Mode", () => {
       expect(prompt).not.toContain("gh pr checkout");
       expect(prompt).not.toContain("Create a draft pull request");
       expect(prompt).toContain("Generated-By: PostHog Desktop");
-      expect(prompt).toContain("Task-Id: test-task-id");
+      expect(prompt).not.toContain("test-task-id");
     });
 
     it("returns default prompt when no prUrl", () => {
@@ -7082,7 +7082,7 @@ describe("AgentServer HTTP Mode", () => {
         "Do NOT create a branch, commit, push, or open a pull request unless the user explicitly asks.",
       );
       expect(prompt).toContain("Generated-By: PostHog Desktop");
-      expect(prompt).toContain("Task-Id: test-task-id");
+      expect(prompt).not.toContain("test-task-id");
       expect(prompt).not.toContain("gh pr create --draft");
       // If the user does explicitly ask for a PR in this review-first mode,
       // the agent must still use the PostHog Desktop footer, not Claude Code's default.
@@ -7126,7 +7126,7 @@ describe("AgentServer HTTP Mode", () => {
           "gh issue list --search",
           "Closes #<n>",
           "Generated-By: PostHog Desktop",
-          "Task-Id: test-task-id",
+          "a `Task-Id` trailer",
           "canonical `posthog:exec` tool",
           "`posthog:business-knowledge-documents-search`",
           "whatever else the question is about",
@@ -7198,7 +7198,7 @@ describe("AgentServer HTTP Mode", () => {
       expect(prompt).toContain("Create a draft pull request");
       expect(prompt).toContain("gh pr create --draft");
       expect(prompt).toContain("Generated-By: PostHog Desktop");
-      expect(prompt).toContain("Task-Id: test-task-id");
+      expect(prompt).not.toContain("test-task-id");
       // Slack-origin PRs are attributed to PostHog, not the PostHog Desktop app.
       expect(prompt).toContain(
         "Created with [PostHog](https://posthog.com?ref=pr)",

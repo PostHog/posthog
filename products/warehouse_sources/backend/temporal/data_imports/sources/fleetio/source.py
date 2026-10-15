@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FleetioSource(ResumableSource[FleetioSourceConfig, FleetioResumeConfig]):
+    codebase_detection = detect(env=("^FLEETIO_",))
+
     supported_versions = SUPPORTED_VERSIONS
     default_version = DEFAULT_VERSION
     api_docs_url = "https://developer.fleetio.com/docs/overview/versioning"

@@ -1,15 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
 
-import { LemonBanner, LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { ProductNav } from '../components/ProductNav'
+import { RepoSceneTitle } from '../components/RepoSceneTitle'
 import { engineeringAnalyticsEmptyState } from '../emptyState/engineeringAnalyticsEmptyState'
 import { doraLogic } from './doraLogic'
 import { EngineeringAnalyticsAuthors } from './EngineeringAnalyticsAuthors'
@@ -18,7 +17,7 @@ import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { EngineeringAnalyticsPullRequests } from './EngineeringAnalyticsPullRequests'
 import {
     EngineeringAnalyticsView,
-    VIEW_DESCRIPTIONS,
+    viewDescription,
     engineeringAnalyticsSceneLogic,
 } from './engineeringAnalyticsSceneLogic'
 import { EngineeringAnalyticsTeams } from './EngineeringAnalyticsTeams'
@@ -60,78 +59,58 @@ function DeploysRefreshButton(): JSX.Element {
     return <RefreshButton extraLoading={doraLoading} />
 }
 
-export function EngineeringAnalyticsScene(): JSX.Element {
-    const { searchParams: linkParams } = useValues(router)
-    const { activeView } = useValues(engineeringAnalyticsSceneLogic)
+// Each tab's own page. Detail pages render beneath their tab through ProductNav too.
+const TAB_CONTENT: Record<EngineeringAnalyticsView, () => JSX.Element> = {
+    hub: () => <RepoOverviewScene />,
+    'pull-requests': () => <EngineeringAnalyticsPullRequests />,
+    workflows: () => <EngineeringAnalyticsWorkflows />,
+    tests: () => <EngineeringAnalyticsTests />,
+    deploys: () => <EngineeringAnalyticsDeploys />,
+    teams: () => <EngineeringAnalyticsTeams />,
+    authors: () => <EngineeringAnalyticsAuthors />,
+}
 
-    // The general areas of the product. A drill-down page sits below the tab it opens from.
-    const tabs: LemonTab<EngineeringAnalyticsView>[] = [
-        {
-            key: 'hub',
-            label: 'Overview',
-            content: <RepoOverviewScene />,
-            link: combineUrl(urls.engineeringAnalytics(), linkParams).url,
-            'data-attr': 'engineering-analytics-overview-tab',
-        },
-        {
-            key: 'pull-requests',
-            label: 'Pull requests',
-            content: <EngineeringAnalyticsPullRequests />,
-            link: combineUrl(urls.engineeringAnalyticsPullRequestList(), linkParams).url,
-            'data-attr': 'engineering-analytics-pull-requests-tab',
-        },
-        {
-            key: 'workflows',
-            label: 'Workflows',
-            content: <EngineeringAnalyticsWorkflows />,
-            link: combineUrl(urls.engineeringAnalyticsWorkflows(), linkParams).url,
-            'data-attr': 'engineering-analytics-workflows-tab',
-        },
-        {
-            key: 'tests',
-            label: 'Tests',
-            content: <EngineeringAnalyticsTests />,
-            link: combineUrl(urls.engineeringAnalyticsTests(), linkParams).url,
-            // Pinned because autocapture dashboards and selectors use the original value.
-            'data-attr': 'engineering-analytics-test-health-tab',
-        },
-        {
-            key: 'deploys',
-            label: 'Deploys',
-            content: <EngineeringAnalyticsDeploys />,
-            link: combineUrl(urls.engineeringAnalyticsDeploys(), linkParams).url,
-            // Pinned because autocapture dashboards and selectors use the original value.
-            'data-attr': 'engineering-analytics-health-tab',
-        },
-        {
-            key: 'teams',
-            label: 'Teams',
-            content: <EngineeringAnalyticsTeams />,
-            link: combineUrl(urls.engineeringAnalyticsTeams(), linkParams).url,
-            'data-attr': 'engineering-analytics-teams-tab',
-        },
-        {
-            key: 'authors',
-            label: 'Authors',
-            content: <EngineeringAnalyticsAuthors />,
-            link: combineUrl(urls.engineeringAnalyticsAuthors(), linkParams).url,
-            'data-attr': 'engineering-analytics-authors-tab',
-        },
-    ]
+function EngineeringAnalyticsTabs(): JSX.Element {
+    const { activeView } = useValues(engineeringAnalyticsSceneLogic)
+    const { scopeRepo, sourceId } = useValues(engineeringAnalyticsLogic)
+    return (
+        <ProductNav activeTab={activeView} repo={scopeRepo} sourceId={sourceId}>
+            {TAB_CONTENT[activeView]()}
+        </ProductNav>
+    )
+}
+
+export function EngineeringAnalyticsScene(): JSX.Element {
+    const { activeView } = useValues(engineeringAnalyticsSceneLogic)
+    const { scopeRepo } = useValues(engineeringAnalyticsLogic)
 
     return (
         <BindLogic logic={engineeringAnalyticsLogic} props={{}}>
             <SceneContent className="pb-16">
-                <SceneTitleSection
-                    name="Engineering analytics"
-                    description={VIEW_DESCRIPTIONS[activeView]}
-                    resourceType={{ type: 'health' }}
-                    actions={activeView === 'deploys' ? <DeploysRefreshButton /> : <RefreshButton />}
+                <RepoSceneTitle
+                    repo={scopeRepo}
+                    description={viewDescription(activeView, scopeRepo)}
+                    actions={
+                        <>
+                            {scopeRepo && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    to={`https://github.com/${scopeRepo}`}
+                                    targetBlank
+                                    data-attr="engineering-analytics-view-on-github"
+                                >
+                                    View on GitHub
+                                </LemonButton>
+                            )}
+                            {activeView === 'deploys' ? <DeploysRefreshButton /> : <RefreshButton />}
+                        </>
+                    }
                 />
                 <LemonBanner type="info" dismissKey="engineering-analytics-alpha">
                     Engineering analytics is in alpha. Metrics are limited to CI events, and details may change.
                 </LemonBanner>
-                <LemonTabs activeKey={activeView} data-attr="engineering-analytics-tabs" tabs={tabs} sceneInset />
+                <EngineeringAnalyticsTabs />
             </SceneContent>
         </BindLogic>
     )

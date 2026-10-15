@@ -979,6 +979,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         })
         const queryVarsHaveChanged = haveVariablesOrFiltersChanged(props.query, oldProps.query)
 
+        // Insight logics can mount this node before the component supplies its query.
+        const retainedResponse =
+            (hasQueryChanged || props.retainResponseOnUnmount !== oldProps.retainResponseOnUnmount) &&
+            getRetainedResponse(responseCacheKey(props, values.user?.id, values.currentTeamId))
+        if (retainedResponse) {
+            actions.loadData()
+            return
+        }
+
         const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
         if (hasQueryChanged && queryStatus?.complete === false) {
             // If there is an incomplete query, load the data with the same query_id which should return its status
@@ -1016,6 +1025,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             )
         ) {
             // Use cached results if available, otherwise this logic will load the data again
+            if (props.cachedResults !== oldProps.cachedResults) {
+                retainResponse(responseCacheKey(props, values.user?.id, values.currentTeamId), props.cachedResults)
+            }
             actions.setResponse(props.cachedResults)
         }
     }),
@@ -1055,6 +1067,22 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
+                    actions.abortAnyRunningQuery()
+                    actions.setPollResponse(null)
+                    const key = responseCacheKey(
+                        overrideQuery ? { ...props, query: overrideQuery } : props,
+                        values.user?.id,
+                        values.currentTeamId
+                    )
+                    const retainedResponse = !pollOnly && !refreshArg?.startsWith('force_') && getRetainedResponse(key)
+                    // Do not extend the retained response's lifetime when displaying it again.
+                    cache.responseCacheKey = retainedResponse ? null : key
+                    if (retainedResponse) {
+                        await Promise.resolve()
+                        breakpoint()
+                        return retainedResponse
+                    }
+                    forgetRetainedResponse(key)
                     const rawQuery = overrideQuery ?? props.query
                     if (!rawQuery || typeof rawQuery !== 'object' || !('kind' in rawQuery)) {
                         return null
@@ -1104,8 +1132,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return null
                     }
 
-                    actions.abortAnyRunningQuery()
-                    actions.setPollResponse(null)
                     const abortController = new AbortController()
                     cache.disposables.add(() => () => abortController.abort(), 'query', { pauseOnPageHidden: false })
                     const methodOptions: ApiMethodOptions = {
@@ -2129,10 +2155,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.resetLoadingTimer()
         },
         loadData: ({ overrideQuery }) => {
-            cache.responseCacheKey = overrideQuery
-                ? null
-                : responseCacheKey(props, values.user?.id, values.currentTeamId)
-            forgetRetainedResponse(cache.responseCacheKey)
             actions.collectionNodeLoadData(props.key, (overrideQuery ?? props.query)?.kind)
             actions.resetLoadingTimer()
         },
@@ -2244,11 +2266,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
         const retainedResponse = getRetainedResponse(responseCacheKey(props, values.user?.id, values.currentTeamId))
         if (retainedResponse) {
-            actions.setResponse(retainedResponse)
+            actions.loadData()
         } else if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again.
             // We need to set them here, as the propsChanged listener will not trigger on mount
             // and if we never change the props, the cached results will never be used.
+            retainResponse(responseCacheKey(props, values.user?.id, values.currentTeamId), props.cachedResults)
             actions.setResponse(props.cachedResults)
         } else if (props.autoLoad && Object.keys(props.query || {}).length > 0) {
             // Initial load should use non-force variant

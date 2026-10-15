@@ -1083,7 +1083,7 @@ mod tests {
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(registry);
 
-        // With 2 workers, bin-packing should spread 2 fresh keys across them.
+        // With 2 workers, P2C spreads 2 fresh keys across them.
         let sub_batches = dispatcher.assign("b", make_msgs(&["t:user-1", "t:user-2"]));
 
         let total_msgs: usize = sub_batches.iter().map(|b| b.messages.len()).sum();
@@ -1201,28 +1201,14 @@ mod tests {
         assert_eq!(in_flight_of(&dispatcher, &wid(0)), 3);
     }
 
-    // ---- bin-packing ----
+    // ---- load balancing ----
 
     #[test]
-    fn test_bin_packing_targets_least_loaded_worker() {
-        let registry = healthy_registry(2);
-        let dispatcher = Dispatcher::new(registry);
-
-        // Artificially load worker 0 with 3 outstanding messages.
-        dispatcher.inner.lock().unwrap().in_flight.insert(wid(0), 3);
-
-        // A fresh key should go to worker 1 (load = 0).
-        let b = dispatcher.assign("b", make_msgs(&["t:fresh"]));
-        assert_eq!(b.len(), 1);
-        assert_eq!(b[0].worker, wid(1));
-    }
-
-    #[test]
-    fn test_bin_packing_balances_by_message_volume_not_group_count() {
+    fn test_routing_balances_by_message_volume_not_group_count() {
         // Regression: load is tracked by message count, not sub-batch presence.
         // One heavy key (10 msgs) plus five small keys (1 msg each) must not all
-        // pile onto one worker — the small keys bin-pack onto the other worker
-        // until load is balanced.
+        // pile onto one worker — the small keys go to the other worker until
+        // load is balanced.
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(registry);
 
@@ -1668,7 +1654,7 @@ mod tests {
         let pinned = b0[0].worker.clone();
 
         // Load the OTHER worker so the next 600-message key lands on the
-        // pinned one (bin-packing places on the least-loaded worker).
+        // pinned one (with 2 workers, P2C places on the lighter one).
         let b1 = dispatcher.assign("b1", make_msgs(&vec!["t:b"; 500]));
         let other = b1[0].worker.clone();
         assert_ne!(other, pinned);
@@ -2148,7 +2134,7 @@ mod tests {
 
         // Flush oldest-first. batch-2 re-homes user-1 onto a survivor; batch-3 must
         // land on the SAME survivor. Without the fix, batch-2's flush bumps that
-        // survivor's load, so batch-3's least-loaded pick scatters to the other one.
+        // survivor's load, so batch-3's P2C pick scatters to the lighter other one.
         let f2 = dispatcher.flush_deferred("batch-2");
         let f3 = dispatcher.flush_deferred("batch-3");
         assert_eq!(f2.len(), 1);

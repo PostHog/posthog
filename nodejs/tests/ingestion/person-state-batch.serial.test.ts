@@ -1295,13 +1295,14 @@ describe('PersonState.processEvent()', () => {
             await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             const persons = await fetchPostgresPersonsH()
+            // The attach commits the identified flag with the mapping, ahead of the batch flush.
             expect(person).toMatchObject({
                 id: expect.any(String),
                 uuid: newUserUuid,
                 properties: {},
                 created_at: timestamp,
-                version: 0,
-                is_identified: false,
+                version: 1,
+                is_identified: true,
             })
             expect(mergeService.getUpdateIsIdentified()).toBeTruthy()
 
@@ -1311,9 +1312,9 @@ describe('PersonState.processEvent()', () => {
                 id: person!.id,
                 uuid: newUserUuid,
                 created_at: timestamp,
-                is_identified: false,
+                is_identified: true,
                 properties: {},
-                version: 0,
+                version: 1,
             })
 
             // verify Postgres distinct_ids
@@ -1753,13 +1754,14 @@ describe('PersonState.processEvent()', () => {
 
             const persons = await fetchPostgresPersonsH()
 
+            // The attach commits the identified flag with the mapping, ahead of the batch flush.
             expect(person).toMatchObject({
                 id: expect.any(String),
                 uuid: oldUserUuid,
                 properties: {},
                 created_at: timestamp,
-                version: 0,
-                is_identified: false,
+                version: 1,
+                is_identified: true,
             })
             expect(mergeService.getUpdateIsIdentified()).toBeTruthy()
             expect(personRepository.updatePerson).not.toHaveBeenCalled()
@@ -1770,9 +1772,9 @@ describe('PersonState.processEvent()', () => {
                 id: person!.id,
                 uuid: oldUserUuid,
                 created_at: timestamp,
-                is_identified: false,
+                is_identified: true,
                 properties: {},
-                version: 0,
+                version: 1,
             })
 
             // verify Postgres distinct_ids

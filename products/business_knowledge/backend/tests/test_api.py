@@ -1,8 +1,9 @@
 from uuid import UUID
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -758,7 +759,7 @@ class TestKnowledgeDocumentSearchScopes(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
-class TestDeriveScopeGlobs(BaseTest):
+class TestDeriveScopeGlobs(SimpleTestCase):
     @parameterized.expand(
         [
             ("subpath", "https://posthog.com/docs/support", ["/docs/support", "/docs/support/*"]),
