@@ -5,10 +5,13 @@ import './buffer-polyfill'
 import { Suspense, lazy } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
+import { markBootPhase } from 'lib/utils/bootTiming'
 import { retryBootImport } from 'lib/utils/retryImport'
 
 import { RootErrorBoundary } from './RootErrorBoundary'
 import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
+
+markBootPhase('entry')
 
 type AppModules = [typeof import('scenes/App'), typeof import('scenes/bootApp')]
 
@@ -30,6 +33,7 @@ function loadAppModules(): Promise<AppModules> {
 // boot() also starts the module imports while CSS loads; runtime initialization stays behind the render gate.
 const App = lazy(() =>
     loadAppModules().then(([appModule, bootModule]) => {
+        markBootPhase('app_modules_loaded')
         bootModule.bootApp()
         return { default: appModule.App }
     })
