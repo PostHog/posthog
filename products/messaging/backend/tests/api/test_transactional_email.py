@@ -1,3 +1,4 @@
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -192,7 +193,9 @@ class TestTransactionalEmail(APIBaseTest):
         category = MessageCategory.objects.create(
             team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
         )
-        body = {"message_category": str(category.id)} if edit == "marketing_category" else {"content": {}}
+        body: dict[str, Any] = (
+            {"message_category": str(category.id)} if edit == "marketing_category" else {"content": {}}
+        )
         self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}")
 
         response = self.client.patch(
