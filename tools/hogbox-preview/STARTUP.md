@@ -59,6 +59,9 @@ pays for it:
   Applied in `stack.py` `write_override` and in the golden's own bake
   (hogland `scripts/posthog-preview-setup.sh`). The 118s→18s figure in the table
   above predates granian and has not been re-measured.
+  One ASGI worker serves one sync request at a time, so the preview also sets
+  `GRANIAN_INTERFACE=wsgi` with `GRANIAN_BLOCKING_THREADS=16`. The single worker
+  then serves a page's parallel API calls from its thread pool.
 - **Tighter poll intervals** (`run_long`/`wait_http_ok` 10s → 3s): each completed
   step otherwise sits on up to 10s of dead air before we notice; a handful of
   steps adds up.

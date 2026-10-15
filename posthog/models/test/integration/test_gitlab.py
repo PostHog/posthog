@@ -121,3 +121,56 @@ class TestGitLabIntegrationModel:
         assert mock_get.call_count == 2
         assert mock_get.call_args.kwargs["params"]["search"] == "#42"
         assert "iids[]" not in mock_get.call_args.kwargs["params"]
+
+    @patch("posthog.models.integration.gitlab.requests.post")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_create_issue_sends_assignee_as_numeric_id(self, _mock_is_url_allowed, mock_post):
+        from posthog.models.integration import GitLabIntegration
+
+        integration = MagicMock(
+            kind="gitlab",
+            config={"hostname": "https://gitlab.com", "project_id": 1},
+            sensitive_config={"access_token": "token123"},
+        )
+        mock_post.return_value.json.return_value = {"iid": 7}
+
+        GitLabIntegration(integration).create_issue({"title": "Checkout failed", "body": "Details", "assignee": "42"})
+
+        assert mock_post.call_args.kwargs["json"]["assignee_ids"] == [42]
+
+    @patch("posthog.models.integration.gitlab.requests.get")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_list_assignees_searches_and_skips_inactive_members(self, _mock_is_url_allowed, mock_get):
+        from posthog.models.integration import GitLabIntegration
+
+        integration = MagicMock(
+            kind="gitlab",
+            config={"hostname": "https://gitlab.com", "project_id": 1},
+            sensitive_config={"access_token": "token123"},
+        )
+        mock_get.return_value.json.return_value = [
+            {"id": 1, "username": "ada", "name": "Ada", "state": "active"},
+            {"id": 2, "username": "gone", "name": "Gone", "state": "blocked"},
+        ]
+
+        from posthog.models.integration import Assignee
+
+        assert GitLabIntegration(integration).list_assignees("ad") == [Assignee(id="1", name="Ada")]
+        assert mock_get.call_args.args[0] == (
+            "https://gitlab.com/api/v4/projects/1/members/all?state=active&per_page=100&query=ad"
+        )
+
+    @patch("posthog.models.integration.gitlab.requests.get")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_list_assignees_reports_the_gitlab_error(self, _mock_is_url_allowed, mock_get):
+        from posthog.models.integration import AssigneeLookupFailed, GitLabIntegration
+
+        integration = MagicMock(
+            kind="gitlab",
+            config={"hostname": "https://gitlab.com", "project_id": 1},
+            sensitive_config={"access_token": "token123"},
+        )
+        mock_get.return_value.json.return_value = {"message": "403 Forbidden"}
+
+        with pytest.raises(AssigneeLookupFailed, match="403 Forbidden"):
+            GitLabIntegration(integration).list_assignees()

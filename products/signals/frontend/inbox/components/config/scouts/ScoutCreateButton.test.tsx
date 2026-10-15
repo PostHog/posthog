@@ -1,7 +1,5 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { useMocks } from '~/mocks/jest'
@@ -78,16 +76,9 @@ describe('scout creation buttons', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
     })
 
     afterEach(cleanup)
-
-    function setSuggestionsFlag(enabled: boolean): void {
-        featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI] : [], {
-            [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]: enabled,
-        })
-    }
 
     it('opens a prefilled form without starting a task', async () => {
         const { findByText, getByText } = render(
@@ -112,7 +103,6 @@ describe('scout creation buttons', () => {
 
     // Closing the strip must not strand the picks: the header button reopens it in place of a chat.
     it('reopens the closed strip from the header without starting a task', async () => {
-        setSuggestionsFlag(true)
         const logic = scoutSuggestionsLogic()
         logic.mount()
         await waitFor(() => expect(logic.values.hasPicks).toBe(true))
@@ -131,7 +121,6 @@ describe('scout creation buttons', () => {
     // Reopening is local, so it must not wait on whatever else the header is starting. A separate
     // test because the setup differs: this one needs a sibling task in flight.
     it('reopens the closed strip while another header task is starting', async () => {
-        setSuggestionsFlag(true)
         const logic = scoutSuggestionsLogic()
         logic.mount()
         await waitFor(() => expect(logic.values.hasPicks).toBe(true))
@@ -156,7 +145,6 @@ describe('scout creation buttons', () => {
     // A project with no picks has no strip to reopen, so the header button is the only entry point
     // there. A headless scan would spend minutes with nothing on screen, so it opens the chat.
     it('opens the authoring chat from the header on a project with no picks', async () => {
-        setSuggestionsFlag(true)
         useMocks({
             get: { '/api/projects/:team/signals/scout/suggestions/': mockScoutSuggestionSet({ items: [] }) },
             post: {
@@ -179,11 +167,7 @@ describe('scout creation buttons', () => {
         logic.unmount()
     })
 
-    it.each([
-        ['on the suggestions flag', true],
-        ['off the suggestions flag', false],
-    ])('starts an authoring chat on the typed request from New scout, %s', async (_name, suggestionsEnabled) => {
-        setSuggestionsFlag(suggestionsEnabled)
+    it('starts an authoring chat on the typed request from New scout', async () => {
         const { findByText, getByText, queryByText, container } = render(<ScoutsRosterActions />)
 
         fireEvent.click(getByText('Ask'))

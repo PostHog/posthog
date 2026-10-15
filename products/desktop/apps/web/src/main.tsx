@@ -3,6 +3,7 @@ import "reflect-metadata";
 // before any of the imports below create them.
 import "./web-storage";
 import "@posthog/ui/styles/globals.css";
+import { setPosthogApiClientTaskClientProvenance } from "@posthog/api-client/posthog-client";
 import { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import { boot } from "@posthog/di/contribution";
 import { ServiceProvider } from "@posthog/di/react";
@@ -17,6 +18,8 @@ import {
   OAUTH_CALLBACK_PATH,
 } from "./web-oauth-flow";
 import { requestPersistentStorage } from "./web-persistent-storage";
+
+setPosthogApiClientTaskClientProvenance("posthog_web");
 
 if (window.location.pathname === OAUTH_CALLBACK_PATH) {
   // OAuth popup landing: relay code+state to the opener tab and close.

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RecurlySource(ResumableSource[RecurlySourceConfig, RecurlyResumeConfig]):
+    codebase_detection = detect(
+        env=("^RECURLY_",),
+        script_hosts=("js.recurly.com",),
+        npm=("recurly", "@recurly/react-recurly"),
+        pypi=("recurly",),
+        composer=("recurly/recurly-client", "recurly/recurly-client-php"),
+        go=("github.com/recurly/recurly-client-go",),
+        maven=("com.recurly.v3:api-client",),
+        rubygems=("recurly",),
+        swiftpm=("github.com/recurly/recurly-client-ios",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2021-02-25",)
     default_version = "v2021-02-25"
@@ -162,5 +175,5 @@ class RecurlySource(ResumableSource[RecurlySourceConfig, RecurlyResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

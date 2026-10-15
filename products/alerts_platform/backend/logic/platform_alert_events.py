@@ -13,7 +13,7 @@ engine only remembers a bounded window of them.
 
 import json
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import fields
 from datetime import datetime
 from typing import Any
@@ -29,6 +29,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
+    SourceKind,
 )
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
@@ -45,6 +46,8 @@ class PlatformAlertEventRow:
     """
 
     team_id: int
+    # The source whose check this was, so a reader can tell sources apart without a Postgres join.
+    source_kind: str
     configuration_id: UUID
     alert_id: UUID
     grouping_key: str
@@ -150,18 +153,26 @@ FROM {PLATFORM_ALERT_EVENTS_TABLE}
 WHERE team_id = %(team_id)s
   AND configuration_id = %(configuration_id)s
   AND evaluation_key = %(evaluation_key)s
-  AND kind != %(check_kind)s
+  AND (kind != %(check_kind)s OR has(%(incident_grouping_keys)s, grouping_key))
 ORDER BY grouping_key, occurred_at DESC
 LIMIT 1 BY grouping_key
 """
 
 
-def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> EvaluationAnnouncement | None:
+def announcement(
+    team_id: int,
+    configuration_id: str,
+    evaluation_key: str,
+    *,
+    source: SourceKind,
+    incident_grouping_keys: Collection[str] = (),
+) -> EvaluationAnnouncement | None:
     """What one evaluation left for a destination to say, or None when it announced nothing.
 
     Rows whose kind is `CHECK` are excluded here rather than in the caller. They are recorded so
     a comparison can read every check, and they say nothing, so a message built from one would
-    have no headline.
+    have no headline. The exception is a group in `incident_grouping_keys`: cooldown or mute held
+    its announcement, but its firing still opened or closed, and a paging destination needs that row.
 
     `LIMIT 1 BY grouping_key` is the read's own deduplication. The insert carries a token the
     engine drops a repeat under, but it only remembers a bounded window of them, so a retry far
@@ -175,6 +186,7 @@ def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> Ev
             "configuration_id": configuration_id,
             "evaluation_key": evaluation_key,
             "check_kind": AlertEventKind.CHECK.value,
+            "incident_grouping_keys": list(incident_grouping_keys),
         },
         team_id=team_id,
     )
@@ -192,6 +204,7 @@ def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> Ev
             source_config=_snapshot(source_config_snapshot),
             error_message=error_message or None,
             occurred_at=occurred_at,
+            evaluation_key=evaluation_key,
         )
         for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, occurred_at, _, _ in rows
     )
@@ -199,6 +212,7 @@ def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> Ev
     *_, alert_name, consecutive_failures = rows[0]
     return EvaluationAnnouncement(
         configuration_id=configuration_id,
+        source=source,
         alert_name=alert_name,
         consecutive_failures=consecutive_failures,
         transitions=transitions,

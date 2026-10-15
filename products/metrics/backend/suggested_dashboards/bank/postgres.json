@@ -1,0 +1,312 @@
+{
+    "name": "PostgreSQL",
+    "description": "Transactions, cache hits, rows, size and locks of PostgreSQL databases from the postgres exporter.",
+    "panels": [
+        {
+            "key": "connections",
+            "title": "Connections",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "pg_stat_database_numbackends",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "transactions",
+            "title": "Transactions",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "pg_stat_database_xact_commit",
+                        "aggregation": "rate"
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "pg_stat_database_xact_rollback",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "{tx}/s",
+                    "reduce": "last"
+                },
+                "formula": "a + b"
+            },
+            "layout": {
+                "x": 3,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "cache_hit",
+            "title": "Cache hit ratio",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "pg_stat_database_blks_hit",
+                        "aggregation": "rate"
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "pg_stat_database_blks_read",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "%",
+                    "reduce": "last",
+                    "thresholds": [
+                        {
+                            "color": "danger",
+                            "value": 0
+                        },
+                        {
+                            "color": "warning",
+                            "value": 80
+                        },
+                        {
+                            "color": "success",
+                            "value": 95
+                        }
+                    ]
+                },
+                "formula": "a / (a + b) * 100"
+            },
+            "layout": {
+                "x": 6,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "deadlocks",
+            "title": "Deadlocks",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "pg_stat_database_deadlocks",
+                        "aggregation": "increase"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "reduce": "sum"
+                }
+            },
+            "layout": {
+                "x": 9,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "commits_rollbacks",
+            "title": "Commits and rollbacks",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "commits",
+                        "metricName": "pg_stat_database_xact_commit",
+                        "aggregation": "rate"
+                    },
+                    {
+                        "name": "rollbacks",
+                        "metricName": "pg_stat_database_xact_rollback",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "{tx}/s"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "rows",
+            "title": "Row operations",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "fetched",
+                        "metricName": "pg_stat_database_tup_fetched",
+                        "aggregation": "rate"
+                    },
+                    {
+                        "name": "inserted",
+                        "metricName": "pg_stat_database_tup_inserted",
+                        "aggregation": "rate"
+                    },
+                    {
+                        "name": "updated",
+                        "metricName": "pg_stat_database_tup_updated",
+                        "aggregation": "rate"
+                    },
+                    {
+                        "name": "deleted",
+                        "metricName": "pg_stat_database_tup_deleted",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "area",
+                    "unit": "{row}/s"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "connections_by_database",
+            "title": "Connections by database",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "pg_stat_database_numbackends",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "datname"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "database_size",
+            "title": "Database size",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "pg_database_size_bytes",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "datname"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "By"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "locks",
+            "title": "Locks by mode",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "pg_locks_count",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "mode"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 10,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "temp_bytes",
+            "title": "Temporary file writes",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "pg_stat_database_temp_bytes",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "datname"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "By/s"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 10,
+                "w": 6,
+                "h": 4
+            }
+        }
+    ]
+}

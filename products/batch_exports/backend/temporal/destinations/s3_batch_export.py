@@ -109,6 +109,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "S3IntegrationNotFoundError",
     # The linked Integration is the wrong kind or has invalid/missing credentials
     "IntegrationError",
+    # This environment has no external role configured to assume a customer's role with
+    "ExternalRoleArnNotConfiguredError",
 )
 
 LOGGER = get_write_only_logger(__name__)
@@ -282,6 +284,18 @@ class InvalidCredentialsError(Exception):
         super().__init__(message)
 
 
+class ExternalRoleArnNotConfiguredError(Exception):
+    """Raised when this environment has no role of ours to assume a customer's role with.
+
+    Role-based AWS access always goes through our own external role first. Without it every
+    attempt fails identically, regardless of how the customer's own role ARN is set up, so
+    retrying never helps.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("Role-based AWS access is not available: BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN is not set.")
+
+
 def s3_default_fields() -> list[BatchExportField]:
     """Default fields for an S3 batch export.
 
@@ -374,8 +388,6 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             batch_export_model=inputs.batch_export_model,
             use_virtual_style_addressing=inputs.use_virtual_style_addressing,
             legacy_parquet_extension=inputs.legacy_parquet_extension,
-            # TODO: Remove after updating existing batch exports.
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=s3_default_fields(),
         )
@@ -430,6 +442,9 @@ async def get_credentials_using_user_aws_role(
             roles and/or policies may not be immediately available.
         delay: Initial delay in between connection attempts.
     """
+    if not settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN:
+        raise ExternalRoleArnNotConfiguredError()
+
     for attempt in range(1, max_attempts + 1):
         try:
             async with SESSION.client("sts") as sts:

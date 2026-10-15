@@ -490,7 +490,9 @@ export const ExperimentResultsGetSchema = z.preprocess(
             .boolean()
             .optional()
             .default(false)
-            .describe('Force refresh of results instead of using cached values. Defaults to false.'),
+            .describe(
+                'Asks for a blocking calculation. A cached result younger than 24 hours is still returned, so this does not force a recomputation. Defaults to false.'
+            ),
     })
 )
 
@@ -505,7 +507,6 @@ export const InsightQueryInputSchema = z.preprocess(
     z.object({
         insightId: z
             .union([z.string(), z.number()])
-            .transform((value) => String(value))
             .describe('The insight to run: its numeric `id` or 8-character `short_id`.'),
         output_format: z
             .enum(['optimized', 'json'])

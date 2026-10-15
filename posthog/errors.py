@@ -1090,6 +1090,71 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     1004: ErrorCodeMeta("STARTUP_SCRIPTS_ERROR"),
 }
 
+GENERIC_INTERNAL_CH_ERROR_MESSAGE = "ClickHouse error while executing query."
+
+_TOO_MUCH_DATA_MESSAGE = (
+    "This query reads or returns more data than the limit allows. "
+    "Use a shorter date range, add filters, or add a LIMIT clause. Then run the query again."
+)
+_TOO_COMPLEX_MESSAGE = (
+    "This query is too complex to run. "
+    "Use fewer nested subqueries, conditions, or values in IN lists. Then run the query again."
+)
+_TEMPORARY_FAILURE_MESSAGE = (
+    "The database had a temporary problem while it ran this query. "
+    "Wait a few minutes, then run the query again. If the problem continues, contact support."
+)
+
+# Fixed copy for internal ClickHouse errors. The raw ClickHouse message stays hidden, because it can
+# contain stored data values or server internals.
+INTERNAL_CH_ERROR_USER_MESSAGES: dict[str, str] = {
+    "TOO_MANY_ROWS": _TOO_MUCH_DATA_MESSAGE,
+    "TOO_MANY_ROWS_OR_BYTES": _TOO_MUCH_DATA_MESSAGE,
+    "SET_SIZE_LIMIT_EXCEEDED": _TOO_MUCH_DATA_MESSAGE,
+    "TOO_MANY_COLUMNS": "This query uses more columns than the limit allows. Select fewer columns, then run the query again.",
+    "TOO_DEEP_SUBQUERIES": _TOO_COMPLEX_MESSAGE,
+    "TOO_DEEP_AST": _TOO_COMPLEX_MESSAGE,
+    "TOO_BIG_AST": _TOO_COMPLEX_MESSAGE,
+    "TOO_DEEP_RECURSION": _TOO_COMPLEX_MESSAGE,
+    "TOO_MANY_PARTS": _TEMPORARY_FAILURE_MESSAGE,
+    "TABLE_IS_READ_ONLY": _TEMPORARY_FAILURE_MESSAGE,
+    "NETWORK_ERROR": _TEMPORARY_FAILURE_MESSAGE,
+    "SOCKET_TIMEOUT": _TEMPORARY_FAILURE_MESSAGE,
+    "ALL_CONNECTION_TRIES_FAILED": _TEMPORARY_FAILURE_MESSAGE,
+    "S3_ERROR": (
+        "PostHog couldn't read from storage while running this query. "
+        "Wait a few minutes, then run the query again. If the problem continues, contact support."
+    ),
+    "UNKNOWN_IDENTIFIER": (
+        "A column in this query doesn't exist in the data. "
+        "Check the column names. If the query uses a view, check that the view still matches its source table."
+    ),
+}
+
+
+# The error name holds no stored data values, so it is safe to show for an error the query caused,
+# even when the full message is not. Server faults and compiler syntax errors stay out, because
+# callers cannot act on them.
+def is_clickhouse_query_rejection(code_name: str) -> bool:
+    code_name = code_name.upper()
+    return code_name != "SYNTAX_ERROR" and any(
+        meta.name == code_name and meta.get_category() == QueryErrorCategory.USER_ERROR
+        for meta in CLICKHOUSE_ERROR_CODE_LOOKUP.values()
+    )
+
+
+def internal_ch_error_user_message(code_name: str | None) -> str | None:
+    """Return user-safe copy for a known internal ClickHouse error, or None for an unknown error."""
+    if not code_name:
+        return None
+    code_name = code_name.upper()
+    if message := INTERNAL_CH_ERROR_USER_MESSAGES.get(code_name):
+        return message
+    if is_clickhouse_query_rejection(code_name):
+        return f"ClickHouse rejected the query with error {code_name}."
+    return None
+
+
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
 # Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.

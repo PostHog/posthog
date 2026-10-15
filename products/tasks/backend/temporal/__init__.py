@@ -1,3 +1,4 @@
+from .bake_dev_stack_image.activation import ActivateDevStackImageWorkflow, activate_dev_stack_image
 from .bake_dev_stack_image.activities import bake_and_publish_dev_stack_image
 from .bake_dev_stack_image.workflow import BakeDevStackImageWorkflow
 from .build_image.activities import build_and_publish_image, mark_image_build_failed, scan_image_spec
@@ -12,7 +13,6 @@ from .create_snapshot.activities import (
 )
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
 from .gateway_usage import TaskRunGatewayUsageWorkflow, reconcile_gateway_usage
-from .loops import RunLoopWorkflow, run_loop_trigger_activity
 from .process_task.activities import (
     await_agent_server_ready,
     checkout_branch_in_sandbox,
@@ -73,9 +73,9 @@ WORKFLOWS = [
     SlackAgentDesignRelayWorkflow,
     CreateSnapshotForRepositoryWorkflow,
     PostHogCodeAgentRelayWorkflow,
-    RunLoopWorkflow,
     BuildSandboxImageWorkflow,
     BakeDevStackImageWorkflow,
+    ActivateDevStackImageWorkflow,
 ]
 
 ACTIVITIES = [
@@ -128,7 +128,6 @@ ACTIVITIES = [
     start_slack_agent_design_stream,
     append_slack_agent_design_steps,
     stop_slack_agent_design_stream,
-    run_loop_trigger_activity,
     # create_snapshot activities
     get_snapshot_context,
     snapshot_create_sandbox,
@@ -142,4 +141,5 @@ ACTIVITIES = [
     mark_image_build_failed,
     # bake_dev_stack_image activities
     bake_and_publish_dev_stack_image,
+    activate_dev_stack_image,
 ]

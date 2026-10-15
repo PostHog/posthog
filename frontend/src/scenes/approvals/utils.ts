@@ -28,7 +28,7 @@ export const APPROVAL_ACTIONS: Record<string, ApprovalActionConfig> = {
     },
     [ApprovalActionKey.FEATURE_FLAG_UPDATE]: {
         label: 'Update feature flag',
-        description: 'update feature flag fields',
+        description: "change this feature flag's release conditions or rollout",
         contextDescriptions: { experiment: 'update this experiment' },
     },
 }

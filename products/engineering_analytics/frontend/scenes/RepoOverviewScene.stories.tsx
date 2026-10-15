@@ -277,7 +277,7 @@ type Story = StoryObj<typeof meta>
 
 export const RepoOverview: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalytics() },
+    parameters: { pageUrl: urls.engineeringAnalytics('PostHog/posthog') },
 }
 
 // The Trunk-source variant: the failed-queue-run proxy card is replaced by the queue's own
@@ -293,11 +293,27 @@ const OVERVIEW_WITH_TRUNK: RepoOverviewApi = {
 
 export const RepoOverviewWithTrunkQueueData: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalytics() },
+    parameters: { pageUrl: urls.engineeringAnalytics('PostHog/posthog') },
     decorators: [
         mswDecorator({
             get: {
                 'api/projects/:team_id/engineering_analytics/repo_overview/': OVERVIEW_WITH_TRUNK,
+            },
+        }),
+    ],
+}
+
+// Two connected repositories: the title gains the button that switches between them.
+export const RepoOverviewWithSeveralRepositories: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: urls.engineeringAnalytics('PostHog/posthog') },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/sources/': [
+                    ...SOURCES,
+                    { id: 'src-2', repo: 'PostHog/posthog-js', prefix: '' },
+                ],
             },
         }),
     ],

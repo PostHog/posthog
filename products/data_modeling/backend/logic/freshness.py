@@ -188,6 +188,29 @@ def _finest(bounds: list[Bound]) -> Bound:
     return min(bounds, key=_bound_sort_key)
 
 
+def max_data_age(
+    node_id: str,
+    edges: list[tuple[str, str]],
+    source_intervals: dict[str, timedelta],
+    declared_targets: dict[str, timedelta],
+) -> timedelta:
+    """The oldest data `node_id` can serve when read live: its slowest chain of upstream syncs and refreshes."""
+    adj = _adjacency(edges)
+    all_ids = set(source_intervals) | {node for edge in edges for node in edge}
+    in_degree = {node: len(adj.parents.get(node, [])) for node in all_ids}
+    queue = deque(node for node in all_ids if in_degree[node] == 0)
+    age: dict[str, timedelta] = {}
+    while queue:
+        node = queue.popleft()
+        upstream_age = max((age[parent] for parent in adj.parents.get(node, [])), default=STREAMING)
+        age[node] = upstream_age + source_intervals.get(node, declared_targets.get(node, STREAMING))
+        for child in adj.children.get(node, []):
+            in_degree[child] -= 1
+            if in_degree[child] == 0:
+                queue.append(child)
+    return max((age[parent] for parent in adj.parents.get(node_id, []) if parent in age), default=STREAMING)
+
+
 def ancestors_of(node_id: str, edges: list[tuple[str, str]]) -> set[str]:
     """Every node upstream of `node_id`, however far — the cone whose delivery it inherits."""
     parents: dict[str, list[str]] = defaultdict(list)

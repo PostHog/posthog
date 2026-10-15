@@ -22,6 +22,7 @@ use sqlx::postgres::PgPool;
 use uuid::Uuid;
 
 use personhog_common::grpc::semantic_refusal;
+use personhog_identity::lifecycle::detach::DetachedDrives;
 use personhog_identity::lifecycle::engine::{
     advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, STEP_COMPLETED,
 };
@@ -31,12 +32,18 @@ use personhog_identity::pools::IdentityPools;
 /// so tests can prove what did (or did not) re-run.
 struct DummyDriver {
     steps_run: AtomicUsize,
+    pause: std::time::Duration,
 }
 
 impl DummyDriver {
     fn new() -> Self {
+        Self::paced(std::time::Duration::ZERO)
+    }
+
+    fn paced(pause: std::time::Duration) -> Self {
         Self {
             steps_run: AtomicUsize::new(0),
+            pause,
         }
     }
 }
@@ -53,6 +60,7 @@ impl OpDriver for DummyDriver {
 
     async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
         self.steps_run.fetch_add(1, Ordering::SeqCst);
+        tokio::time::sleep(self.pause).await;
         let mut tx = pools.heavy().begin().await.map_err(SagaError::Db)?;
         let advanced = match op.step.as_str() {
             "started" => {
@@ -1049,5 +1057,252 @@ async fn a_claim_skips_a_row_a_concurrent_writer_holds_instead_of_queueing() {
     assert_eq!(driver.steps_run.load(Ordering::SeqCst), 0);
 
     tx.rollback().await.expect("rollback");
+    ctx.cleanup().await.expect("cleanup");
+}
+
+async fn wait_until_completed(ctx: &TestContext, op_id: Uuid) -> bool {
+    for _ in 0..200 {
+        if let Ok(row) = sqlx::query_scalar::<_, Option<chrono::DateTime<chrono::Utc>>>(
+            "SELECT completed_at FROM lifecycle_op WHERE op_id = $1",
+        )
+        .bind(op_id)
+        .fetch_one(&ctx.pool)
+        .await
+        {
+            if row.is_some() {
+                return true;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    false
+}
+
+#[tokio::test]
+async fn a_retry_attaches_to_a_detached_drive_instead_of_waiting_out_the_lease() {
+    let ctx = TestContext::new().await;
+    let engine = std::sync::Arc::new(ctx.engine());
+    let driver = std::sync::Arc::new(DummyDriver::paced(std::time::Duration::from_millis(150)));
+    let drives = DetachedDrives::new(4);
+    let op_id = Uuid::now_v7();
+
+    let detached_engine = engine.clone();
+    let detached_driver = driver.clone();
+    let hung_up = tokio::time::timeout(
+        std::time::Duration::from_millis(1),
+        drives.run(async move {
+            detached_engine
+                .execute(detached_driver.as_ref(), op_id, ctx.team_id, &json!({}))
+                .await
+        }),
+    )
+    .await;
+    assert!(
+        hung_up.is_err(),
+        "the caller gave up before the drive finished"
+    );
+    assert_eq!(drives.in_flight(), 1);
+
+    let started = std::time::Instant::now();
+    let row = engine
+        .execute(driver.as_ref(), op_id, ctx.team_id, &json!({}))
+        .await
+        .expect("the retry attaches and returns the terminal row");
+    assert_eq!(row.step, STEP_COMPLETED);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "the retry waited on the live driver, not on the lease"
+    );
+    assert_eq!(
+        driver.steps_run.load(Ordering::SeqCst),
+        2,
+        "the retry polled behind the detached drive instead of re-running steps"
+    );
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn with_detaching_disabled_a_dropped_caller_abandons_the_op() {
+    let ctx = TestContext::new().await;
+    let engine = std::sync::Arc::new(ctx.engine());
+    let driver = std::sync::Arc::new(DummyDriver::paced(std::time::Duration::from_millis(50)));
+    let drives = DetachedDrives::new(0);
+    let op_id = Uuid::now_v7();
+
+    let created = std::sync::Arc::new(tokio::sync::Notify::new());
+    let inline_engine = engine.clone();
+    let inline_driver = driver.clone();
+    let inline_created = created.clone();
+    {
+        let call = drives.run(async move {
+            inline_engine
+                .create_or_attach(inline_driver.as_ref(), op_id, ctx.team_id, &json!({}))
+                .await
+                .expect("create the op");
+            inline_created.notify_one();
+            inline_engine
+                .execute(inline_driver.as_ref(), op_id, ctx.team_id, &json!({}))
+                .await
+        });
+        tokio::pin!(call);
+        tokio::select! {
+            _ = &mut call => panic!("the drive finished before the caller hung up"),
+            _ = created.notified() => {}
+        }
+    }
+
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let (step, _, _, completed) = op_row(&ctx, op_id).await;
+    assert_eq!(
+        step, "started",
+        "an inline drive stops where its caller dropped it"
+    );
+    assert!(!completed);
+    assert_eq!(drives.in_flight(), 0);
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_detached_drive_finishes_after_its_caller_is_gone() {
+    let ctx = TestContext::new().await;
+    let engine = std::sync::Arc::new(ctx.engine());
+    let driver = std::sync::Arc::new(DummyDriver::paced(std::time::Duration::from_millis(50)));
+    let drives = DetachedDrives::new(4);
+    let op_id = Uuid::now_v7();
+
+    let hung_up = tokio::time::timeout(
+        std::time::Duration::from_millis(1),
+        drives.run(async move {
+            engine
+                .execute(driver.as_ref(), op_id, ctx.team_id, &json!({}))
+                .await
+        }),
+    )
+    .await;
+    assert!(hung_up.is_err());
+
+    assert!(
+        wait_until_completed(&ctx, op_id).await,
+        "the detached drive completed the op without its caller"
+    );
+    let (step, _, outcome, completed) = op_row(&ctx, op_id).await;
+    assert_eq!(step, STEP_COMPLETED);
+    assert!(completed);
+    assert_eq!(outcome, Some(json!({"ok": true})));
+    drives.shutdown().await;
+    assert_eq!(drives.in_flight(), 0);
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+async fn insert_leased_op(ctx: &TestContext, op_id: Uuid, lease: &str) {
+    sqlx::query(&format!(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at) VALUES ($1, 'merge', $2, 'started', '{{}}'::jsonb, {lease})"
+    ))
+    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .execute(&ctx.pool)
+    .await
+    .expect("insert leased op");
+}
+
+#[tokio::test]
+async fn waiting_for_a_lease_lapse_returns_at_once_for_a_missing_or_finished_op() {
+    let ctx = TestContext::new().await;
+    let engine = ctx.engine();
+    let driver = DummyDriver::new();
+
+    let missing = Uuid::now_v7();
+    assert!(!engine
+        .wait_for_lease_lapse(missing, engine.execute_deadline())
+        .await
+        .expect("a missing op is claimable"));
+
+    let finished = Uuid::now_v7();
+    engine
+        .execute(&driver, finished, ctx.team_id, &json!({}))
+        .await
+        .expect("drive to completion");
+    assert!(engine
+        .wait_for_lease_lapse(finished, engine.execute_deadline())
+        .await
+        .expect("a finished op is reported terminal"));
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn waiting_for_a_lease_lapse_polls_until_it_lapses_and_gives_up_at_the_deadline() {
+    let ctx = TestContext::new().await;
+    let short_engine = personhog_identity::lifecycle::engine::Engine::new(
+        ctx.pools.clone(),
+        personhog_identity::lifecycle::engine::EngineConfig {
+            lease: std::time::Duration::from_secs(5),
+            execute_timeout: std::time::Duration::from_millis(300),
+            poll_interval: std::time::Duration::from_millis(25),
+            attempt_alert_threshold: 5,
+            gc_batch_limit: 10_000,
+        },
+        ctx.tables.clone(),
+    );
+
+    let lapsing = Uuid::now_v7();
+    insert_leased_op(&ctx, lapsing, "now() + interval '150 milliseconds'").await;
+    let started = std::time::Instant::now();
+    assert!(!short_engine
+        .wait_for_lease_lapse(lapsing, short_engine.execute_deadline())
+        .await
+        .expect("the lease lapses"));
+    assert!(started.elapsed() >= std::time::Duration::from_millis(100));
+
+    let held = Uuid::now_v7();
+    insert_leased_op(&ctx, held, "now() + interval '1 hour'").await;
+    let err = short_engine
+        .wait_for_lease_lapse(held, short_engine.execute_deadline())
+        .await
+        .expect_err("a lease held past the deadline is reported as busy");
+    assert!(matches!(err, SagaError::Busy));
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_shared_deadline_bounds_the_lease_wait_and_the_drive_together() {
+    let ctx = TestContext::new().await;
+    let engine = personhog_identity::lifecycle::engine::Engine::new(
+        ctx.pools.clone(),
+        personhog_identity::lifecycle::engine::EngineConfig {
+            lease: std::time::Duration::from_secs(5),
+            execute_timeout: std::time::Duration::from_millis(200),
+            poll_interval: std::time::Duration::from_millis(10),
+            attempt_alert_threshold: 5,
+            gc_batch_limit: 10_000,
+        },
+        ctx.tables.clone(),
+    );
+    let driver = DummyDriver::paced(std::time::Duration::from_millis(100));
+    let op_id = Uuid::now_v7();
+    insert_leased_op(&ctx, op_id, "now() + interval '150 milliseconds'").await;
+
+    let started = std::time::Instant::now();
+    let deadline = engine.execute_deadline();
+    assert!(!engine
+        .wait_for_lease_lapse(op_id, deadline)
+        .await
+        .expect("the lease lapses inside the budget"));
+    let err = engine
+        .execute_by(&driver, op_id, ctx.team_id, &json!({}), deadline)
+        .await
+        .expect_err("the drive inherits what is left of the budget");
+    assert!(matches!(err, SagaError::DeadlineElapsed));
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(400),
+        "the two phases shared one budget instead of taking one each"
+    );
+    let (_, _, _, completed) = op_row(&ctx, op_id).await;
+    assert!(!completed);
+
     ctx.cleanup().await.expect("cleanup");
 }

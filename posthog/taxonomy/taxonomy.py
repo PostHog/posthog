@@ -66,6 +66,7 @@ CAMPAIGN_PROPERTIES: list[str] = [
     "qclid",  # quora
     "sccid",  # snapchat
     "oppref",  # openai ads
+    "bfcid",  # freebuff
     "irclid",  # impact
     "_kx",  # klaviyo
 ]
@@ -184,9 +185,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag_called": {
             "label": "Feature flag called",
-            "description": (
-                "Sent by PostHog SDKs each time a feature flag is evaluated.\n\nPostHog still collects this event, but its data is moving, so a saved query built on it will stop returning results. To see how a flag is used, open the flag and check its Usage tab."
-            ),
+            "description": "Sent by PostHog SDKs each time a feature flag is evaluated.",
             "examples": ["beta-feature"],
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
             "hidden_in_query_builders": True,
@@ -814,6 +813,20 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Go version",
             "description": "The Go version that was used to capture the event.",
             "examples": ["go1.23.0"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$react_native_version": {
+            "label": "React Native version",
+            "description": "The React Native version of the app that captured the event.",
+            "examples": ["0.79.6"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$flutter_version": {
+            "label": "Flutter version",
+            "description": "The Flutter version of the app that captured the event.",
+            "examples": ["3.44.1"],
             "system": True,
             "ignored_in_assistant": True,
         },
@@ -2068,6 +2081,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "oppref": {
             "label": "oppref",
             "description": "OpenAI Ads Click ID",
+        },
+        "bfcid": {
+            "label": "bfcid",
+            "description": "Freebuff Click ID",
         },
         "irclid": {
             "label": "irclid",

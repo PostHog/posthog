@@ -14,10 +14,11 @@ export type FeatureFlagsSet = {
  * Whether `posthog-js`-resolved flag values actually reach `featureFlagLogic.featureFlags` (see
  * `spyOnFeatureFlags` below). On self-hosted, non-debug instances they're discarded in favor of
  * the server-configured `PERSISTED_FEATURE_FLAGS` baseline, so anything that enrolls a user into
- * a flag client-side (e.g. early access feature enrollment) has no visible effect there.
+ * a flag client-side (e.g. early access feature enrollment) has no visible effect there. A
+ * self-capturing instance is the exception: its flags come from its own project, not PostHog's.
  */
 export function areClientFeatureFlagsHonored(preflight: Pick<PreflightStatus, 'cloud' | 'is_debug'> | null): boolean {
-    return !!preflight?.cloud || !!preflight?.is_debug
+    return !!preflight?.cloud || !!preflight?.is_debug || !!window.JS_POSTHOG_SELF_CAPTURE
 }
 
 export const FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON =
@@ -34,7 +35,7 @@ function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefine
     }
 }
 
-function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppContext()): FeatureFlagsSet {
+export function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppContext()): FeatureFlagsSet {
     const persistedFeatureFlags = appContext?.persisted_feature_flags || []
     // The server sends a list of enabled flag keys (each maps to `true`). Storybook can
     // instead supply a record so a story can pin a multivariate variant (e.g. an

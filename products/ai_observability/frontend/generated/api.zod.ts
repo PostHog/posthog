@@ -610,13 +610,13 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
                     ),
                 max: zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
                     ),
                 step: zod
                     .number()
@@ -995,13 +995,13 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
                     ),
                 max: zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
                     ),
                 step: zod
                     .number()
@@ -1284,13 +1284,13 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
                     ),
                 max: zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
                     ),
                 step: zod
                     .number()
@@ -1521,13 +1521,13 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
                 .number()
                 .nullish()
                 .describe(
-                    'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                    'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
                 ),
             max: zod
                 .number()
                 .nullish()
                 .describe(
-                    'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                    'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
                 ),
             step: zod
                 .number()

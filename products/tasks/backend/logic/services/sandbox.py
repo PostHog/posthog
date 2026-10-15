@@ -206,6 +206,8 @@ class SandboxResources:
 
 
 class SandboxConfig(BaseModel):
+    base_image_reference: str | None = None
+    require_snapshot: bool = False
     name: str
     template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE
     # Decides which Modal app owns the box, and with it how its cost is attributed. Changes
@@ -375,6 +377,7 @@ def build_agent_runtime_env_prefix(
     rtk_enabled: bool = True,
     benjamin_enabled: bool = False,
     peer_messaging: bool = False,
+    pi_acp_conversation: bool = False,
     unset_bedrock: bool = False,
 ) -> str:
     env_vars = {
@@ -407,6 +410,7 @@ def build_agent_runtime_env_prefix(
         # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
         # the peers endpoints re-check authorization server-side regardless.
         "POSTHOG_AGENT_PEER_MESSAGING": "1" if peer_messaging else "0",
+        "POSTHOG_PI_CONVERSATION_FORMAT": "acp" if pi_acp_conversation else "pi",
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -677,6 +681,7 @@ class SandboxBase(ABC):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        pi_acp_conversation: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,

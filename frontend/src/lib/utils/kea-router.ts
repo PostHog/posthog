@@ -189,3 +189,8 @@ export function getProjectSwitchTargetUrl(
     // Default: keep the same route structure but with new project ID
     return `/project/${newTeamId}${route}`
 }
+
+/** True for `root` itself and for any path below it. Takes paths without the project prefix. */
+export function isUnderPath(path: string, root: string): boolean {
+    return path === root || path.startsWith(`${root}/`)
+}

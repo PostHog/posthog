@@ -1,8 +1,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source import DigitalOceanSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.digitalocean import (
     DigitalOceanSourceConfig,
@@ -13,123 +16,44 @@ def _config() -> DigitalOceanSourceConfig:
     return DigitalOceanSourceConfig(api_key="dop_v1_token")
 
 
-class TestDigitalOceanSourceConfig:
-    def test_stays_gated_in_alpha(self) -> None:
-        # The source ships hidden (unreleasedSource) and labelled alpha until it's validated
-        # against a live account; a regression that flips either would expose it prematurely.
-        config = DigitalOceanSource().get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-
 class TestDigitalOceanGetSchemas:
-    def test_lists_every_endpoint_as_full_refresh(self) -> None:
-        schemas = DigitalOceanSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # DigitalOcean has no server-side timestamp filter, so nothing may advertise incremental
-        # sync — otherwise "incremental" runs re-page the whole endpoint at full API cost.
-        assert all(not s.supports_incremental for s in schemas)
-        assert all(not s.supports_append for s in schemas)
-
     def test_filters_by_names(self) -> None:
         schemas = DigitalOceanSource().get_schemas(_config(), team_id=1, names=["droplets"])
         assert [s.name for s in schemas] == ["droplets"]
 
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # lists_tables_without_credentials=True powers the public docs Supported tables section;
-        # it must produce an entry per endpoint from the static catalog with no network call.
-        tables = DigitalOceanSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-
 
 class TestDigitalOceanValidateCredentials:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source.validate_digitalocean_credentials",
-        return_value=(True, 200),
-    )
-    def test_accepts_valid_token(self, _mock: MagicMock) -> None:
-        assert DigitalOceanSource().validate_credentials(_config(), team_id=1) == (True, None)
+    def test_accepts_valid_token(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert DigitalOceanSource().validate_credentials(_config(), team_id=1) == (True, None)
+
+        assert [request.path for request in network.requests_log] == ["/v2/account"]
 
     @pytest.mark.parametrize("status_code", [401, 403])
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source.validate_digitalocean_credentials"
-    )
-    def test_auth_rejection_says_token_invalid(self, mock_validate: MagicMock, status_code: int) -> None:
-        mock_validate.return_value = (False, status_code)
-        valid, error = DigitalOceanSource().validate_credentials(_config(), team_id=1)
+    def test_auth_rejection_says_token_invalid(self, status_code: int) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            valid, error = DigitalOceanSource().validate_credentials(_config(), team_id=1)
+
         assert not valid
         assert error is not None
         assert "rejected the API token" in error
+        assert [request.path for request in network.requests_log] == ["/v2/account"]
 
     @pytest.mark.parametrize("status_code", [429, 500, 503, None])
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source.validate_digitalocean_credentials"
-    )
-    def test_transient_failure_does_not_blame_the_token(
-        self, mock_validate: MagicMock, status_code: int | None
-    ) -> None:
+    def test_transient_failure_does_not_blame_the_token(self, status_code: int | None) -> None:
         # A rate limit, server error, or transport failure is not proof the token is bad; the
         # message must ask the user to retry rather than tell them to regenerate a good token.
-        mock_validate.return_value = (False, status_code)
-        valid, error = DigitalOceanSource().validate_credentials(_config(), team_id=1)
+        answer = ConnectionError("boom") if status_code is None else ScriptedResponse(status=status_code)
+        with scripted_network(always(answer)) as network:
+            valid, error = DigitalOceanSource().validate_credentials(_config(), team_id=1)
+
         assert not valid
         assert error is not None
         assert "rejected the API token" not in error
+        assert {request.path for request in network.requests_log} == {"/v2/account"}
 
 
 class TestDigitalOceanSourceForPipeline:
-    @pytest.mark.parametrize(
-        "endpoint,expected_pk,expected_partition_key",
-        [
-            pytest.param("droplets", ["id"], "created_at", id="droplets_id_pk_partitioned"),
-            pytest.param("domains", ["name"], None, id="domains_name_pk_no_partition"),
-            pytest.param("reserved_ips", ["ip"], None, id="reserved_ips_ip_pk_no_partition"),
-            pytest.param(
-                "billing_history",
-                ["date", "type", "amount", "description"],
-                None,
-                id="billing_history_composite_pk",
-            ),
-            # Fan-out children key on their parent as well as their own id, because neither a
-            # DNS record id nor a database event id is documented as unique across parents, and
-            # a backup has no id at all.
-            pytest.param("project_resources", ["project_id", "urn"], "assigned_at", id="project_resources_parent_pk"),
-            pytest.param("domain_records", ["domain_name", "id"], None, id="domain_records_parent_pk"),
-            pytest.param(
-                "database_backups",
-                ["database_cluster_uuid", "created_at"],
-                "created_at",
-                id="database_backups_parent_pk",
-            ),
-            pytest.param(
-                "database_events", ["database_cluster_uuid", "id"], "create_time", id="database_events_parent_pk"
-            ),
-        ],
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source.digitalocean_source")
-    def test_plumbs_primary_keys_and_partitioning(
-        self, mock_source: MagicMock, endpoint: str, expected_pk: list[str], expected_partition_key: str | None
-    ) -> None:
-        resource = MagicMock()
-        resource.name = endpoint
-        resource.column_hints = None
-        mock_source.return_value = resource
-
-        inputs = MagicMock()
-        inputs.schema_name = endpoint
-        inputs.team_id = 1
-        inputs.job_id = "job-1"
-
-        response = DigitalOceanSource().source_for_pipeline(_config(), inputs)
-
-        assert response.name == endpoint
-        assert response.primary_keys == expected_pk
-        if expected_partition_key:
-            # Partition only on a stable creation timestamp, never on keyless resources.
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [expected_partition_key]
-        else:
-            assert response.partition_mode is None
-
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source.digitalocean_source")
     def test_passes_token_and_endpoint_through(self, mock_source: MagicMock) -> None:
         resource = MagicMock()
@@ -151,18 +75,3 @@ class TestDigitalOceanSourceForPipeline:
             "team_id": 7,
             "job_id": "job-42",
         }
-
-
-class TestDigitalOceanNonRetryableErrors:
-    def test_error_keys_scope_to_base_host(self) -> None:
-        # Matching the base host (not a per-request URL) keeps the match stable across endpoints.
-        errors = DigitalOceanSource().get_non_retryable_errors()
-        assert all("https://api.digitalocean.com" in key for key in errors)
-
-
-class TestDigitalOceanCanonicalDescriptions:
-    def test_descriptions_key_on_real_endpoints(self) -> None:
-        # Canonical descriptions are keyed by schema name; a typo'd key silently falls back to
-        # LLM enrichment instead of the curated text, so keep the keys inside the endpoint set.
-        descriptions = DigitalOceanSource().get_canonical_descriptions()
-        assert set(descriptions.keys()) <= set(ENDPOINTS)

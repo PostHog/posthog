@@ -449,7 +449,7 @@ def test_dependent_resource_reports_which_parent_source_served_its_rows(
 
 class _FakeResumableClient:
     # paginate() simulates page-by-page pagination with resume: it honors
-    # initial_paginator_state["page"] as the start index and calls resume_hook after each page.
+    # initial_paginator_state["page"] as the start index and calls page_state_hook before each page.
     def __init__(self, pages_by_path: dict[str, list[list[dict[str, Any]]]]) -> None:
         self.pages_by_path = pages_by_path
 
@@ -462,7 +462,7 @@ class _FakeResumableClient:
         paginator,
         data_selector,
         hooks,
-        resume_hook=None,
+        page_state_hook=None,
         initial_paginator_state=None,
         data_selector_required=False,
         data_selector_empty_ok=False,
@@ -470,9 +470,10 @@ class _FakeResumableClient:
         pages = self.pages_by_path[path]
         start = initial_paginator_state["page"] if initial_paginator_state else 0
         for i in range(start, len(pages)):
+            has_next_page = i < len(pages) - 1
+            if page_state_hook is not None:
+                page_state_hook({"page": i + 1} if has_next_page else None, has_next_page)
             yield pages[i]
-            if resume_hook is not None:
-                resume_hook({"page": i + 1} if i < len(pages) - 1 else None)
 
 
 _RESOLVED_PARAM = ResolvedParam(

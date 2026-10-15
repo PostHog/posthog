@@ -6,6 +6,7 @@ from unittest import mock
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.db import OperationalError
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -23,6 +24,7 @@ from products.data_catalog.backend.temporal.schedule import create_data_catalog_
 from products.data_catalog.backend.temporal.weekly_digest.activities import (
     _build_and_send_for_org,
     _get_org_batch_page,
+    _run_digest_batch,
     _send_digest_for_user,
 )
 from products.data_catalog.backend.temporal.weekly_digest.email_context import (
@@ -34,8 +36,11 @@ from products.data_catalog.backend.temporal.weekly_digest.email_context import (
 )
 from products.data_catalog.backend.temporal.weekly_digest.types import (
     DataCatalogWeeklyDigestInput,
+    DigestBatchInput,
+    DigestBatchResult,
     DigestOutcome,
     OrgBatchPageInput,
+    OrgDigestCounts,
 )
 from products.data_catalog.backend.temporal.weekly_digest.workflows import DataCatalogWeeklyDigestWorkflow
 
@@ -350,3 +355,40 @@ def test_only_the_full_real_run_publishes_metrics(
     workflow_input: DataCatalogWeeklyDigestInput, publishes: bool
 ) -> None:
     assert workflow_input.publishes_metrics is publishes
+
+
+@pytest.mark.parametrize(
+    "orgs_processed,orgs_failed,exceeded",
+    [
+        (0, 2, False),
+        (18, 2, False),
+        (10, 10, True),
+        (0, 25, True),
+    ],
+)
+def test_the_failure_threshold_needs_enough_attempted_orgs(
+    orgs_processed: int, orgs_failed: int, exceeded: bool
+) -> None:
+    totals = DigestBatchResult(orgs_processed=orgs_processed, orgs_failed=orgs_failed, orgs_skipped=75_000)
+    assert DataCatalogWeeklyDigestInput().exceeds_failure_threshold(totals) is exceeded
+
+
+@pytest.mark.parametrize(
+    "side_effect,orgs_processed,orgs_failed",
+    [
+        ([OperationalError("connection closed"), OrgDigestCounts(sent=1)], 1, 0),
+        ([OperationalError("connection closed"), OperationalError("connection closed")], 0, 1),
+        ([ValueError("bug")], 0, 1),
+    ],
+)
+def test_a_dropped_database_connection_is_retried_once(
+    side_effect: list, orgs_processed: int, orgs_failed: int
+) -> None:
+    with (
+        patch(f"{_ACTIVITIES}.close_old_connections"),
+        patch(f"{_ACTIVITIES}.capture_exception"),
+        patch(f"{_ACTIVITIES}._build_and_send_for_org", side_effect=side_effect),
+    ):
+        totals = _run_digest_batch(DigestBatchInput(org_ids=["org"]))
+
+    assert (totals.orgs_processed, totals.orgs_failed) == (orgs_processed, orgs_failed)

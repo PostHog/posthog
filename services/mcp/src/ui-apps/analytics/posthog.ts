@@ -66,10 +66,14 @@ function newInstanceId(): string {
 /**
  * Identify the user with their PostHog distinct ID from the MCP server.
  */
-export function identifyUser(distinctId: string, toolName?: string): void {
+export function identifyUser(distinctId: string, toolName?: string, mcpClientName?: string): void {
     if (!client) {
         log('PostHog client not initialized while attempting to identify user', { distinctId, toolName })
         return
+    }
+
+    if (mcpClientName) {
+        client.register({ $mcp_client_name: mcpClientName })
     }
 
     if (currentDistinctId === distinctId) {
@@ -182,6 +186,29 @@ export function captureHostContextChanged(params: {
         has_styles: params.hasStyles,
         has_fonts: params.hasFonts,
         theme: params.theme,
+    })
+}
+
+export function captureInsightViewed(params: {
+    queryKind?: string | undefined
+    querySourceKind?: string | undefined
+    display?: string | undefined
+    funnelVizType?: string | undefined
+    isSupported: boolean
+}): void {
+    capture('mcp_ui_app_insight_viewed', {
+        query_kind: params.queryKind,
+        query_source_kind: params.querySourceKind,
+        display: params.display,
+        funnel_viz_type: params.funnelVizType,
+        is_supported: params.isSupported,
+    })
+}
+
+export function captureInsightDisplayChanged(params: { from: string; to: string }): void {
+    capture('mcp_ui_app_insight_display_changed', {
+        from_display: params.from,
+        to_display: params.to,
     })
 }
 

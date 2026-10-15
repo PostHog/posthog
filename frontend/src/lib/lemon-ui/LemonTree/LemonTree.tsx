@@ -333,6 +333,8 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
         }
 
         const contextMenuContent = itemContextMenu?.(item)
+        const sideActionContent = !isEmptyFolder && size === 'default' ? itemSideAction?.(item) : undefined
+        const sideActionButton = sideActionContent !== undefined ? itemSideActionButton?.(item) : undefined
 
         const linkEl = (
             <Link
@@ -373,6 +375,8 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                             'rounded-l-[var(--radius)] justify-center [&_svg]:size-4': size === 'narrow',
                             'group-hover/lemon-tree-button-group:pr-[30px] group-has-data-[state=open]/lemon-tree-button-group:pr-[30px] group-has-focus-within/lemon-tree-button-group:pr-[30px]':
                                 size !== 'narrow' && !isEmptyFolder,
+                            // A custom side action button stays visible, so its space stays reserved
+                            'pr-[30px]': !!sideActionButton,
                         }
                     ),
                 }}
@@ -488,8 +492,6 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             )
         }
 
-        const sideActionContent = !isEmptyFolder && size === 'default' ? itemSideAction?.(item) : undefined
-        const sideActionButton = sideActionContent !== undefined ? itemSideActionButton?.(item) : undefined
         const sideAction =
             sideActionContent !== undefined ? (
                 sideActionContent !== null ? (
@@ -499,6 +501,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                                 <ButtonPrimitive
                                     iconOnly
                                     isSideActionRight
+                                    data-attr={`menu-item-${item.name.toLowerCase().replace(/\s+/g, '-')}-menu-button`}
                                     className="
                                         absolute right-0
                                         opacity-0
