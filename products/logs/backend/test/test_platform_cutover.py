@@ -1,21 +1,41 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
+from products.alerts.backend.facade.contracts import DestinationBucket
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import get_configuration, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import SourceKind
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
+from products.logs.backend.alert_destinations import LOGS_ALERT_EVENT_IDS
+from products.logs.backend.cutover_gate import CutoverRefused, GateRefusal
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import platform_upsert_of
 from products.logs.backend.platform_cutover import CutoverSkip, cut_over_team
 
 NOW = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
 State = LogsAlertConfiguration.State
+LEGACY_BODY_FLAG = "products.alerts_platform.backend.delivery.evaluation.posthoganalytics.feature_enabled"
+STOCK_HOG = "return event"
+WEBHOOK_INPUTS: dict[str, Any] = {
+    "url": {"value": "https://hooks.example.com/hook"},
+    "method": {"value": "POST"},
+    "body": {"value": {"type": "logs_alert.firing"}},
+}
+SLACK_INPUTS: dict[str, Any] = {
+    "slack_workspace": {"value": 1},
+    "channel": {"value": "C-1"},
+    "text": {"value": "Log alert is firing"},
+}
 
 
 class TestPlatformCutover(APIBaseTest):
@@ -116,3 +136,140 @@ class TestPlatformCutover(APIBaseTest):
         (result,) = cut_over_team(self.team.id, now=NOW + timedelta(minutes=1))
 
         assert result.skipped == CutoverSkip.ALREADY_MOVED
+
+    def _destination(
+        self, alert_id: UUID | None, template_id: str, inputs: dict[str, Any], edit: dict[str, Any] | None = None
+    ) -> HogFunction:
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Alert destination",
+            type="internal_destination",
+            template_id=template_id,
+            enabled=True,
+            inputs=inputs,
+            inputs_schema=[{"key": key, "type": "string", "secret": False} for key in inputs],
+            hog=STOCK_HOG,
+            filters={
+                "source": "internal-events",
+                "events": [{"id": LOGS_ALERT_EVENT_IDS[0], "type": "events"}],
+                "properties": [{"key": "alert_id", "value": str(alert_id), "operator": "exact", "type": "event"}]
+                if alert_id
+                else [],
+            },
+        )
+        if edit:
+            HogFunctionRevision.objects.for_team(self.team.id).create(
+                team=self.team,
+                hog_function=function,
+                version=1,
+                content={
+                    "hog": function.hog,
+                    "inputs_schema": function.inputs_schema,
+                    "inputs": function.inputs,
+                    "filters": function.filters,
+                    "mappings": function.mappings,
+                    "masking": function.masking,
+                },
+            )
+            HogFunction.objects.filter(pk=function.pk).update(version=2, **edit)
+        return function
+
+    @parameterized.expand(
+        [
+            (
+                "rewritten_webhook_body",
+                "template-webhook",
+                WEBHOOK_INPUTS,
+                {"inputs": {**WEBHOOK_INPUTS, "body": {"value": {"text": "relay"}}}},
+                True,
+                (DestinationBucket.PORTABLE, GateRefusal.NOT_READY),
+            ),
+            (
+                "edited_code_not_listed",
+                "template-webhook",
+                WEBHOOK_INPUTS,
+                {"hog": "fetch('https://relay.example.com')"},
+                True,
+                (DestinationBucket.CODE, GateRefusal.CODE_NOT_READY),
+            ),
+            (
+                "stock_webhook_without_legacy_body",
+                "template-webhook",
+                WEBHOOK_INPUTS,
+                {},
+                False,
+                (DestinationBucket.STOCK, GateRefusal.NEW_WEBHOOK_BODY),
+            ),
+            (
+                "stock_webhook_with_unreadable_flag",
+                "template-webhook",
+                WEBHOOK_INPUTS,
+                {},
+                None,
+                (DestinationBucket.STOCK, GateRefusal.WEBHOOK_BODY_UNKNOWN),
+            ),
+        ]
+    )
+    def test_a_destination_native_delivery_cannot_send_yet_keeps_the_whole_team(
+        self,
+        _name: str,
+        template_id: str,
+        inputs: dict[str, Any],
+        edit: dict[str, Any],
+        keeps_legacy_body: bool | None,
+        refused: tuple[DestinationBucket, GateRefusal],
+    ) -> None:
+        held = self._alert()
+        quiet = self._alert(name="Warnings")
+        self._destination(held.id, template_id, inputs, edit)
+
+        with patch(LEGACY_BODY_FLAG, return_value=keeps_legacy_body), self.assertRaises(CutoverRefused) as raised:
+            cut_over_team(self.team.id, now=NOW)
+
+        assert [(refusal.alert_id, refusal.bucket, refusal.reason) for refusal in raised.exception.refusals] == [
+            (held.id, *refused)
+        ]
+        assert set(
+            LogsAlertConfiguration.objects.filter(id__in=[held.id, quiet.id]).values_list("owner", flat=True)
+        ) == {"source"}
+
+    def test_an_unbound_destination_keeps_the_whole_team(self) -> None:
+        self._alert()
+        function = self._destination(None, "template-slack", SLACK_INPUTS)
+
+        with self.assertRaises(CutoverRefused) as raised:
+            cut_over_team(self.team.id, now=NOW)
+
+        assert [(refusal.hog_function_id, refusal.reason) for refusal in raised.exception.refusals] == [
+            (function.id, GateRefusal.UNBOUND)
+        ]
+
+    @parameterized.expand(
+        [
+            ("stock_slack", "template-slack", SLACK_INPUTS, {}),
+            ("stock_webhook_with_legacy_body", "template-webhook", WEBHOOK_INPUTS, {}),
+            (
+                "edited_code_with_a_built_flow",
+                "template-webhook",
+                WEBHOOK_INPUTS,
+                {"hog": "fetch('https://relay.example.com')"},
+            ),
+        ]
+    )
+    def test_a_team_moves_when_every_destination_is_ready(
+        self, _name: str, template_id: str, inputs: dict[str, Any], edit: dict[str, Any]
+    ) -> None:
+        alert = self._alert()
+        function = self._destination(alert.id, template_id, inputs, edit)
+        function.refresh_from_db()
+
+        with patch(LEGACY_BODY_FLAG, return_value=True):
+            (result,) = cut_over_team(self.team.id, code_ready={_md5(function.hog)}, now=NOW)
+
+        assert result.skipped is None
+        alert.refresh_from_db()
+        assert alert.owner == "platform"
+
+
+def _md5(hog: str) -> str:
+    return hashlib.md5(hog.encode()).hexdigest()

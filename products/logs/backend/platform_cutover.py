@@ -6,6 +6,7 @@ skipped with a reason, and a later run picks it up. The command is safe to run a
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
@@ -20,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import PlatformOwnershipH
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.logs.backend.alert_state_machine import FIRING_STATES
 from products.logs.backend.alert_utils import due_alerts_q
+from products.logs.backend.cutover_gate import CutoverRefused, destination_refusals
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import PLATFORM_HANDOVER_STATE, platform_upsert_of
 
@@ -45,8 +47,17 @@ class AlertCutover:
     skipped: CutoverSkip | None
 
 
-def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCutover, ...]:
-    """Hands every logs alert of one team to the platform, or says why one stays."""
+def cut_over_team(
+    team_id: int, *, code_ready: Collection[str] = (), now: datetime | None = None
+) -> tuple[AlertCutover, ...]:
+    """Hands every logs alert of one team to the platform, or says why one stays.
+
+    Raises `CutoverRefused`, moving nothing, when native delivery cannot yet send one of the team's
+    destinations the way the team receives it today.
+    """
+    refusals = destination_refusals(team_id, code_ready=code_ready)
+    if refusals:
+        raise CutoverRefused(team_id, refusals)
     alert_ids = list(
         LogsAlertConfiguration.objects.filter(team_id=team_id).order_by("created_at", "id").values_list("id", flat=True)
     )

@@ -105,6 +105,11 @@ def _team_flag_enabled(flag: str, team: Team) -> bool | None:
     )
 
 
+def keeps_legacy_webhook_body(team: Team) -> bool | None:
+    """Whether native delivery sends this team the body its source's own stack sent. None when unknown."""
+    return _team_flag_enabled(legacy_webhook.LEGACY_WEBHOOK_BODY_FLAG, team)
+
+
 class _WebhookTransports:
     """The webhook transport for one evaluation, with the legacy body when the team keeps it.
 
@@ -138,7 +143,7 @@ class _WebhookTransports:
         if body is None:
             return None
         try:
-            keeps_legacy_body = _team_flag_enabled(legacy_webhook.LEGACY_WEBHOOK_BODY_FLAG, self._team)
+            keeps_legacy_body = keeps_legacy_webhook_body(self._team)
         except Exception as error:
             raise DeliveryError("Could not read which webhook body this team receives.") from error
         if keeps_legacy_body is None:

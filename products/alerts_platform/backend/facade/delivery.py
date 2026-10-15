@@ -1,6 +1,8 @@
 """Facade for native delivery: how other products plug in destinations and their own wording."""
 
-from products.alerts_platform.backend.delivery import addresses, describers, destinations, legacy_webhook
+from posthog.models import Team
+
+from products.alerts_platform.backend.delivery import addresses, describers, destinations, evaluation, legacy_webhook
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     DestinationResolver,
@@ -25,3 +27,8 @@ def refused_destination(data: AlertDestinationData) -> str | None:
 
 def register_legacy_webhook_body(source: SourceKind, body: LegacyWebhookBody) -> None:
     legacy_webhook.register(source, body)
+
+
+def keeps_legacy_webhook_body(team: Team) -> bool | None:
+    """Whether native delivery sends this team the legacy webhook body. None when the flag could not be read."""
+    return evaluation.keeps_legacy_webhook_body(team)
