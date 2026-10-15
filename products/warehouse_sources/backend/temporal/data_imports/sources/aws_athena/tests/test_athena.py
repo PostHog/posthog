@@ -216,6 +216,50 @@ class TestSync:
         assert str(result.raised) == (
             "AWS Athena query failed: USER_ERROR - COLUMN_NOT_FOUND: line 1:8: Column 'note' cannot be resolved"
         )
+        assert "AmazonAthena.StopQueryExecution" not in [request.headers["x-amz-target"] for request in result.requests]
+
+    def test_a_retried_start_sends_the_same_idempotency_token(self) -> None:
+        result = SourceDriver(AwsAthenaSource(), config()).run(
+            "orders",
+            by_target(
+                {
+                    "GetTable": [ScriptedResponse(json=ORDERS_TABLE)],
+                    "StartQueryExecution": [
+                        ScriptedResponse(status=500, json={"__type": "InternalServerException", "Message": "Internal"}),
+                        ScriptedResponse(json={"QueryExecutionId": "q-1"}),
+                    ],
+                    "GetQueryExecution": [execution("SUCCEEDED")],
+                    "GetQueryResults": [results([], header=True)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        tokens = [
+            request.json().get("ClientRequestToken")
+            for request in result.requests
+            if request.headers["x-amz-target"] == "AmazonAthena.StartQueryExecution"
+        ]
+        assert len(tokens) == 2
+        assert tokens[0] and tokens[0] == tokens[1]
+
+    def test_a_query_still_running_at_the_deadline_is_stopped(self) -> None:
+        result = SourceDriver(AwsAthenaSource(), config()).run(
+            "orders",
+            by_target(
+                {
+                    "GetTable": [ScriptedResponse(json=ORDERS_TABLE)],
+                    "StartQueryExecution": [ScriptedResponse(json={"QueryExecutionId": "q-1"})],
+                    "GetQueryExecution": [execution("RUNNING")] * 1000,
+                    "StopQueryExecution": [ScriptedResponse(json={})],
+                }
+            ),
+        )
+
+        assert str(result.raised) == "AWS Athena query failed: TIMEOUT - query q-1 is still RUNNING"
+        last = result.requests[-1]
+        assert last.headers["x-amz-target"] == "AmazonAthena.StopQueryExecution"
+        assert last.json() == {"QueryExecutionId": "q-1"}
 
 
 class TestSchemas:

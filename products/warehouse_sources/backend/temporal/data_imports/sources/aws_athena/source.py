@@ -90,7 +90,7 @@ class AwsAthenaSource(SQLSource[AwsAthenaSourceConfig]):
             label="Amazon Athena",
             caption="""Sync tables from an AWS Glue database through Amazon Athena into the PostHog Data warehouse.
 
-Create an IAM user or role with `glue:GetDatabase`, `glue:GetTables`, `glue:GetTable`, `athena:GetWorkGroup`, `athena:StartQueryExecution`, `athena:GetQueryExecution` and `athena:GetQueryResults`, plus read access to the tables' S3 data and write access to the query result location. Paste its access key ID and secret access key.
+Create an IAM user or role with `glue:GetDatabase`, `glue:GetTables`, `glue:GetTable`, `athena:GetWorkGroup`, `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults` and `athena:StopQueryExecution`, plus read access to the tables' S3 data and write access to the query result location. Paste its access key ID and secret access key.
 
 Each sync runs one Athena query per table, which Athena bills by the data it scans. An incremental sync filters on the chosen column, so a partitioned table keyed on that column scans less.""",
             iconPath="/static/services/aws_athena.png",

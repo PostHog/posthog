@@ -1,5 +1,6 @@
 import re
 import time
+import uuid
 import datetime as dt
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -19,8 +20,14 @@ from botocore.model import ServiceModel
 from botocore.parsers import create_parser
 from botocore.serialize import create_serializer
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-from urllib3.util.retry import Retry
+from tenacity import (
+    RetryCallState,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    stop_after_delay,
+    wait_exponential_jitter,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BinaryColumnReporter,
@@ -40,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena
     AwsService,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import NO_RETRY
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
 )
@@ -73,20 +81,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trin
     trino_type_to_arrow,
 )
 
-REQUEST_TIMEOUT_SECONDS = 120
-MAX_THROTTLE_ATTEMPTS = 6
+# (connect, read) seconds for one try.
+REQUEST_TIMEOUT = (10, 60)
+MAX_ATTEMPTS = 6
+# No new try starts after this, so one call with its tries and waits stays under five minutes.
+RETRY_BUDGET_SECONDS = 180
+RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
 ERROR_PREFIX = "AWS Athena request failed"
 QUERY_ERROR_PREFIX = "AWS Athena query failed"
-
-# Both APIs are POST-only JSON RPCs, and the tracked session's default policy only retries
-# idempotent verbs, so POST is opted in explicitly for the transport-level statuses.
-TRANSPORT_RETRY = Retry(
-    total=3,
-    backoff_factor=1,
-    status_forcelist=(429, 500, 502, 503, 504),
-    allowed_methods=frozenset(["POST"]),
-    raise_on_status=False,
-)
 
 # AWS answers these as HTTP 400 with the code in the body, so the transport cannot see them.
 THROTTLING_ERROR_CODES = frozenset({"ThrottlingException", "TooManyRequestsException", "ThrottlingError"})
@@ -101,8 +103,16 @@ class AwsAthenaError(Exception):
         self.code = code
 
 
-class AwsAthenaThrottledError(AwsAthenaError):
+class AwsAthenaTransientError(AwsAthenaError):
     pass
+
+
+class AwsAthenaThrottledError(AwsAthenaTransientError):
+    pass
+
+
+class AwsAthenaQueryEndedError(AwsAthenaError):
+    """Athena ended the query itself, so there is nothing left to stop."""
 
 
 @cache
@@ -129,16 +139,20 @@ def _error_from(parsed: dict[str, Any], status_code: int) -> AwsAthenaError:
     text = f"{ERROR_PREFIX}: {code} - {message}"
     if code in THROTTLING_ERROR_CODES:
         return AwsAthenaThrottledError(text, code)
+    if status_code in RETRYABLE_STATUSES:
+        return AwsAthenaTransientError(text, code)
     return AwsAthenaError(text, code)
 
 
-@retry(
-    retry=retry_if_exception_type(AwsAthenaThrottledError),
-    stop=stop_after_attempt(MAX_THROTTLE_ATTEMPTS),
-    wait=wait_exponential_jitter(initial=2, max=60),
-    reraise=True,
-)
-def send_operation(
+def _before_retry_wait(_state: RetryCallState) -> None:
+    reach_safe_point()
+
+
+def _retry_wait(seconds: float) -> None:
+    interruptible_wait(seconds)
+
+
+def send_once(
     session: requests.Session,
     credentials: Credentials,
     region: str,
@@ -146,7 +160,7 @@ def send_operation(
     operation: str,
     params: dict[str, Any],
 ) -> dict[str, Any]:
-    """Serialize one call from its botocore model, sign it with SigV4 and send it over the tracked session."""
+    """Serialize one call from its botocore model, sign it with SigV4 and send it once over the tracked session."""
     model = _service_model(service)
     operation_model = model.operation_model(operation)
     serialized = create_serializer(model.protocol, include_validation=False).serialize_to_request(
@@ -161,7 +175,7 @@ def send_operation(
     aws_request = AWSRequest(method="POST", url=url, data=body, headers=dict(serialized["headers"]))
     SigV4Auth(credentials, model.signing_name, region).add_auth(aws_request)
 
-    response = session.post(url, data=body, headers=dict(aws_request.headers.items()), timeout=REQUEST_TIMEOUT_SECONDS)
+    response = session.post(url, data=body, headers=dict(aws_request.headers.items()), timeout=REQUEST_TIMEOUT)
 
     output_shape = operation_model.output_shape
     assert output_shape is not None  # every operation this source calls returns a body
@@ -175,6 +189,26 @@ def send_operation(
     return parsed
 
 
+# The only retry layer: the session sends each try once, so tries and waits do not multiply.
+@retry(
+    retry=retry_if_exception_type((AwsAthenaTransientError, requests.ConnectionError, requests.Timeout)),
+    stop=stop_after_attempt(MAX_ATTEMPTS) | stop_after_delay(RETRY_BUDGET_SECONDS),
+    wait=wait_exponential_jitter(initial=2, max=30),
+    sleep=_retry_wait,
+    before_sleep=_before_retry_wait,
+    reraise=True,
+)
+def send_operation(
+    session: requests.Session,
+    credentials: Credentials,
+    region: str,
+    service: AwsService,
+    operation: str,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    return send_once(session, credentials, region, service, operation, params)
+
+
 class AthenaClient:
     def __init__(
         self,
@@ -184,12 +218,23 @@ class AthenaClient:
         aws_region: str,
     ) -> None:
         redact = tuple(value for value in (aws_secret_access_key, aws_session_token) if value)
-        self._session = make_tracked_session(retry=TRANSPORT_RETRY, redact_values=redact)
+        self._session = make_tracked_session(retry=NO_RETRY, redact_values=redact)
         self._credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
         self._region = aws_region.strip()
 
     def call(self, service: AwsService, operation: str, params: dict[str, Any]) -> dict[str, Any]:
         return send_operation(self._session, self._credentials, self._region, service, operation, params)
+
+    def stop_query(self, execution_id: str) -> None:
+        """One try with no retry wait, because the caller is often on its way out of the run."""
+        send_once(
+            self._session,
+            self._credentials,
+            self._region,
+            ATHENA_SERVICE,
+            "StopQueryExecution",
+            {"QueryExecutionId": execution_id},
+        )
 
 
 def make_client(config: AwsAthenaSourceConfig) -> AthenaClient:
@@ -331,6 +376,9 @@ def start_query(client: AthenaClient, query: SafeSQL, location: QueryLocation) -
         "QueryString": query.sql,
         "QueryExecutionContext": {"Database": location.database, "Catalog": DATA_CATALOG},
         "WorkGroup": location.workgroup,
+        # SDKs fill this in, but a direct call must send it. Retries of this call reuse it, so a
+        # retried start does not run the query twice.
+        "ClientRequestToken": str(uuid.uuid4()),
     }
     if query.params:
         params["ExecutionParameters"] = [athena_literal(value) for value in query.params]
@@ -352,7 +400,7 @@ def wait_for_query(client: AthenaClient, execution_id: str) -> None:
             athena_error = status.get("AthenaError") or {}
             kind = "USER_ERROR" if athena_error.get("ErrorCategory") == ATHENA_USER_ERROR_CATEGORY else state
             reason = athena_error.get("ErrorMessage") or status.get("StateChangeReason") or ""
-            raise AwsAthenaError(f"{QUERY_ERROR_PREFIX}: {kind} - {str(reason)[:500]}", kind)
+            raise AwsAthenaQueryEndedError(f"{QUERY_ERROR_PREFIX}: {kind} - {str(reason)[:500]}", kind)
         if time.monotonic() > deadline:
             raise AwsAthenaError(f"{QUERY_ERROR_PREFIX}: TIMEOUT - query {execution_id} is still {state}", "TIMEOUT")
         # Nothing is yielded while Athena runs the query, so give the pipeline a chance to hand off.
@@ -477,7 +525,17 @@ class AthenaImplementation(SQLSourceImplementation[AwsAthenaSourceConfig, Athena
             logger.debug(f"Athena query: {query.sql}")
 
             execution_id = start_query(client, query, location)
-            wait_for_query(client, execution_id)
+            try:
+                wait_for_query(client, execution_id)
+            except AwsAthenaQueryEndedError:
+                raise
+            except BaseException:
+                # The next attempt starts a new query, so this one would only use capacity and bill scans.
+                try:
+                    client.stop_query(execution_id)
+                except Exception as stop_error:
+                    logger.warning("Could not stop Athena query", execution_id=execution_id, error=str(stop_error))
+                raise
 
             binary_reporter = BinaryColumnReporter(logger)
             for names, rows in iter_result_pages(client, execution_id):
@@ -513,7 +571,7 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
     "InvalidClientTokenId": "AWS rejected the access key. Check the access key ID and secret access key, and that the key is still active.",
     "InvalidSignatureException": "AWS rejected the request signature. Re-enter the secret access key.",
     "ExpiredTokenException": "The AWS session token has expired. Reconnect with fresh credentials.",
-    "AccessDeniedException": "These AWS credentials cannot read the catalog or run queries. Grant glue:GetDatabase, glue:GetTables, glue:GetTable, athena:GetWorkGroup, athena:StartQueryExecution, athena:GetQueryExecution and athena:GetQueryResults, plus read access to the tables' S3 data and the query result location.",
+    "AccessDeniedException": "These AWS credentials cannot read the catalog or run queries. Grant glue:GetDatabase, glue:GetTables, glue:GetTable, athena:GetWorkGroup, athena:StartQueryExecution, athena:GetQueryExecution, athena:GetQueryResults and athena:StopQueryExecution, plus read access to the tables' S3 data and the query result location.",
     "EntityNotFoundException": "The Glue database does not exist in this region. Check the database name and region.",
 }
 
