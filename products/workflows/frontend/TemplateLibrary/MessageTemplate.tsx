@@ -20,6 +20,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
 import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
 import { WorkflowRevisions } from '../Workflows/WorkflowRevisions'
+import { MakeTransactionalPrompt } from './MakeTransactionalPrompt'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
@@ -51,7 +52,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         setTemplatePickerOpen,
         syncExternalEdit,
         keepMyTemplateVersion,
-        makeTransactional,
         setTransactionalTab,
     } = useActions(logic)
     const {
@@ -66,7 +66,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isSyncingExternalEdit,
         transactionalHogFlowId,
         transactionalTab,
-        isMakingTransactional,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
@@ -136,6 +135,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     isLoading={messageLoading || templateLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
                     onDescriptionChange={(description) => setTemplateValue('description', description)}
+                    nameSuffix={
+                        showTransactional && transactionalHogFlowId ? (
+                            <LemonTag type="success" className="ml-1">
+                                Transactional
+                            </LemonTag>
+                        ) : undefined
+                    }
                     actions={
                         <>
                             <LemonDivider vertical />
@@ -148,28 +154,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             >
                                 Send test
                             </LemonButton>
-                            {showTransactional &&
-                                (transactionalHogFlowId ? (
-                                    <LemonTag type="success">Transactional</LemonTag>
-                                ) : (
-                                    <LemonButton
-                                        data-attr="make-message-template-transactional"
-                                        type="secondary"
-                                        size="small"
-                                        onClick={makeTransactional}
-                                        loading={isMakingTransactional}
-                                        tooltip="Send this template from your code over the API, with its own metrics and send history."
-                                        disabledReason={
-                                            templateChanged
-                                                ? 'Save your changes first'
-                                                : !template.content.email?.subject
-                                                  ? 'Add a subject first'
-                                                  : undefined
-                                        }
-                                    >
-                                        Make transactional
-                                    </LemonButton>
-                                ))}
                             {templateChanged && (
                                 <LemonButton
                                     data-attr="cancel-message-template"
@@ -268,32 +252,42 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     </LemonBanner>
                 )}
 
-                {showTransactional && transactionalHogFlowId ? (
+                {showTransactional ? (
                     <LemonTabs
                         activeKey={transactionalTab}
                         onChange={setTransactionalTab}
                         className="flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow"
                         tabs={[
                             { key: 'design', label: 'Design', content: editor },
-                            {
-                                key: 'metrics',
-                                label: 'Metrics',
-                                content: <WorkflowMetrics id={transactionalHogFlowId} />,
-                            },
-                            {
-                                key: 'sends',
-                                label: 'Sends',
-                                content: <WorkflowInvocations id={transactionalHogFlowId} />,
-                            },
-                            {
-                                key: 'versions',
-                                label: 'Versions',
-                                content: <WorkflowRevisions id={transactionalHogFlowId} />,
-                            },
+                            transactionalHogFlowId
+                                ? {
+                                      key: 'metrics',
+                                      label: 'Metrics',
+                                      content: <WorkflowMetrics id={transactionalHogFlowId} />,
+                                  }
+                                : null,
+                            transactionalHogFlowId
+                                ? {
+                                      key: 'sends',
+                                      label: 'Sends',
+                                      content: <WorkflowInvocations id={transactionalHogFlowId} />,
+                                  }
+                                : null,
+                            transactionalHogFlowId
+                                ? {
+                                      key: 'versions',
+                                      label: 'Versions',
+                                      content: <WorkflowRevisions id={transactionalHogFlowId} />,
+                                  }
+                                : null,
                             {
                                 key: 'api',
                                 label: 'API',
-                                content: <TransactionalEmailApiExample templateId={props.id} />,
+                                content: transactionalHogFlowId ? (
+                                    <TransactionalEmailApiExample templateId={props.id} />
+                                ) : (
+                                    <MakeTransactionalPrompt {...props} />
+                                ),
                             },
                         ]}
                     />
