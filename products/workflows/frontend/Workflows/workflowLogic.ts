@@ -865,6 +865,11 @@ export interface workflowLogicActions {
                                       type: 'internal-event'
                                   }
                                 | {
+                                      cohort_id: number | null
+                                      transition: 'entered' | 'left'
+                                      type: 'cohort'
+                                  }
+                                | {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
@@ -1139,6 +1144,11 @@ export interface workflowLogicActions {
                                 source: 'internal-events'
                             }
                             type: 'internal-event'
+                        }
+                      | {
+                            cohort_id: number | null
+                            transition: 'entered' | 'left'
+                            type: 'cohort'
                         }
                       | {
                             filters: {
@@ -1730,6 +1740,11 @@ export interface workflowLogicActions {
                                       type: 'internal-event'
                                   }
                                 | {
+                                      cohort_id: number | null
+                                      transition: 'entered' | 'left'
+                                      type: 'cohort'
+                                  }
+                                | {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
@@ -2006,6 +2021,11 @@ export interface workflowLogicActions {
                             type: 'internal-event'
                         }
                       | {
+                            cohort_id: number | null
+                            transition: 'entered' | 'left'
+                            type: 'cohort'
+                        }
+                      | {
                             filters: {
                                 properties?: any[] | undefined
                             }
@@ -2234,6 +2254,11 @@ export interface workflowLogicActions {
                         }
                       | undefined
                   max_delay_duration?: string | undefined
+              }
+            | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
               }
             | {
                   inputs: Record<
@@ -2627,6 +2652,11 @@ export interface workflowLogicActions {
                   max_delay_duration?: string | undefined
               }
             | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
+              }
+            | {
                   inputs: Record<
                       string,
                       {
@@ -2995,6 +3025,11 @@ export interface workflowLogicMeta {
                                     source: 'internal-events'
                                 }
                                 type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
                             }
                           | {
                                 filters: {

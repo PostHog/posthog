@@ -10,9 +10,11 @@ from clickhouse_driver.errors import NetworkError
 from parameterized import parameterized
 
 from posthog.errors import InternalCHQueryError
+from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -20,7 +22,8 @@ from products.messaging.backend.facade.testing import create_message_template_fo
 from products.workflows.backend.facade.contracts import DataSuggestionsResult
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow
+from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
+from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow, missing_inputs
 from products.workflows.backend.services.data_suggestions.event_volume import FULL_SCAN_MAX_WEEKLY_EVENTS, weekly_counts
 from products.workflows.backend.services.data_suggestions.planner import (
     PlannedBranch,
@@ -30,16 +33,24 @@ from products.workflows.backend.services.data_suggestions.planner import (
 )
 from products.workflows.backend.services.data_suggestions.service import (
     FAILURE_CACHE_TTL_SECONDS,
+    NO_SENDER_FIELD,
     _build_key,
+    _build_lock_key,
     _cache_key,
     _generation_lock_key,
     _to_cache,
+    build_caller,
     run_data_suggestions,
     start_build,
 )
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
-from products.workflows.backend.services.data_suggestions.team_context import email_sender
+from products.workflows.backend.services.data_suggestions.team_context import (
+    email_sender,
+    has_verified_email_sender,
+    saved_workflow_actions,
+)
 from products.workflows.backend.services.email_sending_controls import ensure_workflows_config
+from products.workflows.backend.tasks.data_suggestions import build_data_suggestion
 from products.workflows.backend.tests.api.test_hog_flow_action_email import _email_function_template, webhook_template
 
 SERVICE = "products.workflows.backend.services.data_suggestions.service"
@@ -133,7 +144,12 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert dict(context.events) == {"trial_started": 3, "user_registered": 3, "query executed": 30}
         assert body["status"] == "ready"
         assert [(s["trigger_event"], s["weekly_count"]) for s in body["suggestions"]] == [("trial_started", 3)]
-        assert self._list()["suggestions"] == body["suggestions"]
+        assert body["email_sender_ready"] is False
+        Integration.objects.create(team=self.team, kind="email", config={"email": "hi@example.com", "verified": True})
+        cached = self._list()
+        assert cached["suggestions"] == body["suggestions"]
+        # The flag is read on every call, so a sender verified after the cards were cached shows up right away.
+        assert cached["email_sender_ready"] is True
         assert suggest_ideas.call_count == 1
 
     @patch(f"{SERVICE}.classify_event_stages")
@@ -210,8 +226,8 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         classify.return_value = {}
         suggest_ideas.return_value = ideas
 
-        assert self._list() == {"status": "unavailable", "suggestions": []}
-        assert self._list() == {"status": "unavailable", "suggestions": []}
+        assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
+        assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
         assert classify.call_count == 1
 
     @patch(f"{SERVICE}.suggest_ideas")
@@ -219,7 +235,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         suggest_ideas.return_value = [_idea("made_up_event")]
 
         with time_machine.travel(timezone.now(), tick=False) as clock:
-            assert self._list() == {"status": "ready", "suggestions": []}
+            assert self._list() == {"status": "ready", "suggestions": [], "email_sender_ready": False}
             clock.shift(FAILURE_CACHE_TTL_SECONDS + 60)
             self._list()
 
@@ -291,8 +307,8 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         execute.side_effect = error
 
-        assert self._list() == {"status": "unavailable", "suggestions": []}
-        assert self._list() == {"status": "unavailable", "suggestions": []}
+        assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
+        assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
         assert execute.call_count == 1
 
     @parameterized.expand(
@@ -381,7 +397,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         self.jev_configured.return_value = jev_configured
         self.privacy_mode.return_value = privacy_mode
 
-        assert self._list() == {"status": status, "suggestions": []}
+        assert self._list() == {"status": status, "suggestions": [], "email_sender_ready": False}
         suggest_ideas.assert_not_called()
 
     @patch(f"{SERVICE}.classify_event_stages")
@@ -394,8 +410,8 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         suggestions = self._list()["suggestions"]
         classify.side_effect = StageClassificationFailed()
 
-        assert self._list(refresh=True) == {"status": "ready", "suggestions": suggestions}
-        assert self._list() == {"status": "ready", "suggestions": suggestions}
+        assert self._list(refresh=True) == {"status": "ready", "suggestions": suggestions, "email_sender_ready": False}
+        assert self._list() == {"status": "ready", "suggestions": suggestions, "email_sender_ready": False}
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
@@ -481,6 +497,9 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         branch = next(action for action in built.workflow["actions"] if action["type"] == "conditional_branch")
         # The editor's schema rejects null filters, so a suggested branch must look like one added by hand.
         assert branch["config"]["conditions"] == [{"filters": {}, "name": "Is on a paid plan"}]
+        # The draft check compiles the empty condition, which must still count as unset.
+        assert validated_draft(self.team, built.workflow, EventSource.WEB) is not None
+        assert [item.field for item in missing_inputs(built.workflow, {})] == ["Condition: Is on a paid plan"]
 
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_second_request_does_not_generate_while_one_is_running(self, suggest_ideas: MagicMock, _flag) -> None:
@@ -488,7 +507,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert self._list()["status"] == "ready"
         cache.add(_generation_lock_key(self.team), "another-run", 60)
 
-        assert self._list(refresh=True) == {"status": "generating", "suggestions": []}
+        assert self._list(refresh=True) == {"status": "generating", "suggestions": [], "email_sender_ready": False}
         assert suggest_ideas.call_count == 1
 
         cache.delete(_generation_lock_key(self.team))
@@ -624,7 +643,13 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        assert response.json() == {"status": "building", "workflow": None, "uses_saved_template": False}
+        assert response.json() == {
+            "status": "building",
+            "workflow": None,
+            "uses_saved_template": False,
+            "workflow_id": None,
+            "missing_inputs": [],
+        }
         plan_steps.assert_not_called()
 
     @patch(f"{SERVICE}.plan_steps")
@@ -645,19 +670,120 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         web = self.client.post(build_url, {"suggestion_id": suggestion_id}, format="json")
         self.client.logout()
-        api = self.client.post(
-            build_url, {"suggestion_id": suggestion_id}, format="json", headers={"authorization": f"Bearer {key}"}
+        auth = {"authorization": f"Bearer {key}"}
+        api = self.client.post(build_url, {"suggestion_id": suggestion_id}, format="json", headers=auth)
+        saved = self.client.post(
+            build_url, {"suggestion_id": suggestion_id, "save_draft": True}, format="json", headers=auth
         )
 
         # The webhook URL stays blank, which the web editor saves as a draft and an API client's create rejects.
         assert web.json()["status"] == "ready"
         assert api.json()["status"] == "failed"
+        # Saving keeps the blank and lists it, so an agent can ask the user for it.
+        draft = HogFlow.objects.get(team=self.team, id=saved.json()["workflow_id"])
+        assert draft.status == "draft"
+        notify = next(action["id"] for action in draft.actions if action["type"] == "function")
+        assert notify in {item["step_id"] for item in saved.json()["missing_inputs"]}
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_worker_saves_a_built_draft_outside_any_request(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+        suggestion_id = self._list()["suggestions"][0]["id"]
+        caller = build_caller(EventSource.API.value, save=True, user_id=self.user.id)
+        cache.set(_build_lock_key(self.team.id, suggestion_id, caller), "token", 60)
+
+        build_data_suggestion(self.team.id, self.user.id, suggestion_id, "token", EventSource.API.value, True)
+
+        built = cache.get(_build_key(self.team.id, suggestion_id, caller))
+        assert built["status"] == "ready"
+        assert HogFlow.objects.filter(team=self.team, id=built["workflow_id"], status="draft").exists()
+        # The project has no sender, so the agent learns it must add one before it can fill the field.
+        assert [item["field"] for item in built["missing_inputs"]] == [NO_SENDER_FIELD]
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_worker_that_lost_its_lock_saves_no_draft(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+        suggestion_id = self._list()["suggestions"][0]["id"]
+        caller = build_caller(EventSource.API.value, save=True, user_id=self.user.id)
+        cache.set(_build_lock_key(self.team.id, suggestion_id, caller), "newer-run", 60)
+        drafts_before = HogFlow.objects.filter(team=self.team).count()
+
+        build_data_suggestion(self.team.id, self.user.id, suggestion_id, "stale-run", EventSource.API.value, True)
+
+        assert HogFlow.objects.filter(team=self.team).count() == drafts_before
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_another_editor_gets_their_own_saved_draft(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+        suggestion_id = self._list()["suggestions"][0]["id"]
+        build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
+        build = {"suggestion_id": suggestion_id, "save_draft": True}
+
+        mine = self.client.post(build_url, build, format="json").json()
+        self.client.force_login(User.objects.create_and_join(self.organization, "other@example.com", None))
+        theirs = self.client.post(build_url, build, format="json").json()
+
+        # A saved draft can carry access restrictions, so one editor never receives another editor's draft.
+        assert theirs["workflow_id"] != mine["workflow_id"]
+
+    def test_a_filled_secret_counts_as_set_without_returning_its_value(self, _flag) -> None:
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Draft",
+            status="draft",
+            trigger={"type": "event", "filters": {"events": []}},
+            actions=[{"id": "send", "type": "function", "config": {"template_id": "template-webhook", "inputs": {}}}],
+            encrypted_inputs={"send": {"token": "super-secret"}},
+        )
+
+        actions = saved_workflow_actions(self.team, str(flow.id))
+
+        assert actions is not None
+        assert actions[0]["config"]["inputs"]["token"] == {"value": "<set>"}
+        assert "super-secret" not in str(actions)
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_saved_build_is_read_again_from_its_draft(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+        suggestion_id = self._list()["suggestions"][0]["id"]
+        build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
+        build = {"suggestion_id": suggestion_id, "save_draft": True}
+
+        first = self.client.post(build_url, build, format="json").json()
+        Integration.objects.create(team=self.team, kind="email", config={"email": "hi@example.com", "verified": True})
+        cached = self.client.post(build_url, build, format="json").json()
+        HogFlow.objects.filter(team=self.team, id=first["workflow_id"]).delete()
+        rebuilt = self.client.post(build_url, build, format="json").json()
+
+        assert [item["field"] for item in first["missing_inputs"]] == [NO_SENDER_FIELD]
+        assert cached["workflow_id"] == first["workflow_id"]
+        assert [item["field"] for item in cached["missing_inputs"]] == ["Email sender"]
+        assert rebuilt["status"] == "ready"
+        assert rebuilt["workflow_id"] != first["workflow_id"]
+        assert plan_steps.call_count == 2
 
     @parameterized.expand(
         [
             ("the project default", ["old@example.com", "new@example.com"], "new@example.com", "new@example.com"),
             ("the only verified sender", ["only@example.com"], None, "only@example.com"),
             ("several senders and no default", ["a@example.com", "b@example.com"], None, None),
+            ("no verified sender", [], None, None),
         ]
     )
     def test_drafts_send_from(
@@ -684,6 +810,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         sender = email_sender(self.team)
 
         assert (sender.email if sender else None) == expected
+        assert has_verified_email_sender(self.team) is bool(senders)
 
     def test_build_with_an_unknown_suggestion_is_not_found(self, _flag) -> None:
         response = self.client.post(
