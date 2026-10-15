@@ -192,6 +192,22 @@ semgrep --test .semgrep/rules/security/
 docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/security/
 ```
 
+## Out-of-band interaction domains
+
+`posthog/security/crosslang/oob_domains.json` lists the services that capture out-of-band
+interactions, such as Interactsh and Burp Collaborator, and the DNS rebinding services.
+
+Today the guards only log a match. The HTTP guards emit `security.oob_domain_seen`, and the
+warehouse guards emit the `oob_domain` stage of `data_imports.host_check`, which carries
+`team_id`. Nothing is refused yet.
+
+The check runs on cloud only, and it runs before each guard's own DNS resolution, because the
+lookup alone confirms the path to whoever runs the collaborator.
+
+It stops the default scanner configuration. It does not stop a determined attacker, who points a
+CNAME at the collaborator or runs their own server. The IP checks and the address pinning remain
+the real controls.
+
 ## Content Security Policy
 
 `CSPMiddleware` in `posthog/csp_middleware.py` attaches a policy to every HTML response.
