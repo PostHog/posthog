@@ -10,6 +10,7 @@ import {
     LemonDivider,
     LemonInput,
     LemonInputSelect,
+    LemonTextArea,
     LemonLabel,
     LemonSelect,
     LemonSwitch,
@@ -302,15 +303,14 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                                 info="Describe what the agent should put in this field. The agent reads this before it answers."
                                                                 className="w-full"
                                                             >
-                                                                <LemonInput
-                                                                    type="text"
+                                                                <LemonTextArea
                                                                     value={mapping.description ?? ''}
                                                                     onChange={(value) =>
                                                                         updateMappingDescription(index, value)
                                                                     }
                                                                     placeholder="e.g. true only if a failing test reproduces the bug"
                                                                     maxLength={MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH}
-                                                                    size="small"
+                                                                    minRows={1}
                                                                     data-attr="workflow-ai-task-output-field-instructions"
                                                                 />
                                                             </LemonField.Pure>
