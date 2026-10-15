@@ -97685,11 +97685,11 @@ export namespace Schemas {
          * @nullable
          */
       next_offset: number | null;
-      /** With view 'differs': how many repositories the view leaves out because this project reviews them with no exception and no own choice. 0 for the other views. */
+      /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception and no own choice. 0 otherwise. */
       folded: number;
-      /** With view 'differs': the names of the first left-out repositories, at most 3. Empty for the other views. */
+      /** With view 'differs', or 'all' without a search: the names of the first left-out repositories, at most 3. Empty otherwise. */
       folded_preview: string[];
-      /** With view 'differs': what the requesting user's own pull requests get in every left-out repository, which is the same for all of them. Null when nothing is left out, and for the other views. */
+      /** With view 'differs', or 'all' without a search: what the requesting user's own pull requests get in every left-out repository, which is the same for all of them. Null otherwise, or when nothing is left out. */
       folded_result: AutomaticReviewDecision | null;
       /** How many of the requesting user's own repository choices in this project give something other than their default. Counts every installation, so the search, the view, and the page do not change it. */
       my_choices_unlike_default: number;

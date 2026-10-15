@@ -69,7 +69,7 @@ function RepositoryRows(): JSX.Element {
             </div>
         )
     }
-    if (overview.results.length === 0 && !foldSummary) {
+    if (overview.results.length === 0 && !foldRow) {
         return (
             <div className={`col-span-full px-4 py-3 text-xs text-secondary ${PANE_LEFT} ${PANE_ROW}`}>
                 No repositories match.

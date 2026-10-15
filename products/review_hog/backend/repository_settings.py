@@ -6,7 +6,8 @@ repositories of an installation, and a project only stores what differs from wha
 """
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import replace
 from functools import cached_property
 from typing import Any
@@ -52,9 +53,19 @@ logger = logging.getLogger(__name__)
 
 def load_project_ref(team_id: int, *, viewer_organization_id: Any) -> ProjectRef:
     """Another project, with its name only when it is in the viewer's organization."""
-    team = Team.objects.filter(id=team_id).values("name", "organization_id").first() or {}
-    same_organization = team.get("organization_id") == viewer_organization_id
-    return ProjectRef(team_id=team_id, name=team.get("name") if same_organization else None)
+    return load_project_refs([team_id], viewer_organization_id=viewer_organization_id)[team_id]
+
+
+def load_project_refs(team_ids: Iterable[int], *, viewer_organization_id: Any) -> dict[int, ProjectRef]:
+    """Other projects in one query, each with its name only when it is in the viewer's organization."""
+    ids = set(team_ids)
+    teams = {team["id"]: team for team in Team.objects.filter(id__in=ids).values("id", "name", "organization_id")}
+    refs: dict[int, ProjectRef] = {}
+    for team_id in ids:
+        team = teams.get(team_id, {})
+        same_organization = team.get("organization_id") == viewer_organization_id
+        refs[team_id] = ProjectRef(team_id=team_id, name=team.get("name") if same_organization else None)
+    return refs
 
 
 @frozen
@@ -393,20 +404,32 @@ class RepositoryOverview:
         own_rows = [row for row in self.rows if row.team_id == team.id]
         self.rules = ProjectRuleContext.load(team.id, own_rows)
         self.viewer: AuthorPreferences = load_author_preferences(team.id, user_id=user.id, is_bot=False)
-        self._projects: dict[int, ProjectRef] = {}
+        # Some views compute every entry, so each lookup below must not scan all rows or query per owner.
+        self._rows_by_id: dict[int, list[ReviewRepository]] = defaultdict(list)
+        self._rows_by_name: dict[str, list[ReviewRepository]] = defaultdict(list)
+        for row in self.rows:
+            if row.github_repo_id is not None:
+                self._rows_by_id[row.github_repo_id].append(row)
+            self._rows_by_name[row.full_name.lower()].append(row)
+        owner_team_ids = {row.team_id for row in self.rows}
+        if self.all_claim is not None:
+            owner_team_ids.add(self.all_claim.team_id)
+        owner_team_ids.discard(team.id)
+        self._projects = load_project_refs(owner_team_ids, viewer_organization_id=team.organization_id)
 
-    def _project(self, team_id: int) -> ProjectRef:
-        if team_id not in self._projects:
-            self._projects[team_id] = load_project_ref(team_id, viewer_organization_id=self.team.organization_id)
-        return self._projects[team_id]
+    def _candidate_rows(self, ref: RepositoryRef) -> list[ReviewRepository]:
+        """The rows that can match `ref`. Id matches come first, which keeps the result of `find_matching_row`."""
+        by_id = self._rows_by_id.get(ref.github_repo_id, []) if ref.github_repo_id is not None else []
+        return by_id + self._rows_by_name.get(ref.full_name.lower(), [])
 
     def entry(self, repository: Mapping[str, Any]) -> OverviewEntry:
         github_repo_id = repository.get("id") if isinstance(repository.get("id"), int) else None
         ref = RepositoryRef(
             installation_id=self.installation_id, github_repo_id=github_repo_id, full_name=str(repository["full_name"])
         )
-        owner = resolve_owner(ref, self.rows, self.all_claim)
-        own_row = find_matching_row(ref, [row for row in self.rows if row.team_id == self.team.id])
+        rows = self._candidate_rows(ref)
+        owner = resolve_owner(ref, rows, self.all_claim)
+        own_row = find_matching_row(ref, [row for row in rows if row.team_id == self.team.id])
         in_project = owner is not None and owner.team_id == self.team.id
         choice = self.viewer.choice_for(ref)
         if in_project:
@@ -426,7 +449,7 @@ class RepositoryOverview:
         elif in_project:
             owner_kind, owner_project = RepositoryOwnerKind.THIS_PROJECT, None
         else:
-            owner_kind, owner_project = RepositoryOwnerKind.OTHER_PROJECT, self._project(owner.team_id)
+            owner_kind, owner_project = RepositoryOwnerKind.OTHER_PROJECT, self._projects[owner.team_id]
         has_exception = own_row is not None and own_row.flash_for is not None
         return OverviewEntry(
             full_name=ref.full_name,

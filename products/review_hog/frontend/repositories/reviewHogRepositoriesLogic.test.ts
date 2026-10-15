@@ -33,12 +33,14 @@ describe('reviewHogRepositoriesLogic', () => {
     let requests: string[]
     let overviewCalls: number
     let overviewTotal: number
+    let overviewFolded: number
     let overviewViews: string[]
 
     beforeEach(() => {
         requests = []
         overviewCalls = 0
         overviewTotal = 0
+        overviewFolded = 0
         overviewViews = []
         useMocks({
             get: {
@@ -73,9 +75,9 @@ describe('reviewHogRepositoriesLogic', () => {
                             total: overviewTotal,
                             has_more: false,
                             next_offset: null,
-                            folded: 0,
-                            folded_preview: [],
-                            folded_result: null,
+                            folded: overviewFolded,
+                            folded_preview: overviewFolded > 0 ? ['example-org/web'] : [],
+                            folded_result: overviewFolded > 0 ? { flash: true, reason: 'own_default' } : null,
                             my_choices_unlike_default: 0,
                         },
                     ]
@@ -145,11 +147,14 @@ describe('reviewHogRepositoriesLogic', () => {
     })
 
     it('folds the repositories that follow the project until the viewer opens the fold or searches', async () => {
+        overviewFolded = 2
         await expectLogic(logic).toDispatchActions(['loadOverviewSuccess'])
         expect(overviewViews.at(-1)).toEqual('differs')
 
+        overviewFolded = 1
         await expectLogic(logic, () => logic.actions.setFoldOpen(true)).toDispatchActions(['loadOverviewSuccess'])
         expect(overviewViews.at(-1)).toEqual('all')
+        expect(logic.values.foldSummary?.count).toEqual(1)
 
         await expectLogic(logic, () => logic.actions.setFoldOpen(false)).toDispatchActions(['loadOverviewSuccess'])
         await expectLogic(logic, () => logic.actions.setSearch('web')).toDispatchActions(['loadOverviewSuccess'])

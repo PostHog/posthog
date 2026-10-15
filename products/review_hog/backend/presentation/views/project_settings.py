@@ -169,18 +169,18 @@ class ReviewRepositoryOverviewSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="Whether more entries follow this page.")
     next_offset = serializers.IntegerField(allow_null=True, help_text="Offset of the next page, or null.")
     folded = serializers.IntegerField(
-        help_text="With view 'differs': how many repositories the view leaves out because this project reviews them "
-        "with no exception and no own choice. 0 for the other views."
+        help_text="With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out "
+        "because this project reviews them with no exception and no own choice. 0 otherwise."
     )
     folded_preview = serializers.ListField(
         child=serializers.CharField(),
-        help_text="With view 'differs': the names of the first left-out repositories, at most 3. Empty for the other "
-        "views.",
+        help_text="With view 'differs', or 'all' without a search: the names of the first left-out repositories, "
+        "at most 3. Empty otherwise.",
     )
     folded_result = AutomaticReviewDecisionSerializer(
         allow_null=True,
-        help_text="With view 'differs': what the requesting user's own pull requests get in every left-out "
-        "repository, which is the same for all of them. Null when nothing is left out, and for the other views.",
+        help_text="With view 'differs', or 'all' without a search: what the requesting user's own pull requests get "
+        "in every left-out repository, which is the same for all of them. Null otherwise, or when nothing is left out.",
     )
     my_choices_unlike_default = serializers.IntegerField(
         help_text="How many of the requesting user's own repository choices in this project give something other "

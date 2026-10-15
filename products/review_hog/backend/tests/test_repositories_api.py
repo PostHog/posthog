@@ -372,8 +372,10 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         )
         page = self.client.get(f"{url}&view=in_project&limit=1").json()
         assert (page["total"], page["has_more"], page["next_offset"]) == (2, True, 1)
+        assert everything.json()["folded"] == differs["folded"]
         searched = self.client.get(f"{url}&search=API").json()
         assert [entry["full_name"] for entry in searched["results"]] == ["example-org/api"]
+        assert searched["folded"] == 0
 
     def test_overview_needs_a_connected_installation(self) -> None:
         res = self.client.get(self._url("repository_overview/?installation_id=9999"))

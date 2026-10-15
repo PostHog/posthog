@@ -176,6 +176,12 @@ export interface reviewHogRepositoriesLogicActions {
         entry: ReviewRepositoryOverviewEntryApi
         flashFor: AutomaticFlashForEnumApi
     }
+    setFoldOpen: (foldOpen: boolean) => {
+        foldOpen: boolean
+    }
+    setFoldSummary: (foldSummary: FoldSummary | null) => {
+        foldSummary: FoldSummary | null
+    }
     setMyChoice: (
         entry: ReviewRepositoryOverviewEntryApi,
         value: MyChoiceValue
@@ -185,12 +191,6 @@ export interface reviewHogRepositoriesLogicActions {
     }
     setMyDefault: (mode: DefaultReviewModeEnumApi) => {
         mode: DefaultReviewModeEnumApi
-    }
-    setFoldOpen: (foldOpen: boolean) => {
-        foldOpen: boolean
-    }
-    setFoldSummary: (foldSummary: FoldSummary | null) => {
-        foldSummary: FoldSummary | null
     }
     setPage: (page: number) => {
         page: number
@@ -298,6 +298,7 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
                         return null
                     }
                     const view = values.requestView
+                    const folding = values.folding
                     const overview = await reviewHogRepositoryOverviewRetrieve(currentProjectId(), {
                         installation_id: installationId,
                         search: values.search.trim() || undefined,
@@ -306,8 +307,8 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
                         limit: REPOSITORIES_PAGE_SIZE,
                     })
                     breakpoint()
-                    // The open fold lists every repository, which carries no fold counts, so keep the last ones.
-                    if (view === ReviewHogRepositoryOverviewRetrieveView.Differs) {
+                    // Folded or open, the unsearched list carries the fold counts, so a write while open refreshes them too.
+                    if (folding) {
                         actions.setFoldSummary(
                             overview.folded > 0
                                 ? {

@@ -452,7 +452,8 @@ def get_review_repository_overview(
     listed = repositories.installation_repositories(installation_id, search)
     overview = RepositoryOverview(repositories.team, repositories.user, installation_id, listed)
     entries, total = overview.page(view=view, offset=offset, limit=limit)
-    folded = overview.folded() if view == RepositoryOverviewView.DIFFERS else []
+    folds = view == RepositoryOverviewView.DIFFERS or (view == RepositoryOverviewView.ALL and not search.strip())
+    folded = overview.folded() if folds else []
     claim = repositories.claim_for(installation_id)
     return ReviewRepositoryOverviewPage(
         installation_id=installation_id,

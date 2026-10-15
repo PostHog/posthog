@@ -57,7 +57,7 @@ export function RepositoryFoldRow({ summary }: { summary: FoldSummary }): JSX.El
                 <RuleStateIcon flashFor={flashFor} />
                 <span>
                     <span className="text-secondary">No exception, so the project default applies:</span>{' '}
-                    {rule.toLowerCase()}
+                    <span>{rule.toLowerCase()}</span>
                 </span>
             </div>
             <div className={`flex min-w-0 items-center gap-2 px-4 py-2.5 text-xs ${PANE_RIGHT} ${PANE_ROW}`}>
@@ -67,7 +67,7 @@ export function RepositoryFoldRow({ summary }: { summary: FoldSummary }): JSX.El
                             className={`inline-block size-2 shrink-0 rounded-full ${summary.result.flash ? 'bg-success' : 'bg-border-bold'}`}
                         />
                         <span>
-                            {describeResult(summary.result)} ({describeSource(summary.result)})
+                            <span>{`${describeResult(summary.result)} (${describeSource(summary.result)})`}</span>
                             <span className="text-secondary"> · no choices of yours</span>
                         </span>
                     </>

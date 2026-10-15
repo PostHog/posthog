@@ -54,7 +54,7 @@ export function RepositoryMyCell({
             : withYouIcons(choices)
         content = (
             <div className="flex min-w-0 flex-col items-start gap-1">
-                <span className="flex items-center gap-2">
+                <span className="flex max-w-full min-w-0 items-center gap-2">
                     {/* The dot answers "do my PRs here get a review" at a glance, so a column scan finds the off rows. */}
                     <Tooltip
                         title={
@@ -69,6 +69,8 @@ export function RepositoryMyCell({
                     </Tooltip>
                     <LemonSelect<MyChoiceValue>
                         size="small"
+                        className="min-w-0 shrink"
+                        truncateText={{ maxWidthClass: 'max-w-full' }}
                         aria-label={`My choice for ${name}`}
                         value={value}
                         options={options}
