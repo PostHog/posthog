@@ -4,6 +4,7 @@ The policy lives apart from the other middleware so that team-security owns the 
 `.github/CODEOWNERS` and reviews every change to it.
 """
 
+import re
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from django.conf import settings
@@ -63,8 +64,9 @@ def object_storage_upload_source() -> str:
 # prefix match would also hand the app document this policy and stop it from starting.
 REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
 
-# The app policy names only PostHog origins in `frame-ancestors`. Enforcing it on these paths stops
-# every embedded dashboard, shared link and survey from rendering on a customer's site.
+# The app policy names only PostHog origins in `frame-ancestors`. Enforcing that directive on these
+# paths stops every embedded dashboard, shared link and survey from rendering on a customer's site,
+# so these documents get the app policy without it.
 #
 # The list follows `posthog/urls.py`. The Contour ingress keeps a similar list in
 # `charts/argocd/contour-ingress/values/values.{dev,prod-us,prod-eu}.yaml`, which omits
@@ -83,6 +85,28 @@ def is_embeddable_document(path: str) -> bool:
     return path in EMBEDDABLE_PATHS or path.startswith(EMBEDDABLE_PATH_PREFIXES)
 
 
+# The embeddable documents that only report the app policy, on every install.
+#
+# The pattern matches the routes in `posthog/urls.py` exactly. The path picks the policy for a whole
+# document, and the app can navigate inside it, so an unrouted subpath gets the enforced policy.
+#
+# The image exporter in `products/exports/backend/tasks/image_exporter.py` loads the bare `/exporter`
+# render document in a headless browser. A replay export can evaluate a string as script in an
+# about:blank frame of that render, and the frame inherits this policy, which has no 'unsafe-eval'.
+# An enforced policy would refuse that `eval`, and the effect on the exported image is unknown, so
+# the document stays report-only until the caller of that `eval` is traced. `/exporter/<token>`
+# serves the shared page, so it enforces like `/shared/`.
+#
+# The hosted survey view sets its own policy, so the app policy reaches `/external_surveys/` only on
+# a response that the view did not build. No report shows how such a response behaves under an
+# enforced policy.
+REPORT_ONLY_ROUTES = re.compile(r"/exporter|/external_surveys/[^/]+/?")
+
+
+def is_report_only_document(path: str) -> bool:
+    return REPORT_ONLY_ROUTES.fullmatch(path) is not None
+
+
 def app_frame_ancestor_sources() -> list[str]:
     """The origins that may frame the app, as `frame-ancestors` sources.
 
@@ -97,7 +121,7 @@ def app_frame_ancestor_sources() -> list[str]:
 
 
 def app_csp_header_name(path: str) -> str:
-    if is_embeddable_document(path):
+    if is_report_only_document(path):
         return "Content-Security-Policy-Report-Only"
     if is_hobby():
         # A self-hosted install reports its violations nowhere, and its asset hosts can differ from
@@ -396,9 +420,10 @@ class CSPMiddleware:
             ]
             if is_embeddable_document(request.path):
                 # Customers frame these documents on their own sites, and no list of ancestors can
-                # name every such site. In a report-only policy the directive only sends a report for
-                # each embed. Chrome cuts the document URL of that report to the origin, so it looks
-                # the same as a report from an app page that the browser blocks in a frame.
+                # name every such site. In an enforced policy the directive stops the document from
+                # rendering in the customer's page. In a report-only policy it only sends a report
+                # for each embed. Chrome cuts the document URL of that report to the origin, so it
+                # looks the same as a report from an app page that the browser blocks in a frame.
                 csp_parts.remove(frame_ancestors)
 
             # The hosts and the config token below belong to PostHog Cloud, so self-hosted installs, E2E
