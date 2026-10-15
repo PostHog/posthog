@@ -213,6 +213,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskSerializer,
     TaskSessionResponseSerializer,
     TaskSessionSyncResponseSerializer,
+    TaskSourcesResponseSerializer,
     TaskStagedArtifactsFinalizeUploadRequestSerializer,
     TaskStagedArtifactsFinalizeUploadResponseSerializer,
     TaskStagedArtifactsPrepareUploadRequestSerializer,
@@ -1009,6 +1010,32 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         serializer = TaskRepositoriesResponseSerializer({"repositories": repositories})
         return Response(serializer.data)
+
+    @extend_schema(
+        responses={200: TaskSourcesResponseSerializer},
+        summary="List task sources",
+        description=(
+            "Return the distinct sources of the requester's own non-archived tasks, in the words of the "
+            "task list `sources` filter. Used to populate a source filter picker without being constrained "
+            "by task list pagination."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="sources",
+        required_scopes=["task:read"],
+        pagination_class=None,
+        filter_backends=[],
+    )
+    def sources(self, request, **kwargs):
+        user_id = self._user_id()
+        if user_id is None:
+            raise NotFound()
+        sources = tasks_facade.list_task_sources(
+            self.team_id, user_id, exclude_task_ids=_hidden_scout_trial_task_ids(request, self.team_id)
+        )
+        return Response(TaskSourcesResponseSerializer({"sources": sources}).data)
 
     @extend_schema(
         responses={200: PinnedTaskIdsResponseSerializer},

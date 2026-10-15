@@ -9,7 +9,7 @@ query transforms live in ``products.endpoints.backend.materialization_transforms
 import dataclasses
 from typing import cast
 
-from django.db import transaction
+from django.db import DatabaseError, transaction
 
 import structlog
 from rest_framework.exceptions import APIException, ValidationError
@@ -242,7 +242,6 @@ class EndpointMaterializationService:
 
             # The DAG node must exist before scheduling: the v2 detection and the freshness-target
             # write-through both resolve this saved query through its Node row.
-            sync_error: Exception | None = None
             try:
                 sync_saved_query_to_dag(saved_query)
                 link_endpoint_nodes(
@@ -251,8 +250,11 @@ class EndpointMaterializationService:
                     endpoint_name=endpoint.name,
                     version=version.version,
                 )
+            except DatabaseError:
+                # An infrastructure fault, not a lineage problem the author can fix: let it surface
+                # as a server error so the status="error" metric sees it.
+                raise
             except Exception as e:
-                sync_error = e
                 logger.exception(
                     "Failed to sync endpoint node to DAG",
                     endpoint_name=endpoint.name,
@@ -267,6 +269,10 @@ class EndpointMaterializationService:
                         "saved_query_id": saved_query.id,
                     },
                 )
+                # The node is missing because the query's dependencies did not resolve, which
+                # the author fixes by editing the query. Reporting that as a server error would
+                # tell them to retry, and would page on-call through the status="error" metric.
+                raise ValidationError(f"Cannot materialize endpoint. Reason: {e}")
 
             # NOTE: on v1, schedule_materialization only triggers an immediate run when it CREATES
             # the Temporal schedule; re-enabling an existing materialization just (re)syncs it.
@@ -286,11 +292,6 @@ class EndpointMaterializationService:
             # is what stops the enable reporting success on an endpoint nothing will ever refresh.
             saved_query.refresh_from_db(fields=["is_materialized"])
             if not saved_query.is_materialized:
-                if sync_error is not None:
-                    # The node is missing because the query's dependencies did not resolve, which
-                    # the author fixes by editing the query. Reporting that as a server error would
-                    # tell them to retry, and would page on-call through the status="error" metric.
-                    raise ValidationError(f"Cannot materialize endpoint. Reason: {sync_error}")
                 raise APIException(f"Failed to schedule materialization for endpoint {endpoint.name}.")
 
     def _get_or_build_saved_query(self, version: EndpointVersion) -> DataWarehouseSavedQuery:
