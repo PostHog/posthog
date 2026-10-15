@@ -889,7 +889,12 @@ fn both_engines_count_and_collect_an_image_once_or_not_at_all() {
             vec![],
             0,
         ),
-        ("unknown node", json!({"type": 99, "childNodes": [img]}), vec![], 0),
+        (
+            "unknown node",
+            json!({"type": 99, "childNodes": [img]}),
+            vec![],
+            0,
+        ),
     ];
     for (label, node, expected_counts, expected_images) in cases {
         let inner = snapshot_message(json!([{
