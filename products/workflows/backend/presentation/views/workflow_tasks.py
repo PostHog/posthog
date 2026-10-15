@@ -34,6 +34,7 @@ from products.workflows.backend.facade.api import (
     get_workflow_task_daily_limits,
 )
 from products.workflows.backend.facade.service_jwt import TASKS_CREATE_PURPOSE
+from products.workflows.backend.presentation.views.hog_flow_fields import REPOSITORY_NAME, REPOSITORY_NAME_ERROR
 
 logger = structlog.get_logger(__name__)
 
@@ -100,7 +101,10 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         max_length=255,
         required=False,
         allow_blank=True,
-        help_text="GitHub repository as organization/repo. Omit for a task with no code access.",
+        help_text=(
+            "GitHub repository as organization/repo, as the step's template rendered it. "
+            "Omit for a task with no code access."
+        ),
     )
     channel = serializers.CharField(
         max_length=200,
@@ -158,6 +162,11 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
             "result as `output.<name>`; text fields are cut at 1500 characters."
         ),
     )
+
+    def validate_repository(self, value: str) -> str:
+        if value and not REPOSITORY_NAME.fullmatch(value):
+            raise serializers.ValidationError(f"{REPOSITORY_NAME_ERROR} The step rendered {value!r}.")
+        return value
 
     def validate_output_fields(self, value: dict[str, str] | None) -> dict[str, Any] | None:
         if value is None:

@@ -7266,8 +7266,15 @@ class TestCreateTaskActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions__1__inputs__repository"
 
-    def test_accepts_an_org_slash_repo_repository(self):
-        response = self._post_flow({"repository": {"value": "my-org/my-repo"}})
+    @parameterized.expand(
+        [
+            ("org_slash_repo", "my-org/my-repo"),
+            ("hog_template", "{event.properties.repository}"),
+            ("template_inside_a_name", "my-org/{variables.repo}"),
+        ]
+    )
+    def test_accepts_a_repository(self, _name, repository):
+        response = self._post_flow({"repository": {"value": repository}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
